@@ -125,10 +125,15 @@ inverted, same gates), each on its own card.
 Behind `serve-citizen-panels` the default is one card instead
 (`buildCivicPanelFirstBlock`, "THE CIVIC PANEL COMES FIRST"): one text to
 the panel members who can be asked now (`civicPanelMember`, cell phone,
-`notContactedRecently`, sized at `PANEL_ASSUMED_REPLY_RATE`) plus as many
-residents not on the panel, with `civicPanelAsk` on so the fresh half can
-reply JOIN. With nobody on the panel to ask, the card is the fresh sample
-alone, sized as a cold text. The proposal carries both parts as one
+`notContactedRecently`) plus a random group of residents not on the panel,
+with `civicPanelAsk` on so the new residents can reply JOIN. gp-api's
+`size_panel_ask` sizes both parts together (contracts' `sizePanelAsk`) for
+the district's `answersNeeded` (about 96): members at
+`PANEL_ASSUMED_REPLY_RATE` (40%), up to the members those answers take; new
+residents at `DEFAULT_TEXT_REPLY_RATE` (3%) for whatever the panel cannot
+give, capped by who the text reaches; and never fewer new residents than
+members asked, so every ask keeps growing the panel. With nobody on the
+panel to ask, the card is the new residents alone. The proposal carries both parts as one
 `sampleSize` with `panelSampleSize` inside it, over the shared criteria (cell
 phone, `notContactedRecently`), and the saved list freezes the union of the
 two draws. The targeted groups wait for that send's read

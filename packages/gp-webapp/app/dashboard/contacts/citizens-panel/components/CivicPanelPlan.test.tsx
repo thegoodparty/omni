@@ -102,7 +102,7 @@ const withPlan = (
   plan: {
     id: 'plan-1',
     status: 'active',
-    goalMembers: 100,
+    goalMembers: 240,
     hoursPerWeek,
     currentWave: Math.max(...steps.map((s) => s.wave)),
     createdAt: new Date('2026-10-15T12:00:00Z'),
@@ -110,13 +110,13 @@ const withPlan = (
     steps,
   },
   next,
-  progress: { members: 61, goal: 100 },
+  progress: { members: 61, goal: 240, answersNeeded: 96, expectedAnswers: 24 },
 })
 
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 0, goal: 100 },
+  progress: { members: 0, goal: 240, answersNeeded: 96, expectedAnswers: 0 },
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
@@ -303,11 +303,17 @@ describe('the plan', () => {
     expect(labels.map((l) => l.textContent)).toEqual(['Up now', 'Earlier'])
   })
 
-  it('shows Next and members against the goal in the rail', () => {
+  it('shows Next and the answers the panel can give in the rail', () => {
     renderPage(withPlan([TEXT, CALLS]))
 
     const rail = screen.getByTestId('civic-panel-rail')
-    expect(within(rail).getByText('61 of 100 members')).toBeInTheDocument()
+    expect(
+      within(rail).getByText(
+        'Your panel can give about 24 of the 96 answers you need',
+      ),
+    ).toBeInTheDocument()
+    expect(within(rail).getByText('61 members')).toBeInTheDocument()
+    expect(within(rail).queryByText(/of 100 members/)).toBeNull()
     expect(
       within(rail).getByRole('link', {
         name: 'Invite residents to your civic panel by text',
@@ -317,6 +323,44 @@ describe('the plan', () => {
       '/dashboard/contacts/citizens-panel?step=step-text',
     )
     expect(within(rail).queryByText(/representative/i)).toBeNull()
+  })
+
+  it('says the panel can give every answer once it can', () => {
+    renderPage({
+      ...withPlan([TEXT]),
+      progress: {
+        members: 250,
+        goal: 240,
+        answersNeeded: 96,
+        expectedAnswers: 100,
+      },
+    })
+
+    const rail = screen.getByTestId('civic-panel-rail')
+    expect(
+      within(rail).getByText('Your panel can give the 96 answers you need'),
+    ).toBeInTheDocument()
+    expect(within(rail).getByText('250 members')).toBeInTheDocument()
+  })
+
+  it('counts a single member as one member', () => {
+    renderPage({
+      ...withPlan([TEXT]),
+      progress: {
+        members: 1,
+        goal: 240,
+        answersNeeded: 96,
+        expectedAnswers: 0,
+      },
+    })
+
+    const rail = screen.getByTestId('civic-panel-rail')
+    expect(
+      within(rail).getByText(
+        'Your panel can give about 0 of the 96 answers you need',
+      ),
+    ).toBeInTheDocument()
+    expect(within(rail).getByText('1 member')).toBeInTheDocument()
   })
 
   it('shows a Next with nothing to press as plain words', () => {

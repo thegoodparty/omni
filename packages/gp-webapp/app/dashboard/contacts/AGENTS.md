@@ -60,8 +60,10 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   a text step says texting is not set up instead of offering the action.
   `?step=<id>` (the API's `next.href`) scrolls to that step and rings it.
 - **The rail** (`CivicPanelRail`, beside the steps from `lg`, above them on
-  a phone) mirrors the priority page's "Where this stands": members of the
-  goal ("61 of 100 members", never a breakdown or "representative"), Next
+  a phone) mirrors the priority page's "Where this stands": the answers the
+  panel can give one question against what it needs ("Your panel can give
+  about 24 of the 96 answers you need", from the API's `progress`), then the
+  member count ("61 members"), never a breakdown or "representative"; Next
   (the API's `next.line`, a link when it has an `href`), and the weekly
   time with Change your weekly time (`PATCH`, only later waves change).
 - The members, reached and can be asked now figures, See members and the

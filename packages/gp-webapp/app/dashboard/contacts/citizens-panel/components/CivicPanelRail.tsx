@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type {
+  CivicPanelBuildProgress,
   CivicPanelBuildNext,
   CivicPanelBuildPlanResponse,
 } from '@goodparty_org/contracts'
@@ -117,8 +118,9 @@ const WeeklyTimeEditor = ({
 
 /**
  * The panel page's rail, the priority page's "Where this stands" for the
- * panel: how many members of the goal, the one thing to do next, and the
- * weekly time the plan is sized from.
+ * panel: the answers its members can give one question against the answers
+ * a clear read needs, the one thing to do next, and the weekly time the plan
+ * is sized from.
  */
 export const CivicPanelRail = ({
   progress,
@@ -126,7 +128,7 @@ export const CivicPanelRail = ({
   hoursPerWeek,
   onPlan,
 }: {
-  progress: { members: number; goal: number }
+  progress: CivicPanelBuildProgress
   next: CivicPanelBuildNext | null
   // Null without an active plan, which has no time to change.
   hoursPerWeek: number | null
@@ -135,11 +137,16 @@ export const CivicPanelRail = ({
   <Card className="gap-0 py-0" data-testid="civic-panel-rail">
     <CardHeader className="gap-1 px-4 pt-4 pb-3">
       <CardTitle className="text-sm">{COPY.railTitle}</CardTitle>
+      <p className="text-sm text-foreground">
+        {progress.expectedAnswers >= progress.answersNeeded
+          ? COPY.answersReached(numberFormatter(progress.answersNeeded))
+          : COPY.answers(
+              numberFormatter(progress.expectedAnswers),
+              numberFormatter(progress.answersNeeded),
+            )}
+      </p>
       <CardDescription className="text-xs">
-        {COPY.progress(
-          numberFormatter(progress.members),
-          numberFormatter(progress.goal),
-        )}
+        {COPY.memberCount(progress.members, numberFormatter(progress.members))}
       </CardDescription>
     </CardHeader>
     {next ? (

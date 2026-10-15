@@ -30,7 +30,7 @@ const REPRESENTATION: CivicPanelRepresentation = {
 const PLAN = {
   plan: null,
   next: null,
-  progress: { members: 40, goal: 100 },
+  progress: { members: 40, goal: 240, answersNeeded: 96, expectedAnswers: 16 },
 }
 
 beforeEach(() => {

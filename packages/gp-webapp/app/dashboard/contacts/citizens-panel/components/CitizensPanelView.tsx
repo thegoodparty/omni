@@ -4,7 +4,9 @@ import { useState } from 'react'
 import Link from 'next/link'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
-  PANEL_SEED_TARGET_MEMBERS,
+  answersNeeded,
+  panelExpectedAnswers,
+  panelGoalMembers,
   type CivicPanelBuildPlanResponse,
   type CivicPanelRepresentation,
   type CivicPanelSummary,
@@ -37,9 +39,13 @@ export const CitizensPanelView = ({
 }) => {
   const [planState, setPlanState] = useState(initialPlan)
   const hasMembers = summary.members > 0
+  // Without the plan's read there is no district population at hand, so the
+  // goal is the uncorrected one.
   const progress = planState?.progress ?? {
     members: summary.members,
-    goal: PANEL_SEED_TARGET_MEMBERS,
+    goal: panelGoalMembers(null),
+    answersNeeded: answersNeeded(null),
+    expectedAnswers: panelExpectedAnswers(summary.members),
   }
   const activePlan =
     planState?.plan?.status === 'active' ? planState.plan : null

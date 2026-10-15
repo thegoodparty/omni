@@ -86,7 +86,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   textingOff: "Texting isn't set up for your office yet.",
   callListName: 'Civic panel calls',
   railTitle: 'Where your panel stands',
-  progress: (members: string, goal: string) => `${members} of ${goal} members`,
+  // In answers to one question, the panel's goal: what its members are
+  // expected to give against what a clear read needs.
+  answers: (expected: string, needed: string) =>
+    `Your panel can give about ${expected} of the ${needed} answers you need`,
+  answersReached: (needed: string) =>
+    `Your panel can give the ${needed} answers you need`,
+  memberCount: (members: number, formatted: string) =>
+    `${formatted} ${members === 1 ? 'member' : 'members'}`,
   next: 'Next',
   changeHours: 'Change your weekly time',
   changeHoursCaption: 'Your next round of invites uses the new time.',
