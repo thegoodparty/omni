@@ -14,14 +14,11 @@ import { whatWeHeardCopy } from './copy'
 export const WhatWeHeardAction = ({
   outreachId,
   isServe,
-  size,
   className,
   onNavigate,
 }: {
   outreachId: number
   isServe: boolean
-  // Matches the footer row it sits in: large beside the primary CTA.
-  size?: 'large'
   // How it shares its row: grows beside the CTA, fills a grid cell.
   className?: string
   // Closes the drawer first, so the report does not render beneath it.
@@ -33,7 +30,7 @@ export const WhatWeHeardAction = ({
   if (!enabled) return null
 
   return (
-    <Button asChild variant="outline" size={size} className={className}>
+    <Button asChild variant="outline" className={className}>
       <Link
         href={`/dashboard/issue-capture/${outreachId}`}
         onClick={onNavigate}

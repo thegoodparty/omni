@@ -614,12 +614,11 @@ export const OutreachDetailsDrawer = ({
   // list puts it in the CTA row beside Continue calling; everywhere else it
   // shares the second row with Mark campaign done or the archive shelf.
   // Side by side on a desktop, one under the other on a phone.
-  const heardAction = (size?: 'large', className?: string) =>
+  const heardAction = (className?: string) =>
     reportOutreachId === null || !issueCaptureOn ? null : (
       <WhatWeHeardAction
         outreachId={reportOutreachId}
         isServe={isServe}
-        size={size}
         className={className}
         onNavigate={() => onOpenChange(false)}
       />
@@ -628,7 +627,7 @@ export const OutreachDetailsDrawer = ({
     const heard =
       footerMode === 'continue' && !isDoorKnocking
         ? null
-        : heardAction(undefined, 'w-full')
+        : heardAction('w-full')
     if (!heard) return secondary
     return (
       <div className="grid gap-3 sm:grid-cols-2">
@@ -848,6 +847,9 @@ export const OutreachDetailsDrawer = ({
               : (smsFooter ?? (
                   <ListDetailsFooter
                     mode={footerMode}
+                    // Medium beside What we heard, the size door knocking's
+                    // footer row has; main's large with the flag off.
+                    primarySize={issueCaptureOn ? 'medium' : 'large'}
                     leading={
                       // Beside Continue calling, the list's one live action:
                       // what the calls so far have said.
@@ -855,7 +857,7 @@ export const OutreachDetailsDrawer = ({
                         ? // Half the row each, as the CTA is `flex-1`, and after it:
                           // to its right on a desktop, under it on a phone, where
                           // the minimum width is what makes it wrap.
-                          heardAction('large', 'order-last min-w-48 flex-1')
+                          heardAction('order-last min-w-48 flex-1')
                         : undefined
                     }
                     destructive={
