@@ -270,6 +270,36 @@ describe('Campaign tracker tasks - text sends once texting closes', () => {
     ])
   })
 
+  it('swaps a put-off text send on the date the candidate picked', async () => {
+    const [, putOff] = await setupOutreach(election, [
+      ['Get your EIN', null, sendDate(80)],
+      ['Early Voting Text', CampaignTaskType.text, sendDate(14)],
+    ])
+    const pickedDate = daysFromToday(4)
+    await service.prisma.campaignTrackerTask.update({
+      where: { id: putOff.id },
+      data: { skipReason: 'later', date: pickedDate },
+    })
+
+    const result = await service.client.get<CampaignTrackerTask[]>(
+      BASE_PATH,
+      orgHeaders,
+    )
+
+    expect(outreachOf(result.data)).toEqual([
+      {
+        title: 'Early Voting Robocall',
+        flowType: 'robocall',
+        date: day(pickedDate),
+        completed: false,
+      },
+    ])
+    const stored = await service.prisma.campaignTrackerTask.findUniqueOrThrow({
+      where: { id: putOff.id },
+    })
+    expect(stored.skipReason).toBe('later')
+  })
+
   it('leaves text sends alone while texting is open', async () => {
     await setupOutreach(new Date('2099-11-03T00:00:00.000Z'), [
       ['Get your EIN', null, new Date('2099-01-05T00:00:00.000Z')],

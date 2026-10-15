@@ -35,7 +35,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
   a task aside. `later` moves its `date` three days out
   (`trackerTaskPutOffDate`); from then on the date is the candidate's, so
-  `alignTrackerTaskDates` leaves it alone. Tasks dated by fact (the Election
+  `alignTrackerTaskDates` leaves the date alone. Tasks dated by fact (the Election
   admin dates, Election Day) 400 on it (`canPutOffTask`). `notForMe` holds until
   `DELETE /skip/:id`; ballot access 400s on it (`canSetTaskAsideForGood`), while
   finance reporting doesn't, since not every candidate must file. Neither
@@ -145,7 +145,9 @@ overview: `docs/features/campaign-tracker-v3.md`.
   on the GET in `alignTrackerTaskDates`, which dates a swap off the text send
   it replaced. The swaps have their own titles because align finds a row's
   catalog entry by title, and the catalog robocall titles sit on other dates.
-  Completed text rows are never touched. Rows only swap on that read, so the
+  Completed text rows are never touched. A put-off text row keeps the
+  candidate's date and its skip state; only its channel and title change.
+  Rows only swap on that read, so the
   two CAS posts, the weekly digest SQL and the legacy `campaign_task`
   Pro-upgrade post also leave text rows out for a closed race.
 
