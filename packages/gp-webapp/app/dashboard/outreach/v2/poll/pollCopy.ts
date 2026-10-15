@@ -32,8 +32,9 @@ export const SERVE_POLL_RECOMMENDATION_COPY = {
 }
 
 export const SERVE_POLL_QUESTION_COPY = {
-  title: 'What do you want to ask?',
+  title: 'What do you want to say?',
   body: 'Edit the question, or change the tone and try another.',
+  suggestedFor: (audience: string) => `Suggested for ${audience}`,
   questionLabel: 'Your question',
   questionPlaceholder: 'What matters most to you about our community?',
   regenerate: 'Regenerate',
@@ -51,6 +52,12 @@ export const SERVE_POLL_QUESTION_COPY = {
 
 export const SERVE_POLL_REVIEW_COPY = {
   channelLabel: 'Poll',
+  title: 'Ready to send your poll?',
+  freeBody: 'Review your poll details and schedule your send.',
+  paidBody: 'Review your poll details and complete your payment.',
+  scheduleAction: 'Schedule poll',
+  chargeNote:
+    'One-time charge for this poll. Your Pro subscription is billed separately.',
 }
 
 export const SERVE_POLL_SUCCESS_COPY = {
