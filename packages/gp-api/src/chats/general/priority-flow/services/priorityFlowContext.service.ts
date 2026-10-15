@@ -24,7 +24,9 @@ export interface PriorityFlowContext {
   organizationSlug: string
   organization: Organization
   officeTitle: string | null
-  officialFirstName: string | null
+  // First and last name joined; the first name alone when no last name is
+  // on file. Every draft introduces the official by it.
+  officialName: string | null
   jurisdiction: string | null
   // Two-letter state from the resolved district, for the date line's zone.
   state?: string | null
@@ -102,7 +104,7 @@ export class PriorityFlowContextService extends createPrismaBase(
 
     const official = await this.client.user.findUnique({
       where: { id: userId },
-      select: { firstName: true },
+      select: { firstName: true, lastName: true },
     })
 
     return {
@@ -112,7 +114,11 @@ export class PriorityFlowContextService extends createPrismaBase(
       organizationSlug: electedOffice.organizationSlug,
       organization: electedOffice.organization,
       officeTitle: electedOffice.organization.customPositionName,
-      officialFirstName: official?.firstName?.trim() || null,
+      officialName:
+        [official?.firstName, official?.lastName]
+          .map((part) => part?.trim())
+          .filter(Boolean)
+          .join(' ') || null,
       // Only the district resolver knows the jurisdiction; the handler fills
       // it in loadContext when the org's position resolves.
       jurisdiction: null,

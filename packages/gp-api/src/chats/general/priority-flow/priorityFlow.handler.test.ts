@@ -50,7 +50,7 @@ const baseCtx = (): PriorityFlowContext => ({
   organizationSlug: ORG,
   organization: { slug: ORG } as Organization,
   officeTitle: 'City Council Member',
-  officialFirstName: 'Bryan',
+  officialName: 'Bryan Ortiz',
   jurisdiction: null,
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
@@ -413,8 +413,8 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('audienceFilters')
     expect(prompt).toContain('Pick ONE channel')
     expect(prompt).toContain('Never expect the card to say it.')
-    expect(prompt).toContain('signed as the official by first name and office')
-    expect(prompt).toContain("Official's first name: Bryan")
+    expect(prompt).toContain('signed as the official by full name and office')
+    expect(prompt).toContain("Official's full name: Bryan Ortiz")
   })
 
   it('puts the options step to them as one multi-select question', () => {
@@ -621,7 +621,7 @@ describe('PriorityFlowHandler', () => {
       audience: 'Maple Ave households',
       count: 312,
       channel: 'phoneBanking' as const,
-      message: 'I am calling for Bryan, your City Council Member.',
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
       why: 'These are the households on the blocks being repaired.',
       deepLinkOnly: false,
     }
@@ -688,7 +688,7 @@ describe('PriorityFlowHandler', () => {
       count: 312,
       channel: 'social' as const,
       message:
-        'Hi, this is Bryan, your City Council Member. Repairs start soon.',
+        'Hi, this is Bryan Ortiz, your City Council Member. Repairs start soon.',
       why: 'These are the households on the blocks being repaired.',
       deepLinkOnly: false,
     }
@@ -731,7 +731,8 @@ describe('PriorityFlowHandler', () => {
     expect(
       await tool.execute({
         ...text,
-        message: 'this is Bryan, your City Council Member. Is the sidewalk it?',
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is the sidewalk it?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: true })
     expect(
@@ -746,7 +747,7 @@ describe('PriorityFlowHandler', () => {
         ...text,
         channel: 'phoneBanking' as const,
         message:
-          'Hi, I am calling for Bryan, your City Council Member. Is it the ' +
+          'Hi, I am calling for Bryan Ortiz, your City Council Member. Is it the ' +
           'sidewalk?',
       }),
     ).toEqual({ presented: true, deepLinkOnly: false })
@@ -785,7 +786,7 @@ describe('PriorityFlowHandler', () => {
       audience: 'Renters on the flood blocks',
       count: 260,
       channel: 'phoneBanking' as const,
-      message: 'I am calling for Bryan, your City Council Member.',
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
       deepLinkOnly: false,
       stepId: 'define' as const,
     }
@@ -846,7 +847,7 @@ describe('PriorityFlowHandler', () => {
       audience: 'Renters on the flood blocks',
       count: 58_520,
       channel: 'phoneBanking' as const,
-      message: 'I am calling for Bryan, your City Council Member.',
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
       deepLinkOnly: false,
       stepId: 'define' as const,
       side: 'main' as const,
@@ -881,7 +882,7 @@ describe('PriorityFlowHandler', () => {
     const proposal = {
       audience: 'Nobody',
       count: 0,
-      message: 'I am calling for Bryan, your City Council Member.',
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
       deepLinkOnly: false,
       sampleSize: 100,
     }
@@ -1168,7 +1169,8 @@ describe('PriorityFlowHandler', () => {
         audience: 'Residents',
         count: 900,
         channel: 'text',
-        message: 'this is Bryan, your City Council Member. Is it the drains?',
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
         civicPanelAsk: true,
         panelSampleSize: 50,
       })
@@ -1219,7 +1221,8 @@ describe('PriorityFlowHandler', () => {
         audience: 'Your civic panel and residents across the district',
         count: 18_400,
         channel: 'text' as const,
-        message: 'this is Bryan, your City Council Member. Is it the drains?',
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
         deepLinkOnly: false,
         stepId: 'define' as const,
         side: 'main' as const,
@@ -1285,7 +1288,8 @@ describe('PriorityFlowHandler', () => {
         audience: 'Owners outside the flood blocks',
         count: 6_000,
         channel: 'text' as const,
-        message: 'this is Bryan, your City Council Member. Is it the drains?',
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
         deepLinkOnly: false,
         stepId: 'define' as const,
         side: 'contrast' as const,
@@ -1364,7 +1368,7 @@ describe('PriorityFlowHandler', () => {
       count: send.canReach,
       channel: 'text' as const,
       message:
-        'this is Bryan, your City Council Member. Thanks for answering. ' +
+        'this is Bryan Ortiz, your City Council Member. Thanks for answering. ' +
         'Most of you named trip hazards near the school. I will ask for ' +
         'those blocks to be fixed first.',
       deepLinkOnly: false,

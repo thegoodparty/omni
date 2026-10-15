@@ -36,18 +36,18 @@ import {
 
 describe('serveIdentificationIntro', () => {
   const cases: Record<SocialTone, string> = {
-    warm: 'this is Jane, your City Council Member.',
-    direct: 'Jane here, your City Council Member.',
-    friendly: "it's Jane, your City Council Member.",
+    warm: 'this is Jane Doe, your City Council Member.',
+    direct: 'Jane Doe here, your City Council Member.',
+    friendly: "it's Jane Doe, your City Council Member.",
     // Converges with direct on purpose: "running for" is what set urgent
     // apart on Win, and an elected official is not running for anything.
-    urgent: 'Jane here, your City Council Member.',
+    urgent: 'Jane Doe here, your City Council Member.',
   }
 
   it.each(SOCIAL_TONE_VALUES)('states the office held (%s)', (tone) => {
-    expect(serveIdentificationIntro(tone, 'Jane', 'City Council Member')).toBe(
-      cases[tone],
-    )
+    expect(
+      serveIdentificationIntro(tone, 'Jane Doe', 'City Council Member'),
+    ).toBe(cases[tone])
   })
 
   it.each(SOCIAL_TONE_VALUES)('never says "candidate for" (%s)', (tone) => {
@@ -67,10 +67,10 @@ describe('serveIdentificationIntro', () => {
     expect(
       serveIdentificationIntro(
         'warm',
-        'Jane',
+        'Jane Doe',
         grammarizeOfficeName('City Council - District 3'),
       ),
-    ).toBe('this is Jane, your City Council Member.')
+    ).toBe('this is Jane Doe, your City Council Member.')
   })
 
   it('degrades to a sentence when a part is missing', () => {
@@ -186,10 +186,10 @@ describe('provisionalCommitteeName', () => {
 })
 
 describe('ensureSmsIdentification', () => {
-  const serveIntro = 'this is Bryan, your Asheville City Council Member.'
+  const serveIntro = 'this is Bryan Levine, your Asheville City Council Member.'
   const serve = {
     intro: serveIntro,
-    senderName: 'Bryan',
+    senderName: 'Bryan Levine',
     candidateNames: ['Bryan Levine'],
   }
 
@@ -258,7 +258,7 @@ describe('ensureSmsIdentification', () => {
         `${serveIntro} Reply to reach me. [your name]`,
         serve,
       ),
-    ).toBe(`${serveIntro} Reply to reach me. Bryan`)
+    ).toBe(`${serveIntro} Reply to reach me. Bryan Levine`)
   })
 
   it('reads a bare [Name] as the sender only beside a self-introduction', () => {

@@ -67,18 +67,23 @@ interface SubjectNouns {
   materials: string
   // Whose goal the bullets carry: "the campaign" / "the office".
   effort: string
+  // How the card names its subject. Serve uses the full name because an
+  // official asked to be named in full every time (2026-10-14).
+  nameForm: 'first name' | 'full name'
 }
 
 const WIN_NOUNS: SubjectNouns = {
   possessive: "candidate's",
   materials: 'campaign materials',
   effort: 'the campaign',
+  nameForm: 'first name',
 }
 
 const SERVE_NOUNS: SubjectNouns = {
   possessive: "official's",
   materials: "official's own materials",
   effort: 'the office',
+  nameForm: 'full name',
 }
 
 // The bullets are written once for the whole list and read at every door, so
@@ -97,11 +102,11 @@ const OPEN_AND_CLOSE_RULE =
 
 // The example names nobody: a model copies an example name when the real one
 // is missing, and a volunteer would then say it at a door.
-const thirdPersonRule = ({ possessive }: SubjectNouns): string => {
+const thirdPersonRule = ({ possessive, nameForm }: SubjectNouns): string => {
   const subject = possessive.replace("'s", '')
   return (
-    `Refer to the ${subject} by first name, in the third person ("Say what ` +
-    `the ${subject} is already doing", with their first name), never as ` +
+    `Refer to the ${subject} by ${nameForm}, in the third person ("Say what ` +
+    `the ${subject} is already doing", with their ${nameForm}), never as ` +
     `"I": a volunteer reads this card too. If no name is given, say "the ` +
     `${subject}".`
   )
