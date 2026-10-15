@@ -25,6 +25,7 @@ import {
   type ControlPosition,
   type ControlReading,
   type DimensionScore,
+  type OrientedFlag,
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
@@ -550,18 +551,16 @@ const agentSection = (
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
 
-  // A flag seen only on the candidate is stated first whatever the verdict,
-  // but only once its type repeats across cases. On unchanged code the judge
-  // raised one-case flags on the candidate (three on one chief_of_staff
-  // sweep), while every flag from a real break repeated on two cases. A
-  // restricted_data flag is headlined on one case, since one leak matters.
-  // Every flag still prints on the flag line below.
+  // A candidate-only flag is stated first whatever the verdict, but only once
+  // its type repeats across cases (one case for restricted_data): one-case
+  // flags fired on unchanged code. See "The report headlines a flag only
+  // when it repeats" in README.md.
   const candidateFlags = score.flags.filter((f) => f.arm === 'candidate')
   const baseFlagTypes = new Set(
     score.flags.filter((f) => f.arm === 'base').map((f) => f.type),
   )
   const candidateOnly = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
-  const casesByType = new Map<string, Set<string>>()
+  const casesByType = new Map<OrientedFlag['type'], Set<string>>()
   for (const flag of candidateOnly) {
     casesByType.set(
       flag.type,
