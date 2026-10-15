@@ -61,10 +61,8 @@ export const RepresentationGroupSchema = z.object({
 export type RepresentationGroup = z.infer<typeof RepresentationGroupSchema>
 
 export const PriorityRepresentationSchema = z.object({
-  // `sample` is stand-in figures shaped like the census tables, shown with a
-  // label until the real district and block group demographics are readable.
-  source: z.enum(['sample', 'census']),
   respondentCount: z.number().int(),
+  // Empty when the district's census figures are unavailable.
   groups: z.array(RepresentationGroupSchema),
 })
 export type PriorityRepresentation = z.infer<

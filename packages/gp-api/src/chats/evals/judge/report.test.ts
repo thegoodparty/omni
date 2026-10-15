@@ -637,6 +637,55 @@ describe('qualifiers', () => {
     expect(report).not.toContain('raised on the candidate only')
   })
 
+  it('lists but does not headline a flag type seen on one case', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            {
+              arm: 'candidate',
+              type: 'fabricated_source',
+              explanation: 'x',
+              loc: undefined,
+              caseId: 'cos-case-0',
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).not.toContain('raised on the candidate only')
+    expect(report).toContain(
+      'Flags (cases affected): 1 on candidate fabricated_source.',
+    )
+  })
+
+  it('headlines a flag type the candidate repeats across cases', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const flag = {
+      arm: 'candidate' as const,
+      type: 'fabricated_source' as const,
+      explanation: 'x',
+      loc: undefined,
+    }
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            { ...flag, caseId: 'cos-case-0' },
+            { ...flag, caseId: 'cos-case-1' },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain(
+      '2 flag(s) raised on the candidate only (counted once per case):** ' +
+        'fabricated_source',
+    )
+  })
+
   it('names a regression without changing the verdict', async () => {
     const score = await pipeline(sweepRecords(25))
     const report = renderReport({

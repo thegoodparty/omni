@@ -62,6 +62,10 @@ the paid compliance work.
 
 - **Order.** Unchanged in every window. A closed candidate still walks
   status, EIN and filing details, which verify they are a real candidate.
+- **Value prop.** Closed: `ValuePropStep` drops the 10DLC and free texts
+  rows and the "$300 of value" line they add up to, and "Texts and
+  robocalls" becomes "Robocalls and phone banking" plus a "Door knocking"
+  row.
 - **Guidance.** Closed: the normal screen under a small info `Alert` ("The
   {cutoff} deadline to get verified for texting has passed."), and the
   purchase-only list drops its "About 1 to 2 weeks" PIN row. This is the

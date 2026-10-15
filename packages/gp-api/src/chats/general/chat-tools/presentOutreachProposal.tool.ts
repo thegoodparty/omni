@@ -266,12 +266,20 @@ const WIN_DESCRIPTION =
   'reason about it.\n\n' +
   WIN_OUTREACH_MESSAGE_RULES
 
-export const buildCampaignManagerOutreachProposalTool = (): LlmStreamTool<
-  typeof presentOutreachProposalInput
-> => ({
+export const buildCampaignManagerOutreachProposalTool = (
+  options: { textingClosed: boolean } = { textingClosed: false },
+): LlmStreamTool<typeof presentOutreachProposalInput> => ({
   description: WIN_DESCRIPTION,
   inputSchema: presentOutreachProposalInput,
-  execute: proposalResult,
+  execute: (input) =>
+    options.textingClosed && input.channel === ProposalChannelSchema.enum.text
+      ? {
+          error:
+            'Texting is closed for this race: the deadline to get verified ' +
+            'for texting has passed. Pick door knocking, phone banking or a ' +
+            'social post instead and present again.',
+        }
+      : proposalResult(input),
 })
 
 // Why a priority's proposal may not be shown, or null. A side already sent

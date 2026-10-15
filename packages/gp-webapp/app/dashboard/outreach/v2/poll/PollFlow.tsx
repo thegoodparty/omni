@@ -37,6 +37,7 @@ import { composePollMessage, pollIntro } from './pollCompose.util'
 import {
   DEFAULT_POLL_TONE,
   SERVE_POLL_AUDIENCE_COPY,
+  SERVE_POLL_QUESTION_COPY,
   SERVE_POLL_RECOMMENDATION_COPY,
   SERVE_POLL_REVIEW_COPY,
   SERVE_POLL_SUCCESS_COPY,
@@ -56,9 +57,9 @@ const STEP_ORDER: StepId[] = [
 const STEP_TITLES: Record<StepId, string> = {
   topic: 'What do you want to poll about?',
   audience: 'Who are you polling?',
-  question: 'What do you want to ask?',
+  question: SERVE_POLL_QUESTION_COPY.title,
   schedule: 'When do you want to send it?',
-  review: 'Review & pay',
+  review: SERVE_POLL_REVIEW_COPY.title,
 }
 
 // Texts go to cell phones, so both counts use the cell dimension.
@@ -367,6 +368,9 @@ export const PollFlow = ({
 
   const handleQuestionContinue = () => {
     const trimmed = question.trim().length
+    // Pressing Continue blurs the editor, which starts the bias check; moving
+    // on before it answers would drop the alert and send biasOverridden false.
+    if (biasState?.isAnalyzing) return
     const ready =
       !drafting &&
       trimmed >= POLL_QUESTION_MIN_LENGTH &&
@@ -433,7 +437,7 @@ export const PollFlow = ({
             ? {
                 label: 'Continue',
                 onClick: handleQuestionContinue,
-                disabled: drafting,
+                disabled: drafting || biasState?.isAnalyzing === true,
               }
             : stepId === 'schedule'
               ? {
@@ -553,6 +557,7 @@ export const PollFlow = ({
           question={question}
           onQuestionChange={setQuestion}
           intro={intro}
+          suggestedFor={topic !== 'custom' || drafted ? audienceName : null}
           composedLength={composedLength}
           onRegenerate={handleRegenerate}
           canRegenerate={topic !== 'custom' || currentDraft() !== undefined}
@@ -579,6 +584,7 @@ export const PollFlow = ({
           <SmsReviewStep
             isServe
             channelLabel={SERVE_POLL_REVIEW_COPY.channelLabel}
+            copy={SERVE_POLL_REVIEW_COPY}
             name={topicName(topic)}
             audienceName={audienceName}
             sendAt={scheduledAt ?? new Date()}

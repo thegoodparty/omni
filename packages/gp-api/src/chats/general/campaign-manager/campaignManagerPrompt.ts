@@ -1,12 +1,14 @@
 import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 import {
   SAMPLE_TARGET_REPLIES,
+  SmsComplianceWindow,
   SOCIAL_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
+import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
@@ -100,6 +102,11 @@ export interface CampaignManagerContext {
   // From the campaign row, where someone has recorded how a contest went.
   primaryResult: string | null
   didWin: boolean | null
+  // The SMS compliance cutoff from smsComplianceWindow, null when no campaign
+  // resolved. Closed means texting cannot be set up in time for this race.
+  smsCompliance: SmsComplianceWindow | null
+  // yyyy-MM-dd, 19 days before the general election; null without a date.
+  smsCutoffDate: string | null
   // The live sources' view of the race, cut once per campaign per local day
   // by the handler, rendered under its own source tags so the model can tell
   // it from the record above.
@@ -156,6 +163,9 @@ export interface CampaignManagerContext {
   // by the same checks the page renders behind, so the block below hands
   // over the exact address or says why there is none to give.
   publicProfile: PublicProfileAddress
+  // Whether each calendar entry carries its "Do not describe ... as ..."
+  // line. Unset means yes; the chat bench sets false to measure the lines.
+  calendarCautions?: boolean
 }
 
 const ROLE = `You are the candidate's AI campaign manager for a first-time \
@@ -234,12 +244,11 @@ const openingWords = (start: Date, today: Date): string =>
 
 // "opens Monday, ... (in 42 days), closes Friday, ... (in 60 days)": each side
 // the source holds, in the past tense once it is behind the candidate. Null
-// when the source holds neither side. Plural verbs for a plural label.
+// when the source holds neither side.
 const windowWords = (
   startIso: string | null,
   endIso: string | null,
   today: Date,
-  plural = false,
 ): string | null => {
   const start = parseDay(startIso)
   const end = parseDay(endIso)
@@ -247,12 +256,12 @@ const windowWords = (
   const parts: string[] = []
   if (start) {
     const past = differenceInCalendarDays(start, today) < 0
-    const verb = past ? 'opened' : plural ? 'open' : 'opens'
+    const verb = past ? 'opened' : 'opens'
     parts.push(`${verb} ${dateWithCount(start, today)}`)
   }
   if (end) {
     const past = differenceInCalendarDays(end, today) < 0
-    const verb = past ? 'closed' : plural ? 'close' : 'closes'
+    const verb = past ? 'closed' : 'closes'
     parts.push(`${verb} ${dateWithCount(end, today)}`)
   }
   return parts.join(', ')
@@ -336,9 +345,9 @@ const LIVE_WINDOW_TAG = '(BallotReady)'
 const LIVE_ESTIMATE_TAG = '(model estimate)'
 
 const LIVE_WINDOWS = [
-  { key: 'voterRegistration', label: 'Voter registration', plural: false },
-  { key: 'earlyVoting', label: 'Early voting', plural: false },
-  { key: 'ballotRequest', label: 'Mail ballot requests', plural: true },
+  { key: 'voterRegistration', label: 'Voter registration' },
+  { key: 'earlyVoting', label: 'Early voting' },
+  { key: 'ballotRequest', label: 'Mail ballot requests' },
 ] as const
 
 const LIVE_NONE: Record<
@@ -373,10 +382,9 @@ const disagreementLine = (
   )
 }
 
-// What the live sources say today, after the record. Every window renders,
-// closed ones included: a registration window that closed last week is the
-// fact that stops "go register voters this weekend", so the test of a fact's
-// place here is whether it can change the advice, not whether it is past.
+// What the live sources say today, after the record: the election dates
+// under their source tag, and which windows the feed holds nothing for. A
+// window with a date renders once, in the calendar block, with its status.
 const liveRaceBlock = (ctx: CampaignManagerContext): string => {
   const live = ctx.liveRace
   if (live.status === 'unavailable') {
@@ -393,14 +401,13 @@ const liveRaceBlock = (ctx: CampaignManagerContext): string => {
     `Primary election date: ${primary ? dateWithCount(primary, today) : NO_LIVE_DATE} ${LIVE_DATE_TAG}`,
   ]
   if (data.milestones) {
+    // A window with a date renders in the calendar block below, with its
+    // status. Only the ones the feed holds nothing for are stated here, so
+    // the absence stays a fact the model can see.
     for (const w of LIVE_WINDOWS) {
       const window = data.milestones[w.key]
-      const words = window
-        ? windowWords(window.start, window.end, today, w.plural)
-        : null
-      lines.push(
-        `${w.label}: ${words ?? 'no window on file'} ${LIVE_WINDOW_TAG}`,
-      )
+      if (window && hasCalendarDate(window.start, window.end)) continue
+      lines.push(`${w.label}: no window on file ${LIVE_WINDOW_TAG}`)
     }
   } else {
     lines.push(
@@ -429,6 +436,58 @@ const liveRaceBlock = (ctx: CampaignManagerContext): string => {
     ),
   ].filter((line): line is string => line !== null)
   return [...lines, ...conflicts].join('\n')
+}
+
+// The election dates and the live windows, restated with their status for
+// the candidate's local day, decided in code. The record and live blocks say
+// where each date came from; this block says what it means today. The filing
+// period stays with the record line and the ballot-access guidance, which
+// already carry its counts. See campaignCalendar.ts.
+const calendarBlock = (ctx: CampaignManagerContext): string | null => {
+  const live = ctx.liveRace.status === 'ok' ? ctx.liveRace.data : null
+  const m = live?.milestones ?? null
+  return buildCalendarBlock({
+    today: todayFor(ctx),
+    cautions: ctx.calendarCautions,
+    dates: [
+      {
+        heading: 'ELECTION DAY',
+        name: 'Election Day',
+        record: ctx.electionDate,
+        live: live?.generalElectionDate ?? null,
+      },
+      {
+        heading: 'PRIMARY ELECTION',
+        name: 'the primary',
+        record: ctx.primaryElectionDate,
+        live: live?.primaryElectionDate ?? null,
+      },
+    ],
+    windows: [
+      {
+        heading: 'VOTER REGISTRATION',
+        name: 'voter registration',
+        source: 'BallotReady',
+        start: m?.voterRegistration?.start ?? null,
+        end: m?.voterRegistration?.end ?? null,
+      },
+      {
+        heading: 'EARLY VOTING',
+        name: 'early voting',
+        source: 'BallotReady',
+        start: m?.earlyVoting?.start ?? null,
+        end: m?.earlyVoting?.end ?? null,
+      },
+      {
+        heading: 'MAIL BALLOT REQUESTS',
+        name: 'mail ballot requests',
+        plural: true,
+        source: 'BallotReady',
+        start: m?.ballotRequest?.start ?? null,
+        end: m?.ballotRequest?.end ?? null,
+      },
+    ],
+  })
 }
 
 const tasksBlock = (ctx: CampaignManagerContext): string =>
@@ -764,9 +823,25 @@ const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
   `$${people(Math.round(calcTextAmountInCents(texts) / 100))}`
 
+const textingClosedBlock = (ctx: CampaignManagerContext): string | null => {
+  if (ctx.smsCompliance !== SmsComplianceWindow.closed) return null
+  const cutoff = parseDay(ctx.smsCutoffDate)
+  const date = cutoff ? ` was ${format(cutoff, LONG_DATE)} and` : ''
+  const deadline = `deadline to get verified for texting${date} has passed`
+  return [
+    'TEXTING IS CLOSED FOR THIS RACE (overrides every texting rule below):',
+    `- The ${deadline}. It falls 19 days before the general election, and this campaign did not file and pay for Pro by then. Verification takes about two weeks, so texting cannot be set up in time for this race.`,
+    '- Never propose, recommend, draft or schedule a text, never put texts in a plan or a sequence, and never present a card with channel text. Reach voters with door knocking, robocalls, phone banking and social media instead. A robocall has no card here; it is built in Voter Outreach.',
+    `- If the candidate asks about texting, say in one line that the ${deadline}, then offer one of those channels. Never call it a legal or carrier deadline, never say texting is banned, and never promise a refund or credit.`,
+  ].join('\n')
+}
+
 // Gated on the tools the handler actually registered, so the prompt can
 // never ask for a card or a sample size the model has no tool for.
-const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
+const outreachSamplingBlock = (
+  ctx: CampaignManagerContext,
+  toolNames: readonly string[],
+): string | null =>
   toolNames.includes('size_outreach_sample') &&
   toolNames.includes('present_outreach_proposal')
     ? [
@@ -781,7 +856,9 @@ const outreachSamplingBlock = (toolNames: readonly string[]): string | null =>
           card: true,
         }),
         '- Present outreach with present_outreach_proposal once the message is final: the filter you counted with as audienceFilters, count as every voter it matched (with a cell phone, for a text), a short listName, the channel, and the message. Do not save a list for it with crud_saved_filters: the list is saved when the candidate starts the outreach from the card.',
-        '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list.',
+        ctx.smsCompliance === SmsComplianceWindow.closed
+          ? '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list. Never a text: texting is closed for this race.'
+          : '- Pick ONE channel by who these voters are and how they can be reached. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the voters are a few blocks or one neighborhood, or when few of them have a phone on file. A social post when the message is for everyone who follows the campaign rather than a list.',
         PICKED_OPTION_RULE,
         WIN_OUTREACH_MESSAGE_RULES,
       ].join('\n')
@@ -974,14 +1051,21 @@ const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
       ].join('\n')
     : null
 
-const clarifyQuestionBlock = (toolNames: readonly string[]): string | null =>
+const clarifyQuestionBlock = (
+  ctx: CampaignManagerContext,
+  toolNames: readonly string[],
+): string | null =>
   toolNames.includes('ask_clarify_question')
     ? [
         'QUESTIONS (apply whenever the candidate has to choose):',
         ...CLARIFY_QUESTION_RULES,
         ...(toolNames.includes('present_outreach_proposal')
           ? [
-              '- When you recommend more than one piece of outreach (a sequence of texts, a text and a call, or outreach to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
+              '- When you recommend more than one piece of outreach (' +
+                (ctx.smsCompliance === SmsComplianceWindow.closed
+                  ? 'a phone bank and a door knock, a call and a social post'
+                  : 'a sequence of texts, a text and a call') +
+                ', or outreach to different groups), never list them in prose. Write one line on the plan, then offer them with `ask_clarify_question` with `multiSelect` set, one option per piece, labeled in the order they would go out. Then build a card for each one they picked, in that order, at most three in one reply; say you will build the rest next.',
             ]
           : []),
       ].join('\n')
@@ -1021,16 +1105,23 @@ const publicProfileBlock = (ctx: CampaignManagerContext): string => {
 }
 
 export const buildCampaignManagerSystemPrompt = (
-  ctx: CampaignManagerContext,
+  input: CampaignManagerContext,
   toolNames: readonly string[] = [],
-): string =>
-  [
+): string => {
+  // One clock read for every block, so the today line and every count and
+  // status below agree on the day even when a turn straddles midnight.
+  const ctx: CampaignManagerContext = {
+    ...input,
+    now: input.now ?? new Date(),
+  }
+  return [
     ROLE,
     buildGuardrailsBlock('win'),
     HONEST_REPORTING_BLOCK,
     todayLine(ctx.state, ctx.now),
     raceContext(ctx),
     liveRaceBlock(ctx),
+    calendarBlock(ctx),
     ballotStatusBlock(ctx),
     ELECTION_RULE_RULES,
     storyBlock(ctx),
@@ -1039,9 +1130,10 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     listMapBlock(toolNames),
-    outreachSamplingBlock(toolNames),
+    textingClosedBlock(ctx),
+    outreachSamplingBlock(ctx, toolNames),
     pastOutreachBlock(toolNames),
-    clarifyQuestionBlock(toolNames),
+    clarifyQuestionBlock(ctx, toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,
     LEGAL_AND_COMPLIANCE_RULES,
@@ -1058,3 +1150,4 @@ export const buildCampaignManagerSystemPrompt = (
   ]
     .filter((b): b is string => b !== null)
     .join('\n\n')
+}

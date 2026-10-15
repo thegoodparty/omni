@@ -90,3 +90,39 @@ describe('useCampaignPlanData candidateName', () => {
     expect(result.current.plan.candidateName).toBe('Derek Lane')
   })
 })
+
+describe('useCampaignPlanData texting window', () => {
+  beforeEach(() => {
+    state.user = viewer
+  })
+
+  it('builds the plan without texts once gp-api closes texting', () => {
+    state.campaign = {
+      ...campaignOwnedByJared,
+      details: { electionDate: '2026-11-03' },
+      smsCompliance: 'closed',
+    } as Campaign
+
+    const { result } = renderHook(() => useCampaignPlanData(null), { wrapper })
+
+    expect(result.current.plan.smsClosed).toBe(true)
+    expect(
+      result.current.plan.contactSchedule.map((send) => send.tactic),
+    ).not.toContain('Text')
+  })
+
+  it('keeps the texts while texting is open', () => {
+    state.campaign = {
+      ...campaignOwnedByJared,
+      details: { electionDate: '2026-11-03' },
+      smsCompliance: 'open',
+    } as Campaign
+
+    const { result } = renderHook(() => useCampaignPlanData(null), { wrapper })
+
+    expect(result.current.plan.smsClosed).toBe(false)
+    expect(
+      result.current.plan.contactSchedule.map((send) => send.tactic),
+    ).toContain('Text')
+  })
+})

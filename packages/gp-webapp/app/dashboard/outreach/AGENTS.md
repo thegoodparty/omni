@@ -315,6 +315,14 @@ announced. Every closed reason is `SMS_CUTOFF_COPY.closedReason` ("The
 - **Voter data channel picker.** `ChannelPickerSheet` drops SMS below social,
   renders it as a disabled row (no link), and shows the closed reason as a
   tooltip on hover and as the row's subtitle on a coarse pointer.
+- **Pro pitches stop selling texting.** `ProPitchPanel` swaps the sms
+  value card for `gateCopy.ts`'s `PRO_COPY_SMS_CLOSED` (voter data,
+  robocalls, phone banking, door knocking) and drops the verification card.
+  Before purchase (the value card is showing) it adds one small info `Alert`
+  with the closed reason, for every channel. `shared/P2PUpgradeModal`
+  (every line sells texting) never opens once closed, and
+  `shared/ProUpgradeModal` swaps its texting lines for voicemail and
+  door-knocking ones.
 - **Analytics.** The notice fires `Outreach - SMS Cutoff Notice Viewed` /
   `Completed` itself, with `surface`; a host fires nothing. Its robocall,
   phone banking and social links reopen this hub with `?compose=`, so a host

@@ -764,11 +764,15 @@ the standing `member` set; `reachedRecently` is
 `countContactedSinceAmong(CONTACT_REST_DAYS, members)`, the rest window's
 rule counted in SQL over the member ids (so a busy office never hits the
 contacted-set cap), and `askableNow` is exactly who a panel list with "Not
-contacted in the last 30 days" holds. Past the map read's cap the comparison
-is drawn from the members returned, and `respondentCount` says how many. The representation reuses the priority results' math
-(`computeRepresentation`, `MIN_RESPONDENTS_FOR_REPRESENTATION`,
-`pointsForPeople`) and the one `CENSUS_COMPOSITION_SOURCE` binding in
-`CensusCompositionModule`, with members in place of respondents.
+contacted in the last 30 days" holds. The representation reuses the
+priority results' math (`representationFrom`, `computeRepresentation`,
+`MIN_RESPONDENTS_FOR_REPRESENTATION`) and the one `CENSUS_COMPOSITION_SOURCE`
+binding in `CensusCompositionModule`, with members in place of respondents:
+every member id goes to the census read, which places each in their block
+group (`peopleDb` `findCensusComposition`), and `respondentCount` is how
+many it placed. Fewer placed than the minimum is `representation: null`;
+census figures that cannot be read (no district row, a warehouse failure)
+are a representation with empty `groups`, never a non-200.
 
 The built-in panel list's outreach history
 (`ContactsService.civicPanelOutreachHistory`) is every send of the org that

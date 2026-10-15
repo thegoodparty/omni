@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parsePriorityStatus } from '@goodparty_org/contracts'
 import {
+  buildCampaignManagerOutreachProposalTool,
+  buildChiefOfStaffOutreachProposalTool,
   checkPanelPart,
   checkProposalRefusal,
   OUTREACH_MESSAGE_RULES,
@@ -88,5 +90,55 @@ describe('OUTREACH_MESSAGE_RULES', () => {
     expect(WIN_OUTREACH_MESSAGE_RULES).toContain(
       "calling for by the candidate's first name and office",
     )
+  })
+})
+
+describe('buildCampaignManagerOutreachProposalTool', () => {
+  const proposal = {
+    audience: 'Renters on the east side',
+    count: 1200,
+    listName: 'East side renters',
+    message: 'this is Renee Diaz, candidate for City Council. What matters?',
+    deepLinkOnly: false,
+  }
+
+  it('refuses a text once texting is closed, and lets other channels through', async () => {
+    const tool = buildCampaignManagerOutreachProposalTool({
+      textingClosed: true,
+    })
+    expect(await tool.execute({ ...proposal, channel: 'text' })).toEqual({
+      error: expect.stringContaining('Pick door knocking, phone banking'),
+    })
+    expect(
+      await tool.execute({ ...proposal, channel: 'doorKnocking' }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
+  it('presents a text while texting is open', async () => {
+    expect(
+      await buildCampaignManagerOutreachProposalTool().execute({
+        ...proposal,
+        channel: 'text',
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+})
+
+describe('buildChiefOfStaffOutreachProposalTool', () => {
+  it('still presents a text for Serve, which has no SMS cutoff', async () => {
+    const tool = buildChiefOfStaffOutreachProposalTool({
+      members: 0,
+      inviteSent: false,
+    })
+    expect(
+      await tool.execute({
+        audience: 'Residents downtown',
+        count: 800,
+        listName: 'Downtown',
+        message: 'this is Bryan Ortiz, your City Council Member. What matters?',
+        channel: 'text',
+        deepLinkOnly: false,
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
   })
 })
