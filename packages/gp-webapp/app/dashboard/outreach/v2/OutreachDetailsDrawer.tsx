@@ -632,8 +632,8 @@ export const OutreachDetailsDrawer = ({
     if (!heard) return secondary
     return (
       <div className="grid gap-3 sm:grid-cols-2">
-        {heard}
         {secondary}
+        {heard}
       </div>
     )
   }
@@ -943,7 +943,7 @@ export const OutreachDetailsDrawer = ({
                         <Button
                           // Ghost beside What we heard: two outlines side by side read
                           // as two equal choices, and this is the quieter one.
-                          variant={issueCaptureOn ? 'ghost' : 'outline'}
+                          variant="outline"
                           className="w-full"
                           disabled={campaignLifecycle.pendingAction !== null}
                           onClick={() => setMarkCampaignDoneOpen(true)}
