@@ -25,9 +25,6 @@ model CivicPanelBuildPlan {
   goalMembers      Int                       @map("goal_members")
   /// The official's own time each week; every wave is sized from it.
   hoursPerWeek     Int                       @map("hours_per_week")
-  /// Replaced by hoursPerWeek; nothing reads or writes it. Kept nullable so
-  /// code still on it keeps working while the change deploys; drop it next.
-  hoursPerMonth    Int?                      @map("hours_per_month")
   status           CivicPanelBuildPlanStatus @default(active)
   completedAt      DateTime?                 @map("completed_at")
   steps            CivicPanelBuildStep[]

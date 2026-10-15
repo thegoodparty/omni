@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { addDays, subDays } from 'date-fns'
 import {
+  CivicPanelBuildChannel,
+  CivicPanelBuildPlanStatus,
   DashboardCardType,
   OutreachStatus,
   OutreachType,
@@ -309,6 +311,162 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
 
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject(buildCard)
+  })
+})
+
+const seedPlan = (
+  electedOfficeId: string,
+  organizationSlug: string,
+  status: CivicPanelBuildPlanStatus = CivicPanelBuildPlanStatus.active,
+) =>
+  service.prisma.civicPanelBuildPlan.create({
+    data: {
+      electedOfficeId,
+      organizationSlug,
+      goalMembers: 100,
+      hoursPerWeek: 1,
+      status,
+      steps: {
+        create: [
+          {
+            wave: 1,
+            channel: CivicPanelBuildChannel.text,
+            targetSize: 3000,
+          },
+          {
+            wave: 1,
+            channel: CivicPanelBuildChannel.phone_banking,
+            targetSize: 30,
+          },
+        ],
+      },
+    },
+    include: { steps: true },
+  })
+
+describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
+  it("reads as the plan's next step and opens it", async () => {
+    const orgSlug = 'eo-civic-build-plan-next'
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    const text = plan.steps.find((step) => step.channel === 'text')
+
+    const cards = await listCards(orgSlug)
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({
+      type: 'civic_panel',
+      sourceExternalId: `build:${eo.id}`,
+      title: 'Invite residents to your civic panel by text',
+      summary: '0 of 100 members so far.',
+      ctaLabel: 'Start the text',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${text?.id}`,
+      completedAt: null,
+    })
+  })
+
+  it('follows the plan to the next step once one is skipped', async () => {
+    const orgSlug = 'eo-civic-build-plan-skip'
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    await listCards(orgSlug)
+    const text = plan.steps.find((step) => step.channel === 'text')
+    const calls = plan.steps.find((step) => step.channel === 'phone_banking')
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: text?.id },
+      data: { skippedAt: new Date() },
+    })
+
+    const [card] = await listCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Call residents to invite them to your civic panel',
+      ctaLabel: 'Start the calls',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
+    })
+  })
+
+  // A text being worked is past checkout, which finishes the card, so the
+  // step a card can show in progress is a call list or a walk.
+  it('keeps the official going on a call list already started', async () => {
+    const orgSlug = 'eo-civic-build-plan-calling'
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    const text = plan.steps.find((step) => step.channel === 'text')
+    const calls = plan.steps.find((step) => step.channel === 'phone_banking')
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: text?.id },
+      data: { skippedAt: new Date() },
+    })
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: calls?.id },
+      data: { startedAt: new Date() },
+    })
+
+    const [card] = await listCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Finish your civic panel calls',
+      ctaLabel: 'Keep calling',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
+    })
+  })
+
+  it('goes back to the start words when the plan ran out of people', async () => {
+    const orgSlug = 'eo-civic-build-plan-exhausted'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedPlan(eo.id, orgSlug, CivicPanelBuildPlanStatus.exhausted)
+
+    const cards = await listCards(orgSlug)
+
+    expect(cards[0]).toMatchObject({ ...buildCard, completedAt: null })
+  })
+
+  it('is done once the plan reaches its goal', async () => {
+    const orgSlug = 'eo-civic-build-plan-goal'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedPlan(eo.id, orgSlug, CivicPanelBuildPlanStatus.completed)
+
+    const active = await listCards(orgSlug)
+    const done = await listCards(orgSlug, 'done')
+
+    expect(active).toHaveLength(0)
+    expect(done[0]).toMatchObject(buildCard)
+  })
+
+  it('keeps a skipped card skipped while its words follow the plan', async () => {
+    const orgSlug = 'eo-civic-build-plan-dismissed'
+    const eo = await seedElectedOffice(orgSlug)
+    await listCards(orgSlug)
+    const [card] = await panelRows(eo.id)
+    if (!card) throw new Error('no card')
+    const dismissedAt = subDays(new Date(), 1)
+    await service.prisma.dashboardCard.update({
+      where: { id: card.id },
+      data: { dismissedAt },
+    })
+    await seedPlan(eo.id, orgSlug)
+
+    expect(await listCards(orgSlug)).toHaveLength(0)
+    const [after] = await panelRows(eo.id)
+    expect(after).toMatchObject({
+      title: 'Invite residents to your civic panel by text',
+      dismissedAt,
+      completedAt: null,
+    })
+  })
+
+  it('stays done once the text went out, whatever the plan says next', async () => {
+    const orgSlug = 'eo-civic-build-plan-sent'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedPlan(eo.id, orgSlug)
+    await seedText(orgSlug, OutreachStatus.pending)
+
+    await listCards(orgSlug)
+    const done = await listCards(orgSlug, 'done')
+
+    expect(done[0]).toMatchObject(buildCard)
+    expect(done[0]?.completedAt).not.toBeNull()
   })
 })
 

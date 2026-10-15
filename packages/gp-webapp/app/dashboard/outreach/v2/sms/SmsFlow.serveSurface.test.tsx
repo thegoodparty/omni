@@ -671,6 +671,49 @@ describe('SmsFlow (Serve surface)', () => {
     )
   })
 
+  // A civic panel plan's text step settles the purpose and its frozen list,
+  // so the flow opens on the message with the invite drafting, and Back
+  // still walks to the list and the purpose.
+  it("opens a plan step's text on the message, drafting the invite", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my civic panel/),
+    ).toBeInTheDocument()
+    expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 2 of 5',
+    )
+  })
+
   it("goes on from a card's message to the date, and back to the message", async () => {
     render(
       <SmsFlow

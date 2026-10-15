@@ -40,7 +40,6 @@ const results = (
   summarizing: false,
   points: [{ lat: 35.595, lng: -82.551 }],
   representation: {
-    source: 'sample',
     respondentCount: 25,
     groups: [
       {
@@ -116,5 +115,16 @@ describe('PriorityResultsView', () => {
         'Hear from at least 10 people to compare them with your district.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('says when the district census figures are unavailable', () => {
+    renderView(results({ representation: { respondentCount: 25, groups: [] } }))
+
+    expect(
+      screen.getByText(
+        'Census figures for your district are not available yet. Email support@goodparty.org so we can look into it.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('More than their share')).not.toBeInTheDocument()
   })
 })

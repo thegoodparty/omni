@@ -19,9 +19,9 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { computeRepresentation } from '../util/representation.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
+  representationFrom,
   type CensusCompositionSource,
 } from './censusComposition'
 
@@ -113,21 +113,18 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const { points } = await this.resolveContacts().pointsForPeople(
-      ids,
-      organization,
-    )
+    const contacts = this.resolveContacts()
+    const { points } = await contacts.pointsForPeople(ids, organization)
 
-    const composition =
-      points.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
-        ? await this.census.compose({
-            districtKey: organizationSlug,
-            respondents: points.map(({ id, lat, lng }) => ({
-              personId: id,
-              lat,
-              lng,
-            })),
-          })
+    const representation =
+      ids.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
+        ? representationFrom(
+            await this.census.compose({
+              ...(await contacts.resolveEligibleDistrict(organization)),
+              personIds: ids,
+            }),
+            ids.length,
+          )
         : null
 
     const { themes, summarizing } = await this.pooledThemes(
@@ -145,14 +142,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         lat: roundCoordinate(lat),
         lng: roundCoordinate(lng),
       })),
-      representation: composition && {
-        source: composition.source,
-        respondentCount: composition.respondentBlockGroups.length,
-        groups: computeRepresentation(
-          composition.district,
-          composition.respondentBlockGroups,
-        ),
-      },
+      representation,
     }
   }
 

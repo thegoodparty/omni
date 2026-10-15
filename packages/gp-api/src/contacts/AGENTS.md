@@ -694,13 +694,26 @@ page could not make a plan for (see `chats/general/chief-of-staff`,
 Chief of Staff chat with the hidden turn `EXPLAIN_CIVIC_PANEL_MESSAGE`: the
 agent explains the panel and builds nothing unless the official says yes
 (`civicPanelExplainLines`).
-Old words or the old outreach link on a card are rewritten on the next
-read. The card is done once any `text` row of the org with `asksToJoinCivicPanel` is past
-checkout (not `pending_payment`, `draft`, `canceled`, `denied` or `failed`):
-the purpose is not stored on the row, and the ask is what recruits. While it
-is open its due date rolls forward so it never lapses into missed. That sent
-text is its only way to done: the webapp offers it no Mark done, and
-`complete` leaves it untouched. It takes `dismiss` (Not for me, undone by
+Once the office has an active plan, the open card follows it: the sync
+reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
+`ModuleRef` because importing the contacts module closes a module cycle, and
+before the lock, since the read is what moves the plan), and the card's
+title is the plan's `next.line`, its summary "<members> of <goal> members so
+far.", its button the panel page's own words for that step ("Start the
+text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
+knocking"; "See your plan" while waiting) and its link `next.href` (the
+panel page on that step, or the page itself with no link). With no plan, an
+ended plan or nothing next, it reads "Start with the people you represent"
+and Build my panel, as before. A plan read that fails leaves the words as
+they are. Old words or the old outreach link on a card are rewritten on the
+next read. The card is done once any `text` row of the org with
+`asksToJoinCivicPanel` is past checkout (not `pending_payment`, `draft`,
+`canceled`, `denied` or `failed`): the purpose is not stored on the row, and
+the ask is what recruits. It is also done once the plan reaches its goal
+(`completed`). A done card keeps the start words in the archive. While it is
+open its due date rolls forward so it never lapses into missed. A skipped
+card stays skipped while its words follow the plan. The webapp offers it no
+Mark done, and `complete` leaves it untouched. It takes `dismiss` (Not for me, undone by
 `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
 Alongside it, whatever its state, the sync makes a `civic_panel` next-step
@@ -751,11 +764,15 @@ the standing `member` set; `reachedRecently` is
 `countContactedSinceAmong(CONTACT_REST_DAYS, members)`, the rest window's
 rule counted in SQL over the member ids (so a busy office never hits the
 contacted-set cap), and `askableNow` is exactly who a panel list with "Not
-contacted in the last 30 days" holds. Past the map read's cap the comparison
-is drawn from the members returned, and `respondentCount` says how many. The representation reuses the priority results' math
-(`computeRepresentation`, `MIN_RESPONDENTS_FOR_REPRESENTATION`,
-`pointsForPeople`) and the one `CENSUS_COMPOSITION_SOURCE` binding in
-`CensusCompositionModule`, with members in place of respondents.
+contacted in the last 30 days" holds. The representation reuses the
+priority results' math (`representationFrom`, `computeRepresentation`,
+`MIN_RESPONDENTS_FOR_REPRESENTATION`) and the one `CENSUS_COMPOSITION_SOURCE`
+binding in `CensusCompositionModule`, with members in place of respondents:
+every member id goes to the census read, which places each in their block
+group (`peopleDb` `findCensusComposition`), and `respondentCount` is how
+many it placed. Fewer placed than the minimum is `representation: null`;
+census figures that cannot be read (no district row, a warehouse failure)
+are a representation with empty `groups`, never a non-200.
 
 The built-in panel list's outreach history
 (`ContactsService.civicPanelOutreachHistory`) is every send of the org that
@@ -826,9 +843,15 @@ nearest that neighborhood's center are taken until the step's size; a
 second area in the wave is drawn after the first, so it lands elsewhere. The
 response's `area` is the padded box around those households, for the
 turf's map; do-not-knock is left to the turf create, as for any turf. A
-step drawn again returns its list. The text opens the flow on
-`build_citizens_panel` (the locked JOIN line); calls and doors on
-`introduce_myself`, closing with the Serve join question.
+step drawn again returns its list. Every channel opens its flow on
+`build_citizens_panel`: the text asks with the locked JOIN line; calls and
+doors draft a short invite whose ask is the Serve join question the official
+records ("Do they want to join your civic panel?"). That purpose is in
+`PhoneBankingPurpose`, `DoorKnockingPurpose` and contracts'
+`SERVE_PHONE_BANKING_PURPOSE_VALUES` (which Serve door knocking shares), and
+its draft endpoints (`/v1/outreach/serve/phone-banking/draft`,
+`…/door-knocking/draft`) 404 it with `serve-citizen-panels` off, as the SMS
+draft does.
 
 **Statuses** (`stepStatus`, read on every GET, never stored).
 `not_started` until something is made from the step's list; `in_progress`

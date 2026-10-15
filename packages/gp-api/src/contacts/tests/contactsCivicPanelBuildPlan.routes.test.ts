@@ -434,7 +434,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
 
     expect(calls.data).toMatchObject({
       channel: 'phone_banking',
-      purpose: 'introduce_myself',
+      purpose: 'build_citizens_panel',
       size: 30,
     })
     // Landlines first, so the first call draw asks for landlines.
@@ -442,7 +442,10 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     expect(filterKeys(callDraw)).toContain('hasLandline')
     const textIds = await sampleIds(text.data.voterFileFilterId)
     expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
-    expect(doors.data.channel).toBe('door_knocking')
+    expect(doors.data).toMatchObject({
+      channel: 'door_knocking',
+      purpose: 'build_citizens_panel',
+    })
     expect(doors.data.size).toBe(80)
     expect(doors.data.area?.type).toBe('Polygon')
     const all = [
@@ -564,7 +567,7 @@ describe('step status and waves', () => {
         name: 'Civic panel calls',
         script: 'Hello',
         sheetCount: 1,
-        purpose: 'introduce_myself',
+        purpose: 'build_citizens_panel',
       },
     })
 

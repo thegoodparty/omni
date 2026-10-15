@@ -72,35 +72,40 @@ export const RepresentationBars = ({
 }: {
   representation: PriorityRepresentation
   shares?: SharesLabel
-}) => (
-  <div className="flex flex-col gap-5">
-    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5">
-        <span className="size-2.5 rounded-sm bg-primary" aria-hidden />
-        {RESULTS_COPY.legendOver}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="size-2.5 rounded-sm bg-warning" aria-hidden />
-        {RESULTS_COPY.legendUnder}
-      </span>
+}) =>
+  representation.groups.length === 0 ? (
+    <p className="text-sm text-muted-foreground">
+      {RESULTS_COPY.representationUnavailable}
+    </p>
+  ) : (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-primary" aria-hidden />
+          {RESULTS_COPY.legendOver}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-warning" aria-hidden />
+          {RESULTS_COPY.legendUnder}
+        </span>
+      </div>
+      {REPRESENTATION_DIMENSIONS.map((dimension) => {
+        const groups = representation.groups.filter(
+          (group) => group.dimension === dimension,
+        )
+        if (groups.length === 0) return null
+        return (
+          <section key={dimension} aria-label={DIMENSION_LABELS[dimension]}>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {DIMENSION_LABELS[dimension]}
+            </h3>
+            <ul>
+              {groups.map((group) => (
+                <GroupRow key={group.key} group={group} shares={shares} />
+              ))}
+            </ul>
+          </section>
+        )
+      })}
     </div>
-    {REPRESENTATION_DIMENSIONS.map((dimension) => {
-      const groups = representation.groups.filter(
-        (group) => group.dimension === dimension,
-      )
-      if (groups.length === 0) return null
-      return (
-        <section key={dimension} aria-label={DIMENSION_LABELS[dimension]}>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {DIMENSION_LABELS[dimension]}
-          </h3>
-          <ul>
-            {groups.map((group) => (
-              <GroupRow key={group.key} group={group} shares={shares} />
-            ))}
-          </ul>
-        </section>
-      )
-    })}
-  </div>
-)
+  )

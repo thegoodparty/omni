@@ -111,6 +111,9 @@ bullets cover and which single commitment the ask aims at, and the model writes
 the notes. A wrong steer shifts output rather than putting words in a
 canvasser's mouth. Grade them with the eval set and change them there. A
 `community_input` list's own question replaces the generic listening ask.
+Serve's `build_citizens_panel` steer is a short invite: who is at the door by
+full name, what the panel is, and the ask is the join question the canvasser
+records. Its draft 404s with `serve-citizen-panels` off.
 
 ### The audience allowlist
 
