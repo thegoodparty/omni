@@ -83,6 +83,58 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
     return true
   }
 
+  // The offices whose onboarding priorities step will offer issues they ran
+  // on: rows seedFromWin already copied, or, for an office it has not seeded
+  // yet, a linked campaign with something for it to copy.
+  async officesWithWinIssues(
+    offices: { id: string; campaignId: number | null }[],
+  ): Promise<Set<string>> {
+    const linked = offices.filter(
+      (office): office is { id: string; campaignId: number } =>
+        office.campaignId !== null,
+    )
+    if (linked.length === 0) return new Set()
+
+    const imported = await this.model.findMany({
+      where: {
+        electedOfficeId: { in: linked.map((office) => office.id) },
+        source: PrioritySource.win_import,
+      },
+      select: { electedOfficeId: true, archivedAt: true },
+    })
+    const seeded = new Set(imported.map((row) => row.electedOfficeId))
+    const result = new Set(
+      imported
+        .filter((row) => row.archivedAt === null)
+        .map((row) => row.electedOfficeId),
+    )
+
+    const unseeded = linked.filter((office) => !seeded.has(office.id))
+    if (unseeded.length === 0) return result
+
+    const campaigns = await this.client.campaign.findMany({
+      where: { id: { in: unseeded.map((office) => office.campaignId) } },
+      select: {
+        id: true,
+        details: true,
+        _count: { select: { campaignPositions: true } },
+      },
+    })
+    const withSource = new Set(
+      campaigns
+        .filter(
+          (campaign) =>
+            (campaign.details?.customIssues?.length ?? 0) > 0 ||
+            campaign._count.campaignPositions > 0,
+        )
+        .map((campaign) => campaign.id),
+    )
+    for (const office of unseeded) {
+      if (withSource.has(office.campaignId)) result.add(office.id)
+    }
+    return result
+  }
+
   async seedFromWin(electedOfficeId: string, tx?: TxClient): Promise<void> {
     const client = tx ?? this.client
 

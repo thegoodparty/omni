@@ -75,11 +75,11 @@ export type ServeSmsCreateFn = (
 // Council Member", " - District 3" stripped). Reused, never re-derived, so
 // the two Serve products cannot disagree about how an office is named.
 export const useServeSmsIdentification = (
-  firstName: string,
+  fullName: string,
 ): ((tone: SocialTone) => string) => {
   const positionName = usePositionName()
   const office = grammarizeOfficeName(positionName)
-  return (tone: SocialTone) => serveIdentificationIntro(tone, firstName, office)
+  return (tone: SocialTone) => serveIdentificationIntro(tone, fullName, office)
 }
 
 // --- Send sequence -------------------------------------------------------

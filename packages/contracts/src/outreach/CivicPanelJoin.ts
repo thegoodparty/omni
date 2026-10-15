@@ -54,6 +54,15 @@ export const findCivicPanelLeaveLine = (
   return start === -1 ? null : { text: CIVIC_PANEL_LEAVE_LINE, start }
 }
 
+// How many civic panel lines (JOIN in any wording, or LEAVE) a message
+// carries. A send carries at most one: a second is a composer or model echo,
+// and gp-api refuses it rather than text people the same ask twice.
+export const countCivicPanelLines = (message: string): number =>
+  [...CIVIC_PANEL_JOIN_LINES, CIVIC_PANEL_LEAVE_LINE].reduce(
+    (count, line) => count + message.split(line).length - 1,
+    0,
+  )
+
 // A panelist said yes to being asked, so far more of them answer than a cold
 // text gets. The panel brief cites 40 to 52 percent on UK council panels; this
 // is the low end, until an office's own panel asks give it a measured rate.

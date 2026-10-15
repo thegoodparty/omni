@@ -192,7 +192,7 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('a conversation with a constituent')
     expect(system).toContain('about what the office is working toward')
-    expect(system).toContain('Refer to the official by first name')
+    expect(system).toContain('Refer to the official by full name')
     expect(system).toContain('Write 4 or 5 short bullets')
   })
 

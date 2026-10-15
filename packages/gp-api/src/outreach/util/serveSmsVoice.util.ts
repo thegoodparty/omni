@@ -4,6 +4,7 @@ import {
   FRESH_DRAFT_TARGET_LENGTH,
   IMPROVE_DRAFT_TARGET_LENGTH,
   SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   SMS_NO_NAME_PLACEHOLDER_RULE,
   SmsVoiceConfig,
 } from '../services/outreachSmsGeneration.service'
@@ -95,20 +96,20 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
     'Only if the materials DO contain published priorities, use the ' +
     'three-bullet formula: one short line of who the ' +
     'official is, drawn from the materials (what they do, community ' +
-    'roots, why they serve) — constituents need a reason to trust ' +
+    'roots, why they serve), since constituents need a reason to trust ' +
     'before any ask; then one sentence on what they are focused on ' +
     'this term; then the line "My priorities:" followed by exactly ' +
     'three short bullet points, each on its own line starting with ' +
-    '"• ", drawn from the published priorities in the materials — each ' +
-    'bullet names the concrete HOW, not just the topic ("Fix our roads ' +
-    'with a real maintenance plan, not patchwork", never just "Fix our ' +
+    '"• ", drawn from the published priorities in the materials. Each ' +
+    'bullet names the concrete HOW, not only the topic ("Fix our roads ' +
+    'with a real maintenance plan, not patchwork", never a bare "Fix our ' +
     'roads"); then one closing line inviting a reply. Every bullet must ' +
     'come from a real published priority; never pad to three with a ' +
     'placeholder.',
   explain_decision:
     'Structure: state the decision plainly in the first line; then two ' +
     'or three plain-language sentences of the reasoning, drawn only ' +
-    'from the materials — no procedural jargon; then one closing line ' +
+    'from the materials, with no procedural jargon; then one closing line ' +
     'inviting questions or disagreement by reply. Never invent the ' +
     'outcome, the tally, or a justification the materials do not ' +
     'contain, and never name or criticize a colleague. Where a ' +
@@ -155,7 +156,7 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  you may include it once, as a plain domain, near the close. Never',
   '  invent or shorten a URL; with none in the materials, include none.',
   '- Invite responses as replies to this message ("You can reply here',
-  '  with questions") — never "text me back" or "call me": the',
+  '  with questions") and never "text me back" or "call me": the',
   '  message is sent from a temporary number.',
   '- Never write a square-bracket placeholder, for logistics or for',
   '  substance. Meeting times, dates, locations and phone numbers come',
@@ -167,10 +168,11 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  section out entirely and write what the materials DO support.',
   '- The app has ALREADY written the greeting and identification above',
   '  your text ("Hi, this is <name>, your <office>."). Do not greet, do',
-  '  not name the official, and do not restate the office — an opening',
-  '  like "I\'m your City Constable" repeats what the constituent just',
+  '  not name the official, and do not restate the office: an opening',
+  '  like "I\'m your City Constable" repeats what the constituent already',
   '  read. Do not sign off either. Start with substance. Do NOT add any',
   '  opt-out language: the app appends it.',
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   SMS_NO_NAME_PLACEHOLDER_RULE,
   "- Ground decisions, priorities, and specifics in the official's own",
   '  materials when they are provided; never invent positions, votes,',
@@ -198,8 +200,9 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   '  square-bracket placeholders like [time] exactly as written.',
   PROTECTED_MARKER_RULE,
   SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   '- Never add positions, decisions, endorsements, statistics, dates,',
-  '  places, or events the original text does not contain — the',
+  '  places, or events the original text does not contain. The',
   "  official's own materials, when provided, are context for tone and",
   '  accuracy, not a source of new content in a polish.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
