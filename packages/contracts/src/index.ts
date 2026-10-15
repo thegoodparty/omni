@@ -923,6 +923,9 @@ export {
   DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
+  CIVIC_PANEL_STEP_CARD_PREFIX,
+  civicPanelStepCardSourceId,
+  isCivicPanelStepCard,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 

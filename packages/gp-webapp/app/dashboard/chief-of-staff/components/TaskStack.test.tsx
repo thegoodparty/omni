@@ -330,6 +330,45 @@ describe('<TaskStack>', () => {
     expect(frontTitle()).toBe('Prep for the zoning vote')
   })
 
+  // Once the build card is done, the plan's next step takes its place.
+  it("puts the plan's next step where the build card was, with no explainer or due date", () => {
+    onboardingRef.current = [
+      { key: 'meet', status: 'completed' },
+      { key: 'priorities', status: 'active' },
+    ]
+    withCards([
+      card({}),
+      card({
+        id: 'step',
+        type: 'civic_panel',
+        title: 'Call residents to invite them to your civic panel',
+        summary: '12 of 100 members so far.',
+        ctaLabel: 'Start the calls',
+        ctaHref: '/dashboard/contacts/citizens-panel?step=s2',
+        dueDate: '2026-10-21T18:00:00.000Z',
+        sourceExternalId: 'panel-step:s2',
+      }),
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+    expect(frontTitle()).toBe(
+      'Call residents to invite them to your civic panel',
+    )
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'People first' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Start the calls' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s2')
+    expect(screen.queryByText(/October 21/)).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: "What's a civic panel?" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mark done' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('puts the build card ahead of priorities once meet is skipped', () => {
     onboardingRef.current = [
       { key: 'meet', status: 'skipped' },

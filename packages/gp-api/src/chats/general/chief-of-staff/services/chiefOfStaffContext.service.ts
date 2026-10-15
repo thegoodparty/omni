@@ -71,8 +71,6 @@ export interface CivicPanelBuildState {
   // A text asking people to join is past checkout: the invite is out, and
   // the build card is done.
   inviteSent: boolean
-  // The serve-sms-outreach flag: without it there is no text flow to open.
-  textingEnabled: boolean
   // The office has a plan building the panel across texts, calls and doors,
   // on the panel page.
   hasPlan: boolean
@@ -170,7 +168,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
   async civicPanelBuildState(
     organizationSlug: string,
-    textingEnabled: boolean,
   ): Promise<CivicPanelBuildState> {
     const [members, invite, plan] = await Promise.all([
       this.client.contactCurrentStatus.count({
@@ -201,7 +198,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     return {
       members,
       inviteSent: invite !== null,
-      textingEnabled,
       hasPlan: plan !== null,
     }
   }

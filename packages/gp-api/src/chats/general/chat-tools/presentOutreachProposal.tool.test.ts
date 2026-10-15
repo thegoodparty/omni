@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parsePriorityStatus } from '@goodparty_org/contracts'
 import {
   buildCampaignManagerOutreachProposalTool,
-  buildChiefOfStaffOutreachProposalTool,
+  buildPresentOutreachProposalTool,
   checkPanelPart,
   checkProposalRefusal,
   OUTREACH_MESSAGE_RULES,
@@ -124,12 +124,9 @@ describe('buildCampaignManagerOutreachProposalTool', () => {
   })
 })
 
-describe('buildChiefOfStaffOutreachProposalTool', () => {
+describe('buildPresentOutreachProposalTool', () => {
   it('still presents a text for Serve, which has no SMS cutoff', async () => {
-    const tool = buildChiefOfStaffOutreachProposalTool({
-      members: 0,
-      inviteSent: false,
-    })
+    const tool = buildPresentOutreachProposalTool()
     expect(
       await tool.execute({
         audience: 'Residents downtown',

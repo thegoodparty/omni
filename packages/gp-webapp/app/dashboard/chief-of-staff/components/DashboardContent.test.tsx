@@ -200,19 +200,22 @@ describe("DashboardContent: What's a civic panel? ends on its next step", () => 
     return user
   }
 
-  it('offers Build my panel to an office with no panel, which opens the panel page', async () => {
+  it('offers Build my panel to an office with no panel, which builds it in this chat', async () => {
     vi.mocked(router.push!).mockClear()
     const user = await explain()
 
     const cta = await screen.findByRole('button', { name: 'Build my panel' })
     await user.click(cta)
 
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/contacts/citizens-panel',
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-panel',
+          content: BUILD_CITIZENS_PANEL_MESSAGE,
+        }),
+      ),
     )
-    expect(streamMessageMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-    )
+    expect(router.push).not.toHaveBeenCalled()
     expect(completedACard()).toBe(false)
   })
 
@@ -300,19 +303,20 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     },
   )
 
-  it('Build your civic panel opens the panel page', async () => {
+  it('Build your civic panel builds it in this chat, as a hidden turn', async () => {
     vi.mocked(router.push!).mockClear()
     const user = await meet()
     await user.click(
       screen.getByRole('button', { name: /Build your civic panel/ }),
     )
 
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/contacts/citizens-panel',
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+      ),
     )
-    expect(streamMessageMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-    )
+    expect(router.push).not.toHaveBeenCalled()
+    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
     expect(completedACard()).toBe(false)
   })
 

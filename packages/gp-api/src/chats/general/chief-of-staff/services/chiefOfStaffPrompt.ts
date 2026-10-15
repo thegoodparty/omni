@@ -5,11 +5,10 @@ import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.c
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  BUILD_CITIZENS_PANEL_PURPOSE,
   CIVIC_PANEL_PAGE_HREF,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
-  PANEL_SEED_ASSUMED_JOIN_RATE,
+  PANEL_MAX_HOURS_PER_WEEK,
   PANEL_SEED_TARGET_MEMBERS,
   PRIORITY_STEP_LABELS,
   SAMPLE_TARGET_REPLIES,
@@ -25,6 +24,11 @@ import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
+import {
+  ASK_PANEL_WEEKLY_TIME_TOOL,
+  PRESENT_PANEL_NEXT_STEP_TOOL,
+  SAVE_PANEL_WEEKLY_TIME_TOOL,
+} from './civicPanelPlan.tools'
 import {
   OUTREACH_MESSAGE_RULES,
   PICKED_OPTION_RULE,
@@ -269,68 +273,65 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 }
 
 // What the agent does when the official asks to build their civic panel.
-// Behind serve-citizen-panels (civicPanel is only read with it on). The
-// panel page is where it is built: it asks the hours question and plans
-// texts, calls and doors. The single invite text is only the fallback for an
-// office the page could not make a plan for, and the steps follow what is
-// already true, so it never offers a second invite or a text the office
-// cannot send.
+// Behind serve-citizen-panels (civicPanel is only read with it on). The chat
+// runs the same plan as the panel page: with no plan it asks the weekly time
+// question and makes the plan from the answer, and with one it shows the
+// plan's next step and never asks again. It never proposes an invite text of
+// its own: the plan's text step is that text.
 const civicPanelBuildBlock = (
   panel: CivicPanelBuildState,
   toolNames: string[],
 ): string => {
-  const canPropose =
-    toolNames.includes('size_panel_invite') &&
-    toolNames.includes('present_outreach_proposal') &&
-    toolNames.includes('count_contacts')
+  const canPlan = [
+    ASK_PANEL_WEEKLY_TIME_TOOL,
+    SAVE_PANEL_WEEKLY_TIME_TOOL,
+    PRESENT_PANEL_NEXT_STEP_TOOL,
+  ].every((name) => toolNames.includes(name))
+  const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
   const explain =
     '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being asked about once a month what they think, so the official hears from more of the community, not only the loudest voices. Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
-  const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
-  const singleText = !panel.textingEnabled
+  const atGoal = panel.members >= PANEL_SEED_TARGET_MEMBERS
+  const askTime = [
+    `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you give each week?", and its answers, so never write the question or the answers yourself.`,
+  ]
+  const state = !canPlan
     ? [
-        '- Texting is not set up for their office yet, so you cannot send the invite text. Say so plainly in one line and do not draft or present anything.',
+        explain,
+        `- Their panel page builds it from how much time they can give each week. Say so in one line and link it as ${pageLink('Build your civic panel')}. Do not count the district, size an invite or present a card.`,
       ]
-    : !canPropose
+    : panel.hasPlan
       ? [
-          '- You cannot count the district or present a text in this conversation. Say so in one line, and point them back to their panel page.',
+          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "You have 12 of 100 members so far." The card shows the step and opens it, so never restate it.`,
         ]
-      : [
-          '  - Count everyone in the district with a cell phone: `count_contacts` with { hasCellPhone: true } and nothing else. Then call `size_panel_invite` with that count. Quote only the numbers those two return.',
-          `  - Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${PANEL_SEED_TARGET_MEMBERS} members; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; picked at random, so it is not only the people who already reach out; it costs about the cost it returned, quoted exactly as written. Never call it free. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
-          '  - Never say "sample", "sample size", "opt-in rate", "join rate", "seed" or "conversion". Say "a random group of".',
-          "  - Draft the invite in the official's own voice, first person: who they are, what the panel is (residents their office texts about once a month to hear what they think before they decide), and why it matters to them. Under 4 sentences. Never write the line asking people to reply JOIN, how to join, or a sign-up step: the text adds that line and locks it. Never promise topics, how many texts, or what they will do with the answers.",
-          `  - Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Civic panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
-          '  - One card, no alternatives, no second channel. Do not ask whether they want it first: the card is how they say yes.',
-        ]
-  const state =
-    panel.members > 0
-      ? [
-          `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
-          ...(panel.members < PANEL_SEED_TARGET_MEMBERS
-            ? [
-                `- To keep growing it toward about ${PANEL_SEED_TARGET_MEMBERS} members, point them to their panel page in one line, linked as ${pageLink(panel.hasPlan ? 'See your panel plan' : 'Build your civic panel')}.`,
-              ]
-            : []),
-        ]
-      : panel.hasPlan
+      : atGoal
         ? [
-            explain,
-            `- They already have a plan to build it, on their panel page. Say so in one line, linked as ${pageLink('See your panel plan')}, and do not propose an invite here.`,
+            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line and offer to help them ask it about a priority. Do not ask the weekly time question.`,
           ]
-        : panel.inviteSent
+        : panel.members > 0
           ? [
-              `- Their panel invite already went out, and people join as they reply JOIN. Say so in one line and do not propose another invite. Nobody has joined yet, so suggest checking back in a few days, or building on it with calls and door knocking from their panel page, linked as ${pageLink('Build your civic panel')}.`,
+              `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line. To grow it toward about ${PANEL_SEED_TARGET_MEMBERS} members, they need a plan.`,
+              ...askTime,
             ]
-          : [
-              explain,
-              `- Their panel page builds it. It asks how much time they can give each week, an hour at least, then plans texts, calls and door knocking around it: their own calls and doors reach the residents a text misses. Say so in one or two short sentences and link it as ${pageLink('Build your civic panel')}. Do not count the district, size an invite or present a card.`,
-              '- Only when they say their panel page could not make a plan (it says everyone it can reach was already invited), or they ask to send one invite text instead:',
-              ...singleText,
-            ]
+          : panel.inviteSent
+            ? [
+                '- Their panel invite already went out, and people join as they reply JOIN. Say so in one line. A plan adds calls and door knocking to it.',
+                ...askTime,
+              ]
+            : [explain, ...askTime]
+  const planning = canPlan
+    ? [
+        `- When they answer the weekly time question ("1 hour a week", "2 hours a week", "3 hours a week", "4 or more hours a week", or their own words), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with the hours: 4 for "4 or more hours a week", or the number they wrote, at most ${PANEL_MAX_HOURS_PER_WEEK}. Less than an hour: say the plan needs at least an hour a week and ask again.`,
+        `- When it returns saved "created", call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\` and say in one short sentence that their plan is ready and the card opens its first step. Never list the steps or the numbers: the card and their panel page show them.`,
+        `- When it returns planMade false, no plan could be made. Say so in one plain line with its reason, and link their panel page as ${pageLink('See your civic panel')}. Do not count the district, size an invite, draft a text or present any other card.`,
+        `- Whenever they have a plan and tell you how much time they can give each week now (for example "I can give 2 hours now"), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with it. When it returns saved "updated", say in one line that their next round of invites uses the new time, and the round in progress stays as it is.`,
+        '- Never propose a text, a list or any other outreach to build the panel: every invite comes from the plan.',
+      ]
+    : []
   return [
-    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their civic panel):`,
+    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
     `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,
     ...state,
+    ...planning,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
     CIVIC_PANEL_CLAIM_RULE,
     ...civicPanelExplainLines(panel),
@@ -350,7 +351,7 @@ const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
       ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel, and offer to help them ask it about a priority. The app shows a button for that under your reply, so never name it.`
       : panel.inviteSent
         ? '- End by saying their panel invite already went out and people join as they reply JOIN. Offer nothing more.'
-        : '- End with one short question: do they want to build theirs? Nothing more. The app shows a Build my panel button under your reply that opens their panel page, so never name a button or say how to start. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
+        : '- End with one short question: do they want to build theirs? Nothing more. The app shows a Build my panel button under your reply that starts it here, so never name a button or say how to start. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
   return [
     `CIVIC PANEL EXPLAINED (apply when the user's message is exactly "${EXPLAIN_CIVIC_PANEL_MESSAGE}"):`,
     `- "${EXPLAIN_CIVIC_PANEL_MESSAGE}" is sent by the app when they press What's a civic panel? on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
@@ -452,7 +453,12 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
-  size_panel_invite: 'size and price the text that builds the civic panel',
+  [ASK_PANEL_WEEKLY_TIME_TOOL]:
+    'ask how much time the official can give their civic panel each week',
+  [SAVE_PANEL_WEEKLY_TIME_TOOL]:
+    'make the civic panel plan from their weekly time, or change that time',
+  [PRESENT_PANEL_NEXT_STEP_TOOL]:
+    "show the civic panel plan's next step as a card",
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:

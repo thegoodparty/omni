@@ -39,8 +39,9 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   calls and doors are part of every plan. Make my plan is never disabled;
   a typed number is checked on press (1 to `PANEL_MAX_HOURS_PER_WEEK`). A
   409 that is not a plan made elsewhere (nobody left to reach) shows the
-  API's words and links the Chief of Staff, whose single invite text is the
-  fallback.
+  API's words. The Chief of Staff chat asks the same question and makes the
+  same plan (`chief-of-staff/components/chat/civicPanelWidgets.tsx` draws its
+  question from this page's copy), so there is no other way to start.
 - **An active plan: the steps** (`CivicPanelPlanSteps`), the current wave
   under "Up now" and earlier ones under "Earlier", each a plain title
   ("Text 3,150 residents", "Call 30 residents", "Knock on 100 doors in a

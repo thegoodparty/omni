@@ -39,6 +39,6 @@ import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.servi
     CivicPanelSummaryService,
     CivicPanelBuildPlanService,
   ],
-  exports: [ContactsService],
+  exports: [ContactsService, CivicPanelBuildPlanService],
 })
 export class ContactsModule {}
