@@ -53,7 +53,11 @@ const ThemeGrid = ({
       </div>
       {hidden > 0 && (
         <div className="mt-4 flex justify-center">
-          <Button variant="outline" onClick={() => setExpanded(true)}>
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() => setExpanded(true)}
+          >
             {copy.showMoreThemes(hidden)}
           </Button>
         </div>
