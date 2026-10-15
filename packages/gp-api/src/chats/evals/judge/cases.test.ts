@@ -377,40 +377,6 @@ describe('a chat case with an account-state directive', () => {
       expected,
     ).cases[0] as ChatCase
 
-  it('accepts the four states that gate a tool', () => {
-    expect(
-      parse({
-        pro: false,
-        district: false,
-        campaignDetails: false,
-        ordinanceStep: 'draft',
-      }).accountState,
-    ).toEqual({
-      pro: false,
-      district: false,
-      campaignDetails: false,
-      ordinanceStep: 'draft',
-    })
-  })
-
-  // THE CLOSED SET IS THE POINT. An open bag of column overrides would let a
-  // case list seed a state no deployment can produce, and the verdict would
-  // be about an agent we do not ship.
-  // BESIDE A RECOGNISED KEY, on purpose. A non-strict object strips the
-  // unknown one, which would leave `{}` and trip the empty-state refine — so
-  // `{ isAdmin: true }` alone throws whether or not the set is closed, and a
-  // test written that way passes with `.strict()` removed. With `pro` there
-  // too the stripped object is a legal state and only `.strict()` refuses it.
-  it('refuses a state nobody defined rather than ignoring it', () => {
-    expect(() => parse({ pro: false, isAdmin: true })).toThrow(CaseListError)
-  })
-
-  it('refuses a misspelling of a state it does define', () => {
-    expect(() => parse({ district: false, isPro: false })).toThrow(
-      CaseListError,
-    )
-  })
-
   it('accepts the briefing highlight, and only as a boolean', () => {
     expect(parse({ briefingHighlight: true }).accountState).toEqual({
       briefingHighlight: true,
@@ -418,9 +384,18 @@ describe('a chat case with an account-state directive', () => {
     expect(() => parse({ briefingHighlight: 'yes' })).toThrow(CaseListError)
   })
 
-  it('refuses an ordinance step that is not one of the flow steps', () => {
-    expect(() => parse({ ordinanceStep: 'drafting' })).toThrow(CaseListError)
-  })
+  // THE CLOSED SET IS THE POINT. A state no arm sets up through the routes
+  // would let a case claim a condition the agent was never in. Beside a
+  // recognised key, so only `.strict()` refuses it: a stripped object would
+  // otherwise be a legal state.
+  it.each(['pro', 'district', 'campaignDetails', 'ordinanceStep'])(
+    'refuses %s, which no arm sets up through the routes',
+    (key) => {
+      expect(() => parse({ briefingHighlight: true, [key]: false })).toThrow(
+        CaseListError,
+      )
+    },
+  )
 
   // Declaring nothing is not the same as asking for the default, and a reader
   // of the record could not tell the two apart.

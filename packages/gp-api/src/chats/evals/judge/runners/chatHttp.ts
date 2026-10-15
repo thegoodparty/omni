@@ -4,7 +4,7 @@ import {
   ChatConversationUsageSchema,
   type ChatConversationUsage,
 } from '@goodparty_org/contracts'
-import { caseTurns } from '../cases'
+import { caseTurns, type ChatAccountState } from '../cases'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
 import {
   isoUtc,
@@ -59,6 +59,7 @@ export interface ChatJudgeCase {
   caseId: string
   question?: string
   turns?: string[]
+  accountState?: ChatAccountState
 }
 
 export interface ChatHttpRequest {
@@ -142,12 +143,20 @@ export const reindexTrace = (steps: readonly TraceStep[]): TraceStep[] =>
   steps.map((step, index) => ({ ...step, index }))
 
 // A case asked with `question` records exactly what it always has; one asked
-// with `turns` records the general shape, so an older base ref that read the
-// list differently mismatches rather than compares.
+// with `turns` or an account state records the general shape, so an older
+// base ref that read the list differently mismatches rather than compares.
 export const caseInput = (one: ChatJudgeCase): Payload =>
-  one.turns === undefined
+  one.turns === undefined && one.accountState === undefined
     ? { kind: 'question', value: caseTurns(one)[0] ?? '' }
-    : { kind: 'transcript', value: { turns: one.turns } }
+    : {
+        kind: 'transcript',
+        value: {
+          turns: caseTurns(one),
+          ...(one.accountState !== undefined && {
+            accountState: one.accountState,
+          }),
+        },
+      }
 
 const MAX_ERROR_CHARS = 200
 
@@ -364,17 +373,45 @@ const expectOk = (response: Response, method: string, path: string): void => {
   }
 }
 
+// Briefing chat is opened the way the webapp opens it: POST
+// /v1/briefing-chats creates the conversation and its annotation together,
+// and the registry's POST /v1/chats refuses the scope on purpose.
 const openConversation = async (
   request: ChatHttpRequest,
   account: JudgeAccount,
   scope: string,
 ): Promise<OpenedConversation> => {
   const fetchImpl = request.fetchImpl ?? fetch
+  if (scope === 'briefing_annotation') {
+    if (account.briefing === undefined) {
+      throw new Error(
+        'briefing_annotation is opened on a briefing, and the account has none',
+      )
+    }
+    const path = '/v1/briefing-chats'
+    const response = await fetchImpl(`${request.baseUrl}${path}`, {
+      method: 'POST',
+      headers: headersFor(account.token, account.organizationSlug, true),
+      body: JSON.stringify(account.briefing),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+    expectOk(response, 'POST', path)
+    const { annotationId } = z
+      .object({ annotationId: z.string() })
+      .parse(await response.json())
+    return {
+      messagesPath: `/v1/briefing-chats/${annotationId}/messages`,
+      conversationPath: `/v1/briefing-chats/${annotationId}`,
+    }
+  }
   const path = '/v1/chats'
   const response = await fetchImpl(`${request.baseUrl}${path}`, {
     method: 'POST',
     headers: headersFor(account.token, account.organizationSlug, true),
-    body: JSON.stringify({ scope }),
+    body: JSON.stringify({
+      scope,
+      ...(account.anchor && { anchor: account.anchor }),
+    }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   expectOk(response, 'POST', path)

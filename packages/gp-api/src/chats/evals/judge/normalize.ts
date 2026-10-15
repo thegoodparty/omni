@@ -173,7 +173,8 @@ const renderJson: PayloadRenderer = (payload) =>
     ? payload.value
     : JSON.stringify(payload.value, null, 2)
 
-// A chat case whose input is several user turns. Rendered as prose rather
+// A chat case whose input is more than one question: several user turns, or
+// an account state the case put the agent in. Rendered as prose rather
 // than as raw JSON because this string is what the judge reads as
 // `<shared_input>`, and a JSON blob there spends the judge's attention on
 // punctuation.
@@ -184,21 +185,30 @@ const renderJson: PayloadRenderer = (payload) =>
 //
 // AND LOSSLESS, which is the harder half. `blindCase` compares the RENDERED
 // text, not the payload, so any field this omits is a field two arms can
-// differ on while rendering identically. `TranscriptInputSchema` is
-// `.strict()` so a field it has not heard of falls this renderer back to
-// whole-value JSON rather than dropping it silently.
+// differ on while rendering identically — and the whole cross-checkout
+// protection is that an older base ref which stripped a case field records a
+// payload that does not match. Every field `TranscriptInputSchema` carries
+// reaches the text below, and the schema is `.strict()` so a field it has not
+// heard of falls this renderer back to whole-value JSON rather than dropping
+// it silently.
 const renderTranscript: PayloadRenderer = (payload) => {
   const parsed = TranscriptInputSchema.safeParse(payload.value)
   // Falls back to pretty JSON rather than throwing. A shape this build does
   // not recognise is still the input both arms were given, and refusing to
   // render it would turn an unreadable label into a lost comparison.
   if (!parsed.success) return renderJson(payload)
-  const { turns } = parsed.data
-  return turns
-    .map((turn, index) =>
-      turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
-    )
-    .join('\n')
+  const { turns, accountState } = parsed.data
+  const lines = turns.map((turn, index) =>
+    turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
+  )
+  if (accountState !== undefined) {
+    const described = Object.entries(accountState)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .sort()
+      .join(', ')
+    lines.push('', `Condition: account state ${described}.`)
+  }
+  return lines.join('\n')
 }
 
 export const RENDERERS: Readonly<Record<string, PayloadRenderer>> = {

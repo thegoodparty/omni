@@ -141,6 +141,21 @@ describe('caseInput', () => {
     ).toEqual({ kind: 'question', value: 'What are my priorities?' })
   })
 
+  // The judge reads the state the chat was opened in, and an arm whose ref
+  // read the list differently records a different payload.
+  it('records a case opened in an account state as a transcript', () => {
+    expect(
+      caseInput({
+        caseId: 'h',
+        question: 'Why?',
+        accountState: { briefingHighlight: true },
+      }),
+    ).toEqual({
+      kind: 'transcript',
+      value: { turns: ['Why?'], accountState: { briefingHighlight: true } },
+    })
+  })
+
   it('records several turns as a transcript', () => {
     expect(caseInput({ caseId: 'a', turns: ['one', 'two'] })).toEqual({
       kind: 'transcript',
@@ -647,5 +662,51 @@ describe('runChatHttpCase', () => {
     expect(record.trace).toEqual([
       { index: 0, kind: 'error', error: 'Error: Clerk said no' },
     ])
+  })
+
+  it('opens a briefing chat on its briefing route', async () => {
+    const calls: string[] = []
+    const fetchImpl: typeof fetch = (input, init) => {
+      const url = String(input)
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
+      if (url.endsWith('/v1/version')) {
+        return Promise.resolve(new Response(JSON.stringify({ commit: 'abc' })))
+      }
+      if (url.endsWith('/v1/briefing-chats')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ annotationId: 'a1', conversationId: 'c1' }),
+            { status: 201 },
+          ),
+        )
+      }
+      if (url.endsWith('/v1/briefing-chats/a1/messages')) {
+        return Promise.resolve(
+          new Response(sse({ type: 'done', assistantMessageId: 'm1' })),
+        )
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messages: [{ id: 'm1', role: 'assistant', content: 'Two votes.' }],
+          }),
+        ),
+      )
+    }
+    const record = await runChatHttpCase(
+      requestFor(fetchImpl, {
+        agentId: 'briefing_annotation',
+        account: () =>
+          Promise.resolve({
+            ...account,
+            briefing: {
+              meetingDate: '2026-05-19',
+              anchor: { jsonPath: null, start: null, end: null },
+            },
+          }),
+      }),
+    )
+    expect(record.output?.value).toBe('Two votes.')
+    expect(calls).toContain(`GET ${BASE}/v1/briefing-chats/a1`)
   })
 })

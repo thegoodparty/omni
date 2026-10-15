@@ -568,6 +568,23 @@ describe('rendering a transcript input', () => {
     ).toBe('Am I on the ballot?')
   })
 
+  // A case that put the agent somewhere other than its scope's default says
+  // so to the judge, and a one-turn case still reads as its question.
+  it('names the account state a case opened the chat in', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['Why this recommendation?'],
+          accountState: { briefingHighlight: true },
+        },
+      }),
+    ).toBe(
+      'Why this recommendation?\n\nCondition: account state ' +
+        'briefingHighlight=true.',
+    )
+  })
+
   // A shape this build does not recognise is still the input both arms were
   // given. Refusing to render it would turn an unreadable label into a lost
   // comparison.

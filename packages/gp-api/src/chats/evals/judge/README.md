@@ -310,7 +310,7 @@ An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
 file here plus a registry line, and no code.
 
-Twenty agents have one. All five chat scopes that have a
+All twenty judgeable agents have one. All five chat scopes that have a
 `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
 `ordinance_flow`, `priority_flow`, `briefing_annotation` — and fifteen
 background experiments. Nine
@@ -328,18 +328,6 @@ One entry is left: `compliance_setup` carries `cases: null` and is
 bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
-
-**Four chat agents are blocked for now, and keep their lists.**
-`campaign_assistant`, `ordinance_flow`, `priority_flow` and
-`briefing_annotation` are blocked in `agents.ts` with the reason "Not yet
-driven against a deployment": a chat arm drives a deployed gp-api and sets a
-case's state up through the product's own routes, and so far
-`runners/judgeAccount.ts` does that for `chief_of_staff` only. Blocked, they
-are named in the plan with that reason, priced at nothing, skipped by name
-on both arms before any HTTP call, and left out of the coverage
-denominator. Their lists still validate, and their `note` fields still
-describe the in-app seed they were written against until they are driven
-here.
 
 **All but ten are `placeholder: true`.** The exceptions are
 `race_opponent_summary.json`, a real bench of eight probes and a control,
@@ -379,9 +367,20 @@ through the deployment's own routes and nothing else:
    instance's 100 requests per 10 seconds, which e2e runs share. Every Clerk
    user is deleted when the arm ends, best effort; the gp-api rows stay on
    the deployment as test-user data.
-2. `POST /v1/elected-office` with a `customPositionName` of Council Member,
-   and nothing else. That is all `chief_of_staff` needs, and the only scope
-   set up here so far.
+2. Per scope:
+   - `chief_of_staff`: `POST /v1/elected-office` with a `customPositionName`
+     of Council Member, and nothing else.
+   - `priority_flow`: the office, then `POST /v1/priorities`, and the chat is
+     anchored on that priority.
+   - `ordinance_flow`: the office, then `POST /v1/ordinances` (a new
+     ordinance), and the chat is anchored on it at `clarify`, the step a new
+     ordinance starts on.
+   - `briefing_annotation`: the office, a briefing through
+     `POST /v1/meetings/briefings/seed`, one note on it through
+     `POST /v1/meetings/:date/briefing/annotations`, then the chat (below).
+   - `campaign_assistant`: `POST /v1/campaigns` with fixed `details` carrying
+     the race id the sweep resolved as `JUDGE_FIXTURE_RACE_ID`, when it
+     resolved one, then `POST /v1/campaigns/mine/test-set-pro`.
 
 **What the routes cannot reproduce**, compared with the in-process seed this
 replaced:
@@ -389,24 +388,47 @@ replaced:
 - **No position or district.** A self-service office has no BallotReady
   position, so `organization.positionId` is null and no district resolves.
   The contact tools answer with a district error and the constituent-data
-  tools stay unregistered, as they were in CI before for lack of a
-  Databricks credential. It is also why making the office dispatches no
+  tools stay unregistered on every scope, as they were in CI before for lack
+  of a Databricks credential. It is also why making the office dispatches no
   background agent: the meeting, community-issue and ordinance dispatches
   that fire on a new office all need a state, and a custom position has
   none.
+- **No `OrdinanceCodeRecord`.** No user route writes one, so
+  `ordinance_flow` does not know its jurisdiction and `get_code_source`
+  answers `no_record`.
+- **No pinned `today` on briefing chat.** The prompt renders
+  `todayInTimezone(meetingTimezone)`, so two arms captured either side of
+  midnight in New York read two different days.
+- **Not the exact Hendersonville artifact.** The seed route takes at most
+  five items, each a title, a summary, a budget line and three talking
+  points, and builds its own artifact around them. `JUDGE_BRIEFING_SEED`
+  ports the Hendersonville meeting into four items with a fixed meeting date.
+- **No raceId when the sweep resolved none**, so `get_ballot_requirements`
+  does not register on `campaign_assistant` that sweep.
 
-Nothing here seeds contacts, priorities or community issues.
+Nothing here seeds contacts or community issues.
+
+**Briefing chat is opened the way the webapp opens it.** Its conversation is
+created with its annotation by `POST /v1/briefing-chats {meetingDate,
+anchor}`, and each turn goes to `/v1/briefing-chats/:annotationId/messages`.
+The registry's `POST /v1/chats` refuses the scope on purpose. Each case has
+its own account and its own office, so the route's lookup by meeting date and
+the caller's office finds that case's briefing and nothing else. The chat
+opens on the whole briefing, or, for a case whose `accountState` sets
+`briefingHighlight`, on one passage: `JUDGE_HIGHLIGHT_ANCHOR`, a JSON pointer
+into the artifact the seed route builds.
 
 **What a chat record is built from.** Each turn is posted and its SSE stream
 read to the end (a request timeout of 330s, above the route's own 300s). The
 `tool_call` frames are the trace and the tool-call count. A tool that failed
 streams a `tool_call` and never a `tool_result`, so a call whose
-`toolCallId` got no result when the turn ends is a tool error, recorded in `toolErrorDetails` with the
-error class `unrecorded`, because the error text does not cross the wire.
+`toolCallId` got no result when the turn ends is a tool error, recorded in
+`toolErrorDetails` with the error class `unrecorded`, because the error text
+does not cross the wire.
 Native web search is run by the provider, which may stream no result for it,
 so it is never counted as one; calling it sets `liveWeb`. After each turn the
-runner reads the conversation back (`GET /v1/chats/:id`) for the persisted
-assistant text, by
+runner reads the conversation back (`GET /v1/chats/:id` or
+`GET /v1/briefing-chats/:annotationId`) for the persisted assistant text, by
 the id the `done` frame names, and for the conversation's `usage` (see the
 cost section). `variant.commit` is what `GET /v1/version` served, and
 `configDigest` is `deploy:<that commit>`: the rendered prompt is not on the
@@ -480,9 +502,15 @@ same thing, and a case must carry exactly one of the two.
 
 `priorTranscript` and `toolFailure` are gone: a black-box arm can neither
 write an assistant turn nor make a tool fail, so a list carrying either is
-refused at load. `accountState` still parses, because `briefing_annotation`'s
-list uses it, but no arm sets it up yet: `captureArm.ts` refuses a case
-carrying one before it makes an account.
+refused at load. `accountState` is a closed set of what an arm can make
+through the routes, which today is one key, `briefingHighlight`: a
+`briefing_annotation` case that sets it is opened on a highlighted passage
+instead of the whole briefing. The other keys the in-process seed honoured
+(`pro`, `district`, `campaignDetails`, `ordinanceStep`) are refused at load.
+A case carrying an account state records it in its input, so the judge reads
+`Condition: account state briefingHighlight=true.` and two arms that read the
+list differently do not compare. `captureArm.ts` refuses one on any other
+agent.
 
 **The case object is `.strict()`, and that is not the same as requiring
 anything.** Both spellings are optional, which is what an older base ref
@@ -1207,7 +1235,8 @@ stored comparison. Switching caching on therefore fails loudly and needs
 rates added to `pricing.ts`.
 
 A chat record's counts come from the conversation's `usage`, which
-`GET /v1/chats/:conversationId` returns beside the messages:
+`GET /v1/chats/:conversationId` and `GET /v1/briefing-chats/:annotationId`
+return beside the messages:
 `{ complete, byModel: [{ model, inputTokens, outputTokens }] }`
 (`ChatConversationUsageSchema` in `@goodparty_org/contracts`), summed over
 every assistant message by the model that answered, and written before the
@@ -1218,7 +1247,9 @@ the tokens are its counts (cache counts zero) and the cost comes from
 `priceUsd`. Otherwise the tokens are zero, the cost is absent, the trace says
 why, and `variant.model` is the one model if there was one and `unobserved`
 if not. A deployment that predates the field reports nothing, and the run is
-recorded as unmeasured.
+recorded as unmeasured. `campaign_assistant`'s scripted opener is an
+assistant message written without a model call; it is recorded with zero
+tokens and no model, so it neither breaks `complete` nor adds a model.
 
 A background record's counts come from the `type: result` line of the run's
 `conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,

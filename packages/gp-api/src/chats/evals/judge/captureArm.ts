@@ -223,10 +223,13 @@ const main = async (): Promise<number> => {
                 'background case and not a chat one',
             )
           }
-          if (request.case.accountState !== undefined) {
+          if (
+            request.case.accountState !== undefined &&
+            request.agent.agentId !== 'briefing_annotation'
+          ) {
             throw new Error(
-              `${request.case.caseId} sets accountState, which no chat ` +
-                'arm sets up against a deployment yet',
+              `${request.case.caseId} sets accountState, which only a ` +
+                'briefing_annotation case can be opened in',
             )
           }
           if (baseUrl === undefined || clerkSecret === undefined) {
@@ -237,8 +240,11 @@ const main = async (): Promise<number> => {
           const chatAccounts = (pool.accounts ??= judgeAccounts(
             { baseUrl },
             clerkPortFrom(clerkSecret),
+            env.fixtureValues.raceId,
           ))
           const agentId = request.agent.agentId
+          const briefingHighlight =
+            request.case.accountState?.briefingHighlight === true
           return runChatHttpCase({
             agentId,
             case: request.case,
@@ -247,7 +253,8 @@ const main = async (): Promise<number> => {
             attempt: request.attempt,
             ref: request.variant.ref,
             baseUrl,
-            account: () => chatAccounts.provision(agentId),
+            account: () =>
+              chatAccounts.provision(agentId, { briefingHighlight }),
             ...(ci && { ci }),
           })
         },

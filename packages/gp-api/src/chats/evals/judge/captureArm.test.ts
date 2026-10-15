@@ -192,48 +192,4 @@ describe('captureArm.ts, run', () => {
       'chief_of_staff',
     ])
   }, 120_000)
-
-  // Spending, with a deployment and a Clerk key that answer nothing: the
-  // refusal is by name, so the arm never reaches either.
-  it('skips a chat agent not yet driven against a deployment', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'judge-capture-'))
-    const sha = 'b'.repeat(40)
-    const output = execFileSync(
-      'npx',
-      ['tsx', path.join(__dirname, 'captureArm.ts')],
-      {
-        cwd: path.resolve(__dirname, '../../../..'),
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          JUDGE_ARM: 'candidate',
-          JUDGE_SWEEP_ID: 'unready-1',
-          JUDGE_AGENTS: 'priority_flow',
-          JUDGE_BASE_REF: 'main',
-          JUDGE_CANDIDATE_SHA: sha,
-          JUDGE_ARM_COMMIT: sha,
-          JUDGE_RECORDS_DIR: dir,
-          JUDGE_SPEND: 'true',
-          JUDGE_CANDIDATE_API_URL: 'http://127.0.0.1:9',
-          JUDGE_CLERK_SECRET_KEY: 'sk_test_unused',
-        },
-      },
-    )
-    expect(output).toMatch(
-      /skipped priority_flow: Not yet driven against a deployment/,
-    )
-    const manifest = ArmManifestSchema.parse(
-      JSON.parse(
-        await readFile(
-          path.join(dir, '_judge', 'unready-1', 'manifests', 'candidate.json'),
-          'utf8',
-        ),
-      ),
-    )
-    expect(manifest.agents).toEqual([])
-    expect(manifest.skipped.map((skip) => skip.agentId)).toEqual([
-      'priority_flow',
-    ])
-  }, 120_000)
 })

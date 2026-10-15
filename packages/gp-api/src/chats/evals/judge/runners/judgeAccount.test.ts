@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest'
+import { createBriefingChatSchema } from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
+import { extractHighlight } from '@/chats/briefing-chats/services/extractHighlight'
 import { CreateElectedOfficeSchema } from '@/electedOffice/schemas/electedOffice.schema'
+import { BriefingSeedRequestSchema } from '@/meetings/schemas/briefingSeed.schema'
+import {
+  AnnotationKind,
+  AnnotationResourceType,
+  type Annotation,
+} from '@/generated/prisma'
+import {
+  ChatAnchorSchema,
+  CreateAnnotationRequestSchema,
+  CreateOrdinanceRequestSchema,
+  CreatePriorityInputSchema,
+} from '@goodparty_org/contracts'
 import { isTestUser } from '@/users/util/users.util'
 import {
+  JUDGE_BRIEFING_SEED,
+  JUDGE_HIGHLIGHT_ANCHOR,
+  JUDGE_NOTE,
   judgeAccountEmail,
   judgeAccounts,
   type ClerkPort,
@@ -40,6 +57,22 @@ const fakeApi = (status: (path: string) => number = () => 200) => {
     if (path === '/v1/elected-office') {
       return answer({ id: 'eo1', organizationSlug: 'eo-eo1' })
     }
+    if (path === '/v1/campaigns') {
+      return answer({ id: 7, organizationSlug: 'campaign-7' })
+    }
+    if (path === '/v1/ordinances') return answer({ id: 'o1', slug: 'bikes' })
+    if (path === '/v1/priorities') return answer({ id: 'p1' })
+    if (path === '/v1/campaigns/mine/test-set-pro') {
+      return answer({ isPro: true })
+    }
+    if (path.endsWith('/briefing/annotations')) return answer({ id: 'n1' })
+    if (path === '/v1/meetings/briefings/seed') {
+      return answer({
+        briefingId: 'b1',
+        meetingDate: '2026-05-19',
+        itemIds: [],
+      })
+    }
     return answer({})
   }
   return { calls, fetchImpl }
@@ -70,7 +103,7 @@ const http = (fetchImpl: typeof fetch) => ({
 })
 
 describe('judgeAccountEmail', () => {
-  it("passes gp-api's test-user rule", () => {
+  it("passes gp-api's test-user rule, which test-set-pro requires", () => {
     expect(isTestUser({ email: judgeAccountEmail() })).toBe(true)
   })
 })
@@ -97,6 +130,150 @@ describe('judgeAccounts', () => {
     ).toBe(true)
   })
 
+  it('makes campaign_assistant a Pro campaign carrying the race', async () => {
+    const api = fakeApi()
+    const account = await judgeAccounts(
+      http(api.fetchImpl),
+      fakeClerk().port,
+      'br-race-1',
+    ).provision('campaign_assistant')
+    expect(account.organizationSlug).toBe('campaign-7')
+    const [, campaign, pro] = api.calls
+    expect(campaign?.path).toBe('/v1/campaigns')
+    expect(campaign?.body).toMatchObject({ details: { raceId: 'br-race-1' } })
+    expect(pro).toMatchObject({
+      path: '/v1/campaigns/mine/test-set-pro',
+      slug: 'campaign-7',
+    })
+  })
+
+  it('anchors ordinance_flow on a new ordinance at clarify', async () => {
+    const api = fakeApi()
+    const account = await judgeAccounts(
+      http(api.fetchImpl),
+      fakeClerk().port,
+    ).provision('ordinance_flow')
+    expect(account.anchor).toMatchObject({
+      resourceType: 'ordinance',
+      resourceId: 'o1',
+      step: 'clarify',
+    })
+    expect(api.calls.at(-1)).toMatchObject({
+      path: '/v1/ordinances',
+      slug: 'eo-eo1',
+    })
+    expect(
+      CreateOrdinanceRequestSchema.safeParse(api.calls.at(-1)?.body).success,
+    ).toBe(true)
+    expect(ChatAnchorSchema.safeParse(account.anchor).success).toBe(true)
+  })
+
+  it('anchors priority_flow on a priority of its office', async () => {
+    const api = fakeApi()
+    const account = await judgeAccounts(
+      http(api.fetchImpl),
+      fakeClerk().port,
+    ).provision('priority_flow')
+    expect(account.anchor).toMatchObject({
+      resourceType: 'priority',
+      resourceId: 'p1',
+    })
+    expect(
+      CreatePriorityInputSchema.safeParse(api.calls.at(-1)?.body).success,
+    ).toBe(true)
+    expect(ChatAnchorSchema.safeParse(account.anchor).success).toBe(true)
+  })
+
+  it('seeds a briefing and one note for briefing_annotation', async () => {
+    const api = fakeApi()
+    const account = await judgeAccounts(
+      http(api.fetchImpl),
+      fakeClerk().port,
+    ).provision('briefing_annotation')
+    expect(account.briefing).toEqual({
+      meetingDate: '2026-05-19',
+      anchor: { jsonPath: null, start: null, end: null },
+    })
+    expect(api.calls.map((call) => call.path).slice(2)).toEqual([
+      '/v1/meetings/briefings/seed',
+      '/v1/meetings/2026-05-19/briefing/annotations',
+    ])
+    expect(createBriefingChatSchema.safeParse(account.briefing).success).toBe(
+      true,
+    )
+  })
+
+  it('opens a highlight case on the highlighted passage', async () => {
+    const account = await judgeAccounts(
+      http(fakeApi().fetchImpl),
+      fakeClerk().port,
+    ).provision('briefing_annotation', { briefingHighlight: true })
+    expect(account.briefing?.anchor).toEqual(JUDGE_HIGHLIGHT_ANCHOR)
+    expect(createBriefingChatSchema.safeParse(account.briefing).success).toBe(
+      true,
+    )
+  })
+
+  // The anchors are JSON pointers into the artifact the seed route builds,
+  // which puts an item's summary at `display/summary` and its talking points
+  // at `display/talking_points`. Read here the way the briefing chat reads a
+  // highlight, so a pointer or an offset that drifts fails by name.
+  it('points the highlight and the note at the words they name', () => {
+    const artifact = JSON.stringify({
+      items: JUDGE_BRIEFING_SEED.items.map((item) => ({
+        display: {
+          summary: item.summary,
+          talking_points: item.talkingPoints ?? null,
+        },
+      })),
+    })
+    const read = (
+      jsonPath: string | null,
+      start: number | null,
+      end: number | null,
+    ): string | undefined => {
+      const annotation: Annotation = {
+        id: 'a1',
+        authorUserId: 1,
+        kind: AnnotationKind.chat,
+        resourceId: 'b1',
+        resourceType: AnnotationResourceType.briefing,
+        jsonPath,
+        start,
+        end,
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+        noteId: null,
+        chatConversationId: null,
+        annotationBugReportId: null,
+        annotationReviewId: null,
+      }
+      return extractHighlight(artifact, annotation)?.text
+    }
+    const { jsonPath, start, end } = JUDGE_HIGHLIGHT_ANCHOR
+    expect(read(jsonPath, start, end)).toBe('Approve with the sunset clause.')
+    expect(
+      read(
+        JUDGE_NOTE.anchor.json_path,
+        JUDGE_NOTE.anchor.start,
+        JUDGE_NOTE.anchor.end,
+      ),
+    ).toBe('$24M revenue bond rating review')
+  })
+
+  it('sends a briefing and a note the routes accept', () => {
+    expect(
+      BriefingSeedRequestSchema.safeParse(JUDGE_BRIEFING_SEED).success,
+    ).toBe(true)
+    expect(CreateAnnotationRequestSchema.safeParse(JUDGE_NOTE).success).toBe(
+      true,
+    )
+    const summary = JUDGE_BRIEFING_SEED.items[1]?.summary ?? ''
+    expect(summary.slice(JUDGE_NOTE.anchor.start, JUDGE_NOTE.anchor.end)).toBe(
+      '$24M revenue bond rating review',
+    )
+  })
+
   it('waits out a cold deployment on the first call', async () => {
     let first = true
     const api = fakeApi((path) => {
@@ -117,22 +294,12 @@ describe('judgeAccounts', () => {
   })
 
   it('names the route that refused a setup call', async () => {
-    const api = fakeApi((path) => (path === '/v1/elected-office' ? 403 : 200))
+    const api = fakeApi((path) => (path === '/v1/priorities' ? 403 : 200))
     await expect(
       judgeAccounts(http(api.fetchImpl), fakeClerk().port).provision(
-        'chief_of_staff',
-      ),
-    ).rejects.toThrow(/POST \/v1\/elected-office returned 403/)
-  })
-
-  it('refuses a chat agent it sets no state up for, before making a user', async () => {
-    const clerk = fakeClerk()
-    await expect(
-      judgeAccounts(http(fakeApi().fetchImpl), clerk.port).provision(
         'priority_flow',
       ),
-    ).rejects.toThrow(/not a chat scope the runner can drive/)
-    expect(clerk.created).toEqual([])
+    ).rejects.toThrow(/POST \/v1\/priorities returned 403/)
   })
 
   it('refuses an agent that is not a chat scope before making a user', async () => {

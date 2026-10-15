@@ -1836,7 +1836,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   // branch's planCost.ts charges an unmeasured agent.
   it('prices a plan from an older CLI at the worst case', () => {
     const worst = (id: string) => {
-      const agent = AGENTS.find((one) => one.agentId === id)
+      const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
     expect(worst('ordinance_flow')).toBe(3750)

@@ -100,20 +100,9 @@ const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
 }
 
 // Keyed by the id union too, so dropping a scope from CHAT_AGENT_IDS without
-// dropping its reason is a typecheck failure. A chat arm drives a deployed
-// gp-api and sets each case's state up through the product's own routes;
-// only chief_of_staff has that set-up so far, so the other four are refused
-// by name in the plan and on both arms before anything is spent.
-const NOT_YET_DRIVEN =
-  'Not yet driven against a deployment: runners/judgeAccount.ts does not ' +
-  "set this scope's state up through the product routes yet."
-
-const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
-  campaign_assistant: NOT_YET_DRIVEN,
-  ordinance_flow: NOT_YET_DRIVEN,
-  priority_flow: NOT_YET_DRIVEN,
-  briefing_annotation: NOT_YET_DRIVEN,
-}
+// dropping its reason is a typecheck failure. Empty today: every chat scope
+// can be driven.
+const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {}
 
 const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
   const blockedReason = CHAT_BLOCKED_REASONS[agentId]
