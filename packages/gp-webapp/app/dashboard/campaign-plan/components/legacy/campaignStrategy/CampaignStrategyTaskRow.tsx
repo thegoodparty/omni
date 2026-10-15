@@ -15,8 +15,16 @@ import {
   MegaphoneIcon,
   MessageSquareIcon,
   PhoneIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
 } from '@styleguide'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -73,6 +81,8 @@ const CampaignStrategyTaskRow = ({
   const formattedDate = formatTaskDate(task.date)
   const Icon = CHANNEL_ICONS[task.channel]
   const composeChannel = isComposeChannel(task.channel) ? task.channel : null
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const textClosed = composeChannel === 'text' && smsCompliance === 'closed'
 
   const markerClassName = cn(
     'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
@@ -153,17 +163,45 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
-        {!task.href && !task.completed && onStartOutreach && composeChannel && (
-          <Button
-            type="button"
-            variant="link"
-            size="small"
-            className="text-primary h-auto p-0"
-            onClick={() => onStartOutreach(composeChannel, task.date, task.id)}
-          >
-            Start outreach
-          </Button>
+        {!task.href && !task.completed && onStartOutreach && textClosed && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="w-fit">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="small"
+                  className="h-auto p-0"
+                  disabled
+                >
+                  Start outreach
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {SMS_CUTOFF_COPY.closedReason(
+                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+              )}
+            </TooltipContent>
+          </Tooltip>
         )}
+        {!task.href &&
+          !task.completed &&
+          onStartOutreach &&
+          composeChannel &&
+          !textClosed && (
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="text-primary h-auto p-0"
+              onClick={() =>
+                onStartOutreach(composeChannel, task.date, task.id)
+              }
+            >
+              Start outreach
+            </Button>
+          )}
         {task.href && (
           <Button
             asChild

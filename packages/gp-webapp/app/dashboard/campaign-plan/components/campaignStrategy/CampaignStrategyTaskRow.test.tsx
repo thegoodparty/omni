@@ -6,6 +6,19 @@ import CampaignStrategyTaskRow, {
   formatTaskDate,
 } from './CampaignStrategyTaskRow'
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 describe('formatTaskDate', () => {
   // The catalog fallback passes date-only strings; the tracker passes the API's
   // full ISO datetime. Both must format without throwing (the full ISO form
@@ -421,5 +434,84 @@ describe('a done task’s row', () => {
     expect(screen.getByText('Done')).toBeInTheDocument()
     expect(screen.queryByText(/Due /)).not.toBeInTheDocument()
     expect(screen.getByText('Get your EIN')).not.toHaveClass('line-through')
+  })
+})
+
+describe('a text task once texting is closed', () => {
+  const textTask = {
+    id: 't9',
+    title: 'Send an introduction text',
+    description: 'Introduce yourself to voters with cellphones.',
+    channel: 'text',
+    date: '2099-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: true,
+    completed: false,
+    setAside: null,
+  } as const
+  const getAction = () => ({
+    label: 'Send a text',
+    href: '/dashboard/outreach?compose=text',
+    external: false,
+  })
+
+  it('drops the way into the text flow and says why on hover', async () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={textTask}
+          getAction={getAction}
+          onStartOutreach={vi.fn()}
+          onToggleComplete={vi.fn()}
+        />
+      </ul>,
+    )
+    const user = userEvent.setup()
+    const closed = screen.getByText('Texting closed')
+    expect(closed.closest('[aria-disabled="true"]')).not.toBeNull()
+    await user.hover(closed)
+    expect(
+      (await screen.findAllByText(/deadline to get verified for texting/))
+        .length,
+    ).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Mark done' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Send a text' })).toBeNull()
+    expect(
+      screen.queryByRole('menuitem', { name: /start outreach/i }),
+    ).toBeNull()
+  })
+
+  it('keeps the text action while texting is open', async () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    }
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={textTask} getAction={getAction} />
+      </ul>,
+    )
+    expect(screen.queryByText('Texting closed')).toBeNull()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Send a text' }),
+    ).toBeInTheDocument()
   })
 })

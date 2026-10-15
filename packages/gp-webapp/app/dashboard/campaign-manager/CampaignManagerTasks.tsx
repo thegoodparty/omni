@@ -17,6 +17,11 @@ import {
   type ComposeFlowType,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
@@ -103,6 +108,7 @@ export default function CampaignManagerTasks({
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
 
   // The same completion path and events as Home's next-task card, so both
   // arms of `next-task-experience` report completions in one series.
@@ -156,6 +162,29 @@ export default function CampaignManagerTasks({
           <div className="flex flex-col gap-4">
             {top.map((task, index) => {
               const composeType = composeFlowType(task)
+              // gp-api swaps text sends out once texting closes; a text task
+              // still here gets no way into the text flow, just the reason.
+              // TaskCard has no disabled CTA, so the reason is a meta line.
+              if (composeType === 'text' && smsCompliance === 'closed') {
+                return (
+                  <TaskCard
+                    key={task.id}
+                    overlineLabel={taskLabel(task.flowType)}
+                    title={task.title}
+                    meta={[
+                      formatDue(task.date),
+                      SMS_CUTOFF_COPY.closedReason(
+                        smsCutoffDate
+                          ? formatSmsCutoffDate(smsCutoffDate)
+                          : null,
+                      ),
+                    ]}
+                    summary={task.description || undefined}
+                    onComplete={() => onToggleComplete(task.id, true)}
+                    gradient={index === 0}
+                  />
+                )
+              }
               // With its own action link, "Open" it (like the tracker);
               // text/robocall start the outreach flow; otherwise route to
               // the tracker to act on it there.
