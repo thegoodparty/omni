@@ -262,5 +262,11 @@ export const getHistoryStatusLabel = (
       return 'In progress'
     }
   }
+  // A paid poll is HELD for staff approval, so `pending` stays "In review" (the
+  // map's word, and what the official was told at checkout). Once approved it
+  // is delivered and collecting replies, which "Scheduled" would misname.
+  if (row.outreachType === 'poll' && status === 'in_progress') {
+    return 'In progress'
+  }
   return nonP2pStatusLabels[status]
 }

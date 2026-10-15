@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Card,
   cn,
@@ -71,6 +72,10 @@ export interface OutreachAudienceCopy {
 interface OutreachAudienceStepProps {
   channel: OutreachType
   copy: OutreachAudienceCopy
+  // A card the flow owns, rendered above the recommendations in picker mode.
+  // Polls put their random-sample option here: it is an audience that is not a
+  // saved list, so the list picker cannot express it.
+  leadCard?: ReactNode
   mode: OutreachAudienceMode
   lists: SegmentResponse[]
   listsLoading: boolean
@@ -179,6 +184,7 @@ const money = (n: number): string =>
 export const OutreachAudienceStep = ({
   channel,
   copy,
+  leadCard,
   mode,
   lists,
   listsLoading,
@@ -402,6 +408,8 @@ export const OutreachAudienceStep = ({
         title={copy.pickerTitle}
         body={copy.pickerBody}
       />
+
+      {leadCard}
 
       {(recommendationsLoading || recommendationsError || cards.length > 0) && (
         <div className="space-y-2">

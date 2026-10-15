@@ -367,3 +367,17 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
     ).toBe('Canceled')
   })
 })
+
+describe('getHistoryStatusLabel — a Serve poll', () => {
+  const pollRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 9, outreachType: 'poll', status }) as HistoryRow
+
+  it('reads In review while held, In progress once delivering', () => {
+    expect(getHistoryStatusLabel(pollRow('pending'), null, true)).toBe(
+      'In review',
+    )
+    expect(getHistoryStatusLabel(pollRow('in_progress'), null, true)).toBe(
+      'In progress',
+    )
+  })
+})
