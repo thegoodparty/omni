@@ -11,7 +11,7 @@ import {
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
 

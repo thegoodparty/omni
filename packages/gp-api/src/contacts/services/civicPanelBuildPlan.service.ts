@@ -27,7 +27,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
   areaAround,
@@ -54,13 +54,13 @@ const LIST_NAMES: Record<CivicPanelBuildChannel, string> = {
   door_knocking: 'Civic panel doors',
 }
 
-// The purpose the standard flow opens on. A text asks with the locked JOIN
-// line; a Serve call or door closes with the join question whatever its
-// purpose.
+// The purpose the standard flow opens on: every channel's civic panel
+// invite. A text asks with the locked JOIN line; a call or a door with the
+// join question the official records.
 const FLOW_PURPOSES: Record<CivicPanelBuildChannel, string> = {
   text: BUILD_CITIZENS_PANEL_PURPOSE,
-  phone_banking: 'introduce_myself',
-  door_knocking: 'introduce_myself',
+  phone_banking: BUILD_CITIZENS_PANEL_PURPOSE,
+  door_knocking: BUILD_CITIZENS_PANEL_PURPOSE,
 }
 
 const STEP_SELECT = {
@@ -111,7 +111,7 @@ const LINK_KEYS = [
 ] as const
 
 // Serve's plan to build the civic panel across texts, calls and doors, in
-// waves. The official answers one question (hours this month); every size
+// waves. The official answers one question (hours each week); every size
 // and every status follows from it and from what has actually been sent,
 // called and knocked. See the contacts AGENTS.md, "Building the panel across
 // channels".

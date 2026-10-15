@@ -9,6 +9,7 @@ import {
   type CivicPanelBuildPlan,
   type CivicPanelBuildPlanResponse,
   type CivicPanelBuildStep,
+  type PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import { Badge, Button, cn } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
@@ -22,6 +23,7 @@ import {
   SERVE_SMS_SURFACE,
   SmsFlow,
 } from 'app/dashboard/outreach/v2/sms/SmsFlow'
+import { walkableAreaParam } from 'app/dashboard/door-knocking/native/walkableAreaParam'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 
 type Opened =
@@ -72,10 +74,24 @@ const keepGoingHref = (step: CivicPanelBuildStep): string | null => {
   return null
 }
 
+// The door knocking create flow on the step's list and purpose, with the
+// walkable area it drew as the turf's boundary.
+const doorFlowHref = (data: PrepareCivicPanelBuildStepResponse): string => {
+  const params = new URLSearchParams({
+    create: '1',
+    listId: String(data.voterFileFilterId),
+    purpose: data.purpose,
+  })
+  const area = data.area ? walkableAreaParam(data.area) : null
+  if (area) params.set('area', area)
+  return `/dashboard/door-knocking?${params.toString()}`
+}
+
 /**
  * The plan's steps, the current wave first. A step nobody started opens the
- * standard flow for its channel on the list it drew: texts and calls in
- * place over the page, doors on the door knocking page.
+ * standard flow for its channel on the list it drew, at the message, with
+ * its civic panel invite drafting: texts and calls in place over the page,
+ * doors on the door knocking page with the walkable area as the boundary.
  */
 export const CivicPanelPlanSteps = ({
   plan,
@@ -123,9 +139,7 @@ export const CivicPanelPlanSteps = ({
         { id: step.id },
       )
       if (data.channel === 'door_knocking') {
-        router.push(
-          `/dashboard/door-knocking?create=1&listId=${data.voterFileFilterId}`,
-        )
+        router.push(doorFlowHref(data))
         return
       }
       const smsPurpose = SERVE_SMS_PURPOSE_VALUES.find(

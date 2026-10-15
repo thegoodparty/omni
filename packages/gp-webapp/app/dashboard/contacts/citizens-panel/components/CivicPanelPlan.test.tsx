@@ -379,7 +379,7 @@ describe('starting a step', () => {
     expect(flow).toHaveAttribute('data-settled', 'true')
   })
 
-  it('opens phone banking on the call list', async () => {
+  it('opens phone banking on the call list with the panel invite', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', {
       status: 200,
@@ -387,7 +387,7 @@ describe('starting a step', () => {
         stepId: 'step-calls',
         channel: 'phone_banking',
         voterFileFilterId: 8,
-        purpose: 'introduce_myself',
+        purpose: 'build_citizens_panel',
         size: 30,
         area: null,
       },
@@ -398,10 +398,10 @@ describe('starting a step', () => {
 
     const flow = await screen.findByTestId('phone-banking-flow')
     expect(flow).toHaveAttribute('data-list', '8')
-    expect(flow).toHaveAttribute('data-purpose', 'introduce_myself')
+    expect(flow).toHaveAttribute('data-purpose', 'build_citizens_panel')
   })
 
-  it('opens door knocking on the walkable area’s list', async () => {
+  it('opens door knocking on the walkable area, its list and the panel invite', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', {
       status: 200,
@@ -409,9 +409,20 @@ describe('starting a step', () => {
         stepId: 'step-doors',
         channel: 'door_knocking',
         voterFileFilterId: 9,
-        purpose: 'introduce_myself',
+        purpose: 'build_citizens_panel',
         size: 100,
-        area: null,
+        area: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-97.75, 30.25],
+              [-97.74, 30.25],
+              [-97.74, 30.26],
+              [-97.75, 30.26],
+              [-97.75, 30.25],
+            ],
+          ],
+        },
       },
     })
     renderPage(withPlan([TEXT, DOORS]))
@@ -422,7 +433,7 @@ describe('starting a step', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&area=-97.75%2C30.25%2C-97.74%2C30.26',
       ),
     )
   })

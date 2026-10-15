@@ -46,13 +46,16 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   ("Text 3,150 residents", "Call 30 residents", "Knock on 100 doors in a
   walkable area") and its status. A step nobody started has one action and
   Skip (`POST …/steps/:id/skip`). The action calls `prepare` and opens the
-  standard flow on the frozen list: a text opens `SmsFlow` (Serve surface,
-  `initialPurpose` `build_citizens_panel`, `preselectedListId`,
-  `audienceSettled`), which by `outreachLandingStep` lands on the audience
-  step with the list picked, since the message is still to write; calls
-  open `PhoneBankingFlow` with `initialPurpose` and the list; doors push
-  `/dashboard/door-knocking?create=1&listId=`. The door flow takes no area
-  yet, so the returned `area` is unused here. A call list or walk in
+  standard flow on the frozen list, every channel on `build_citizens_panel`
+  and, by `outreachLandingStep`, at the message with the invite drafting:
+  a text opens `SmsFlow` (Serve surface, `initialPurpose`,
+  `preselectedListId`, `audienceSettled`) on compose; calls open
+  `PhoneBankingFlow` with `initialPurpose` and the list, which moves on to
+  the script once the list resolves; doors push
+  `/dashboard/door-knocking?create=1&listId=&purpose=&area=`, where `area`
+  is the drawn area's bounding box (`walkableAreaParam`), so the create flow
+  lands on the talking points and its draw step opens with that box as the
+  first turf. Back walks every flow as usual. A call list or walk in
   progress links to its caller page or walk. With `serve-sms-outreach` off
   a text step says texting is not set up instead of offering the action.
   `?step=<id>` (the API's `next.href`) scrolls to that step and rings it.
