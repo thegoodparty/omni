@@ -108,6 +108,7 @@ const MEMO_SELECT = {
   transcript: true,
   issues: ISSUE_SELECT,
   confirmedAt: true,
+  extractionStatus: true,
   actor: { select: { firstName: true, lastName: true } },
 } as const satisfies Prisma.ConstituentFeedbackSelect
 
@@ -178,6 +179,7 @@ const replyMemo = (reply: ReplyRow): FeedbackReportMemo => ({
   id: reply.id,
   ...replyWords(reply),
   confirmedAt: reply.sentAt,
+  extractionStatus: null,
 })
 
 // Counts are computed here, on every read, from member rows whose memo is

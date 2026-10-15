@@ -338,6 +338,7 @@ describe('feedback synthesis on a text send', () => {
             issues: [],
             actorName: null,
             confirmedAt: replies[1]!.sentAt.toISOString(),
+            extractionStatus: null,
           },
           {
             id: replies[0]!.id,
@@ -348,6 +349,7 @@ describe('feedback synthesis on a text send', () => {
             issues: [],
             actorName: null,
             confirmedAt: replies[0]!.sentAt.toISOString(),
+            extractionStatus: null,
           },
         ],
       })

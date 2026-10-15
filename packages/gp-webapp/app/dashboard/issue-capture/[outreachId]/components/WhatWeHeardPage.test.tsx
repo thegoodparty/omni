@@ -76,6 +76,7 @@ const memo = (
   ],
   actorName: 'Kamal Al Sawafi',
   confirmedAt: new Date('2026-09-25T18:01:00.000Z'),
+  extractionStatus: 'extracted',
   ...fields,
 })
 

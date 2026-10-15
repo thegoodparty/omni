@@ -879,6 +879,7 @@ describe('feedback synthesis routes', () => {
           ],
           actorName: 'Johnny Goodparty',
           confirmedAt: null,
+          extractionStatus: 'extracted',
         },
         {
           id: older.memo.id,
@@ -897,6 +898,7 @@ describe('feedback synthesis routes', () => {
           ],
           actorName: 'Johnny Goodparty',
           confirmedAt: expect.any(String),
+          extractionStatus: 'extracted',
         },
       ])
     })

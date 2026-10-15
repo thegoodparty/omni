@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -1825,17 +1824,6 @@ export type APIEndpoints = {
   'POST /v1/constituent-feedback/audio-upload-url': {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
-  }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
   }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.
