@@ -67,6 +67,7 @@ import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedbac
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
@@ -136,6 +137,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly features?: FeaturesService,
     @Optional()
     private readonly reportBack?: OutreachReportBackService,
+    @Optional()
+    private readonly priorityResults?: PriorityResultsService,
   ) {}
 
   async loadContext(
@@ -184,6 +187,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
             ctx.electedOfficeId,
           )
         : undefined
+    const priorityReads =
+      outreachFeedbackEnabled && this.priorityResults
+        ? await this.priorityResults.readStatuses(
+            ctx.organizationSlug,
+            ctx.priorities.map((priority) => priority.id),
+          )
+        : undefined
     if (!resolved) {
       return {
         ...ctx,
@@ -191,6 +201,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         outreachFeedbackEnabled,
         civicPanel,
         reportBacks,
+        priorityReads,
       }
     }
     const districtFilters = this.districtResolver
@@ -204,6 +215,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       outreachFeedbackEnabled,
       civicPanel,
       reportBacks,
+      priorityReads,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,

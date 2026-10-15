@@ -125,6 +125,7 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
@@ -1330,6 +1331,12 @@ export type APIEndpoints = {
   'GET /v1/priorities/:id/results': {
     Request: {}
     Response: PriorityResults
+  }
+
+  // 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/read-status': {
+    Request: {}
+    Response: PriorityReadStatus
   }
 
   // A proposal key names the outreach a chat card WOULD create. A 404 is the

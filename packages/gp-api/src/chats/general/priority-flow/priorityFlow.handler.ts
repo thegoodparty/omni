@@ -22,6 +22,7 @@ import {
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
@@ -155,6 +156,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly features?: FeaturesService,
     @Optional()
     private readonly reportBack?: OutreachReportBackService,
+    @Optional()
+    private readonly priorityResults?: PriorityResultsService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -234,6 +237,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             { priorityId: ctx.priorityId },
           )
         : undefined
+    const readStatus =
+      outreachFeedbackEnabled && this.priorityResults
+        ? (
+            await this.priorityResults.readStatuses(ctx.organizationSlug, [
+              ctx.priorityId,
+            ])
+          ).get(ctx.priorityId)
+        : undefined
     if (!resolved) {
       return {
         ...ctx,
@@ -241,6 +252,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreachFeedbackEnabled,
         civicPanelMembers,
         reportBacks,
+        readStatus,
       }
     }
     return {
@@ -248,6 +260,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       outreachFeedbackEnabled,
       civicPanelMembers,
       reportBacks,
+      readStatus,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver

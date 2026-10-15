@@ -16,6 +16,6 @@ import { PriorityStatusService } from './services/priorityStatus.service'
     PriorityOnboardingService,
     PriorityResultsService,
   ],
-  exports: [PrioritiesService, PriorityStatusService],
+  exports: [PrioritiesService, PriorityStatusService, PriorityResultsService],
 })
 export class PrioritiesModule {}

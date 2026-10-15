@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common'
 import {
   OnboardingPriorityOptionsSchema,
+  PriorityReadStatusSchema,
   PriorityResultsSchema,
   PrioritySchema,
   parsePriorityStatus,
@@ -110,6 +111,21 @@ export class PrioritiesController {
     })
     if (!enabled) throw new NotFoundException()
     return this.priorityResults.resultsFor(electedOffice, id)
+  }
+
+  @Get(':id/read-status')
+  @ResponseSchema(PriorityReadStatusSchema)
+  async readStatus(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id }: PriorityIdParamDto,
+  ) {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    return this.priorityResults.readStatusFor(electedOffice, id)
   }
 
   @Get(':id')

@@ -475,6 +475,18 @@ export class DatabricksVoterService {
   // failure as "comparison unavailable" and answers 200, so the error-level
   // log and HTTP translation `run()` adds would be wrong here (see the census
   // lookup in findStats).
+  // The census lookup findStats runs, without the voter scan beside it.
+  // Throws on a warehouse failure; a district with no census row is null.
+  async findDistrictPopulation(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<number | null> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(buildDistrictCensusSql(district))
+    const raw = rows[0]?.[0]
+    return raw == null ? null : Math.round(Number(raw))
+  }
+
   async findCensusComposition(
     districtId: string,
     dataset: PeopleDataset,

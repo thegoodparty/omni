@@ -26,6 +26,12 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<CensusComposition>
+  // The district's census population, or null when it has no row or the
+  // warehouse could not be read.
+  population(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<number | null>
 }
 
 export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
@@ -36,6 +42,10 @@ export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 // zeros.
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
+  // A district's census figure does not change between reads, and the
+  // priority page and every priority turn ask for it. Failures are not kept.
+  private readonly populations = new Map<string, number | null>()
+
   constructor(
     private readonly stats: StatsService,
     private readonly logger: PinoLogger,
@@ -64,6 +74,28 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         'census composition read failed; comparison unavailable',
       )
       return { available: false }
+    }
+  }
+
+  async population(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<number | null> {
+    const key = `${input.dataset}:${input.districtId}`
+    if (this.populations.has(key)) return this.populations.get(key) ?? null
+    try {
+      const value = await this.stats.findDistrictPopulation(
+        input.districtId,
+        input.dataset,
+      )
+      this.populations.set(key, value)
+      return value
+    } catch (err) {
+      this.logger.warn(
+        { err, districtId: input.districtId },
+        'district population read failed; using the uncorrected answers needed',
+      )
+      return null
     }
   }
 }
