@@ -58,6 +58,15 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   keep "Mark done" all the same, since work started from the hub or done
   offline carries no task id. Only the story task, which the server ticks
   however the story gets finished, has none (`taskClosesItself`).
+- **Text tasks after the texting cutoff.** gp-api swaps open text sends for
+  robocalls once `smsCompliance` is `'closed'`, so none should reach the
+  page. One that still does (no own link, not done) keeps no way into the
+  text flow: the next-task card shows its "Send a text" button disabled with
+  `SMS_CUTOFF_COPY.closedReason` on hover, the row drops the action from its
+  menu and shows "Texting closed" with the reason on hover, and the legacy
+  row disables "Start outreach" the same way. The legacy Home list
+  (`campaign-manager/CampaignManagerTasks.tsx`) drops the card's CTA and
+  shows the reason as a meta line, since `TaskCard` has no disabled CTA.
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.
