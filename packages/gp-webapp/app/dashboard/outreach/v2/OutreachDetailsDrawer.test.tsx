@@ -624,6 +624,33 @@ describe('OutreachDetailsDrawer — draft rows', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('holds a closed texting draft disabled and explains why on hover', async () => {
+    const user = userEvent.setup()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'closed' })}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    const cta = await screen.findByRole('button', { name: 'Texting closed' })
+    expect(cta).toBeDisabled()
+
+    await user.hover(cta.parentElement!)
+
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(onResumeDraft).not.toHaveBeenCalled()
+  })
+
   it('holds the CTA disabled while verification is in review', async () => {
     render(
       <OutreachDetailsDrawer

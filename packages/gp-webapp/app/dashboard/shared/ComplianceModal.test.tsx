@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import { ComplianceModal } from './ComplianceModal'
 
 describe('ComplianceModal', () => {
@@ -145,5 +146,26 @@ describe('ComplianceModal', () => {
       'href',
       '/dashboard/profile/texting-compliance/election-filing',
     )
+  })
+
+  it('adds the cutoff date to the registration prompt while closing', () => {
+    render(
+      <ComplianceModal
+        open
+        tcrCompliance={null}
+        smsCompliance="closing"
+        smsCutoffDate="2026-10-15"
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText('Action required: register for texting compliance'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        `Get verified to send SMS by the ${formatSmsCutoffDate('2026-10-15')} deadline`,
+      ),
+    ).toBeInTheDocument()
   })
 })

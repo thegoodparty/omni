@@ -2,7 +2,13 @@
 
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
-import { VERIFICATION_INTRO_ROWS } from '../verificationCopy'
+import { CalendarClockIcon } from '@styleguide/components/ui/icons'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  SMS_CUTOFF_COPY,
+  VERIFICATION_INTRO_ROWS,
+  formatSmsCutoffDate,
+} from '../verificationCopy'
 
 interface VerificationIntroProps {
   onContinue: () => void
@@ -16,6 +22,7 @@ export const VerificationIntro = ({
   onContinue,
   onBack,
 }: VerificationIntroProps): React.JSX.Element => {
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <div className="mb-6 flex flex-col gap-2">
@@ -27,6 +34,14 @@ export const VerificationIntro = ({
           can go out.
         </p>
       </div>
+      {smsCompliance === 'closing' && smsCutoffDate && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl bg-warning-light px-4 py-2.5 text-sm text-warning-dark">
+          <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+          {SMS_CUTOFF_COPY.countdownDeadline(
+            formatSmsCutoffDate(smsCutoffDate),
+          )}
+        </div>
+      )}
       <ul className="overflow-hidden rounded-xl border border-base-border bg-card">
         {VERIFICATION_INTRO_ROWS.map(({ icon: Icon, title, body }) => (
           <li

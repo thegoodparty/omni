@@ -1,4 +1,4 @@
-import type { PinDelivery } from '@goodparty_org/contracts'
+import type { PinDelivery, SmsComplianceWindow } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import { isPinIssued } from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 
@@ -9,6 +9,7 @@ export type TextingState =
   | 'in_review'
   | 'awaiting_pin'
   | 'cleared'
+  | 'closed'
 
 export interface MembershipState {
   tier: MembershipTier
@@ -24,6 +25,7 @@ export interface MembershipInputs {
   hasPeerlyIdentity: boolean
   peerlyCvStatus: string | null
   pinDelivery: PinDelivery | null
+  smsCompliance: SmsComplianceWindow
 }
 
 // Mirrors the server's compliance stages without a second read of them: the
@@ -38,11 +40,17 @@ export const deriveMembershipState = ({
   hasPeerlyIdentity,
   peerlyCvStatus,
   pinDelivery,
+  smsCompliance,
 }: MembershipInputs): MembershipState => {
   const tier: MembershipTier = isPro || isElectedOffice ? 'pro' : 'free'
 
+  // gp-api reports 'closed' only for a campaign whose verification never
+  // started (no kickoff), so it wins over whatever the TCR record says: a
+  // record without a kickoff cannot clear before the election.
   let texting: TextingState = 'needs_verification'
-  if (tcrStatus === 'approved') {
+  if (smsCompliance === 'closed') {
+    texting = 'closed'
+  } else if (tcrStatus === 'approved') {
     texting = 'cleared'
   } else if (tcrStatus === 'pending') {
     texting = 'in_review'

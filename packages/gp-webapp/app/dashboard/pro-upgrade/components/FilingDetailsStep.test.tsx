@@ -920,7 +920,7 @@ describe('FilingDetailsStep (purchase-only)', () => {
     )
     // The form stays on screen until the wizard moves; a record that lands
     // mid-submit must not swap in the already-submitted notice.
-    expect(screen.queryByText('Submitted for verification')).toBeNull()
+    expect(screen.queryByText('Your details are saved')).toBeNull()
   })
 
   it('stays on the step when the submit fails', async () => {
@@ -979,16 +979,42 @@ describe('FilingDetailsStep (purchase-only)', () => {
 
   // createAgentic hands back an existing record unchanged, so a candidate
   // who submitted, left at payment and came back is not asked to retype it.
-  it('confirms an earlier submission instead of asking again', async () => {
+  // Verification only starts at payment, so the saved details are not yet
+  // "submitted for verification".
+  it('drops the verification line from saved details once texting has closed', async () => {
+    mockUseCampaign.mockReturnValue([
+      {
+        id: CAMPAIGN_ID,
+        details: { einNumber: CLEAN_EIN },
+        smsCompliance: 'closed',
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      } as never,
+    ])
     getTcrCompliance.mockResolvedValue({ status: 'submitted' })
     render(<FilingDetailsStep />)
 
     expect(
-      await screen.findByText('Submitted for verification'),
+      await screen.findByText('Your details are saved'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Your campaign has been submitted for verification.'),
+      screen.queryByText('Verification starts when you finish your upgrade.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('confirms saved details instead of asking again', async () => {
+    getTcrCompliance.mockResolvedValue({ status: 'submitted' })
+    render(<FilingDetailsStep />)
+
+    expect(
+      await screen.findByText('Your details are saved'),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Verification starts when you finish your upgrade.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Submitted for verification'),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText('What are your campaign filing details?'),
     ).not.toBeInTheDocument()

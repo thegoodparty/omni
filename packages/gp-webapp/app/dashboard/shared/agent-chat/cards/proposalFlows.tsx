@@ -28,6 +28,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   getTcrCompliance,
@@ -104,7 +105,8 @@ type ProposalFlows = {
   // and tell the agent.
   listen: (listener: SentListener) => () => void
   // Whether text can be opened here; while the SMS flag is off there is no
-  // text flow to open. On Win, whether the text gate has what it reads.
+  // text flow to open, and on Win none once the SMS compliance window has
+  // closed. textResolved: on Win, whether the text gate has what it reads.
   textAvailable: boolean
   textResolved: boolean
   // On Win, whether the campaign the Pro gate reads has loaded. The other
@@ -231,6 +233,10 @@ export const ProposalFlowsProvider = ({
   // Not the treatment surface: the outreach page's SMS card is.
   const sms = useServeSmsFlag(false)
   const winText = useWinOutreachGate(mode === 'win')
+  // useSmsCompliance reads 'open' until the campaign loads, so closed is
+  // already resolved.
+  const { smsCompliance } = useSmsCompliance()
+  const winSmsClosed = mode === 'win' && smsCompliance === 'closed'
   // The gate closes over the campaign and registration as of this render, so
   // `open` reads the latest one rather than changing identity every render.
   const winGateRun = useRef(winText.run)
@@ -408,8 +414,8 @@ export const ProposalFlowsProvider = ({
       mode,
       open,
       listen,
-      textAvailable: mode === 'win' || (sms.ready && sms.enabled),
-      textResolved: mode === 'win' ? winText.ready : sms.ready,
+      textAvailable: mode === 'win' ? !winSmsClosed : sms.ready && sms.enabled,
+      textResolved: mode === 'win' ? winSmsClosed || winText.ready : sms.ready,
       winResolved: winText.campaignReady,
     }),
     [
@@ -418,6 +424,7 @@ export const ProposalFlowsProvider = ({
       listen,
       sms.ready,
       sms.enabled,
+      winSmsClosed,
       winText.ready,
       winText.campaignReady,
     ],

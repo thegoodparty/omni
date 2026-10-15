@@ -38,7 +38,8 @@ the wizard now collects **all compliance data before the candidate pays**, so di
 on submit would provision a domain + website for an unpaid candidate. The fix:
 
 - **`createAgentic`** dispatches the kickoff inline **only when `campaign.isPro`** (a
-  post-payment resubmission). For a pre-payment submit it creates the row and **defers**.
+  post-payment resubmission) and the SMS compliance window is not closed (see
+  "SMS compliance cutoff" below). For a pre-payment submit it creates the row and **defers**.
 - **The payment webhook** (`payments/services/paymentEventsService.ts` →
   `handleSubscriptionCheckoutCompleted`) calls
   **`enqueueAgenticKickoffIfNeeded(campaignId)`** on `checkout.session.completed`, after
@@ -841,6 +842,25 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.
+- **SMS compliance cutoff.** `smsComplianceWindow` (`campaigns/util/eligibility.util.ts`)
+  closes texting setup 19 days before `details.electionDate`, at the end of the cutoff
+  day in Eastern time (`EASTERN_TIMEZONE`), unless the record has
+  `kickoffSentAt` (filed and paid in time, `not_applicable`). A record saved without
+  payment does not count. When closed, `createAgentic` still saves the filing details
+  and writes the record as usual (we keep collecting them), but for an already-Pro
+  campaign it skips the inline claim/enqueue, so the record has no `kickoffSentAt` and
+  the window stays `closed`. The legacy `POST /` (top of the controller, it calls Peerly
+  synchronously) 409s with `errorCode: 'SMS_COMPLIANCE_CUTOFF'`, and so does the agent's
+  `submit-to-peerly` (it only runs after a kickoff, so this is a backstop); the payment webhook
+  (`enqueueAgenticKickoffIfNeeded`) skips the kickoff; the stranded sweep skips with a
+  debug log; and a `PurchaseType.TEXT` checkout 409s in `outreachPurchase.service.ts`.
+  The non-sweep paths fire `10DLC - Compliance Submission Blocked` with `path`
+  `agentic | legacy | kickoff | submit_to_peerly` (`isPastSmsCutoff`); `agentic` fires
+  only for the already-Pro submit, since a free candidate's submit never kicks off. The sweep does not fire it because
+  it would repeat every 10 minutes per record. `internal-testing-approval` is exempt.
+  The window rides on `GET campaigns/mine`, `PUT campaigns/mine` (the Pro wizard
+  writes that response into its campaign cache) and both compliance-state routes;
+  the webapp reads it and never does its own date math.
 - **Non-prod short-circuit:** `submitCampaignVerifyToken` / Peerly approval are
   short-circuited when `OTEL_SERVICE_ENVIRONMENT !== 'prod'`, and `submit-cv-pin` accepts
   a bypass token — so testers can walk the flow without a real Peerly PIN. Status
