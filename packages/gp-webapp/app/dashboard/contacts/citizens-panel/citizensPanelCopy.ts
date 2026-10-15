@@ -13,7 +13,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   reachedRecently: 'Reached in the last 30 days',
   reachedRecentlyDetail: 'Texted, called or visited by your office.',
   askableNow: 'Can be asked now',
-  askableNowList: 'Make a list of who can be asked now',
   seePanel: 'See your panel',
   empty: 'Nobody has joined your civic panel yet.',
   emptyAction: 'Build it with texts, calls and door knocking.',
@@ -21,8 +20,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   loadError:
     "We couldn't load your civic panel. Refresh the page to try again.",
   backToContacts: 'Back to constituents',
-  pageCaption:
-    'How many people are on it, and how they compare with your district.',
   seeMembers: 'See members',
   listTitle: 'Civic panel',
   listFilter: 'On your civic panel.',
@@ -53,8 +50,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   planLoadError: "We couldn't load your plan. Refresh the page to try again.",
   planTitle: 'Your plan',
   planCaption: 'Each step invites residents to your civic panel.',
-  currentWave: 'Up now',
-  earlierWaves: 'Earlier',
   stepTitle: {
     text: (size: string) => `Text ${size} residents`,
     phone_banking: (size: string) => `Call ${size} residents`,
@@ -63,14 +58,35 @@ export const SERVE_CITIZENS_PANEL_COPY = {
         ? `Knock on ${size} doors in a second walkable area`
         : `Knock on ${size} doors in a walkable area`,
   },
-  stepStatus: {
-    not_started: 'Not started',
-    in_progress: 'In progress',
-    waiting_on_replies: (date: string | null) =>
-      date ? `Waiting on replies until ${date}` : 'Waiting on replies',
-    done: 'Done',
-    skipped: 'Skipped',
+  // One line under each step's title.
+  stepDetail: {
+    text: 'Residents with a cell phone, picked at random.',
+    phone_banking: (time: string) =>
+      `People a text can't reach, landlines first. ${time} of your time.`,
+    door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
   },
+  duration: (minutes: number) =>
+    minutes < 50
+      ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`
+      : minutes < 90
+        ? 'About an hour'
+        : `About ${Math.round(minutes / 60)} hours`,
+  textGoesOut: (date: string) => `Goes out ${date}.`,
+  calledSoFar: (called: string) => `Called ${called} so far.`,
+  knockedSoFar: (visited: string) => `Visited ${visited} residents so far.`,
+  sentRepliesBy: (sent: string, replies: string) =>
+    `Sent ${sent}. Replies come in by ${replies}.`,
+  sentJoined: (sent: string, joined: string) =>
+    `Sent ${sent}. ${joined} joined.`,
+  calledJoined: (called: string, joined: string) =>
+    `Called ${called}. ${joined} joined.`,
+  knockedJoined: (visited: string, joined: string) =>
+    `Visited ${visited} residents. ${joined} joined.`,
+  joined: (joined: string) => `${joined} joined.`,
+  markDone: 'Mark done',
+  markNotDone: 'Mark not done',
+  markError: "We couldn't change this step. Try again.",
+  getStarted: 'Get started',
   startStep: {
     text: 'Start the text',
     phone_banking: 'Start the calls',
@@ -85,17 +101,16 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   skipError: "We couldn't skip this step. Try again.",
   textingOff: "Texting isn't set up for your office yet.",
   callListName: 'Civic panel calls',
-  railTitle: 'Where your panel stands',
-  // In answers to one question, the panel's goal: what its members are
-  // expected to give against what a clear read needs.
-  answers: (expected: string, needed: string) =>
-    `Your panel can give about ${expected} of the ${needed} answers you need`,
-  answersReached: (needed: string) =>
-    `Your panel can give the ${needed} answers you need`,
-  memberCount: (members: number, formatted: string) =>
-    `${formatted} ${members === 1 ? 'member' : 'members'}`,
-  next: 'Next',
-  changeHours: 'Change your weekly time',
+  progressLabel: 'Members toward your goal',
+  ofGoal: (goal: string) => ` of ${goal} members`,
+  answersToday: (answers: string) =>
+    `About ${answers} answers per question today`,
+  // The goal in answers: members × the panel reply rate, as "4 in 10".
+  goalWhy: (inTen: number, goal: string, needed: string) =>
+    `About ${inTen} in 10 members answer each question, so ${goal} members gets you the ${needed} answers you need.`,
+  yourTime: 'Your time',
+  changeHours: 'Change',
+  changeHoursLabel: 'Change your weekly time',
   changeHoursCaption: 'Your next round of invites uses the new time.',
   saveHours: 'Save weekly time',
   cancel: 'Cancel',

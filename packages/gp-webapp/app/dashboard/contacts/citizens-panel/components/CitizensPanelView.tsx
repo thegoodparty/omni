@@ -21,8 +21,8 @@ import {
 import { CitizensPanelStats } from './CitizensPanelStats'
 import { CivicPanelPlanStart } from './CivicPanelPlanStart'
 import { CivicPanelPlanSteps } from './CivicPanelPlanSteps'
+import { CivicPanelProgress } from './CivicPanelProgress'
 import { CivicPanelRail } from './CivicPanelRail'
-import { newListHref } from '../../crm/wizard/newListPresets'
 
 export const CitizensPanelView = ({
   summary,
@@ -52,22 +52,23 @@ export const CitizensPanelView = ({
   const underGoal = progress.members < progress.goal
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 lg:p-6">
-      <div className="flex flex-col gap-1">
+    <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 p-4 sm:gap-6 lg:px-12 lg:py-8">
+      <div className="flex items-center gap-2.5 sm:gap-3">
         <Link
           href="/dashboard/contacts"
-          className="flex items-center gap-1 text-sm text-muted-foreground no-underline hover:underline"
+          aria-label={COPY.backToContacts}
+          className="flex px-1 py-2.5 text-foreground sm:p-0"
         >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-          {COPY.backToContacts}
+          <ArrowLeftIcon className="size-[22px]" aria-hidden />
         </Link>
-        <h1 className="text-xl font-semibold text-foreground">{COPY.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          {hasMembers ? COPY.pageCaption : COPY.caption}
-        </p>
+        <h1 className="text-[22px] font-bold text-foreground sm:text-[28px]">
+          {COPY.title}
+        </h1>
       </div>
 
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+      <CivicPanelProgress progress={progress} />
+
+      <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           {planState === null ? (
             <p className="text-sm text-muted-foreground">
@@ -90,13 +91,6 @@ export const CitizensPanelView = ({
                 <Button asChild variant="outline">
                   <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
                 </Button>
-                {summary.askableNow > 0 && (
-                  <Button asChild variant="outline">
-                    <Link href={newListHref('askableNow')}>
-                      {COPY.askableNowList}
-                    </Link>
-                  </Button>
-                )}
               </div>
               <section className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5">
                 <div>
@@ -132,16 +126,16 @@ export const CitizensPanelView = ({
           ) : null}
         </div>
 
-        {/* Above the plan on a phone, so the next thing to do comes first;
-            beside it from lg, like the priority page's rail. */}
-        <aside className="order-first w-full lg:order-none lg:w-80 lg:shrink-0">
-          <CivicPanelRail
-            progress={progress}
-            next={activePlan ? (planState?.next ?? null) : null}
-            hoursPerWeek={activePlan?.hoursPerWeek ?? null}
-            onPlan={setPlanState}
-          />
-        </aside>
+        {/* Beside the plan from lg, below it on a phone. Only a plan has a
+            weekly time to change. */}
+        {activePlan ? (
+          <aside className="w-full lg:w-[300px] lg:shrink-0">
+            <CivicPanelRail
+              hoursPerWeek={activePlan.hoursPerWeek}
+              onPlan={setPlanState}
+            />
+          </aside>
+        ) : null}
       </div>
     </div>
   )
