@@ -122,7 +122,8 @@ const civicPanelAnswer = (
 ): CallSheetAnswer | null => {
   if (!asksCivicPanel) return null
   if (outcome.kind === 'skip') return outcome
-  const answer = person.interaction?.joinCivicPanel
+  const answer =
+    person.interaction?.stayOnCivicPanel ?? person.interaction?.joinCivicPanel
   return answer
     ? { kind: 'logged', label: FOLLOW_UP_LABELS[answer] }
     : { kind: 'form' }

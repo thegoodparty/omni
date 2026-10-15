@@ -118,6 +118,15 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       })
       if (claim.count === 0) return false
 
+      // A poll's results page reads this to say what arrived since. Any
+      // other send has no OutreachPoll row, so this matches nothing.
+      if (run.scope === SynthesisScope.effort && run.outreachId !== null) {
+        await tx.outreachPoll.updateMany({
+          where: { outreachId: run.outreachId },
+          data: { lastAnalysisAt: completedAt },
+        })
+      }
+
       const applied: Array<{ feedbackId: string; tagId: string }> = []
       const pooled = run.scope === SynthesisScope.priority
       for (const { issue, members } of themes) {

@@ -719,6 +719,7 @@ export default function PhoneBankingCallerPage({
             if (!open) setActiveSelection(null)
           }}
           isServe={isServe}
+          civicPanelOnly={list.civicPanelOnly}
           callDrafts={callDrafts}
           onSaved={(results) => {
             // Whether THIS call is the one that finished the list. Read inside

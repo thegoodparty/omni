@@ -62,6 +62,7 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.
+- **The assets CDN keys its cache on `Origin`.** `components/assets-router.ts` uses its own cache policy (dev and prod alike) that puts `Origin` and the two `Access-Control-Request-*` headers in the cache key, plus all query strings. CloudFront ignores S3's `Vary: Origin`, so without it an `<img>` load cached a copy with no `Access-Control-Allow-Origin` and every later `fetch()` of that object from the app was blocked. Allowed origins live in the bucket CORS rules in `components/assets-bucket.ts`; an origin missing there gets no CORS headers however the CDN caches.
 - `pulumi/` has its own `node_modules` — don't `npm install` inside `deploy/`. Pulumi resolves from there at runtime.
 - `Dockerfile` copies `node_modules/.prisma` from the build host. CI must run `prisma generate` before the docker build, or the image will fail at runtime with missing native engines.
 - `infra deploy preview` requires `prNumber`; running it without one will throw on `config.require`.

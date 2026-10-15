@@ -73,12 +73,14 @@ class ListCampaignsPaginationDto extends createZodDto(
 // session-user name is NOT the candidate's. It stays off the shared
 // CampaignWithLiveContextSchema that the M2M GET :id also validates against.
 // getUserFullName always returns a string (possibly empty, coerced to null)
-// — never absent — so nullable, not nullish.
+// — never absent — so nullable, not nullish. ownerAvatar rides along so the
+// SMS composer can attach the candidate's photo, not a team member's.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
   ownerName: z.string().nullable(),
   smsCompliance: SmsComplianceWindowSchema.optional(),
   smsCutoffDate: z.string().nullable().optional(),
   generalElectionDate: z.string().nullable().optional(),
+  ownerAvatar: z.string().nullable(),
 })
 
 class UpdateCampaignM2MDto extends createZodDto(UpdateCampaignM2MSchema) {}
@@ -144,6 +146,7 @@ export class CampaignsController {
         tcrCompliance,
         now: new Date(),
       }),
+      ownerAvatar: owner?.avatar?.trim() || null,
     }
   }
 

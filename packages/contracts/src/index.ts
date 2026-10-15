@@ -56,6 +56,9 @@ export {
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
+  type PollAudienceKind,
+  POLL_AUDIENCE_KIND_VALUES,
+  PollAudienceKindSchema,
   type PollStatus,
   POLL_STATUS_VALUES,
   PollStatusSchema,
@@ -177,6 +180,10 @@ export {
   CivicPanelRepresentationSchema,
   type CivicPanelRepresentation,
 } from './people/CivicPanelSummary.schema'
+export {
+  isCivicPanelOnlyList,
+  type CivicPanelOnlyCriteria,
+} from './people/CivicPanelOnlyList'
 
 export {
   ContactNoteSchema,
@@ -1220,7 +1227,14 @@ export {
   type SmsOutreachReplies,
   SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachRepliesFilterSchema,
+  type SmsOutreachRepliesFilter,
+  SmsOutreachRepliesQuerySchema,
+  type SmsOutreachRepliesQuery,
 } from './outreach/OutreachResults.schema'
+export * from './outreach/ServePoll.schema'
+export * from './outreach/PollResults.schema'
+export * from './outreach/PollAdmin.schema'
 
 export {
   SMS_PURPOSE_VALUES,
@@ -1687,6 +1701,10 @@ export {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
+  CIVIC_PANEL_LEAVE_KEYWORD,
+  CIVIC_PANEL_LEAVE_LINE,
+  findCivicPanelLeaveLine,
+  countCivicPanelLines,
   PANEL_ASSUMED_REPLY_RATE,
   CONTACT_REST_DAYS,
   PANEL_SEED_TARGET_MEMBERS,
@@ -1694,4 +1712,6 @@ export {
   PANEL_SEED_SAMPLE_SIZE,
   BUILD_CITIZENS_PANEL_MARKER,
   BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MARKER,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'

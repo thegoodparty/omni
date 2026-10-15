@@ -74,6 +74,12 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-brand-blue-200',
     badgeTint: 'bg-brand-blue-200 text-foreground',
   },
+  poll: {
+    label: 'Poll / Survey',
+    icon: <MessageSquareIcon />,
+    iconTint: 'bg-brand-blue-200',
+    badgeTint: 'bg-brand-blue-200 text-foreground',
+  },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,

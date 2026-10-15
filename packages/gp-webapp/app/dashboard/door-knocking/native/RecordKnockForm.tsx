@@ -48,6 +48,7 @@ import {
   ANSWER_OPTIONS,
   CIVIC_PANEL_OPTIONS,
   CIVIC_PANEL_QUESTION,
+  CIVIC_PANEL_STAY_QUESTION,
   engagementOptions,
   ENGAGEMENT_QUESTION,
   FOLLOW_UP_OPTIONS,
@@ -117,6 +118,7 @@ interface KnockInput {
   willVote?: WillVoteAnswer
   followUp?: FollowUpAnswer
   joinCivicPanel?: FollowUpAnswer
+  stayOnCivicPanel?: FollowUpAnswer
   note?: string
   engaged: boolean
   captureMethod: 'dictation' | 'typed'
@@ -150,6 +152,10 @@ interface RecordKnockFormProps {
   // so tapping a housemate and back remounts it, and this is what brings the
   // answers back.
   drafts?: UnsavedDrafts<KnockDraft>
+  // The turf's list is civic panel members only (the route payload's
+  // `civicPanelOnly`), so the closing question asks whether they want to stay
+  // on rather than whether they want to join.
+  civicPanelOnly?: boolean
 }
 
 const ChoiceRow = <T extends string>({
@@ -196,6 +202,7 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
   drafts,
+  civicPanelOnly = false,
 }: RecordKnockFormProps) {
   // Which surface's engaged branch this is. An elected official's canvasser
   // asks neither of the Win questions — a constituent has no candidate to
@@ -371,6 +378,9 @@ export default function RecordKnockForm({
     ...(input.willVote ? { willVote: input.willVote } : {}),
     ...(input.followUp ? { followUp: input.followUp } : {}),
     ...(input.joinCivicPanel ? { joinCivicPanel: input.joinCivicPanel } : {}),
+    ...(input.stayOnCivicPanel
+      ? { stayOnCivicPanel: input.stayOnCivicPanel }
+      : {}),
     ...(input.note ? { note: input.note } : {}),
   })
 
@@ -592,8 +602,12 @@ export default function RecordKnockForm({
       ...(engaged && supportAnswer && !serveMode ? { supportAnswer } : {}),
       ...(engaged && willVote && !serveMode ? { willVote } : {}),
       ...(engaged && followUp && serveMode ? { followUp } : {}),
+      // One panel question per door, and which one depends on the turf: the
+      // answer the form holds goes out as the question it asked.
       ...(engaged && joinCivicPanel && asksCivicPanel
-        ? { joinCivicPanel }
+        ? civicPanelOnly
+          ? { stayOnCivicPanel: joinCivicPanel }
+          : { joinCivicPanel }
         : {}),
       // The note is deliberately NOT guarded the same way. Support and
       // will-vote are answers to questions this door was never asked, but a
@@ -720,7 +734,9 @@ export default function RecordKnockForm({
 
       {engaged && asksCivicPanel && followUp && (
         <ChoiceRow
-          label={CIVIC_PANEL_QUESTION}
+          label={
+            civicPanelOnly ? CIVIC_PANEL_STAY_QUESTION : CIVIC_PANEL_QUESTION
+          }
           options={CIVIC_PANEL_OPTIONS}
           value={joinCivicPanel}
           onChange={setJoinCivicPanel}

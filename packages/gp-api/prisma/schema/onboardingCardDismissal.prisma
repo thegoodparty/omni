@@ -10,6 +10,21 @@ model OnboardingCardDismissal {
   @@map("onboarding_card_dismissal")
 }
 
+// The official opened the card (pressed its button). Only `meet` records one:
+// its goal is the intro itself, which any later conversation can't stand in
+// for.
+model OnboardingCardCompletion {
+  id              String        @id @default(cuid())
+  electedOfficeId String        @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  cardKey     OnboardingCardKey @map("card_key")
+  completedAt DateTime          @default(now()) @map("completed_at")
+
+  @@unique([electedOfficeId, cardKey])
+  @@map("onboarding_card_completion")
+}
+
 enum OnboardingCardKey {
   meet
   priorities

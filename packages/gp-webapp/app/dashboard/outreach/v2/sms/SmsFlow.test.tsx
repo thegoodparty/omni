@@ -348,7 +348,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -797,7 +797,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jared, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jared Smith, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -826,7 +826,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for Mayor\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for Mayor\./),
     )
     expect(screen.queryByText(/local office/)).not.toBeInTheDocument()
   })
@@ -875,7 +875,7 @@ describe('SmsFlow', () => {
     }
 
     const COMPOSED_DRAFT =
-      'Hello {first_name}, this is Jane, candidate for City Council. ' +
+      'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
       'AI body (warm) for introduce_myself\n\n' +
       'Paid for by Friends of Jane. Reply STOP to opt out.'
 
@@ -1357,7 +1357,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
   })
 
@@ -1576,7 +1576,7 @@ describe('SmsFlow', () => {
     // name before the compose step shows them; words the candidate typed
     // never are.
     describe('identification', () => {
-      const INTRO = 'this is Jane, candidate for City Council.'
+      const INTRO = 'this is Jane Doe, candidate for City Council.'
 
       // The field holds the whole message; these cases are about the body
       // between its greeting and its footer, which is what the repair edits.
@@ -1613,7 +1613,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         expect(
-          screen.queryByText(/messages must include your name/),
+          screen.queryByText(/Your text needs to say who it's from/),
         ).not.toBeInTheDocument()
       })
 
@@ -1624,7 +1624,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() =>
           expect(bodyOf(box)).toBe(
-            `${INTRO} Vote Tuesday. Questions? Ask for Jane.`,
+            `${INTRO} Vote Tuesday. Questions? Ask for Jane Doe.`,
           ),
         )
       })
@@ -1633,6 +1633,15 @@ describe('SmsFlow', () => {
         const box = await reachCompose(`${INTRO} Vote Tuesday.`)
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
+      })
+
+      // A seed that names the sender passes the standards check, so it is
+      // carried in as written rather than gaining a second, full-name intro.
+      it('leaves a seed that names the candidate by first name alone', async () => {
+        const seed = 'this is Jane, candidate for City Council. Vote Tuesday.'
+        const box = await reachCompose(seed)
+
+        await waitFor(() => expect(bodyOf(box)).toBe(seed))
       })
 
       it('never rewrites what the candidate typed', async () => {
@@ -1672,7 +1681,7 @@ describe('SmsFlow', () => {
         const box = await screen.findByRole('textbox', {
           name: 'Message body',
         })
-        const direct = 'Jane here, candidate for City Council. Vote early.'
+        const direct = 'Jane Doe here, candidate for City Council. Vote early.'
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))

@@ -4,10 +4,7 @@ import { campaignManagerChatApi } from '../../../campaign-manager/campaignManage
 import { CAMPAIGN_MANAGER_HISTORY_KEY } from '../../../campaign-manager/campaignManagerChat'
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
 import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
-import {
-  COS_INTRO_MESSAGES,
-  toolDisplayName,
-} from '../../../chief-of-staff/components/chat/chatConstants'
+import { toolDisplayName } from '../../../chief-of-staff/components/chat/chatConstants'
 
 describe('getAssistantChat', () => {
   it('binds Win to the campaign_assistant client and its history key', () => {
@@ -31,7 +28,14 @@ describe('getAssistantChat', () => {
     expect(binding.historyKey).toBe(HISTORY_KEY)
     expect(binding.scope).toBe('chief_of_staff')
     expect(binding.agentName).toBe('Chief of Staff')
-    expect(binding.defaultIntro).toBe(COS_INTRO_MESSAGES)
+    expect(binding.defaultIntro).toEqual([
+      "Hi, I'm your Chief of Staff.",
+      'I can find the constituents you want to reach and save them as a list.',
+      'Who are you looking for?',
+    ])
+    expect(getAssistantChat(false, 'Jordan').defaultIntro[0]).toBe(
+      "Hi Jordan, I'm your Chief of Staff.",
+    )
   })
 })
 

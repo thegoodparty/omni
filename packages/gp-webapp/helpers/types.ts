@@ -510,6 +510,7 @@ export interface Campaign {
   smsCompliance?: SmsComplianceWindow
   smsCutoffDate?: string | null
   generalElectionDate?: string | null
+  ownerAvatar?: string | null
   user?: User
   organization?: {
     positionId?: string | null

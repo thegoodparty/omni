@@ -12,7 +12,7 @@ Backend (gp-api):
 - `/v1/chats` with `scope=chief_of_staff` (create, SSE message stream, get,
   list, delete)
 - `/v1/dashboard/cards` (list by bucket, dismiss, complete)
-- `/v1/dashboard/onboarding-cards` (list, skip)
+- `/v1/dashboard/onboarding-cards` (list, skip, complete)
 - `/v1/priorities` (list, create, update, delete)
 
 Frontend (gp-webapp):
@@ -106,7 +106,7 @@ and thorough — we did not duplicate it:
 - `dashboardCards.controller.test.ts` — every bucket
   (active/done/skipped/missed/this_week), `PUT :id/dismiss`, `PUT :id/complete`,
   office scoping, expiry.
-- `onboardingCards.controller.test.ts` — onboarding list + skip.
+- `onboardingCards.controller.test.ts` — onboarding list, skip and complete.
 - `priorities.controller.test.ts` — create/list/update/archive + missing-header 404.
 - `general-chats.controller.integration.test.ts` — CoS chat create / history /
   replay / soft-delete / SSE / anchor, with the LLM stream mocked.

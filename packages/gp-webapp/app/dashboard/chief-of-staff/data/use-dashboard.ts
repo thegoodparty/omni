@@ -89,6 +89,19 @@ export const useOnboardingCards = (): UseQueryResult<OnboardingCard[]> =>
     queryFn: () => dashboardApi.getOnboardingCards(),
   })
 
+// The meet card is done once its button opens the intro, not once any
+// conversation exists: other cards start conversations too.
+export const useCompleteOnboardingCard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (key: OnboardingCardKey) =>
+      dashboardApi.completeOnboardingCard(key),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ONBOARDING_CARDS_KEY })
+    },
+  })
+}
+
 export const useSkipOnboardingCard = () => {
   const queryClient = useQueryClient()
   return useMutation({

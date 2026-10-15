@@ -2,31 +2,41 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   CIVIC_PANEL_BUILD_CHAT_PARAM,
   CIVIC_PANEL_BUILD_CHAT_VALUE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
+import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { chiefOfStaffArchiveHref, chiefOfStaffHref } from '../routes'
+import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskStack from './TaskStack'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import {
+  buildChiefOfStaffIntro,
+  buildChiefOfStaffNextSteps,
+  civicPanelExplainNextStep,
+} from './chat/chatConstants'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// The build card's turn, hidden again when its conversation is reopened.
-const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE]
+// The build card's turns, hidden again when their conversation is reopened.
+const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
+const ORDINANCE_NEW_HREF = '/dashboard/ordinances/new'
 
 /**
  * Chief of Staff dashboard (Serve home). Renders inside `DashboardLayout`.
@@ -52,7 +62,7 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  // The build card's Get started links back here with the param, so the
+  // The build card's Build my panel links back here with the param, so the
   // official stays on the home: the chat opens on the conversation that
   // builds the panel, started by a turn they never see.
   const router = useRouter()
@@ -62,6 +72,14 @@ export default function DashboardContent(): React.JSX.Element {
     CIVIC_PANEL_BUILD_CHAT_VALUE
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
+  // The panel's members pick the civic panel step: build one, or ask it.
+  const orgSlug = useOrganization()?.slug
+  const { data: panelSummary } = useQuery({
+    ...civicPanelSummaryQueryOptions(orgSlug),
+    enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
+  })
+  const panelMembers = panelsEnabled ? panelSummary?.members : undefined
+
   useEffect(() => {
     if (!buildPanelParam || !panelsReady) return
     router.replace(chiefOfStaffHref(), { scroll: false })
@@ -96,6 +114,33 @@ export default function DashboardContent(): React.JSX.Element {
     setInitialConversationId(null)
     setChatOpen(true)
   }
+
+  // Memoized: the opener's identity keys the body's typing effect.
+  const opener = useMemo(
+    () =>
+      openerKey ? ONBOARDING_CARDS[openerKey].opener(firstName) : undefined,
+    [openerKey, firstName],
+  )
+  const intro = useMemo(() => buildChiefOfStaffIntro(firstName), [firstName])
+
+  // The intro ends on a question, answered by these cards. The priorities
+  // card asks its own question and a kickoff answers something already, so
+  // neither gets them; the panel explainer gets its one next step instead.
+  const explaining = pendingKickoff === EXPLAIN_CIVIC_PANEL_MESSAGE
+  const explainStep = explaining
+    ? civicPanelExplainNextStep(panelMembers)
+    : undefined
+  const suggestions = explaining
+    ? explainStep
+      ? [explainStep]
+      : []
+    : pendingKickoff || openerKey === 'priorities'
+      ? undefined
+      : buildChiefOfStaffNextSteps({
+          panelsEnabled: panelsReady && panelsEnabled,
+          panelMembers,
+          onDraftOrdinance: () => router.push(ORDINANCE_NEW_HREF),
+        })
 
   return (
     // Same shell as the Campaign Manager home: a 720px column, the stack
@@ -141,10 +186,12 @@ export default function DashboardContent(): React.JSX.Element {
           if (!next) setPendingKickoff(undefined)
         }}
         initialConversationId={initialConversationId}
-        opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
+        opener={opener}
         openerKey={openerKey}
         pendingKickoff={pendingKickoff}
-        defaultIntro={pendingKickoff ? NO_INTRO : undefined}
+        defaultIntro={pendingKickoff ? NO_INTRO : intro}
+        suggestions={suggestions}
+        showSuggestionsAfterKickoff={explaining}
         hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
       />

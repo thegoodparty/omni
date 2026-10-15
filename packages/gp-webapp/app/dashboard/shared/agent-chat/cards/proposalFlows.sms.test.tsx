@@ -172,7 +172,9 @@ describe('a text card, through the drawer', () => {
         blockSeparator: '\n',
       })
     await waitFor(() =>
-      expect(message()).toMatch(/^Hello \{\{first_name\}\}, this is Jane, /),
+      expect(message()).toMatch(
+        /^Hello \{\{first_name\}\}, this is Jane Doe, /,
+      ),
     )
     expect(message().match(/this is/gi)).toHaveLength(1)
     expect(message()).not.toContain('[')

@@ -116,6 +116,7 @@ import type {
   ApplyTestModeRequest,
   PriorityResults,
   CivicPanelSummary,
+  CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1017,7 +1018,7 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/mine': {
     Request: {}
-    Response: ElectedOffice[]
+    Response: MyElectedOffice[]
   }
 
   'POST /v1/elected-office': {
@@ -1075,6 +1076,11 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/dashboard/onboarding-cards/:key/skip': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/complete': {
     Request: {}
     Response: void
   }
@@ -1781,8 +1787,8 @@ export type APIEndpoints = {
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
-    // unfiltered district.
-    Request: { segment?: number }
+    // unfiltered district. 'civicPanel' = Serve's built-in panel list.
+    Request: { segment?: number | typeof CIVIC_PANEL_SEGMENT }
     Response: ListDetailContactsResponse
   }
   // The same payload for a filter that has not been saved (a recommended
@@ -2907,6 +2913,10 @@ export type ElectedOffice = {
   // routing must NOT send them into serve onboarding for a missing term/date.
   campaignId: number | null
 }
+
+// `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
+// gave it issues they ran on, which the Serve onboarding priorities step shows.
+export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

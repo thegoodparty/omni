@@ -1,5 +1,7 @@
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
+  CIVIC_PANEL_LEAVE_LINE,
+  isCivicPanelOnlyList,
   OutreachProposalSchema,
   PANEL_SEED_SAMPLE_SIZE,
   PRIORITY_GATE_STEPS,
@@ -50,11 +52,11 @@ const presentOutreachProposalInput = priorityProposalInputWithoutPanel.omit({
 // the flow, and the name rule is the one a drafted message kept missing.
 export const OUTREACH_MESSAGE_RULES = [
   'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
-  '- Text: start with who is texting, signed as the official by first name and office, for example "this is Bryan, your Asheville City Council Member." Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.',
-  '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the official\'s first name and office, for example "I am calling for Bryan, your Asheville City Council Member." Never a placeholder for the official.',
+  `- Text: start with who is texting, signed as the official by full name and office, for example "this is Bryan Ortiz, your Asheville City Council Member." Never the first name alone. Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. A text to civic panel members alone also gets "${CIVIC_PANEL_LEAVE_LINE}" from the flow, so never write how to leave the panel. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.`,
+  '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the official\'s full name and office, for example "I am calling for Bryan Ortiz, your Asheville City Council Member." Never a placeholder for the official.',
   "- Social: a post in the official's own voice. No placeholders.",
   '- Door knocking: what to say at the door, in the same voice, naming the official the same way a call does.',
-  "- The official's first name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
+  "- The official's full name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
 ].join('\n')
 
 // The model kept building the last item of a numbered list it had just
@@ -235,12 +237,12 @@ export const buildChiefOfStaffOutreachProposalTool = (panel: {
 // lines a text's compliance check adds.
 export const WIN_OUTREACH_MESSAGE_RULES = [
   'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
-  '- Text: start with who is texting: the candidate by first name and the office they are running for, for example "this is Renee, candidate for Asheville City Council." Never a placeholder like [Name] or [your name]. Do not write a greeting, a "Paid for by" line or an opt-out line: the flow adds "Hello {first_name}," before the message, and the "Paid for by" and "Reply STOP to opt out" lines after it. No link shorteners like bit.ly; paste the full web address. ' +
+  '- Text: start with who is texting: the candidate by full name and the office they are running for, for example "this is Renee Diaz, candidate for Asheville City Council." Never a placeholder like [Name] or [your name]. Do not write a greeting, a "Paid for by" line or an opt-out line: the flow adds "Hello {first_name}," before the message, and the "Paid for by" and "Reply STOP to opt out" lines after it. No link shorteners like bit.ly; paste the full web address. ' +
     `Keep it under 300 characters. The whole text, with the lines the flow adds, has to stay under ${SMS_COMPOSED_MAX_LENGTH}.`,
   '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the candidate\'s first name and office, for example "I am calling for Renee, candidate for Asheville City Council." No "Paid for by" or opt-out line.',
   "- Social: a post in the candidate's own voice. No placeholders.",
   '- Door knocking: what to say at the door, in the same voice, naming the candidate the same way a call does.',
-  "- The candidate's first name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
+  "- The candidate's name and office are in your context. If either is missing, ask before you present, rather than writing a placeholder.",
 ].join('\n')
 
 const WIN_DESCRIPTION =
@@ -332,9 +334,21 @@ export const checkPanelPart = (input: {
   panelSampleSize?: number
   sampleSize?: number
   widensOutreachIds?: number[]
+  audienceFilters?: Record<string, unknown>
 }): string | null => {
   if (input.channel !== 'text' && input.civicPanelAsk) {
     return 'civicPanelAsk is for a text only. Leave it out and present again.'
+  }
+  // A send to the panel alone carries the LEAVE line, and never both lines.
+  if (
+    input.civicPanelAsk &&
+    input.audienceFilters !== undefined &&
+    isCivicPanelOnlyList(input.audienceFilters)
+  ) {
+    return (
+      'Everyone this text reaches is already on the civic panel, so it ' +
+      'does not ask them to join. Leave civicPanelAsk out and present again.'
+    )
   }
   if (input.panelSampleSize === undefined) return null
   if (input.channel !== 'text') {

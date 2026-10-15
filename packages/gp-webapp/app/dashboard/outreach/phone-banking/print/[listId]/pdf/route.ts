@@ -96,6 +96,7 @@ export const GET = async (
       rows: rowsForSheet(sheetIndex),
       isServe,
       citizenPanelsEnabled,
+      civicPanelOnly: list.civicPanelOnly === true,
     })
 
   const sheetParam = new URL(request.url).searchParams.get('sheet')

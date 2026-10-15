@@ -30,6 +30,7 @@ export const interaction = (
   willVote: null,
   followUp: null,
   joinCivicPanel: null,
+  stayOnCivicPanel: null,
   occurredAt: new Date('2026-08-18T18:00:00.000Z'),
   ...overrides,
 })
@@ -55,6 +56,7 @@ export const list = (
   purpose: 'introduce_myself',
   createdAt: new Date('2026-07-21T00:00:00Z'),
   isServe: false,
+  civicPanelOnly: false,
   entries: [entry()],
   ...overrides,
 })

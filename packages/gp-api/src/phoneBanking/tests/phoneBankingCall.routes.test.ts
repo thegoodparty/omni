@@ -850,6 +850,131 @@ describe('phone banking call outcome routes', () => {
       expect(after.value).toBe('left')
     })
 
+    const panelCall = async (label: string, panelOnly: boolean) => {
+      const eoSlug = `eo-pbc-stay-${label}-${Date.now()}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: `EO ${label} audience` },
+      })
+      const personId = randomUUID()
+      mockPeoplePage([fakePerson({ id: personId, cellPhone: '3075551016' })])
+      const build = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ voterFileFilterId: eoFilter.id }),
+        orgHeaders(eoSlug),
+      )
+      expect(build.status).toBe(201)
+      // Marked after the list is frozen: the fixture has no panel members,
+      // so a panel-only filter would build an empty list.
+      if (panelOnly) {
+        await service.prisma.voterFileFilter.update({
+          where: { id: eoFilter.id },
+          data: { civicPanelMember: true },
+        })
+      }
+      await service.prisma.contactCurrentStatus.create({
+        data: {
+          organizationSlug: eoSlug,
+          personId,
+          field: 'civic_panel',
+          value: 'member',
+        },
+      })
+      const entry = await service.prisma.phoneBankingListEntry.findFirstOrThrow(
+        { where: { phoneBankingListId: build.data.id } },
+      )
+      const postStay = (stayOnCivicPanel: string) =>
+        service.client.post(
+          `/v1/phone-banking/lists/${build.data.id}/calls`,
+          {
+            entryId: entry.id,
+            outcome: 'answered',
+            personId,
+            followUp: 'no',
+            stayOnCivicPanel,
+          },
+          orgHeaders(eoSlug),
+        )
+      const panelStatus = async () =>
+        (
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
+          })
+        ).value
+      const civicEvents = () =>
+        service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, personId, field: 'civic_panel' },
+        })
+      return {
+        listId: build.data.id as number,
+        eoSlug,
+        postStay,
+        panelStatus,
+        civicEvents,
+      }
+    }
+
+    it('stayOnCivicPanel=no on a list of panel members takes them off the panel, once', async () => {
+      const { listId, eoSlug, postStay, panelStatus, civicEvents } =
+        await panelCall('no', true)
+
+      const list = await service.client.get(
+        `/v1/phone-banking/lists/${listId}`,
+        orgHeaders(eoSlug),
+      )
+      expect(list.data.civicPanelOnly).toBe(true)
+
+      const first = await postStay('no')
+      expect(first.status).toBe(201)
+      expect(first.data.results[0].interaction.stayOnCivicPanel).toBe('no')
+      expect((await postStay('no')).status).toBe(201)
+
+      expect(await panelStatus()).toBe('left')
+      const events = await civicEvents()
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        fromValue: 'member',
+        toValue: 'left',
+        source: 'phone_banking',
+        actorUserId: service.user.id,
+      })
+    })
+
+    it('stayOnCivicPanel=yes leaves a member on the panel', async () => {
+      const { postStay, panelStatus, civicEvents } = await panelCall(
+        'yes',
+        true,
+      )
+
+      expect((await postStay('yes')).status).toBe(201)
+
+      expect(await panelStatus()).toBe('member')
+      expect(await civicEvents()).toHaveLength(0)
+    })
+
+    it('stayOnCivicPanel on a list that reaches beyond the panel is dropped', async () => {
+      const { listId, eoSlug, postStay, panelStatus, civicEvents } =
+        await panelCall('wide', false)
+
+      const list = await service.client.get(
+        `/v1/phone-banking/lists/${listId}`,
+        orgHeaders(eoSlug),
+      )
+      expect(list.data.civicPanelOnly).toBe(false)
+
+      const res = await postStay('no')
+      expect(res.status).toBe(201)
+      expect(res.data.results[0].interaction.stayOnCivicPanel).toBeNull()
+      expect(await panelStatus()).toBe('member')
+      expect(await civicEvents()).toHaveLength(0)
+    })
+
     it('joinCivicPanel on a Win call writes no civic_panel event', async () => {
       const { listId, entry } = await buildList(
         [{ firstName: 'A' }],
