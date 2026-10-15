@@ -291,6 +291,26 @@ already show the answer as the user's own message and an echo put it on
 screen twice. The ordinance flow's stored `clarifyAnswers[].answer` holds the
 same line.
 
+## Next steps — an intro ends on cards, not prose
+
+An assistant's intro ends on a question, answered by tappable cards
+(`ChiefOfStaffChatBody`'s `suggestions`, a `ChatSuggestion` each). Both
+products use this one mechanism: the Campaign Manager's starter cards
+(`CampaignManagerChatProvider`) and the Chief of Staff's next steps
+(`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
+passed by the Serve home's `DashboardContent` under the meet card's intro and
+on a new chat). A card does one of three things: `message` sends a question
+as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
+message such as the civic panel build), and `onSelect` runs anything else
+(open a flow). A card label with a `description` renders as a card, without
+one as a pill. Tapping a card never completes a get-started card; only that
+card's own button does.
+
+`showSuggestionsAfterKickoff` moves the cards from the empty transcript to
+under the reply to `pendingKickoff`, until anything else is sent. The Serve
+home uses it for What's a civic panel?: with no panel yet the answer ends on
+Build my panel, which sends the build message into the same conversation.
+
 ## Reference wrappers — copy the closest
 
 | Want | Copy |

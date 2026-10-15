@@ -1166,6 +1166,151 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(streamMessageMock).not.toHaveBeenCalled()
   })
 
+  it('sends a suggestion with `message` as the user’s own visible turn', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_msg' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Your next meeting is Tuesday.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'Help me get ready for my next meeting.'),
+      msg('assistant', 'Your next meeting is Tuesday.', { id: 'a1' }),
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Get ready for your next meeting',
+            description: 'Walk in knowing what is on the agenda.',
+            message: 'Help me get ready for my next meeting.',
+          },
+        ]}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Get ready for your next meeting/,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Help me get ready for my next meeting.',
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText('Help me get ready for my next meeting.'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Get ready for your next meeting/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  describe('showSuggestionsAfterKickoff', () => {
+    const EXPLAIN = '[Explain] What is it?'
+    const BUILD = '[Build] Build it.'
+    const REPLY = 'It is a group of residents. Do you want to build yours?'
+
+    beforeEach(() => {
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_explain' })
+      streamMessageMock
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: REPLY },
+            { type: 'done', assistantMessageId: 'a1' },
+          ]),
+        )
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: 'Here is the math.' },
+            { type: 'done', assistantMessageId: 'a2' },
+          ]),
+        )
+      listMessagesMock
+        .mockResolvedValueOnce([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+        ])
+        .mockResolvedValue([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+          msg('user', BUILD),
+          msg('assistant', 'Here is the math.', { id: 'a2' }),
+        ])
+    })
+
+    it('shows the step under the kickoff’s reply, and sends it into the same conversation', async () => {
+      const user = userEvent.setup()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[{ label: 'Build my panel', kickoff: BUILD }]}
+        />,
+      )
+
+      // Never on the empty transcript before the kickoff has answered.
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+
+      const cta = await screen.findByRole(
+        'button',
+        { name: 'Build my panel' },
+        { timeout: 5000 },
+      )
+      expect(screen.getByText(REPLY)).toBeInTheDocument()
+
+      await user.click(cta)
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            conversationId: 'conv_explain',
+            content: BUILD,
+          }),
+        ),
+      )
+      expect(createMock).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.getByText('Here is the math.')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(BUILD)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when the kickoff has no next step', async () => {
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[]}
+        />,
+      )
+      await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument())
+      // Not the built-in starter chips either.
+      expect(
+        screen.queryByRole('button', { name: "What's most urgent this week?" }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])

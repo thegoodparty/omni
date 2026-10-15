@@ -11,7 +11,18 @@ import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
   campaignManagerChatApi,
 } from '../../../campaign-manager/campaignManagerChat'
-import { COS_INTRO_MESSAGES } from '../../../chief-of-staff/components/chat/chatConstants'
+
+// The Chief of Staff's home intro offers its home's next steps, which this
+// surface does not show, so the contacts entry point names what it is for.
+export const buildServeContactsIntro = (
+  firstName?: string | null,
+): string[] => [
+  firstName
+    ? `Hi ${firstName}, I'm your Chief of Staff.`
+    : "Hi, I'm your Chief of Staff.",
+  'I can find the constituents you want to reach and save them as a list.',
+  'Who are you looking for?',
+]
 
 export const ASSISTANT_PLACEHOLDER =
   "Describe the list you want and I'll make it for you"
@@ -55,5 +66,5 @@ export const getAssistantChat = (
         scope: 'chief_of_staff',
         agentName: 'Chief of Staff',
         analyticsLabel: 'chief-of-staff-chat',
-        defaultIntro: COS_INTRO_MESSAGES,
+        defaultIntro: buildServeContactsIntro(firstName),
       }
