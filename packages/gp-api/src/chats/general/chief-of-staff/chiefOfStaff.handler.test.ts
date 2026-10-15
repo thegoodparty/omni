@@ -102,7 +102,12 @@ describe('ChiefOfStaffHandler', () => {
         }),
       ),
       civicPanelBuildState: vi.fn((_slug: string, textingEnabled: boolean) =>
-        Promise.resolve({ members: 0, inviteSent: false, textingEnabled }),
+        Promise.resolve({
+          members: 0,
+          inviteSent: false,
+          textingEnabled,
+          hasPlan: false,
+        }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
@@ -692,10 +697,14 @@ describe('ChiefOfStaffHandler', () => {
       return { handler, features }
     }
 
-    const withPanel = (state: { members: number; inviteSent: boolean }) => {
+    const withPanel = (state: {
+      members: number
+      inviteSent: boolean
+      hasPlan?: boolean
+    }) => {
       context.civicPanelBuildState = vi.fn(
         (_slug: string, textingEnabled: boolean) =>
-          Promise.resolve({ ...state, textingEnabled }),
+          Promise.resolve({ hasPlan: false, ...state, textingEnabled }),
       )
     }
 
@@ -725,7 +734,40 @@ describe('ChiefOfStaffHandler', () => {
       deepLinkOnly: false,
     }
 
-    it('counts the district and proposes one invite card on the build turn', async () => {
+    it('sends a build ask to the panel page instead of proposing a text', async () => {
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain(
+        'It asks how much time they can give each week, an hour at least',
+      )
+      expect(prompt).toContain(
+        'link it as [Build your civic panel](/dashboard/contacts/citizens-panel)',
+      )
+      expect(prompt).toContain(
+        'Do not count the district, size an invite or present a card.',
+      )
+      expect(prompt).toContain(
+        'Only when they say their panel page could not make a plan',
+      )
+    })
+
+    it('points at the plan an office already has', async () => {
+      withPanel({ members: 0, inviteSent: false, hasPlan: true })
+      const { handler } = buildPanelHandler({ panels: true, texting: true })
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain(
+        '[See your panel plan](/dashboard/contacts/citizens-panel)',
+      )
+      expect(prompt).not.toContain(
+        'Only when they say their panel page could not make a plan',
+      )
+    })
+
+    it('keeps the single invite text as the fallback, counted and priced', async () => {
       const { handler } = buildPanelHandler({ panels: true, texting: true })
       const ctx = await handler.loadContext('c1', USER_ID)
       const tools = handler.buildTools(ctx)
@@ -857,11 +899,7 @@ describe('ChiefOfStaffHandler', () => {
         expect(prompt).toContain(
           'The app shows a Build my panel button under your reply',
         )
-        // Pressing it sends the build turn into this conversation, which
-        // goes straight to the math rather than explaining a second time.
-        expect(prompt).toContain(
-          `If they press it ("${BUILD_CITIZENS_PANEL_MESSAGE}" arrives next)`,
-        )
+        expect(prompt).toContain('that opens their panel page')
         expect(prompt).toContain(
           'Skip this when you already explained the panel earlier in this ' +
             'conversation',

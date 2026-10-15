@@ -193,6 +193,9 @@ export {
   PANEL_DOOR_SHARE_OF_HOURS,
   PANEL_DOORS_PER_AREA,
   PANEL_MAX_DOOR_AREAS,
+  PANEL_MIN_HOURS_PER_WEEK,
+  PANEL_MAX_HOURS_PER_WEEK,
+  PANEL_WEEKS_PER_WAVE,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_UNSTARTED_STEP_DAYS,
@@ -207,6 +210,8 @@ export {
   type CivicPanelBuildStepStatus,
   CreateCivicPanelBuildPlanInputSchema,
   type CreateCivicPanelBuildPlanInput,
+  UpdateCivicPanelBuildPlanInputSchema,
+  type UpdateCivicPanelBuildPlanInput,
   CivicPanelBuildStepSchema,
   type CivicPanelBuildStep,
   CivicPanelBuildNextSchema,
@@ -917,8 +922,6 @@ export {
   DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
-  CIVIC_PANEL_BUILD_CHAT_PARAM,
-  CIVIC_PANEL_BUILD_CHAT_VALUE,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 

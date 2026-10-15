@@ -2,6 +2,7 @@ import type { ReportBackSend } from '@/outreach/services/outreachReportBack.serv
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
+  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ContactStatusField,
   OutreachType,
@@ -72,6 +73,9 @@ export interface CivicPanelBuildState {
   inviteSent: boolean
   // The serve-sms-outreach flag: without it there is no text flow to open.
   textingEnabled: boolean
+  // The office has a plan building the panel across texts, calls and doors,
+  // on the panel page.
+  hasPlan: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -168,7 +172,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     organizationSlug: string,
     textingEnabled: boolean,
   ): Promise<CivicPanelBuildState> {
-    const [members, invite] = await Promise.all([
+    const [members, invite, plan] = await Promise.all([
       this.client.contactCurrentStatus.count({
         where: {
           organizationSlug,
@@ -186,7 +190,19 @@ export class ChiefOfStaffContextService extends createPrismaBase(
         },
         select: { id: true },
       }),
+      this.client.civicPanelBuildPlan.findFirst({
+        where: {
+          organizationSlug,
+          status: CivicPanelBuildPlanStatus.active,
+        },
+        select: { id: true },
+      }),
     ])
-    return { members, inviteSent: invite !== null, textingEnabled }
+    return {
+      members,
+      inviteSent: invite !== null,
+      textingEnabled,
+      hasPlan: plan !== null,
+    }
   }
 }

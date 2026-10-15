@@ -76,6 +76,7 @@ const STEP_SELECT = {
   startedAt: true,
   completedAt: true,
   expectedRepliesBy: true,
+  skippedAt: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -129,7 +130,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
 
   async create(
     organization: Organization,
-    hoursPerMonth: number,
+    hoursPerWeek: number,
   ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
     if (await this.findActive(office.id)) {
@@ -144,8 +145,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     }
     const steps = sizePanelWave({
       gap,
-      hoursPerMonth,
-      pools: await this.pools(organization, hoursPerMonth),
+      hoursPerWeek,
+      pools: await this.pools(organization),
     })
     if (steps.length === 0) {
       throw new ConflictException(
@@ -170,7 +171,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
             goalMembers: PANEL_SEED_TARGET_MEMBERS,
-            hoursPerMonth,
+            hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
         })
@@ -180,6 +181,63 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         throw new ConflictException('This office already has a panel plan')
       }
       throw error
+    }
+    return this.read(organization)
+  }
+
+  // A new answer to the weekly time question. Only waves made from now on
+  // are sized from it: the current wave's lists may already be drawn or
+  // worked.
+  async updateHours(
+    organization: Organization,
+    hoursPerWeek: number,
+  ): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    const updated = await this.model.updateMany({
+      where: {
+        electedOfficeId: office.id,
+        status: CivicPanelBuildPlanStatus.active,
+      },
+      data: { hoursPerWeek },
+    })
+    if (updated.count === 0) {
+      throw new NotFoundException('This office has no panel plan to change')
+    }
+    return this.read(organization)
+  }
+
+  // The official sets a step aside. Only a step of the current wave that
+  // nothing was started from; the wave then stops waiting on it.
+  async skip(
+    organization: Organization,
+    stepId: string,
+  ): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    const step = await this.client.civicPanelBuildStep.findFirst({
+      where: { id: stepId, plan: { electedOfficeId: office.id } },
+      select: {
+        ...STEP_SELECT,
+        plan: {
+          select: { status: true, steps: { select: { wave: true } } },
+        },
+      },
+    })
+    if (!step) throw new NotFoundException('Step not found')
+    const currentWave = Math.max(...step.plan.steps.map((s) => s.wave))
+    if (
+      step.plan.status !== CivicPanelBuildPlanStatus.active ||
+      step.wave < currentWave
+    ) {
+      throw new ConflictException('This step is no longer part of the plan')
+    }
+    if (step.startedAt || step.completedAt) {
+      throw new ConflictException('This step has already started')
+    }
+    if (!step.skippedAt) {
+      await this.client.civicPanelBuildStep.updateMany({
+        where: { id: step.id, startedAt: null, skippedAt: null },
+        data: { skippedAt: new Date() },
+      })
     }
     return this.read(organization)
   }
@@ -213,7 +271,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         id: plan.id,
         status: plan.status,
         goalMembers: plan.goalMembers,
-        hoursPerMonth: plan.hoursPerMonth,
+        hoursPerWeek: plan.hoursPerWeek,
         currentWave,
         createdAt: plan.createdAt,
         completedAt: plan.completedAt,
@@ -349,8 +407,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     // hold a transaction open for. The lock only settles who writes.
     const steps = sizePanelWave({
       gap: plan.goalMembers - members,
-      hoursPerMonth: plan.hoursPerMonth,
-      pools: await this.pools(organization, plan.hoursPerMonth),
+      hoursPerWeek: plan.hoursPerWeek,
+      pools: await this.pools(organization),
     })
     await this.client.$transaction(async (tx) => {
       await this.lockOffice(tx, office.id)
@@ -611,12 +669,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return `${base}${area}${round}`
   }
 
-  // How many each channel can still reach. Calls and doors are only
-  // counted when there are hours to spend on them.
-  private async pools(
-    organization: Organization,
-    hoursPerMonth: number,
-  ): Promise<PanelWavePools> {
+  // How many each channel can still reach.
+  private async pools(organization: Organization): Promise<PanelWavePools> {
     const exclude = await this.excludedPersonIds(organization)
     const count = (channel: CivicPanelBuildChannel) =>
       this.contactsService.countWithin(
@@ -624,10 +678,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         this.criteriaFor(channel),
         exclude,
       )
-    const text = await count(CivicPanelBuildChannel.text)
-    if (hoursPerMonth === 0) return { text, phone: 0, door: 0 }
     return {
-      text,
+      text: await count(CivicPanelBuildChannel.text),
       phone: await count(CivicPanelBuildChannel.phone_banking),
       door: await count(CivicPanelBuildChannel.door_knocking),
     }

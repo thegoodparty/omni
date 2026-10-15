@@ -23,7 +23,8 @@ model CivicPanelBuildPlan {
   organizationSlug String                    @map("organization_slug")
   organization     Organization              @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   goalMembers      Int                       @map("goal_members")
-  hoursPerMonth    Int                       @map("hours_per_month")
+  /// The official's own time each week; every wave is sized from it.
+  hoursPerWeek     Int                       @map("hours_per_week")
   status           CivicPanelBuildPlanStatus @default(active)
   completedAt      DateTime?                 @map("completed_at")
   steps            CivicPanelBuildStep[]
@@ -61,6 +62,9 @@ model CivicPanelBuildStep {
   startedAt          DateTime?              @map("started_at")
   completedAt        DateTime?              @map("completed_at")
   expectedRepliesBy  DateTime?              @map("expected_replies_by")
+  /// The official chose not to do this step. Only read while nothing was
+  /// started from it.
+  skippedAt          DateTime?              @map("skipped_at")
 
   @@unique([planId, wave, channel, position])
   @@index([outreachId])

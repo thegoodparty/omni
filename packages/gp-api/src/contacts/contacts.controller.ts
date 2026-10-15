@@ -24,6 +24,8 @@ import {
   CivicPanelRepresentationSchema,
   CivicPanelBuildPlanResponseSchema,
   CreateCivicPanelBuildPlanInputSchema,
+  UpdateCivicPanelBuildPlanInputSchema,
+  type UpdateCivicPanelBuildPlanInput,
   type CreateCivicPanelBuildPlanInput,
   PrepareCivicPanelBuildStepResponseSchema,
   UpdateCivicPanelInputSchema,
@@ -200,7 +202,31 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     await this.assertCivicPanelsOn(user)
-    return this.civicPanelBuildPlan.create(organization, body.hoursPerMonth)
+    return this.civicPanelBuildPlan.create(organization, body.hoursPerWeek)
+  }
+
+  @Patch('civic-panel/plan')
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async updateCivicPanelBuildPlan(
+    @Body(new ZodValidationPipe(UpdateCivicPanelBuildPlanInputSchema))
+    body: UpdateCivicPanelBuildPlanInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.updateHours(organization, body.hoursPerWeek)
+  }
+
+  @Post('civic-panel/plan/steps/:id/skip')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async skipCivicPanelBuildStep(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.skip(organization, id)
   }
 
   @Post('civic-panel/plan/steps/:id/prepare')
