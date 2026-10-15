@@ -166,6 +166,126 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('refreshed monthly')
   })
 
+  describe('calendar', () => {
+    it('states the election day from the record with its status and days remaining', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'IL', now: at('2026-09-15') }),
+      )
+      expect(prompt).toContain(
+        "CALENDAR (as of the candidate's local day)\n" +
+          'Take dates, weekdays and statuses from this calendar; do not derive them.',
+      )
+      expect(prompt).toContain(
+        'ELECTION DAY (campaign record)\n' +
+          'Tuesday, November 3, 2026\n' +
+          'Status: UPCOMING\n' +
+          'Days remaining: 49\n' +
+          'Approved description: "Election Day is Tuesday, November 3."\n' +
+          'Do not describe Election Day as past.',
+      )
+    })
+
+    it('sits after the live block and before the ballot status', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-09-15'),
+          ballotStatus: 'on-ballot',
+          liveRace: { status: 'unavailable' },
+        }),
+      )
+      const live = prompt.indexOf('Current race data was not available today.')
+      const calendar = prompt.indexOf('CALENDAR (as of')
+      const status = prompt.indexOf('When the candidate signed up')
+      expect(live).toBeGreaterThan(-1)
+      expect(calendar).toBeGreaterThan(live)
+      expect(status).toBeGreaterThan(calendar)
+    })
+
+    it('marks a record-versus-live conflict unknown with both dates, beside the disagreement line', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          electionDate: '2027-04-06',
+          liveRace: {
+            status: 'ok',
+            data: {
+              generalElectionDate: '2027-02-23',
+              primaryElectionDate: null,
+              milestones: null,
+              winNumber: 0,
+              voterContactGoal: 0,
+            },
+          },
+        }),
+      )
+      expect(prompt).toContain(
+        'ELECTION DAY\n' +
+          'Status: UNKNOWN\n' +
+          'Reason: conflicting_sources\n' +
+          'Campaign record: Tuesday, April 6, 2027\n' +
+          'Election data: Tuesday, February 23, 2027',
+      )
+      expect(prompt).toContain('disagree on the election date')
+    })
+
+    it('leaves the filing period to the record line, so it renders once', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          filingPeriodStart: '2026-11-16',
+          filingPeriodEnd: '2026-11-23',
+        }),
+      )
+      expect(prompt).toContain(
+        'Filing period on record: opens Monday, November 16, 2026 (in 42 days)',
+      )
+      expect(prompt).not.toContain('FILING PERIOD')
+    })
+
+    it('keeps a malformed feed window visible as "no window on file"', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          liveRace: {
+            status: 'ok',
+            data: {
+              generalElectionDate: '2026-11-03',
+              primaryElectionDate: null,
+              milestones: {
+                voterRegistration: null,
+                earlyVoting: { start: '2026-13-45', end: null },
+                ballotRequest: null,
+              },
+              winNumber: 0,
+              voterContactGoal: 0,
+            },
+          },
+        }),
+      )
+      expect(prompt).toContain('Early voting: no window on file (BallotReady)')
+      expect(prompt).not.toContain('EARLY VOTING')
+    })
+
+    it('drops the cautions when the context says so', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'IL', now: at('2026-09-15'), calendarCautions: false }),
+      )
+      expect(prompt).toContain('Status: UPCOMING')
+      expect(prompt).not.toContain('Do not describe Election Day')
+    })
+
+    it('renders no calendar when nothing is on file', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ electionDate: null, primaryElectionDate: null }),
+      )
+      expect(prompt).not.toContain('CALENDAR (as of')
+    })
+  })
+
   describe('race dates on record', () => {
     it('renders both dates with counts when the record holds a primary too', () => {
       const prompt = buildCampaignManagerSystemPrompt(
@@ -332,12 +452,42 @@ describe('buildCampaignManagerSystemPrompt', () => {
           'Current race data, fetched today:\n' +
             'General election date: Tuesday, November 3, 2026 (in 29 days) (election data)\n' +
             'Primary election date: no date on file (election data)\n' +
-            'Voter registration: closed Friday, October 2, 2026 (3 days ago) (BallotReady)\n' +
-            'Early voting: opens Saturday, October 24, 2026 (in 19 days), closes Sunday, November 1, 2026 (in 27 days) (BallotReady)\n' +
-            'Mail ballot requests: close Saturday, October 24, 2026 (in 19 days) (BallotReady)\n' +
             'Votes needed to win: about 1,234 (model estimate). Voter contact goal: about 4,936 (model estimate).',
         )
         expect(prompt).not.toContain('disagree')
+      })
+
+      it('restates each live window in the calendar with its status for the day', () => {
+        const prompt = buildCampaignManagerSystemPrompt(liveCtx())
+        expect(prompt).toContain(
+          'VOTER REGISTRATION (BallotReady)\n' +
+            'Opens: not on file\n' +
+            'Closes: Friday, October 2, 2026\n' +
+            'Status: CLOSED\n' +
+            'Days since it closed: 3\n' +
+            'Approved description: "Voter registration closed October 2."\n' +
+            'Do not describe voter registration as open.',
+        )
+        expect(prompt).toContain(
+          'EARLY VOTING (BallotReady)\n' +
+            'Opens: Saturday, October 24, 2026\n' +
+            'Closes: Sunday, November 1, 2026\n' +
+            'Status: NOT YET OPEN\n' +
+            'Days until it opens: 19\n' +
+            'Approved description: "Early voting opens October 24."\n' +
+            'Do not describe early voting as currently open.',
+        )
+        expect(prompt).toContain(
+          'MAIL BALLOT REQUESTS (BallotReady)\n' +
+            'Opens: not on file\n' +
+            'Closes: Saturday, October 24, 2026\n' +
+            'Status: UNKNOWN\n' +
+            'Reason: opening_date_unknown\n' +
+            'Days until it closes: 19\n' +
+            'Approved description: "Mail ballot requests close October 24."',
+        )
+        // The live block no longer carries the window dates itself.
+        expect(prompt).not.toContain('Early voting: opens')
       })
 
       it('places the live block after the record and before the ballot status', () => {
@@ -406,7 +556,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
           }),
         )
         expect(noEarlyVoting).toContain(
-          'Voter registration: opened Tuesday, September 1, 2026 (34 days ago), closes Monday, October 19, 2026 (in 14 days) (BallotReady)',
+          'VOTER REGISTRATION (BallotReady)\n' +
+            'Opens: Tuesday, September 1, 2026\n' +
+            'Closes: Monday, October 19, 2026\n' +
+            'Status: OPEN\n' +
+            'Days until it closes: 14\n' +
+            'Approved description: "Voter registration is open through October 19."',
         )
         expect(noEarlyVoting).toContain(
           'Early voting: no window on file (BallotReady)',
@@ -434,7 +589,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
           'Primary election date: no date on file (election data)',
         )
         expect(prompt).not.toContain('election date: none')
-        expect(prompt).toContain('Early voting: opens Saturday, October 24')
+        expect(prompt).toContain('Opens: Saturday, October 24, 2026')
         expect(prompt).toContain('Votes needed to win: about 1,234')
         expect(prompt).not.toContain('disagree')
       })
