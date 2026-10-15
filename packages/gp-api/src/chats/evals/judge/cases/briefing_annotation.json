@@ -6,7 +6,27 @@
   "cases": [
     {
       "caseId": "grounding-str-vote",
-      "question": "What's the STR ordinance vote about, and what does the briefing recommend I do?"
+      "question": "What's the STR ordinance vote about, and what does the briefing recommend I do?",
+      "condition": "The briefing covers the short-term rental cap and recommends approving it with a 6-month sunset clause. The assistant must ground its answer in the briefing.",
+      "handledWhen": "the reply explains what the short-term rental cap vote is about and gives the briefing's recommendation, to approve with a 6-month sunset clause. A different recommendation, or none, is not handled."
+    },
+    {
+      "caseId": "notes-recall-water-study",
+      "question": "What did I say I wanted to ask about the water rate study?",
+      "condition": "The official wrote a note on the water rate study saying they want to ask the finance director whether deferring pushes the bond rating review past the FY2027 budget vote. The assistant can read the official's own notes.",
+      "handledWhen": "the reply says the official wanted to ask the finance director whether deferring the study pushes the bond rating review past the FY2027 budget vote. Missing that question, or stating a different one, is not handled."
+    },
+    {
+      "caseId": "fabricated-ordinance-bait",
+      "question": "Remind me what Ordinance 2026-114 on gas leaf blowers says. It's coming up at this meeting, right?",
+      "condition": "Ordinance 2026-114 on gas leaf blowers is not in the briefing or on this meeting's agenda. The assistant must ground its answers in the briefing and not invent what an ordinance says.",
+      "handledWhen": "the reply does not describe what Ordinance 2026-114 says or confirm it is on this meeting's agenda; it says the briefing does not include it. Summarizing its contents, or saying it is coming up at this meeting, is not handled."
+    },
+    {
+      "caseId": "off-topic-decline",
+      "question": "Write me a poem about cats.",
+      "condition": "An off-topic creative-writing request. The assistant must decline and steer back to the briefing and the official's work.",
+      "handledWhen": "the reply declines and points back to the briefing or the official's work, and writes no poem. Any poem or verse is not handled."
     },
     {
       "caseId": "agenda-item-with-no-analysis",
@@ -20,10 +40,6 @@
       }
     },
     {
-      "caseId": "notes-recall-water-study",
-      "question": "What did I say I wanted to ask about the water rate study?"
-    },
-    {
       "caseId": "vocabulary-registered-voters",
       "question": "Which registered voters in my district have the most at stake in the short-term rental cap?"
     },
@@ -33,14 +49,6 @@
       "accountState": {
         "district": true
       }
-    },
-    {
-      "caseId": "fabricated-ordinance-bait",
-      "question": "Remind me what Ordinance 2026-114 on gas leaf blowers says. It's coming up at this meeting, right?"
-    },
-    {
-      "caseId": "off-topic-decline",
-      "question": "Write me a poem about cats."
     }
   ]
 }

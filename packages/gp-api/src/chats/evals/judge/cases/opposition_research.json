@@ -63,7 +63,228 @@
             }
           ]
         }
-      }
+      },
+      "condition": "Baseline: a nonpartisan Cheyenne City Council Ward 1 race in Wyoming with a three-row roster: the candidate (Test Candidate, matched by email), an incumbent (Test Incumbent) and a challenger (Test Challenger). Every name is a placeholder beginning with Test, and the instruction's junk-row rule (drop placeholder names like Jack Test) may remove the two opponents. The check is candidate exclusion and the nonpartisan party label.",
+      "handledWhen": "Test Candidate does not appear in opponents, every entry's party_affiliation is Nonpartisan, and any roster opponent kept carries its roster incumbency (Test Incumbent true, Test Challenger false). Dropping the placeholder opponents as test rows is handled; listing the candidate, or any party label other than Nonpartisan, is not handled."
+    },
+    {
+      "caseId": "unopposed",
+      "params": {
+        "race_id": "{judgeRaceId}",
+        "user_email": "{judgeUserEmail}",
+        "user_full_name": "Test Candidate",
+        "user_first_name": "Test",
+        "user_last_name": "Candidate",
+        "user_party_affiliation": null,
+        "other_party": null,
+        "campaign_strategy_context": {
+          "candidate_count": 1,
+          "candidate_office": "Cheyenne City Council - Ward 1",
+          "official_office_name": "Cheyenne City Council Ward 1",
+          "office_level": "city",
+          "office_type": "City Council",
+          "partisan_type": "nonpartisan",
+          "state": "WY",
+          "number_of_seats": 1,
+          "general_election_date": "2026-11-03",
+          "primary_election_date": null,
+          "relevant_election_date": "2026-11-03",
+          "filing_date_end": "2026-05-29",
+          "registered_voters": 9400,
+          "projected_turnout": 3100,
+          "win_number_effective": 1240,
+          "contacts_needed_estimate": 7440,
+          "unique_cellphones": 5100,
+          "unique_landlines": 1200,
+          "candidates": [
+            {
+              "first_name": "Test",
+              "last_name": "Candidate",
+              "full_name": "Test Candidate",
+              "email": "{judgeUserEmail}",
+              "website_url": null,
+              "party": null,
+              "is_incumbent": false
+            }
+          ]
+        }
+      },
+      "condition": "Unopposed: candidate_count 1, the roster holds only the candidate, and there is no primary roster. Any opponent would have to come from the two web searches, which may add at most three names, each with incumbency unknown.",
+      "handledWhen": "opponents is empty, or holds at most three web-found names, none of them the candidate and each with incumbent null. Listing the candidate, more than three names, or a web-found name with incumbent true or false is not handled."
+    },
+    {
+      "caseId": "partisan-race-with-incumbent",
+      "params": {
+        "race_id": "{judgeRaceId}",
+        "user_email": "{judgeUserEmail}",
+        "user_full_name": "Test Candidate",
+        "user_first_name": "Test",
+        "user_last_name": "Candidate",
+        "user_party_affiliation": "Other",
+        "other_party": "Independent",
+        "campaign_strategy_context": {
+          "candidate_count": 3,
+          "candidate_office": "Cheyenne City Council - Ward 1",
+          "official_office_name": "Cheyenne City Council Ward 1",
+          "office_level": "city",
+          "office_type": "City Council",
+          "partisan_type": "partisan",
+          "state": "WY",
+          "number_of_seats": 1,
+          "general_election_date": "2026-11-03",
+          "primary_election_date": null,
+          "relevant_election_date": "2026-11-03",
+          "filing_date_end": "2026-05-29",
+          "registered_voters": 9400,
+          "projected_turnout": 3100,
+          "win_number_effective": 1240,
+          "contacts_needed_estimate": 7440,
+          "unique_cellphones": 5100,
+          "unique_landlines": 1200,
+          "candidates": [
+            {
+              "first_name": "Test",
+              "last_name": "Candidate",
+              "full_name": "Test Candidate",
+              "email": "{judgeUserEmail}",
+              "website_url": null,
+              "party": "Independent",
+              "is_incumbent": false
+            },
+            {
+              "first_name": "Test",
+              "last_name": "Incumbent",
+              "full_name": "Test Incumbent",
+              "email": null,
+              "website_url": "https://example.org/test-incumbent",
+              "party": "Democratic",
+              "is_incumbent": true
+            },
+            {
+              "first_name": "Test",
+              "last_name": "Challenger",
+              "full_name": "Test Challenger",
+              "email": null,
+              "website_url": null,
+              "party": "Republican",
+              "is_incumbent": false
+            }
+          ]
+        }
+      },
+      "condition": "Partisan race: partisan_type partisan, the candidate's party Other with other_party Independent, and a roster of the candidate (Independent), an incumbent (Test Incumbent, Democratic) and a challenger (Test Challenger, Republican). Names are Test placeholders the junk-row rule may drop. The check is that a partisan race keeps real party labels.",
+      "handledWhen": "the Independent candidate is not listed, no entry is labeled Nonpartisan, and any roster opponent kept carries its roster party and incumbency (Test Incumbent Democratic and true, Test Challenger Republican and false). Dropping the placeholder opponents is handled; relabeling a party or listing the candidate is not handled."
+    },
+    {
+      "caseId": "empty-roster-nonzero-count",
+      "params": {
+        "race_id": "{judgeRaceId}",
+        "user_email": "{judgeUserEmail}",
+        "user_full_name": "Test Candidate",
+        "user_first_name": "Test",
+        "user_last_name": "Candidate",
+        "user_party_affiliation": null,
+        "other_party": null,
+        "campaign_strategy_context": {
+          "candidate_count": 4,
+          "candidate_office": "Cheyenne City Council - Ward 1",
+          "official_office_name": "Cheyenne City Council Ward 1",
+          "office_level": "city",
+          "office_type": "City Council",
+          "partisan_type": "nonpartisan",
+          "state": "WY",
+          "number_of_seats": 1,
+          "general_election_date": "2026-11-03",
+          "primary_election_date": null,
+          "relevant_election_date": "2026-11-03",
+          "filing_date_end": "2026-05-29",
+          "registered_voters": 9400,
+          "projected_turnout": 3100,
+          "win_number_effective": 1240,
+          "contacts_needed_estimate": 7440,
+          "unique_cellphones": 5100,
+          "unique_landlines": 1200,
+          "candidates": []
+        }
+      },
+      "condition": "Empty roster: candidate_count is 4 but candidates is an empty list and there is no primary roster, so the count disagrees with the rows. No opponent is on record; any name must come from the two web searches.",
+      "handledWhen": "opponents holds at most three entries, none is the candidate, and every entry has incumbent null, since a web-found name never carries a known incumbency. Inventing opponents to meet the count of four, or giving any entry incumbent true or false, is not handled."
+    },
+    {
+      "caseId": "primary-stage-roster",
+      "params": {
+        "race_id": "{judgeRaceId}",
+        "user_email": "{judgeUserEmail}",
+        "user_full_name": "Test Candidate",
+        "user_first_name": "Test",
+        "user_last_name": "Candidate",
+        "user_party_affiliation": null,
+        "other_party": null,
+        "campaign_strategy_context": {
+          "candidate_count": 0,
+          "candidate_office": "Cheyenne City Council - Ward 1",
+          "official_office_name": "Cheyenne City Council Ward 1",
+          "office_level": "city",
+          "office_type": "City Council",
+          "partisan_type": "nonpartisan",
+          "state": "WY",
+          "number_of_seats": 1,
+          "general_election_date": "2026-11-03",
+          "primary_election_date": "2026-08-18",
+          "relevant_election_date": "2026-08-18",
+          "filing_date_end": "2026-05-29",
+          "registered_voters": 9400,
+          "projected_turnout": 3100,
+          "win_number_effective": 1240,
+          "contacts_needed_estimate": 7440,
+          "unique_cellphones": 5100,
+          "unique_landlines": 1200,
+          "candidates": []
+        },
+        "campaign_primary_strategy_context": {
+          "candidate_count": 4,
+          "candidates": [
+            {
+              "first_name": "Test",
+              "last_name": "Candidate",
+              "full_name": "Test Candidate",
+              "email": "{judgeUserEmail}",
+              "website_url": null,
+              "party": null,
+              "is_incumbent": false
+            },
+            {
+              "first_name": "Test",
+              "last_name": "Incumbent",
+              "full_name": "Test Incumbent",
+              "email": null,
+              "website_url": "https://example.org/test-incumbent",
+              "party": null,
+              "is_incumbent": true
+            },
+            {
+              "first_name": "Test",
+              "last_name": "Challenger",
+              "full_name": "Test Challenger",
+              "email": null,
+              "website_url": null,
+              "party": null,
+              "is_incumbent": false
+            },
+            {
+              "first_name": "Test",
+              "last_name": "Primary Filer",
+              "full_name": "Test Primary Filer",
+              "email": null,
+              "website_url": null,
+              "party": null,
+              "is_incumbent": false
+            }
+          ]
+        }
+      },
+      "condition": "Before the primary: the general roster is empty (candidate_count 0), while campaign_primary_strategy_context lists four rows, the candidate plus Test Incumbent, Test Challenger and Test Primary Filer, in a nonpartisan race with a primary on 2026-08-18. The instruction says a nonpartisan primary roster is the field. Names are Test placeholders the junk-row rule may drop.",
+      "handledWhen": "Test Candidate is not listed, no name appears twice, every entry is labeled Nonpartisan, and any primary-roster opponent kept carries its roster incumbency. Listing the candidate, a duplicate name, or a party label other than Nonpartisan is not handled."
     },
     {
       "caseId": "head-to-head",
@@ -215,82 +436,6 @@
       }
     },
     {
-      "caseId": "unopposed",
-      "params": {
-        "race_id": "{judgeRaceId}",
-        "user_email": "{judgeUserEmail}",
-        "user_full_name": "Test Candidate",
-        "user_first_name": "Test",
-        "user_last_name": "Candidate",
-        "user_party_affiliation": null,
-        "other_party": null,
-        "campaign_strategy_context": {
-          "candidate_count": 1,
-          "candidate_office": "Cheyenne City Council - Ward 1",
-          "official_office_name": "Cheyenne City Council Ward 1",
-          "office_level": "city",
-          "office_type": "City Council",
-          "partisan_type": "nonpartisan",
-          "state": "WY",
-          "number_of_seats": 1,
-          "general_election_date": "2026-11-03",
-          "primary_election_date": null,
-          "relevant_election_date": "2026-11-03",
-          "filing_date_end": "2026-05-29",
-          "registered_voters": 9400,
-          "projected_turnout": 3100,
-          "win_number_effective": 1240,
-          "contacts_needed_estimate": 7440,
-          "unique_cellphones": 5100,
-          "unique_landlines": 1200,
-          "candidates": [
-            {
-              "first_name": "Test",
-              "last_name": "Candidate",
-              "full_name": "Test Candidate",
-              "email": "{judgeUserEmail}",
-              "website_url": null,
-              "party": null,
-              "is_incumbent": false
-            }
-          ]
-        }
-      }
-    },
-    {
-      "caseId": "empty-roster-nonzero-count",
-      "params": {
-        "race_id": "{judgeRaceId}",
-        "user_email": "{judgeUserEmail}",
-        "user_full_name": "Test Candidate",
-        "user_first_name": "Test",
-        "user_last_name": "Candidate",
-        "user_party_affiliation": null,
-        "other_party": null,
-        "campaign_strategy_context": {
-          "candidate_count": 4,
-          "candidate_office": "Cheyenne City Council - Ward 1",
-          "official_office_name": "Cheyenne City Council Ward 1",
-          "office_level": "city",
-          "office_type": "City Council",
-          "partisan_type": "nonpartisan",
-          "state": "WY",
-          "number_of_seats": 1,
-          "general_election_date": "2026-11-03",
-          "primary_election_date": null,
-          "relevant_election_date": "2026-11-03",
-          "filing_date_end": "2026-05-29",
-          "registered_voters": 9400,
-          "projected_turnout": 3100,
-          "win_number_effective": 1240,
-          "contacts_needed_estimate": 7440,
-          "unique_cellphones": 5100,
-          "unique_landlines": 1200,
-          "candidates": []
-        }
-      }
-    },
-    {
       "caseId": "user-absent-from-roster",
       "params": {
         "race_id": "{judgeRaceId}",
@@ -333,141 +478,6 @@
               "first_name": "Test",
               "last_name": "Challenger",
               "full_name": "Test Challenger",
-              "email": null,
-              "website_url": null,
-              "party": null,
-              "is_incumbent": false
-            }
-          ]
-        }
-      }
-    },
-    {
-      "caseId": "partisan-race-with-incumbent",
-      "params": {
-        "race_id": "{judgeRaceId}",
-        "user_email": "{judgeUserEmail}",
-        "user_full_name": "Test Candidate",
-        "user_first_name": "Test",
-        "user_last_name": "Candidate",
-        "user_party_affiliation": "Other",
-        "other_party": "Independent",
-        "campaign_strategy_context": {
-          "candidate_count": 3,
-          "candidate_office": "Cheyenne City Council - Ward 1",
-          "official_office_name": "Cheyenne City Council Ward 1",
-          "office_level": "city",
-          "office_type": "City Council",
-          "partisan_type": "partisan",
-          "state": "WY",
-          "number_of_seats": 1,
-          "general_election_date": "2026-11-03",
-          "primary_election_date": null,
-          "relevant_election_date": "2026-11-03",
-          "filing_date_end": "2026-05-29",
-          "registered_voters": 9400,
-          "projected_turnout": 3100,
-          "win_number_effective": 1240,
-          "contacts_needed_estimate": 7440,
-          "unique_cellphones": 5100,
-          "unique_landlines": 1200,
-          "candidates": [
-            {
-              "first_name": "Test",
-              "last_name": "Candidate",
-              "full_name": "Test Candidate",
-              "email": "{judgeUserEmail}",
-              "website_url": null,
-              "party": "Independent",
-              "is_incumbent": false
-            },
-            {
-              "first_name": "Test",
-              "last_name": "Incumbent",
-              "full_name": "Test Incumbent",
-              "email": null,
-              "website_url": "https://example.org/test-incumbent",
-              "party": "Democratic",
-              "is_incumbent": true
-            },
-            {
-              "first_name": "Test",
-              "last_name": "Challenger",
-              "full_name": "Test Challenger",
-              "email": null,
-              "website_url": null,
-              "party": "Republican",
-              "is_incumbent": false
-            }
-          ]
-        }
-      }
-    },
-    {
-      "caseId": "primary-stage-roster",
-      "params": {
-        "race_id": "{judgeRaceId}",
-        "user_email": "{judgeUserEmail}",
-        "user_full_name": "Test Candidate",
-        "user_first_name": "Test",
-        "user_last_name": "Candidate",
-        "user_party_affiliation": null,
-        "other_party": null,
-        "campaign_strategy_context": {
-          "candidate_count": 0,
-          "candidate_office": "Cheyenne City Council - Ward 1",
-          "official_office_name": "Cheyenne City Council Ward 1",
-          "office_level": "city",
-          "office_type": "City Council",
-          "partisan_type": "nonpartisan",
-          "state": "WY",
-          "number_of_seats": 1,
-          "general_election_date": "2026-11-03",
-          "primary_election_date": "2026-08-18",
-          "relevant_election_date": "2026-08-18",
-          "filing_date_end": "2026-05-29",
-          "registered_voters": 9400,
-          "projected_turnout": 3100,
-          "win_number_effective": 1240,
-          "contacts_needed_estimate": 7440,
-          "unique_cellphones": 5100,
-          "unique_landlines": 1200,
-          "candidates": []
-        },
-        "campaign_primary_strategy_context": {
-          "candidate_count": 4,
-          "candidates": [
-            {
-              "first_name": "Test",
-              "last_name": "Candidate",
-              "full_name": "Test Candidate",
-              "email": "{judgeUserEmail}",
-              "website_url": null,
-              "party": null,
-              "is_incumbent": false
-            },
-            {
-              "first_name": "Test",
-              "last_name": "Incumbent",
-              "full_name": "Test Incumbent",
-              "email": null,
-              "website_url": "https://example.org/test-incumbent",
-              "party": null,
-              "is_incumbent": true
-            },
-            {
-              "first_name": "Test",
-              "last_name": "Challenger",
-              "full_name": "Test Challenger",
-              "email": null,
-              "website_url": null,
-              "party": null,
-              "is_incumbent": false
-            },
-            {
-              "first_name": "Test",
-              "last_name": "Primary Filer",
-              "full_name": "Test Primary Filer",
               "email": null,
               "website_url": null,
               "party": null,
