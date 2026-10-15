@@ -13,6 +13,7 @@ export interface BiasAnalysisState {
   hasGrammar: boolean
   hasServerError: boolean
   hasBeenChecked: boolean
+  isAnalyzing: boolean
 }
 
 interface PollTextBiasInputProps {
@@ -115,6 +116,7 @@ export default function PollTextBiasInput({
       hasGrammar,
       hasServerError,
       hasBeenChecked,
+      isAnalyzing,
     }
     const prevState = biasStateRef.current
     if (
@@ -122,7 +124,8 @@ export default function PollTextBiasInput({
       prevState.hasBias !== currentState.hasBias ||
       prevState.hasGrammar !== currentState.hasGrammar ||
       prevState.hasServerError !== currentState.hasServerError ||
-      prevState.hasBeenChecked !== currentState.hasBeenChecked
+      prevState.hasBeenChecked !== currentState.hasBeenChecked ||
+      prevState.isAnalyzing !== currentState.isAnalyzing
     ) {
       biasStateRef.current = currentState
       onBiasAnalysisChange?.(currentState)
@@ -132,6 +135,7 @@ export default function PollTextBiasInput({
     hasGrammar,
     hasServerError,
     hasBeenChecked,
+    isAnalyzing,
     onBiasAnalysisChange,
   ])
 
@@ -185,6 +189,7 @@ export default function PollTextBiasInput({
       hasGrammar: false,
       hasServerError: false,
       hasBeenChecked: false,
+      isAnalyzing: false,
     })
   }, [onBiasAnalysisChange])
 
