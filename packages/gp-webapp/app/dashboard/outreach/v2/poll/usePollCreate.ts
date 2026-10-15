@@ -45,6 +45,9 @@ export const usePollCreate = ({
 }: UsePollCreateInput): PollCreate => {
   const [created, setCreated] = useState<ServePollCreateResponse | null>(null)
   const [failed, setFailed] = useState(false)
+  // Bumped whenever a request settles, so an entry to review that arrived
+  // while a discarded request was still out retries once it is back.
+  const [settled, setSettled] = useState(0)
   const inFlightRef = useRef(false)
   const generationRef = useRef(0)
   const payloadRef = useRef(payload)
@@ -64,14 +67,16 @@ export const usePollCreate = ({
       } catch {
         if (generation === generationRef.current) setFailed(true)
       } finally {
-        if (generation === generationRef.current) inFlightRef.current = false
+        inFlightRef.current = false
+        setSettled((n) => n + 1)
       }
     })()
-  }, [enabled, created, failed])
+  }, [enabled, created, failed, settled])
 
   const discard = useCallback(() => {
+    // inFlightRef stays as it is: a request already sent cannot be recalled,
+    // and a second one must wait for it rather than run beside it.
     generationRef.current += 1
-    inFlightRef.current = false
     setCreated(null)
     setFailed(false)
   }, [])

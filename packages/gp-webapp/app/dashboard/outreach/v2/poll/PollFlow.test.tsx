@@ -318,4 +318,45 @@ describe('PollFlow', () => {
       await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     ).toBeInTheDocument()
   })
+
+  it('never runs two creates at once when Back and Continue race a slow create', async () => {
+    let release: () => void = () => undefined
+    let inFlight = 0
+    let maxInFlight = 0
+    api.mock('POST /v1/outreach/serve/poll', async ({ body }) => {
+      createBodies.push(body as unknown as Record<string, unknown>)
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      if (createBodies.length === 1) {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      }
+      inFlight -= 1
+      return {
+        status: 200,
+        data: {
+          outreachId: 90 + createBodies.length,
+          recipientCount: 2700,
+          amountCents: 9450,
+        },
+      }
+    })
+    openFlow()
+    await pickTopic('Public safety')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
+    )
+    await throughQuestion()
+    await waitFor(() => expect(createBodies).toHaveLength(1))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue' }),
+    )
+    release()
+
+    await waitFor(() => expect(createBodies).toHaveLength(2))
+    expect(maxInFlight).toBe(1)
+  })
 })
