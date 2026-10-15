@@ -5,7 +5,11 @@ import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { Check, LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
-import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
+import type {
+  ElectedOffice,
+  MyElectedOffice,
+  Organization,
+} from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -116,6 +120,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // True once the office is on the EO org server-side, which is what the
   // community issues search reads. A pick that is not saved yet does not count.
   const [officeOnOrg, setOfficeOnOrg] = useState(false)
+  // The issues they ran on, carried over from their Win campaign, already give
+  // the priorities step something to offer.
+  const [hasWinIssues, setHasWinIssues] = useState(false)
   const [zip, setZip] = useState<string | undefined>(undefined)
   const [manualEntry, setManualEntry] = useState(false)
 
@@ -171,7 +178,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         const currentEOData = currentRes.ok
           ? (currentRes.data as ElectedOffice)
           : null
-        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+        const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
         // `current` resolves only the active-slug org's office, so it 404s when
         // a campaign org is the active org. Fall back to the user's own offices
         // (preferring one whose onboarding is unfinished) before treating them
@@ -184,6 +191,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           null
         setCurrentEO(eo)
         currentEORef.current = eo
+        setHasWinIssues(
+          !!eo && !!mine.find((office) => office.id === eo.id)?.hasWinIssues,
+        )
 
         let officePrefilled = false
         let prefillPositionId: string | undefined = undefined
@@ -359,6 +369,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })
   }, [loading, step, branch, currentEO?.id])
 
+  // Research is paid. Without issues they ran on, it starts as early as it
+  // can so the priorities step has something to offer. With them, it waits
+  // until the official has said they are in office, so nobody who is still
+  // campaigning or just testing spends it.
+  const researchAllowed =
+    !hasWinIssues ||
+    (inOffice === 'in-office' && step !== 'welcome' && step !== 'inOffice')
+
   useEffect(() => {
     if (
       loading ||
@@ -375,7 +393,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       try {
         await ensureElectedOffice()
         const starting =
-          communityIssuesStartRef.current ?? startCommunityIssues()
+          communityIssuesStartRef.current ??
+          (researchAllowed ? startCommunityIssues() : Promise.resolve())
         await Promise.race([
           starting,
           new Promise((resolve) => setTimeout(resolve, STARTER_ISSUES_WAIT_MS)),
@@ -464,14 +483,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
 
-  // Start the search the moment the office is on the org, on any step: on
-  // load for a prefill or resumed official, right after the office is saved
-  // for a net-new one. The earlier it starts, the likelier the priorities
-  // step has issues to offer.
+  // Start the search the moment the office is on the org and research is
+  // allowed: on load for a prefill or resumed official, right after the
+  // office is saved for a net-new one.
   useEffect(() => {
-    if (loading || !citizenPanels || !officeOnOrg) return
+    if (loading || !citizenPanels || !officeOnOrg || !researchAllowed) return
     void startCommunityIssues()
-  }, [loading, citizenPanels, officeOnOrg])
+  }, [loading, citizenPanels, officeOnOrg, researchAllowed])
 
   const datesValid =
     !!termStartDate &&
