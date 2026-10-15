@@ -160,18 +160,21 @@ describe('buildOutreachTrackerTaskRows', () => {
   })
 
   it('suppresses all outreach when the candidate lost their primary', () => {
-    expect(buildOutreachTrackerTaskRows(7, start, election, true, false)).toEqual([])
+    expect(
+      buildOutreachTrackerTaskRows(7, start, election, true, false),
+    ).toEqual([])
   })
 
   it('builds no outreach when there is no election date to anchor to', () => {
-    expect(buildOutreachTrackerTaskRows(7, start, null, false, false)).toEqual([])
+    expect(buildOutreachTrackerTaskRows(7, start, null, false, false)).toEqual(
+      [],
+    )
   })
 
   it('swaps each text send for a robocall on its date when texting is closed', () => {
     const rows = buildOutreachTrackerTaskRows(7, start, election, false, true)
     expect(rows.filter((r) => r.flowType === 'text')).toEqual([])
-    const dateOf = (title: string) =>
-      rows.find((r) => r.title === title)?.date
+    const dateOf = (title: string) => rows.find((r) => r.title === title)?.date
     expect(dateOf('Early Introduction Robocall')).toEqual(subDays(election, 56))
     expect(dateOf('Early Persuasion Robocall')).toEqual(subDays(election, 35))
     expect(dateOf('Early Voting Robocall')).toEqual(subDays(election, 14))
@@ -202,9 +205,9 @@ describe('buildOutreachTrackerTaskRows', () => {
       'Early Voting Robocall',
       'Election Day Reminder Robocall',
     ])
-    expect(
-      rows.find((r) => r.title === 'Early Voting Robocall')?.date,
-    ).toEqual(addDays(lateStart, 1))
+    expect(rows.find((r) => r.title === 'Early Voting Robocall')?.date).toEqual(
+      addDays(lateStart, 1),
+    )
   })
 })
 

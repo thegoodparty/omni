@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { CampaignTaskType, Prisma } from '../../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import {
-  EASTERN_TIMEZONE,
-  toDateOnlyString,
-} from 'src/shared/util/date.util'
+import { EASTERN_TIMEZONE, toDateOnlyString } from 'src/shared/util/date.util'
 import { SMS_CUTOFF_LEAD_DAYS } from 'src/campaigns/util/eligibility.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WeeklyTasksDigestMessage } from 'src/queue/queue.types'

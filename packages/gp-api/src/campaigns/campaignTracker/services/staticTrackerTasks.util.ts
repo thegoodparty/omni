@@ -39,7 +39,8 @@ export const TEXT_SEND_ROBOCALL_SWAPS = [
   {
     catalogId: 'early-voting-text',
     title: 'Early Voting Robocall',
-    description: 'Encourage your supporters to vote early with an automated call.',
+    description:
+      'Encourage your supporters to vote early with an automated call.',
   },
 ] as const
 
