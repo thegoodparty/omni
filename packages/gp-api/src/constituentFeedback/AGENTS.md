@@ -114,7 +114,9 @@ All under `@Controller('constituent-feedback')`, all `@UseOrganization()`.
   or is named twice, is a 422. Sets `confirmedAt` and `confirmation:
   reviewed`. `skipped: true` is the confirm step's Skip: it needs an empty
   list (400 otherwise) and confirms with `confirmation: skipped` (see
-  Confirmation). `@AllowVolunteer()`.
+  Confirmation); on a memo already confirmed it changes nothing and returns
+  the record, since a dismiss can land after a "Looks right".
+  `@AllowVolunteer()`.
 - `POST audio-upload-url`: `{ clientKey, contentType }` to `{ audioKey,
 uploadUrl, fields, expiresAt }`, a presigned POST. `@AllowVolunteer()`.
 - `POST audio-upload/:clientKey`: the mock-mode upload sink (multipart,
@@ -176,8 +178,7 @@ model proposed moves to `unreviewedProposal`, in position order and in the
 model's own words (`setAsideProposal` in `constituentFeedback.service.ts`,
 one transaction with the confirm): the `proposed*` values of the memo's
 issue rows, or for an offline memo the extraction itself. None when nothing
-was proposed or extraction failed. A memo with no proposed issues left keeps
-the proposal it has, so a repeated Skip cannot empty it. It exists only to
+was proposed or extraction failed. It exists only to
 measure extraction; nothing reads it but tests. It is kept apart from
 `issues` on purpose: the report (`summarize`, the memo list), the CSV export,
 the person record (`GET /?personId=`) and the Chief of Staff's
@@ -420,7 +421,10 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    row's last write (applied after the poll, so a job that finished while
    the cron was not running is read rather than failed), starts a new job
    (`restartTranscription`) while fewer than `MAX_TRANSCRIPTION_ATTEMPTS`
-   (3) have run; after that the memo is `failed`. An empty transcript is
+   (3) have run; after that the memo is `failed`. A start that failed is
+   tried again only `START_RETRY_AFTER_MINUTES` (10) after the last
+   attempt, so the attempts outlast a Transcribe or AWS outage of a few
+   minutes rather than all failing inside it. An empty transcript is
    silence, which another job would hear the same way, so it fails at once.
    A `failed` memo with no transcript is unreadable: it stays unconfirmed,
    and the report lists it with `extractionStatus: failed`. Every write is

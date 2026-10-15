@@ -188,7 +188,7 @@ const replaceUnreviewedProposal = async (
 // Confirming without review leaves a memo no issues, so nothing that reads
 // them can count a guess nobody checked. The model's proposal moves to the
 // unreviewed proposal, kept only to measure extraction. A memo with nothing
-// proposed keeps the proposal it has, so a repeated skip cannot empty it.
+// proposed keeps whatever proposal it already has.
 const setAsideProposal = async (
   tx: Prisma.TransactionClient,
   feedbackId: string,
@@ -698,15 +698,21 @@ export class ConstituentFeedbackService extends createPrismaBase(
       existing.channel,
     )
 
+    // A skip only ever confirms a memo nobody has: the drawer's dismiss is a
+    // skip, and one racing a "Looks right" can land after it. Claimed with a
+    // conditional write so the check cannot race either.
     if (input.body.skipped === true) {
       const skipped = await this.client.$transaction(async (tx) => {
-        await setAsideProposal(tx, input.id)
-        return tx.constituentFeedback.update({
-          where: { id: input.id },
+        const { count } = await tx.constituentFeedback.updateMany({
+          where: { id: input.id, confirmedAt: null },
           data: {
             confirmedAt: new Date(),
             confirmation: ConstituentFeedbackConfirmation.skipped,
           },
+        })
+        if (count > 0) await setAsideProposal(tx, input.id)
+        return tx.constituentFeedback.findUniqueOrThrow({
+          where: { id: input.id },
           include: RECORD_INCLUDE,
         })
       })

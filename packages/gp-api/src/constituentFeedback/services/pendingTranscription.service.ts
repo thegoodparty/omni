@@ -26,6 +26,11 @@ const GIVE_UP_AFTER_MINUTES = 60
 // a recording no job could read.
 export const MAX_TRANSCRIPTION_ATTEMPTS = 3
 
+// A failed start is retried only this long after the last attempt, so
+// three attempts span a Transcribe or AWS outage of a few minutes instead
+// of all failing inside it.
+export const START_RETRY_AFTER_MINUTES = 10
+
 // A live memo still unconfirmed this long after its last write had its
 // confirm step abandoned: the app closed on the card. Long enough that a
 // canvasser mid-walk is never overtaken.
@@ -140,10 +145,16 @@ export class PendingTranscriptionService extends createPrismaBase(
     const stale = row.updatedAt < subMinutes(now, GIVE_UP_AFTER_MINUTES)
     const attemptsLeft = row.transcriptionAttempts < MAX_TRANSCRIPTION_ATTEMPTS
 
-    // No job: it never started, or its last start failed.
+    // No job: it never started, or its last start failed. The last attempt
+    // is the row's last write.
     if (jobName === null) {
       if (attemptsLeft) {
-        await this.feedback.startTranscription(row.id, audioKey)
+        const retryDue =
+          row.transcriptionAttempts === 0 ||
+          row.updatedAt <= subMinutes(now, START_RETRY_AFTER_MINUTES)
+        if (retryDue) {
+          await this.feedback.startTranscription(row.id, audioKey)
+        }
       } else {
         await this.feedback.failTranscription({
           id: row.id,

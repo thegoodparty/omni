@@ -24,6 +24,7 @@ import {
   ABANDONED_CONFIRM_AFTER_HOURS,
   MAX_TRANSCRIPTION_ATTEMPTS,
   PendingTranscriptionService,
+  START_RETRY_AFTER_MINUTES,
 } from '../services/pendingTranscription.service'
 import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
 import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
@@ -392,6 +393,9 @@ describe('offline memo capture', () => {
       expect(unreadable.confirmedAt).toBeNull()
     })
 
+    const minutesOn = (minutes: number) =>
+      new Date(Date.now() + minutes * 60_000)
+
     it('counts a job that fails to start as an attempt', async () => {
       const start = vi
         .spyOn(service.app.get(TranscribeFileService), 'transcribeFile')
@@ -400,10 +404,10 @@ describe('offline memo capture', () => {
       const { res } = await recordOffline()
       expect((await row(res.data.id)).transcriptionAttempts).toBe(1)
 
-      await cron().pass(FIRST_SLOT)
-      await cron().pass(NEXT_SLOT)
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+      await cron().pass(minutesOn(2 * START_RETRY_AFTER_MINUTES + 2))
       expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
-      await cron().pass(THIRD_SLOT)
+      await cron().pass(minutesOn(3 * START_RETRY_AFTER_MINUTES + 3))
 
       const saved = await row(res.data.id)
       expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
@@ -411,6 +415,28 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.failed,
       )
+    })
+
+    // A start that failed in an outage is not tried again inside it.
+    it('waits before starting again after a failed start', async () => {
+      const start = vi
+        .spyOn(service.app.get(TranscribeFileService), 'transcribeFile')
+        .mockRejectedValueOnce(new Error('Transcribe unavailable'))
+      onTestFinished(() => start.mockRestore())
+      const { res } = await recordOffline()
+
+      await cron().pass(minutesOn(1))
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES - 1))
+
+      expect(start).toHaveBeenCalledOnce()
+      expect((await row(res.data.id)).transcriptionJobName).toBeNull()
+
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+
+      expect(start).toHaveBeenCalledTimes(2)
+      const saved = await row(res.data.id)
+      expect(saved.transcriptionJobName).not.toBeNull()
+      expect(saved.transcriptionAttempts).toBe(2)
     })
 
     // Silence transcribes to nothing, and another job would hear the same.
@@ -590,7 +616,7 @@ describe('offline memo capture', () => {
         data: { transcriptionJobName: null },
       })
 
-      await cron().pass(FIRST_SLOT)
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
 
       expect((await row(res.data.id)).transcriptionJobName).not.toBeNull()
     })

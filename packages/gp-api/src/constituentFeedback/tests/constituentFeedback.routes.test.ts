@@ -599,6 +599,45 @@ describe('constituent feedback routes', () => {
       ])
     })
 
+    // The drawer's dismiss is a skip, and one racing a "Looks right" can
+    // land after it. The person's confirmation stands.
+    it('leaves a memo that is already confirmed as it was', async () => {
+      const recorded = await capture('Rosa wants weekly compost pickup.')
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+        {
+          issues: [
+            {
+              issueLabel: 'Compost pickup',
+              stance: 'supports',
+              desiredOutcome: 'Weekly',
+              fromIssueId: recorded.data.extraction.issues[0].id,
+            },
+          ],
+        },
+        headers(),
+      )
+      expect(confirmed.status).toBe(200)
+
+      const skipped = await skip(recorded.data.id)
+
+      expect(skipped.status).toBe(200)
+      expect(skipped.data.issues).toEqual(confirmed.data.issues)
+      expect(skipped.data.confirmedAt).toBe(confirmed.data.confirmedAt)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: recorded.data.id },
+        include: { issues: true },
+      })
+      expect(row.confirmation).toBe(ConstituentFeedbackConfirmation.reviewed)
+      expect(row.issues).toEqual([
+        expect.objectContaining({
+          issueLabel: 'Compost pickup',
+          proposedIssueLabel: COMPOST.issueLabel,
+        }),
+      ])
+      expect(await proposal(recorded.data.id)).toEqual([])
+    })
+
     it('refuses a skip that names issues', async () => {
       const recorded = await capture('Rosa wants weekly compost pickup.')
 
