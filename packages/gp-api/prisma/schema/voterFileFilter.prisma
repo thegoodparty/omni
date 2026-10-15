@@ -167,6 +167,7 @@ model VoterFileFilter {
   sampleSize                 Int?                               @map("sample_size")
   sampledAt                  DateTime?                          @map("sampled_at")
   sampleMembers              VoterFileFilterSampleMember[]
+  civicPanelBuildStep        CivicPanelBuildStep?
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
   recommendedVariant         String?                            @map("recommended_variant")

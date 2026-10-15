@@ -2150,6 +2150,9 @@ export class ContactsService {
       excludeOutreachIds?: number[]
       panelSize?: number
       recipientsOfOutreachId?: number
+      // Server-side only: people to leave out by id, such as who the civic
+      // panel build plan already drew. Passing it always freezes the draw.
+      excludePersonIds?: string[]
     },
   ): Promise<string[] | null> {
     if (sample.recipientsOfOutreachId !== undefined) {
@@ -2177,20 +2180,23 @@ export class ContactsService {
         )) ?? []
       )
     }
-    const excludeIds =
-      await this.voterFileFilterSampleService.personIdsForOutreaches(
+    const excludeIds = [
+      ...(await this.voterFileFilterSampleService.personIdsForOutreaches(
         organization.slug,
         sample.excludeOutreachIds ?? [],
-      )
+      )),
+      ...(sample.excludePersonIds ?? []),
+    ]
     const notAsked: IdFilterResolution =
       excludeIds.length === 0
         ? { kind: 'none' }
-        : { kind: 'filter', idFilter: { notIn: excludeIds } }
+        : { kind: 'filter', idFilter: { notIn: [...new Set(excludeIds)] } }
     if (sample.panelSize === undefined) {
       return this.drawWithin(organization, filterInput, notAsked, {
         size: sample.size,
         seedKey: sample.seedKey,
-        wholeWhenItFits: excludeIds.length === 0,
+        wholeWhenItFits:
+          excludeIds.length === 0 && sample.excludePersonIds === undefined,
       })
     }
     if (!this.hasElectedOfficeAccess(organization)) {
@@ -2298,6 +2304,85 @@ export class ContactsService {
           dataset,
         )
         return people.map((person) => person.id)
+      },
+    )
+  }
+
+  // How many people the criteria match once these ids are left out: the
+  // pool a civic panel build step can still draw from.
+  async countWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    excludePersonIds: string[],
+  ): Promise<number> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    const idResolution = intersectIdFilterResolutions(
+      criteria,
+      excludePersonIds.length === 0
+        ? { kind: 'none' }
+        : { kind: 'filter', idFilter: { notIn: excludePersonIds } },
+    )
+    if (idResolution.kind === 'empty') return 0
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { pagination } = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            districtId,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            resultsPerPage: 1,
+            page: 1,
+            groupByHousehold: false,
+          }),
+          dataset,
+        )
+        return pagination.totalResults
+      },
+    )
+  }
+
+  // Where the people the criteria match live, with their household, for
+  // picking a walkable area. Rooftop-geocoded only, like a turf's doors, so
+  // every household picked is one a route can reach. Capped like the map.
+  async doorPointsWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    excludePersonIds: string[],
+  ): Promise<{ id: string; lat: number; lng: number; addressKey: string }[]> {
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+    if (resolved.empty) return []
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) => {
+        const { people } = await this.voterDoorKnockingService.evaluatePoints(
+          DoorKnockingEvaluateDTO.create({
+            districtId,
+            bbox: DISTRICT_WIDE_BBOX,
+            filters: resolved.filters,
+            idOverrides: resolved.idOverrides,
+            contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+            maxPeople: MAP_POINTS_MAX,
+            ...(excludePersonIds.length > 0 && { excludePersonIds }),
+          }),
+          dataset,
+        )
+        return people.map(({ id, lat, lng, addressKey }) => ({
+          id,
+          lat,
+          lng,
+          addressKey,
+        }))
       },
     )
   }
