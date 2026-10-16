@@ -1,8 +1,10 @@
 import { HttpService } from '@nestjs/axios'
 import { BadGatewayException, Injectable } from '@nestjs/common'
+import csvParser from 'csv-parser'
 import JSZip from 'jszip'
-import parseCsv from 'neat-csv'
 import { PinoLogger } from 'nestjs-pino'
+import { Readable } from 'node:stream'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
@@ -31,6 +33,19 @@ export interface PeerlyReportDateWindow {
 // services do.
 const MAX_REPORT_SIZE = 104857600
 
+// A CDR export can run to 60 MB. Parsed in one piece, that blocked the event
+// loop for over 5s on a prod task and stalled every request it was serving
+// (ENG-11251). Fed to the parser in slices with a yield between them, the
+// longest block is tens of milliseconds.
+const CSV_SLICE_BYTES = 65536
+
+async function* slicesOf(csv: Buffer): AsyncGenerator<Buffer> {
+  for (let start = 0; start < csv.length; start += CSV_SLICE_BYTES) {
+    yield csv.subarray(start, start + CSV_SLICE_BYTES)
+    await yieldToEventLoop()
+  }
+}
+
 @Injectable()
 export class PeerlyJobResultsService extends PeerlyBaseConfig {
   constructor(
@@ -51,8 +66,8 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       window,
       context,
     )
-    const csv = await this.downloadText(link, context)
-    return this.parseRows(await parseCsv(csv), peerlyCdrCsvRowSchema, context)
+    const csv = await this.downloadBuffer(link, context)
+    return this.parseRows(csv, peerlyCdrCsvRowSchema, context)
   }
 
   async fetchQuestionResponseRows(
@@ -67,11 +82,7 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     )
     const zipBuffer = await this.downloadBuffer(link, context)
     const csv = await this.unzipSingleCsv(zipBuffer, context)
-    return this.parseRows(
-      await parseCsv(csv),
-      peerlyQuestionResponsesCsvRowSchema,
-      context,
-    )
+    return this.parseRows(csv, peerlyQuestionResponsesCsvRowSchema, context)
   }
 
   private async fetchReportLink(
@@ -128,28 +139,6 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     return data.link
   }
 
-  private async downloadText(link: string, context: string): Promise<string> {
-    try {
-      const response = await lastValueFrom(
-        this.httpService.get<string>(link, {
-          responseType: 'text',
-          timeout: this.httpTimeoutMs,
-          maxContentLength: MAX_REPORT_SIZE,
-          maxBodyLength: MAX_REPORT_SIZE,
-        }),
-      )
-      return response.data
-    } catch (error) {
-      // The link is a signed URL (a credential) and axios errors embed it
-      // in their config — log only the message.
-      this.logger.error(
-        { message: error instanceof Error ? error.message : String(error) },
-        `Failed to download Peerly ${context} file`,
-      )
-      throw new BadGatewayException(`Failed to download Peerly ${context} file`)
-    }
-  }
-
   private async downloadBuffer(link: string, context: string): Promise<Buffer> {
     try {
       const response = await lastValueFrom(
@@ -162,7 +151,8 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
       return Buffer.from(response.data)
     } catch (error) {
-      // Same signed-URL concern as downloadText: never log the link.
+      // The link is a signed URL (a credential) and axios errors embed it
+      // in their config — log only the message.
       this.logger.error(
         { message: error instanceof Error ? error.message : String(error) },
         `Failed to download Peerly ${context} file`,
@@ -174,7 +164,7 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
   private async unzipSingleCsv(
     buffer: Buffer,
     context: string,
-  ): Promise<string> {
+  ): Promise<Buffer> {
     let zip: JSZip
     try {
       zip = await JSZip.loadAsync(buffer)
@@ -206,30 +196,35 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
         `Peerly ${context} zip archive contains multiple .csv entries`,
       )
     }
-    return csvEntry.async('string')
+    return csvEntry.async('nodebuffer')
   }
 
-  private parseRows<Schema extends z.ZodTypeAny>(
-    records: Awaited<ReturnType<typeof parseCsv>>,
+  private async parseRows<Schema extends z.ZodTypeAny>(
+    csv: Buffer,
     schema: Schema,
     context: string,
-  ): z.infer<Schema>[] {
-    const parsed = z.array(schema).safeParse(records)
-    if (!parsed.success) {
-      // Rows are PII — log issue locations, never row values.
-      this.logger.error(
-        {
-          rowCount: records.length,
-          issues: parsed.error.issues
-            .slice(0, 5)
-            .map(({ code, path }) => ({ code, path })),
-        },
-        `Peerly ${context} rows failed validation`,
-      )
-      throw new BadGatewayException(
-        `Invalid ${context} rows from Peerly report`,
-      )
+  ): Promise<z.infer<Schema>[]> {
+    const rows: z.infer<Schema>[] = []
+    const records = Readable.from(slicesOf(csv)).pipe(csvParser())
+    for await (const record of records) {
+      const parsed = schema.safeParse(record)
+      if (!parsed.success) {
+        // Rows are PII — log issue locations, never row values.
+        this.logger.error(
+          {
+            rowIndex: rows.length,
+            issues: parsed.error.issues
+              .slice(0, 5)
+              .map(({ code, path }) => ({ code, path })),
+          },
+          `Peerly ${context} rows failed validation`,
+        )
+        throw new BadGatewayException(
+          `Invalid ${context} rows from Peerly report`,
+        )
+      }
+      rows.push(parsed.data)
     }
-    return parsed.data
+    return rows
   }
 }

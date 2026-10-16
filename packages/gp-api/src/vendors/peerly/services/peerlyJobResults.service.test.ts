@@ -164,7 +164,7 @@ describe('PeerlyJobResultsService', () => {
   describe('fetchCdrRows', () => {
     it('requests the report window and parses the downloaded CSV', async () => {
       mockReportLink('https://storage.googleapis.com/cdr-reports-v2/x.csv')
-      mockDownloadHttp.get.mockReturnValue(of({ data: cdrCsv }))
+      mockDownloadHttp.get.mockReturnValue(of({ data: Buffer.from(cdrCsv) }))
 
       const rows = await peerlyResultsService.fetchCdrRows(JOB_ID, WINDOW)
 
@@ -188,11 +188,41 @@ describe('PeerlyJobResultsService', () => {
 
     it('returns no rows for a zero-traffic job (header-only CSV)', async () => {
       mockReportLink('https://storage.googleapis.com/cdr-reports-v2/x.csv')
-      mockDownloadHttp.get.mockReturnValue(of({ data: csvOf(CDR_HEADERS, []) }))
+      mockDownloadHttp.get.mockReturnValue(
+        of({ data: Buffer.from(csvOf(CDR_HEADERS, [])) }),
+      )
 
       await expect(
         peerlyResultsService.fetchCdrRows(JOB_ID, WINDOW),
       ).resolves.toEqual([])
+    })
+
+    // A whole-file parse of a 60 MB export blocked the event loop for over
+    // 5s in prod (ENG-11251); other work has to get a turn mid-parse.
+    it('lets other work run while it parses a large report', async () => {
+      const rowCount = 2000
+      const bigCsv = csvOf(
+        CDR_HEADERS,
+        Array.from({ length: rowCount }, (_, index) => ({
+          Timestamp: '2025-08-20 10:23:46',
+          Direction: 'sent',
+          Content: `EARLY VOTING IS HERE ${index}`,
+        })),
+      )
+      mockReportLink('https://storage.googleapis.com/cdr-reports-v2/x.csv')
+      mockDownloadHttp.get.mockReturnValue(of({ data: Buffer.from(bigCsv) }))
+      let otherWorkRan = false
+
+      const parse = peerlyResultsService
+        .fetchCdrRows(JOB_ID, WINDOW)
+        .then((rows) => ({ rows, otherWorkRan }))
+      setImmediate(() => {
+        otherWorkRan = true
+      })
+
+      const result = await parse
+      expect(result.rows).toHaveLength(rowCount)
+      expect(result.otherWorkRan).toBe(true)
     })
 
     it('throws a BadGatewayException when the report-link response has no link', async () => {
@@ -227,7 +257,7 @@ describe('PeerlyJobResultsService', () => {
     it('throws a BadGatewayException when the CSV is missing expected columns', async () => {
       mockReportLink('https://storage.googleapis.com/cdr-reports-v2/x.csv')
       mockDownloadHttp.get.mockReturnValue(
-        of({ data: 'Timestamp,Direction\n2025-08-20,sent' }),
+        of({ data: Buffer.from('Timestamp,Direction\n2025-08-20,sent') }),
       )
 
       await expect(
