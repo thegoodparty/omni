@@ -170,8 +170,9 @@ the effort it belongs to.
   any status, which is what reaches a finished list (its drawer has no
   Continue calling). It is a button in the sticky footer beside the
   campaign's action (Continue calling, Mark campaign done or the archive
-  shelf), side by side on a desktop and stacked on a phone. It reads only the flag, not the report, so opening a
-  drawer costs no request. A phone row links its own id. A door-knocking
+  shelf), side by side on a desktop and stacked on a phone. It shows once the effort has a note: the drawer reads
+  the report's counts (no polling) and leaves the button out until then, so
+  Mark campaign done or the archive keeps the whole row. A phone row links its own id. A door-knocking
   row links only when the campaign is one turf, to that turf's envelope: a
   report is per turf and the row's id names just the anchor's, so a
   several-turf campaign leaves it to the turf cards.

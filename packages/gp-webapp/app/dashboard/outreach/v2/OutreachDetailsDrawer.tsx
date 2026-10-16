@@ -54,6 +54,7 @@ import {
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
@@ -426,6 +427,14 @@ export const OutreachDetailsDrawer = ({
     : isDoorKnocking && campaignTurfs.length === 1
       ? (campaignTurfs[0]?.outreachId ?? null)
       : null
+  // What we heard waits for the first note: before one, the report has
+  // nothing to say. The report's own counts, without its polling.
+  const reportQuery = useQuery({
+    ...reportQueryOptions(reportOutreachId ?? 0),
+    enabled: issueCaptureOn && reportOutreachId !== null,
+    refetchInterval: false,
+  })
+  const hasNotes = (reportQuery.data?.denominators.memos ?? 0) > 0
   // Archive and complete for the WHOLE campaign, one server-side transaction
   // each. This is what replaced `canArchiveFromDrawer`: the write used to
   // take a turf id, so on a campaign it shelved the anchor and left every
@@ -615,7 +624,7 @@ export const OutreachDetailsDrawer = ({
   // shares the second row with Mark campaign done or the archive shelf.
   // Side by side on a desktop, one under the other on a phone.
   const heardAction = (className?: string) =>
-    reportOutreachId === null || !issueCaptureOn ? null : (
+    reportOutreachId === null || !issueCaptureOn || !hasNotes ? null : (
       <WhatWeHeardAction
         outreachId={reportOutreachId}
         isServe={isServe}

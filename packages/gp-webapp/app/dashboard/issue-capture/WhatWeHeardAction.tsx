@@ -8,9 +8,9 @@ import { whatWeHeardCopy } from './copy'
 // The outreach drawer's way into an effort's report, at any status: a
 // finished effort is exactly the one whose summary has run. A button in the
 // drawer's sticky footer, beside the campaign's own action, because it is
-// somewhere to go next rather than something to read in the body. Unlike
-// `WhatWeHeardLink` it reads no counts, so opening a drawer costs no report
-// request; the page itself says when there is nothing yet.
+// somewhere to go next rather than something to read in the body. The drawer
+// mounts it only once the effort has a note, from the report's counts, so it
+// can drop the slot and keep the footer whole.
 export const WhatWeHeardAction = ({
   outreachId,
   isServe,
