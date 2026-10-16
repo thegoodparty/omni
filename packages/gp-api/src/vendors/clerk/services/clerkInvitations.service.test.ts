@@ -355,6 +355,24 @@ describe('ClerkInvitationsService', () => {
       }
     })
 
+    it('throws BadGatewayException when both Clerk attempts time out', async () => {
+      const getUser = vi
+        .fn()
+        .mockImplementation(() => new Promise(() => undefined))
+      const { service } = makeService({ getUser })
+      vi.useFakeTimers()
+      try {
+        const result = service.getTeamInviteState('user_1')
+        const assertion =
+          expect(result).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS * 2)
+        await assertion
+        expect(getUser).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('throws BadGatewayException when Clerk fails to fetch the user', async () => {
       const getUser = vi.fn().mockRejectedValue(new Error('down'))
       const { service } = makeService({ getUser })
