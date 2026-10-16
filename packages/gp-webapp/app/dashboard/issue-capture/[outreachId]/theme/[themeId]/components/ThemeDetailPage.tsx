@@ -58,8 +58,8 @@ const ThemeDetailPage = ({
     >
       {/* The report's own top bar and way back, the same as What we heard's,
           so the theme floats on the gray canvas below. */}
-      <div className="-mx-2 -mt-2 flex h-14 shrink-0 items-center border-b border-border bg-background px-4 md:-mx-4 md:-mt-4 md:px-6">
-        <Button asChild variant="ghost" size="small">
+      <div className="-mx-2 -mt-2 flex shrink-0 items-center border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
+        <Button asChild variant="ghost">
           {/* Reads "Back", and names the report it returns to for a screen
               reader. */}
           <Link

@@ -103,11 +103,9 @@ const SummarizeButton = ({
     (underFloor ? copy.floorLine(report.floor, report.channel) : null)
   const failed = start.isError && status !== 409 && refusal === null
   const button = (
-    // Small, so the bar it sits in stays the title bar's 56px: the button
-    // scales to the bar, the bar never grows around it. The page's one
-    // primary action, so it takes the default (filled) variant.
+    // Medium, as Voter Data's Create new list is in the same bar. The page's
+    // one primary action, so it takes the default (filled) variant.
     <Button
-      size="small"
       disabled={reason !== null || start.isPending}
       onClick={() => start.mutate()}
       // Tooltip.stories' Disabled: a disabled button takes no pointer events,
