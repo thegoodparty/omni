@@ -206,6 +206,12 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
+// What we heard, a theme and Notes to review are reached from the outreach
+// hub and lead back to it, so they carry the hub's title, which is the
+// rail's own: Win reads Voter Outreach, Serve Outreach.
+const isIssueCapturePath = (pathname: string): boolean =>
+  pathname.startsWith('/dashboard/issue-capture/')
+
 const getMobilePageTitle = (
   pathname: string | null,
   nextTaskExperience: boolean,
@@ -239,7 +245,13 @@ const MobileMenuTrigger = () => {
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname, nextTaskExperience)
+      : pathname && isIssueCapturePath(pathname)
+        ? isReady
+          ? isWin
+            ? NAV_LABELS.voterOutreach
+            : NAV_LABELS.constituentOutreach
+          : null
+        : getMobilePageTitle(pathname, nextTaskExperience)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">
