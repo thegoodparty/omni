@@ -4,7 +4,6 @@ export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
 // The built-in list under Constituent lists. The segment doubles as the list
 // id in the path, the way "all" does for All constituents.
 export const CITIZENS_PANEL_LIST_PATH = `/dashboard/contacts/lists/${CIVIC_PANEL_SEGMENT}`
-export const CHIEF_OF_STAFF_PATH = '/dashboard/chief-of-staff'
 
 export const SERVE_CITIZENS_PANEL_COPY = {
   title: 'Your civic panel',
@@ -46,7 +45,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   makePlan: 'Make my plan',
   makePlanError: "We couldn't make your plan. Try again in a minute.",
   makePlanRefused: "We couldn't make a plan for your office",
-  makePlanBlockedAction: 'Ask your Chief of Staff for another way to start.',
   planLoadError: "We couldn't load your plan. Refresh the page to try again.",
   planTitle: 'Your plan',
   planCaption: 'Each step invites residents to your civic panel.',

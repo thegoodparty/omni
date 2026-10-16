@@ -470,6 +470,148 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
   })
 })
 
+describe("GET /v1/dashboard/cards: the plan's next step once the build card is done", () => {
+  // The text is paid for, which finishes the build card; the plan's calls
+  // and doors are what is left.
+  const builtAndPaid = async (orgSlug: string) => {
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    const doors = await service.prisma.civicPanelBuildStep.create({
+      data: {
+        planId: plan.id,
+        wave: 1,
+        channel: CivicPanelBuildChannel.door_knocking,
+        targetSize: 100,
+      },
+    })
+    const text = plan.steps.find((step) => step.channel === 'text')
+    const calls = plan.steps.find((step) => step.channel === 'phone_banking')
+    if (!text || !calls) throw new Error('no steps')
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: text.id },
+      data: { skippedAt: new Date() },
+    })
+    await seedText(orgSlug, OutreachStatus.pending)
+    return { eo, plan, calls, doors }
+  }
+
+  const stepRows = (electedOfficeId: string) =>
+    service.prisma.dashboardCard.findMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: { startsWith: 'panel-step:' },
+      },
+    })
+
+  it("gives the plan's ready step its own card, in the panel page's words", async () => {
+    const orgSlug = 'eo-civic-step-card'
+    const { calls } = await builtAndPaid(orgSlug)
+
+    const cards = await listCards(orgSlug)
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({
+      type: 'civic_panel',
+      sourceExternalId: `panel-step:${calls.id}`,
+      title: 'Call residents to invite them to your civic panel',
+      summary: 'Your panel can give about 0 of the 96 answers you need.',
+      ctaLabel: 'Start the calls',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls.id}`,
+      completedAt: null,
+    })
+    expect(await listCards(orgSlug, 'done')).toEqual([
+      expect.objectContaining(buildCard),
+    ])
+  })
+
+  it('makes no second card on a repeat read, and follows its step as it is worked', async () => {
+    const orgSlug = 'eo-civic-step-card-repeat'
+    const { eo, calls, doors } = await builtAndPaid(orgSlug)
+    await listCards(orgSlug)
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: doors.id },
+      data: { skippedAt: new Date() },
+    })
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: calls.id },
+      data: { startedAt: new Date() },
+    })
+
+    const cards = await listCards(orgSlug)
+
+    expect(await stepRows(eo.id)).toHaveLength(1)
+    expect(cards[0]).toMatchObject({
+      sourceExternalId: `panel-step:${calls.id}`,
+      title: 'Finish your civic panel calls',
+      ctaLabel: 'Keep calling',
+    })
+  })
+
+  it('keeps a skipped card skipped, and gives the next step a card of its own', async () => {
+    const orgSlug = 'eo-civic-step-card-skipped'
+    const { eo, calls, doors } = await builtAndPaid(orgSlug)
+    const [card] = await listCards(orgSlug)
+    if (!card) throw new Error('no card')
+    await act(orgSlug, card.id, 'dismiss')
+
+    expect(await listCards(orgSlug)).toHaveLength(0)
+
+    await service.prisma.civicPanelBuildStep.update({
+      where: { id: calls.id },
+      data: { skippedAt: new Date() },
+    })
+    const cards = await listCards(orgSlug)
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({
+      sourceExternalId: `panel-step:${doors.id}`,
+      title: 'Knock on doors to invite residents to your civic panel',
+      ctaLabel: 'Start door knocking',
+      ctaHref: `/dashboard/contacts/citizens-panel?step=${doors.id}`,
+    })
+    expect(await stepRows(eo.id)).toHaveLength(1)
+  })
+
+  it('cannot be marked done by hand', async () => {
+    const orgSlug = 'eo-civic-step-card-complete'
+    await builtAndPaid(orgSlug)
+    const [card] = await listCards(orgSlug)
+    if (!card) throw new Error('no card')
+    await act(orgSlug, card.id, 'complete')
+
+    expect(await listCards(orgSlug)).toEqual([
+      expect.objectContaining({ id: card.id, completedAt: null }),
+    ])
+  })
+
+  it('goes once the plan reaches its goal', async () => {
+    const orgSlug = 'eo-civic-step-card-goal'
+    const { eo, plan } = await builtAndPaid(orgSlug)
+    await listCards(orgSlug)
+    await service.prisma.civicPanelBuildPlan.update({
+      where: { id: plan.id },
+      data: { status: CivicPanelBuildPlanStatus.completed },
+    })
+
+    expect(await listCards(orgSlug)).toHaveLength(0)
+    expect(await stepRows(eo.id)).toHaveLength(0)
+  })
+
+  it('gives no step card while the build card is open, or set aside', async () => {
+    const orgSlug = 'eo-civic-step-card-build-open'
+    const eo = await seedElectedOffice(orgSlug)
+    await listCards(orgSlug)
+    const [build] = await panelRows(eo.id)
+    if (!build) throw new Error('no card')
+    await act(orgSlug, build.id, 'dismiss')
+    await seedPlan(eo.id, orgSlug)
+
+    expect(await listCards(orgSlug)).toHaveLength(0)
+    expect(await stepRows(eo.id)).toHaveLength(0)
+  })
+})
+
 describe('GET /v1/dashboard/cards: a card per priority', () => {
   const builtOffice = async (orgSlug: string) => {
     const eo = await seedElectedOffice(orgSlug)

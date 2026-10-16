@@ -225,7 +225,7 @@ describe('the weekly time question', () => {
     expect(sent).toEqual({ hoursPerWeek: 6 })
   })
 
-  it('says when nobody is left to reach, and where to go instead', async () => {
+  it('says when nobody is left to reach, with no other way to start', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/contacts/civic-panel/plan', {
       status: 409,
@@ -242,11 +242,7 @@ describe('the weekly time question', () => {
     expect(
       await screen.findByText(/Everyone we can reach has already been invited/),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: 'Ask your Chief of Staff for another way to start.',
-      }),
-    ).toHaveAttribute('href', '/dashboard/chief-of-staff')
+    expect(screen.queryByRole('link', { name: /Chief of Staff/ })).toBeNull()
   })
 })
 

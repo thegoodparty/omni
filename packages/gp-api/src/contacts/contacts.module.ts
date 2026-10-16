@@ -41,6 +41,10 @@ import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.servi
     CivicPanelBuildPlanService,
     IndependentAffinityColumnService,
   ],
-  exports: [ContactsService, IndependentAffinityColumnService],
+  exports: [
+    ContactsService,
+    CivicPanelBuildPlanService,
+    IndependentAffinityColumnService,
+  ],
 })
 export class ContactsModule {}

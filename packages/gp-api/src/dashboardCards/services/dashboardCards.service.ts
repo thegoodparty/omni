@@ -16,7 +16,9 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   CIVIC_PANEL_BUILD_CARD_HREF,
   CIVIC_PANEL_PAGE_HREF,
+  CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
+  civicPanelStepCardSourceId,
   type CivicPanelBuildChannel,
   type CivicPanelBuildPlanResponse,
   DASHBOARD_CARD_SNOOZE_DAYS,
@@ -358,6 +360,7 @@ export class DashboardCardsService extends createPrismaBase(
       const lockKey = `civic_panel_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
       await this.syncCivicPanelBuildCard(tx, electedOffice, panel)
+      await this.syncCivicPanelStepCard(tx, electedOffice.id, panel)
       await this.syncPriorityPanelCards(tx, electedOffice.id)
     })
   }
@@ -470,6 +473,82 @@ export class DashboardCardsService extends createPrismaBase(
     }
   }
 
+  // Once the build card is done (its text is paid for), the plan's calls,
+  // doors and later rounds would have no card on the home. So the plan's
+  // ready step gets one: the panel page's Next line, opening that step. One
+  // at a time, keyed by the step, so a skipped card stays skipped while its
+  // step is next and the step after it gets its own. It goes once its step
+  // is no longer next or ready (waiting on replies is not a step to take).
+  // An unreadable plan leaves things as they are.
+  private async syncCivicPanelStepCard(
+    tx: Prisma.TransactionClient,
+    electedOfficeId: string,
+    panel: CivicPanelBuildPlanResponse | null,
+  ): Promise<void> {
+    if (!panel) return
+    const build = await tx.dashboardCard.findFirst({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: civicPanelBuildCardSourceId(electedOfficeId),
+        sourceItemId: null,
+      },
+      select: { completedAt: true },
+    })
+    const next =
+      build?.completedAt && panel.plan?.status === 'active' ? panel.next : null
+    const ready = next?.stepId && next.href ? next.stepId : null
+    const sourceExternalId = ready ? civicPanelStepCardSourceId(ready) : null
+    await tx.dashboardCard.deleteMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: {
+          startsWith: CIVIC_PANEL_STEP_CARD_PREFIX,
+          ...(sourceExternalId && { not: sourceExternalId }),
+        },
+      },
+    })
+    if (!sourceExternalId) return
+    const content = civicPanelBuildCardContent(panel)
+    const now = new Date()
+    const card = await tx.dashboardCard.findFirst({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId,
+      },
+    })
+    if (!card) {
+      await tx.dashboardCard.create({
+        data: {
+          electedOfficeId,
+          type: DashboardCardType.civic_panel,
+          sourceExternalId,
+          sourceItemId: null,
+          ...content,
+          dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
+        },
+      })
+      return
+    }
+    const stale =
+      card.title !== content.title ||
+      card.summary !== content.summary ||
+      card.ctaLabel !== content.ctaLabel ||
+      card.ctaHref !== content.ctaHref
+    const lapsed = !card.dismissedAt && card.dueDate < now
+    if (stale || lapsed) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: {
+          ...content,
+          ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
+        },
+      })
+    }
+  }
+
   // One next-step card per priority with a step left to take. It goes once
   // the priority is archived or deleted, or its plan is ready, and comes back
   // if the priority is unarchived or a step comes open again. Its words follow
@@ -500,6 +579,9 @@ export class DashboardCardsService extends createPrismaBase(
         type: DashboardCardType.civic_panel,
         sourceExternalId: {
           notIn: [...openIds, civicPanelBuildCardSourceId(electedOfficeId)],
+        },
+        NOT: {
+          sourceExternalId: { startsWith: CIVIC_PANEL_STEP_CARD_PREFIX },
         },
       },
     })

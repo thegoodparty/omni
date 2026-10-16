@@ -57,19 +57,16 @@ import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import {
-  buildChiefOfStaffOutreachProposalTool,
-  buildPresentOutreachProposalTool,
-} from '../chat-tools/presentOutreachProposal.tool'
-import { buildSizePanelInviteTool } from '../chat-tools/sizePanelInvite.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import { buildCivicPanelPlanTools } from './services/civicPanelPlan.tools'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
-import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -140,6 +137,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly reportBack?: OutreachReportBackService,
     @Optional()
     private readonly priorityResults?: PriorityResultsService,
+    @Optional()
+    private readonly civicPanelPlans?: CivicPanelBuildPlanService,
   ) {}
 
   async loadContext(
@@ -171,21 +170,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    const civicPanel =
-      outreachFeedbackEnabled && this.features
-        ? await this.contextService.civicPanelBuildState(
-            ctx.organizationSlug,
-            await this.features.isFeatureEnabled({
-              user: userId,
-              feature: SERVE_SMS_FLAG,
-            }),
-            panelGoalMembers(
-              this.contacts
-                ? await this.contacts.getDistrictPopulation(ctx.organization)
-                : null,
-            ),
-          )
-        : undefined
+    const civicPanel = outreachFeedbackEnabled
+      ? await this.contextService.civicPanelBuildState(
+          ctx.organizationSlug,
+          panelGoalMembers(
+            this.contacts
+              ? await this.contacts.getDistrictPopulation(ctx.organization)
+              : null,
+          ),
+        )
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -410,20 +404,22 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // A proposal is sent against a saved list, so it is offered only where
       // the list behind it can be built.
       if (this.voterFileFilters) {
-        // The panel invite is a text, so it is offered only where one can
-        // be sent: serve-citizen-panels and serve-sms-outreach both on.
-        const panelInvite =
-          ctx.civicPanel?.textingEnabled === true ? ctx.civicPanel : null
-        tools.present_outreach_proposal = panelInvite
-          ? buildChiefOfStaffOutreachProposalTool(panelInvite)
-          : buildPresentOutreachProposalTool()
+        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
-        if (panelInvite) {
-          tools.size_panel_invite = buildSizePanelInviteTool(
-            panelInvite.goalMembers,
-          )
-        }
       }
+    }
+
+    // The panel is built from the same plan as the panel page, behind
+    // serve-citizen-panels (civicPanel is only read with it on).
+    if (ctx.civicPanel && this.civicPanelPlans) {
+      Object.assign(
+        tools,
+        buildCivicPanelPlanTools({
+          plans: this.civicPanelPlans,
+          organization: ctx.organization,
+          hasPlan: ctx.civicPanel.hasPlan,
+        }),
+      )
     }
 
     tools.compose_handoff = buildComposeHandoffTool('serve_social')
