@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { Sheet, SheetContent, SheetTitle, Spinner } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
 import { PersonRecord } from 'app/dashboard/contacts/crm/person/PersonOverlay'
@@ -22,10 +23,25 @@ const PersonInfoSheet = ({
 }) => {
   const copy = whatWeHeardCopy(isServe)
   const orgSlug = useOrganization()?.slug
+  // A 404 is a person outside the district's voter data, which a retry will
+  // not change; anything else retries as the client's queries do.
+  const clientRetry = useQueryClient().getDefaultOptions().queries?.retry ?? 3
   const query = useQuery({
     ...cardContactQueryOptions(personId ?? '', orgSlug),
     enabled: personId !== null,
+    retry: (failures, error) =>
+      error instanceof FetchError && error.status === 404
+        ? false
+        : typeof clientRetry === 'function'
+          ? clientRetry(failures, error)
+          : typeof clientRetry === 'number'
+            ? failures < clientRetry
+            : clientRetry,
   })
+  // Gone, rather than failed: "try again" would promise a retry that cannot
+  // help.
+  const missing =
+    query.error instanceof FetchError && query.error.status === 404
 
   return (
     <Sheet
@@ -41,7 +57,7 @@ const PersonInfoSheet = ({
         <div className="p-6">
           {query.isError ? (
             <p className="text-sm text-muted-foreground">
-              {copy.personInfoFailed}
+              {missing ? copy.personInfoMissing : copy.personInfoFailed}
             </p>
           ) : query.data ? (
             <PersonRecord

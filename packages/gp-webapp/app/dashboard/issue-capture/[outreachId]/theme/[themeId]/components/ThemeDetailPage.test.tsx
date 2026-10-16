@@ -364,6 +364,24 @@ describe('ThemeDetailPage', () => {
     ).toBeInTheDocument()
   })
 
+  // A 404 is a person outside the district's voter data: nothing to retry.
+  it('says a record is not available when the person is not found', async () => {
+    mockTheme()
+    api.mock('GET /v1/contacts/:id', {
+      status: 404,
+      data: { message: 'Person not found in district' },
+    })
+    renderPage()
+
+    const [first] = await screen.findAllByRole('button', { name: 'Voter data' })
+    await userEvent.click(first!)
+
+    const sheet = await screen.findByRole('dialog', { name: 'Voter data' })
+    expect(
+      await within(sheet).findByText("This voter's record isn't available."),
+    ).toBeInTheDocument()
+  })
+
   it('leaves out the asks when nobody named one', async () => {
     mockTheme({ ...THEME, desiredOutcomes: [] })
     renderPage()
