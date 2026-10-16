@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { sleep } from '@/shared/util/sleep.util'
 import { PhoneListState } from '../peerly.types'
@@ -108,11 +112,14 @@ export class PeerlyTestListService {
   // number that is already there is not an error we can distinguish from
   // one that matters. So add, and let the send be the judge: if the number
   // really is missing, Peerly rejects the send with its own message, which
-  // the reviewer sees.
+  // the reviewer sees. The exception is a number Peerly says is not a cell
+  // (a 400 from addContactToPhoneList): no send can succeed, and that send's
+  // "not in test list" would hide the reason from the reviewer.
   private async addContact(listId: number, phone: string): Promise<void> {
     try {
       await this.peerlyPhoneListService.addContactToPhoneList(listId, phone)
     } catch (error) {
+      if (error instanceof BadRequestException) throw error
       this.logger.warn(
         { listId, error },
         'Peerly refused to add the test number to the test list; sending ' +
