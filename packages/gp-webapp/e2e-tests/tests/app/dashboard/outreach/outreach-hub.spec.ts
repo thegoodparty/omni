@@ -16,7 +16,10 @@ const GATE_V2 = 'outreach-pro-gating-v2'
 // The SMS tile is disabled once the general election is inside the texting
 // cutoff (19 days). The shared test candidate's election date is real, so the
 // SMS tests move an isolated candidate's election safely out of the window
-// instead of depending on the calendar.
+// instead of depending on the calendar. The non-Pro phone-banking tests use it
+// too: they wait on the signed-in nav, and the shared candidate is only signed
+// in for the first test in a worker that creates it, so a later one in the
+// same worker lands on the sign-in page.
 const authenticateOutsideSmsCutoff = async (
   page: Parameters<typeof authenticateTestUser>[0],
 ) => {
@@ -84,7 +87,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
     page,
   }) => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
-    await authenticateTestUser(page)
+    await authenticateOutsideSmsCutoff(page)
 
     await page.goto('/dashboard/outreach')
     // The tile ignores clicks while the elected-office query is pending —
@@ -174,7 +177,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   test('phone-banking tile, non-Pro: opens the flow with the Pro banner', async ({
     page,
   }) => {
-    await authenticateTestUser(page)
+    await authenticateOutsideSmsCutoff(page)
 
     await page.goto('/dashboard/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
