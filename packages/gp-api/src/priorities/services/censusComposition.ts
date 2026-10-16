@@ -43,8 +43,9 @@ export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
   // A district's census figure does not change between reads, and the
-  // priority page and every priority turn ask for it. Failures are not kept.
-  private readonly populations = new Map<string, number | null>()
+  // priority page and every priority turn ask for it. Only a figure is kept:
+  // a missing row may land later, and a failure is retried.
+  private readonly populations = new Map<string, number>()
 
   constructor(
     private readonly stats: StatsService,
@@ -82,13 +83,14 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     dataset: PeopleDataset
   }): Promise<number | null> {
     const key = `${input.dataset}:${input.districtId}`
-    if (this.populations.has(key)) return this.populations.get(key) ?? null
+    const cached = this.populations.get(key)
+    if (cached !== undefined) return cached
     try {
       const value = await this.stats.findDistrictPopulation(
         input.districtId,
         input.dataset,
       )
-      this.populations.set(key, value)
+      if (value !== null) this.populations.set(key, value)
       return value
     } catch (err) {
       this.logger.warn(

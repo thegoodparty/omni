@@ -489,7 +489,13 @@ const PriorityWorkspaceBody = ({
           pendingSent.current.push(reportBackTurn)
           setSentTick((tick) => tick + 1)
         }
-        if (getAnswersTurn !== null) {
+        // The message never changes, so a reload that kept the param is
+        // caught by the last thing the official asked being this turn.
+        const lastUserTurn = history.findLast((m) => m.role === 'user')
+        if (
+          getAnswersTurn !== null &&
+          lastUserTurn?.content !== getAnswersTurn
+        ) {
           pendingSent.current.push(getAnswersTurn)
           setSentTick((tick) => tick + 1)
         }

@@ -1127,6 +1127,36 @@ describe('PriorityWorkspace', () => {
       )
     })
 
+    it('does not ask again when a reload kept the results page link', async () => {
+      mocks.listMessages.mockResolvedValue([
+        reply,
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:05.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Here is a text to ask more people.',
+          segments: [
+            { kind: 'text', text: 'Here is a text to ask more people.' },
+          ],
+          createdAt: '2026-09-01T00:00:10.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Here is a text to ask more people.')
+
+      expect(screen.queryByText(/Help me get more answers/)).toBeNull()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+
     it('re-reads the status once a turn settles', async () => {
       mocks.fetchPriorityReadStatus.mockResolvedValue(good)
       renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
