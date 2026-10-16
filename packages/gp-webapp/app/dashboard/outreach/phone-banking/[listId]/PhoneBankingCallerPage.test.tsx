@@ -262,13 +262,13 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
-  it('a Serve list (isServe) points the back link at Constituent Outreach', async () => {
+  it('a Serve list (isServe) points the back link at Outreach', async () => {
     mockGetList({ ...buildList(), isServe: true })
     render(<PhoneBankingCallerPage listId={LIST_ID} />)
     await screen.findByText('August GOTV')
 
     const link = screen.getByRole('link', {
-      name: 'Back to Constituent Outreach',
+      name: 'Back to Outreach',
     })
     expect(link).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
@@ -924,7 +924,7 @@ describe('<PhoneBankingCallerPage>', () => {
     )
   })
 
-  it('a Serve list Delete returns to Constituent Outreach', async () => {
+  it('a Serve list Delete returns to Outreach', async () => {
     const user = userEvent.setup()
     mockGetList({ ...buildList(), isServe: true })
     api.mock('DELETE /v1/phone-banking/lists/:id', {

@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
+  type PriorityReadStatus,
   type PriorityResults,
   type PriorityResultsChannel,
   type PriorityResultsSend,
@@ -10,6 +11,7 @@ import {
 import {
   ContactStatusField,
   ElectedOffice,
+  Organization,
   Outreach,
   OutreachType,
   PollIndividualMessageSender,
@@ -24,6 +26,7 @@ import {
   representationFrom,
   type CensusCompositionSource,
 } from './censusComposition'
+import { priorityReadStatus } from '../util/priorityReadStatus.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
   [OutreachType.text]: 'text',
@@ -55,29 +58,12 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     electedOffice: ElectedOffice,
     priorityId: string,
   ): Promise<PriorityResults> {
-    const priority = await this.model.findFirst({
-      where: { id: priorityId, electedOfficeId: electedOffice.id },
-      select: { id: true },
-    })
-    if (!priority) throw new NotFoundException('Priority not found')
+    await this.assertOwned(electedOffice, priorityId)
 
     const organizationSlug = electedOffice.organizationSlug
-    const outreaches = await this.client.outreach.findMany({
-      where: {
-        priorityId,
-        organizationSlug,
-        campaignId: null,
-        status: { notIn: ['pending_payment', 'draft', 'canceled'] },
-      },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    const perSend = await Promise.all(
-      outreaches.flatMap((outreach) => {
-        const channel = CHANNEL_BY_TYPE[outreach.outreachType]
-        return channel ? [this.respondentsFor(outreach, channel)] : []
-      }),
-    )
+    const perSend =
+      (await this.sendsFor(organizationSlug, [priorityId])).get(priorityId) ??
+      []
 
     const byChannelPeople = {
       text: new Set<string>(),
@@ -113,6 +99,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
+    const population = await this.populationOf(organization)
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
 
@@ -134,6 +121,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
 
     return {
       priorityId,
+      readStatus: priorityReadStatus({ answers: ids.length, population }),
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
       themes,
@@ -143,6 +131,103 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         lng: roundCoordinate(lng),
       })),
       representation,
+    }
+  }
+
+  async readStatusFor(
+    electedOffice: ElectedOffice,
+    priorityId: string,
+  ): Promise<PriorityReadStatus> {
+    await this.assertOwned(electedOffice, priorityId)
+    const statuses = await this.readStatuses(electedOffice.organizationSlug, [
+      priorityId,
+    ])
+    return (
+      statuses.get(priorityId) ??
+      priorityReadStatus({ answers: 0, population: null })
+    )
+  }
+
+  // Answers pooled per priority, the same people resultsFor counts, against
+  // the district. The caller has already scoped the ids to the office.
+  async readStatuses(
+    organizationSlug: string,
+    priorityIds: string[],
+  ): Promise<Map<string, PriorityReadStatus>> {
+    if (priorityIds.length === 0) return new Map()
+    const organization = await this.client.organization.findUniqueOrThrow({
+      where: { slug: organizationSlug },
+    })
+    const [sends, population] = await Promise.all([
+      this.sendsFor(organizationSlug, priorityIds),
+      this.populationOf(organization),
+    ])
+    return new Map(
+      priorityIds.map((id) => {
+        const people = new Set(
+          (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
+        )
+        return [id, priorityReadStatus({ answers: people.size, population })]
+      }),
+    )
+  }
+
+  private async assertOwned(
+    electedOffice: ElectedOffice,
+    priorityId: string,
+  ): Promise<void> {
+    const priority = await this.model.findFirst({
+      where: { id: priorityId, electedOfficeId: electedOffice.id },
+      select: { id: true },
+    })
+    if (!priority) throw new NotFoundException('Priority not found')
+  }
+
+  private async sendsFor(
+    organizationSlug: string,
+    priorityIds: string[],
+  ): Promise<Map<string, SendRespondents[]>> {
+    const outreaches = await this.client.outreach.findMany({
+      where: {
+        priorityId: { in: priorityIds },
+        organizationSlug,
+        campaignId: null,
+        status: { notIn: ['pending_payment', 'draft', 'canceled'] },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+    const perSend = await Promise.all(
+      outreaches.flatMap((outreach) => {
+        const channel = CHANNEL_BY_TYPE[outreach.outreachType]
+        const { priorityId } = outreach
+        return channel && priorityId !== null
+          ? [
+              this.respondentsFor(outreach, channel).then((send) => ({
+                priorityId,
+                send,
+              })),
+            ]
+          : []
+      }),
+    )
+    const byPriority = new Map<string, SendRespondents[]>()
+    for (const { priorityId, send } of perSend) {
+      byPriority.set(priorityId, [...(byPriority.get(priorityId) ?? []), send])
+    }
+    return byPriority
+  }
+
+  // No district, or a census read that fails, is an unknown population:
+  // answersNeeded falls back to its uncorrected figure.
+  private async populationOf(
+    organization: Organization,
+  ): Promise<number | null> {
+    try {
+      const district =
+        await this.resolveContacts().resolveEligibleDistrict(organization)
+      return await this.census.population(district)
+    } catch {
+      return null
     }
   }
 

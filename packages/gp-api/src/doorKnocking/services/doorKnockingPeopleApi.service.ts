@@ -14,6 +14,7 @@ import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
 } from '@/peopleDb/schemas/doorKnocking.schema'
+import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
 
 // Sized from the 150-stop cap times observed voters-per-stop (~4 in dense
 // cities) with generous headroom; the query rejects (never truncates) past
@@ -38,6 +39,7 @@ export class DoorKnockingPeopleApiService {
     filters: FilterObject
     idOverrides?: IdOverrides
     contactsMadeIdOverrides?: IdOverrides
+    affinityColumn?: AffinityColumn
     excludePersonIds?: string[]
   }): Promise<DoorKnockingEvaluateResponse> {
     return this.voterDoorKnocking.evaluate(
@@ -47,6 +49,7 @@ export class DoorKnockingPeopleApiService {
         filters: args.filters,
         idOverrides: args.idOverrides,
         contactsMadeIdOverrides: args.contactsMadeIdOverrides,
+        affinityColumn: args.affinityColumn,
         maxPeople: EVALUATE_MAX_PEOPLE,
         // Omitted rather than sent empty: the schema tolerates [], but keeping
         // the key absent leaves the request byte-identical for an org that has

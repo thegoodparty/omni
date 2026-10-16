@@ -197,7 +197,7 @@ export const WHAT_WE_HEARD_COPY = {
     tagFailed: "We couldn't update that tag. Try again.",
     back: 'Back to what we heard',
     backToWalk: 'Back to the walk',
-    backToOutreach: 'Back to Constituent Outreach',
+    backToOutreach: 'Back to Outreach',
     details: 'Details',
     whatPeopleWant: 'What people want',
     theNotes: (channel: FeedbackReportChannel): string =>

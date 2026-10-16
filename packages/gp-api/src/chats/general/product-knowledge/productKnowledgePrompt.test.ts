@@ -148,8 +148,8 @@ describe('product knowledge blocks', () => {
     const win = render('win')
     const serve = render('serve')
     expect(win).toContain('Voter Outreach’s social flow')
-    expect(win).not.toContain('Constituent Outreach’s social flow')
-    expect(serve).toContain('Constituent Outreach’s social flow')
+    expect(win).not.toContain('opens Outreach’s social flow')
+    expect(serve).toContain('opens Outreach’s social flow')
     expect(serve).not.toContain('Voter Outreach’s social flow')
   })
 

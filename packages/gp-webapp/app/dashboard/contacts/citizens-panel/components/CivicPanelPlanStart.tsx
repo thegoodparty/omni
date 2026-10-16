@@ -1,13 +1,9 @@
 import { useState } from 'react'
-import Link from 'next/link'
 import { FetchError } from 'ofetch'
 import type { CivicPanelBuildPlanResponse } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import {
-  CHIEF_OF_STAFF_PATH,
-  SERVE_CITIZENS_PANEL_COPY as COPY,
-} from '../citizensPanelCopy'
+import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import {
   parseWeeklyTime,
   weeklyTimeOf,
@@ -96,10 +92,7 @@ export const CivicPanelPlanStart = ({
         </Button>
         {blocked !== null && (
           <p className="text-sm text-foreground" role="alert">
-            {blocked}.{' '}
-            <Link href={CHIEF_OF_STAFF_PATH} className="text-link">
-              {COPY.makePlanBlockedAction}
-            </Link>
+            {blocked}.
           </p>
         )}
         {failed && (

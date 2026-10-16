@@ -7,7 +7,11 @@ import {
   type Organization,
 } from '../../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
+import {
+  ChatAnchorSchema,
+  type PriorityReadStatus,
+  type PriorityStatus,
+} from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
@@ -47,10 +51,17 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // The answers one question needs from this district (answersNeeded), read
+  // per turn behind the same flag. Sizes the panel-first send.
+  panelAnswersNeeded?: number
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
   reportBacks?: ReportBackSend[]
+  // Answers pooled across this priority's sends against what a good read of
+  // the district needs. Read per turn behind the same flag; undefined while
+  // it is off.
+  readStatus?: PriorityReadStatus
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the

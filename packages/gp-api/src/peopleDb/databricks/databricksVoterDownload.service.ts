@@ -47,6 +47,7 @@ export class DatabricksVoterDownloadService {
       filters: dto.filters,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
       excludeColumns: dto.excludeColumns,
     })
 

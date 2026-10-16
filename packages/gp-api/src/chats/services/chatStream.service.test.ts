@@ -1090,6 +1090,26 @@ describe('ChatStreamService', () => {
       )
     })
 
+    it("replays the Chief of Staff's weekly time question, which has no args", async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'A plan mixes texts.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_panel_weekly_time',
+            payload: {},
+          },
+        ],
+        'A plan mixes texts.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        'A plan mixes texts.\n\n[Card you showed: ask_panel_weekly_time {}]',
+      )
+    })
+
     it('replays a card on a leading assistant turn', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       store.seedMessage({

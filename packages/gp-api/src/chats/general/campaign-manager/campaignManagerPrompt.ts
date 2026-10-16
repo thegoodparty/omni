@@ -9,6 +9,7 @@ import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'
+import { partySourceForState } from '@/peopleDb/partySource'
 import { buildProductKnowledgeBlocks } from '../product-knowledge/productKnowledgePrompt'
 import type { ProductArea } from '../product-knowledge/productMap'
 import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
@@ -90,6 +91,10 @@ export interface CampaignManagerContext {
   // Two-letter state from the campaign record, for the date line's zone and
   // for the local day every count below is taken from.
   state?: string | null
+  // Two-letter state of the district the voter data is scoped to (the
+  // campaign's position), which decides how party is described. The record's
+  // state above is what the candidate typed and keeps the clock.
+  districtState?: string | null
   // The instant the prompt is built at. Defaults to the clock; tests, evals
   // and replays pin it so every rendered count is fixed.
   now?: Date
@@ -716,6 +721,13 @@ const ballotToolBlock = (ctx: CampaignManagerContext): string =>
     ctx.webSearchEnabled ? searchFallback(!!ctx.raceId) : NO_SEARCH_FALLBACK,
   ].join(' ')
 
+// "Party registration" only where the state records one. Elsewhere the data
+// tool's own description says how L2 assigned the value.
+const partyWord = (state: string | null | undefined): string => {
+  const source = partySourceForState(state)
+  return source && source !== 'registration' ? 'Party' : 'Party registration'
+}
+
 // Advertised only when the constituent-data tool is actually registered, so the
 // prompt never promises a tool the model can't call.
 const dataBlock = (ctx: CampaignManagerContext): string | null =>
@@ -724,7 +736,8 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       'district with query_constituent_data and describe_constituent_data. ' +
       'Call describe first to see valid dimensions. Results are aggregate ' +
       'counts only; never claim to identify or contact an individual voter. ' +
-      'Party registration and modeled partisanship breakdowns ARE allowed ' +
+      `${partyWord(ctx.districtState)} and modeled partisanship breakdowns ` +
+      'ARE allowed ' +
       'for this campaign — being nonpartisan means you favor no party, not ' +
       'that party data is off-limits. Describe the people in these rows as ' +
       'voters, never as constituents. If a result reports suppressed rows, ' +

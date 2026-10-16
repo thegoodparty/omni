@@ -92,7 +92,11 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     service = new RecommendedListsService(
-      { resolveEligibleDistrict, resolveSavedFilterForQuery } as never,
+      {
+        resolveEligibleDistrict,
+        resolveSavedFilterForQuery,
+        affinityColumnFor: vi.fn().mockResolvedValue(undefined),
+      } as never,
       { bucketForCampaign } as never,
       { findByOrganizationSlug } as never,
       {
@@ -1040,7 +1044,8 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(rankPrecincts).toHaveBeenCalledTimes(1)
-      expect(rankPrecincts.mock.calls[0]).toHaveLength(3)
+      // district, filters, idOverrides, affinityColumn: no widening argument.
+      expect(rankPrecincts.mock.calls[0]).toHaveLength(4)
       expect(countForFilter).not.toHaveBeenCalled()
       expect(first?.count).toBe(100)
       expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])

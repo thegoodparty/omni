@@ -730,6 +730,38 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(on).toContain('describe_constituent_data')
   })
 
+  // Party is a registration only where the state reports one
+  // (peopleDb/partySource.ts); the tool description says how L2 assigned it
+  // elsewhere, so the prompt only has to stop calling it one.
+  it('calls party a registration only where the state registers by party', () => {
+    const registered = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'CA' }),
+    )
+    expect(registered).toContain(
+      'Party registration and modeled partisanship breakdowns ARE allowed',
+    )
+    const modeled = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'MN' }),
+    )
+    expect(modeled).toContain(
+      'Party and modeled partisanship breakdowns ARE allowed',
+    )
+    expect(modeled).not.toContain('Party registration and modeled')
+    const primary = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'IL' }),
+    )
+    expect(primary).toContain(
+      'Party and modeled partisanship breakdowns ARE allowed',
+    )
+    // The record's state keeps the clock; only the district's decides party.
+    const unknown = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, state: 'MN', districtState: null }),
+    )
+    expect(unknown).toContain(
+      'Party registration and modeled partisanship breakdowns ARE allowed',
+    )
+  })
+
   it('advertises the CRM contact tools only when they are registered', () => {
     const off = buildCampaignManagerSystemPrompt(ctx())
     expect(off).not.toContain('count_contacts')

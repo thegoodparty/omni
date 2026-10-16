@@ -125,12 +125,14 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
   CivicPanelBuildPlanResponse,
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInput,
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1332,6 +1334,12 @@ export type APIEndpoints = {
     Response: PriorityResults
   }
 
+  // 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/read-status': {
+    Request: {}
+    Response: PriorityReadStatus
+  }
+
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
   // normal "not sent yet" answer.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
@@ -1585,6 +1593,10 @@ export type APIEndpoints = {
   }
   'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
     Request: {}
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
+    Request: MarkCivicPanelBuildStepInput
     Response: CivicPanelBuildPlanResponse
   }
   'GET /v1/contacts/:id': {

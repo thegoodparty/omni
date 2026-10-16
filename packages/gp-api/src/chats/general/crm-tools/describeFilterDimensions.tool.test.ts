@@ -42,10 +42,12 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     const result = await tool.execute({})
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
       citizenPanels: true,
+      state: null,
     })
     expect(result).toEqual({ dimensions: serveDimensions })
   })
@@ -57,6 +59,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     expect(tool.inputSchema.safeParse({}).success).toBe(true)
     expect(
@@ -73,6 +76,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     expect(tool.description).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
@@ -87,6 +91,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     const result = await tool.execute({})
     if (!isDescribeFilterDimensionsOutput(result)) {
@@ -116,6 +121,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     expect(instructionLine(tool.description)).toContain(
       'before composing any filter for count_contacts or crud_saved_filters',
@@ -140,6 +146,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: [],
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     expect(instructionLine(tool.description)).not.toMatch(
       /count_contacts|crud_saved_filters/,
@@ -154,6 +161,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'voters',
       citizenPanels: true,
+      state: null,
     })
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
@@ -165,8 +173,30 @@ describe('buildDescribeFilterDimensionsTool', () => {
       filterConsumers: CONSUMERS,
       peopleDataset: 'constituents',
       citizenPanels: true,
+      state: null,
     })
     expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+})
+
+// The state decides how party is marked (ContactsService.getFilterDimensions),
+// so the tool has to hand it through.
+describe('buildDescribeFilterDimensionsTool: state', () => {
+  it('passes the state it was given to the catalog', async () => {
+    const getFilterDimensions = vi.fn(() => [])
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions },
+      organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
+      peopleDataset: 'voters',
+      citizenPanels: false,
+      state: 'MN',
+    })
+    await tool.execute({})
+    expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION, {
+      citizenPanels: false,
+      state: 'MN',
+    })
   })
 })

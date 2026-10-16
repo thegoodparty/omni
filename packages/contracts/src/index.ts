@@ -212,17 +212,29 @@ export {
   type CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInputSchema,
   type UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInputSchema,
+  type MarkCivicPanelBuildStepInput,
   CivicPanelBuildStepSchema,
   type CivicPanelBuildStep,
   CivicPanelBuildNextSchema,
   type CivicPanelBuildNext,
   CivicPanelBuildPlanSchema,
   type CivicPanelBuildPlan,
+  CivicPanelBuildProgressSchema,
+  type CivicPanelBuildProgress,
   CivicPanelBuildPlanResponseSchema,
   type CivicPanelBuildPlanResponse,
   PrepareCivicPanelBuildStepResponseSchema,
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
+export {
+  panelGoalMembers,
+  panelExpectedAnswers,
+  sizePanelAsk,
+  type PanelAskSize,
+  panelSeedSampleSize,
+  PANEL_SEED_SAMPLE_SIZE,
+} from './people/PanelAnswers'
 
 export {
   ContactNoteSchema,
@@ -849,6 +861,9 @@ export {
   REPORT_BACK_MARKER,
   reportBackMessage,
   isReportBackMessage,
+  GET_ANSWERS_MARKER,
+  GET_ANSWERS_MESSAGE,
+  isGetAnswersMessage,
   isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
@@ -903,6 +918,8 @@ export {
   type PriorityRepresentation,
   PriorityResultsSchema,
   type PriorityResults,
+  PriorityReadStatusSchema,
+  type PriorityReadStatus,
   PriorityThemeSchema,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'
@@ -923,6 +940,9 @@ export {
   DASHBOARD_CARD_SNOOZE_DAYS,
   civicPanelBuildCardSourceId,
   isCivicPanelBuildCard,
+  CIVIC_PANEL_STEP_CARD_PREFIX,
+  civicPanelStepCardSourceId,
+  isCivicPanelStepCard,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
@@ -1754,9 +1774,7 @@ export {
   countCivicPanelLines,
   PANEL_ASSUMED_REPLY_RATE,
   CONTACT_REST_DAYS,
-  PANEL_SEED_TARGET_MEMBERS,
   PANEL_SEED_ASSUMED_JOIN_RATE,
-  PANEL_SEED_SAMPLE_SIZE,
   BUILD_CITIZENS_PANEL_MARKER,
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MARKER,

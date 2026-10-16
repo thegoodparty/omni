@@ -326,6 +326,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services              |
 | `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                       |
 | `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
+| `partySource.ts`                                | How L2 fills party per state (registration, primary ballot, modeled); the one source for every party label |
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition    |

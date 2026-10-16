@@ -25,9 +25,20 @@ export interface DistrictDot {
   joinedOrder: number
 }
 
+// Where the basemap looks so it lines up with the dots: the middle of the
+// view, and how wide the whole Web Mercator world is in view units.
+export interface DistrictCamera {
+  center: LatLng
+  worldUnits: number
+}
+
 export interface DistrictDots {
   dots: DistrictDot[]
-  outline: string
+  // The stand-in's shape. Null on a real district: there is no boundary
+  // geometry, so the streets show where it is instead.
+  outline: string | null
+  // Null on the stand-in, which has no place to show tiles of.
+  camera: DistrictCamera | null
   // True when the map is a stand-in, not the official's district.
   abstract: boolean
   center: { x: number; y: number }
@@ -62,58 +73,10 @@ const shuffle = <T>(items: T[], rand: () => number): T[] => {
 const percentile = (sorted: number[], p: number): number =>
   sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0
 
-const cross = (
-  o: { x: number; y: number },
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-): number => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-
-// Andrew's monotone chain.
-export const convexHull = (
-  points: { x: number; y: number }[],
-): { x: number; y: number }[] => {
-  const sorted = points.slice().sort((a, b) => a.x - b.x || a.y - b.y)
-  if (sorted.length < 3) return sorted
-  const lower: { x: number; y: number }[] = []
-  for (const p of sorted) {
-    while (
-      lower.length >= 2 &&
-      cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0
-    ) {
-      lower.pop()
-    }
-    lower.push(p)
-  }
-  const upper: { x: number; y: number }[] = []
-  for (const p of sorted.slice().reverse()) {
-    while (
-      upper.length >= 2 &&
-      cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0
-    ) {
-      upper.pop()
-    }
-    upper.push(p)
-  }
-  return lower.slice(0, -1).concat(upper.slice(0, -1))
-}
-
 const toPath = (points: { x: number; y: number }[]): string =>
   points.length < 3
     ? ''
     : `M${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L')} Z`
-
-// A hull drawn through the outermost dots clips them in half, so push it out
-// from the middle by a little more than a dot.
-const padOutline = (
-  hull: { x: number; y: number }[],
-  center: { x: number; y: number },
-): { x: number; y: number }[] =>
-  hull.map((p) => {
-    const dx = p.x - center.x
-    const dy = p.y - center.y
-    const length = Math.hypot(dx, dy) || 1
-    return { x: p.x + (dx / length) * 2.5, y: p.y + (dy / length) * 2.5 }
-  })
 
 // The illustrative picks: a loud cluster nearest the middle, ~100 spread out
 // by a greedy minimum-distance pick, and a subset of those that "join".
@@ -192,6 +155,26 @@ const centroid = (
   return { x: percentile(xs, 0.5), y: percentile(ys, 0.5) }
 }
 
+// Web Mercator, 0..1 across the world with y down: the projection the
+// basemap draws in, so a dot lands on its street at every zoom.
+export const toMercator = ({ lat, lng }: LatLng): { x: number; y: number } => {
+  const clamped = Math.max(-85.0511, Math.min(85.0511, lat))
+  const sin = Math.sin((clamped * Math.PI) / 180)
+  return {
+    x: (lng + 180) / 360,
+    y: 0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI),
+  }
+}
+
+export const fromMercator = ({ x, y }: { x: number; y: number }): LatLng => ({
+  lng: x * 360 - 180,
+  lat: (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI,
+})
+
+// maplibre draws the world 512px wide at zoom 0, doubling per zoom level.
+export const basemapZoom = (camera: DistrictCamera, widthPx: number): number =>
+  Math.log2((camera.worldUnits * widthPx) / VIEW_WIDTH / 512)
+
 // Real locations, cut down to about TARGET_DOTS by a seeded random pick. A
 // random pick keeps the district's density, so each dot stands for about the
 // same number of residents. Returns null when there is too little to draw.
@@ -207,9 +190,7 @@ export const buildDistrictDots = (
   const all = [...unique.values()]
   if (all.length < MIN_REAL_DOTS) return null
 
-  const meanLat = all.reduce((sum, p) => sum + p.lat, 0) / all.length
-  const scale = Math.cos((meanLat * Math.PI) / 180)
-  const projected = all.map((p) => ({ x: p.lng * scale, y: -p.lat }))
+  const projected = all.map(toMercator)
 
   // A few bad geocodes far outside the district would shrink it to a corner.
   const xs = projected.map((p) => p.x).sort((a, b) => a - b)
@@ -249,7 +230,14 @@ export const buildDistrictDots = (
   const center = centroid(positions)
   return {
     dots: assignRoles(positions, rand, center, sampleSize),
-    outline: toPath(padOutline(convexHull(fitted), center)),
+    outline: null,
+    camera: {
+      center: fromMercator({
+        x: minX + (VIEW_WIDTH / 2 - offsetX) / fit,
+        y: minY + (VIEW_HEIGHT / 2 - offsetY) / fit,
+      }),
+      worldUnits: fit,
+    },
     abstract: false,
     center,
   }
@@ -322,6 +310,7 @@ export const buildAbstractDots = (sampleSize = SAMPLE_SIZE): DistrictDots => {
   return {
     dots: assignRoles(positions, rand, center, sampleSize),
     outline: toPath(ABSTRACT_OUTLINE.map(([x, y]) => ({ x, y }))),
+    camera: null,
     abstract: true,
     center,
   }

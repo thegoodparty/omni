@@ -53,7 +53,7 @@ export const NAV_LABELS = {
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
-  constituentOutreach: 'Constituent Outreach',
+  constituentOutreach: 'Outreach',
   priorities: 'Priorities',
   // The Team page's H1 (ENG-11061: the sidebar account-menu item that links
   // here reads plain "Team", matching Profile / Account Settings — this is

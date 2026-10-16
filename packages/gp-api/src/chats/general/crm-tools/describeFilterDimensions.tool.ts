@@ -56,6 +56,8 @@ export const buildDescribeFilterDimensionsTool = (deps: {
   peopleDataset: PeopleDataset
   // The user's serve-citizen-panels flag, resolved per turn by the handler.
   citizenPanels: boolean
+  // The campaign's or office's state, which decides how party is marked.
+  state: string | null | undefined
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     'List every contact-filter dimension available to this organization: ' +
@@ -71,6 +73,7 @@ export const buildDescribeFilterDimensionsTool = (deps: {
   execute: (): DescribeFilterDimensionsOutput => ({
     dimensions: deps.contacts.getFilterDimensions(deps.organization, {
       citizenPanels: deps.citizenPanels,
+      state: deps.state,
     }),
   }),
 })

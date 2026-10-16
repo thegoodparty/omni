@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import Link from 'next/link'
 import {
   Badge,
   Button,
@@ -50,7 +49,6 @@ import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
-import { newListHref } from '../wizard/newListPresets'
 import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../citizens-panel/citizensPanelCopy'
 
 interface ListDetailSheetProps {
@@ -375,16 +373,6 @@ export default function ListDetailSheet({
               <p className="text-sm text-muted-foreground">
                 {PANEL_COPY.listFilter}
               </p>
-              <Button
-                asChild
-                variant="outline"
-                size="small"
-                className="self-start"
-              >
-                <Link href={newListHref('askableNow')}>
-                  {PANEL_COPY.askableNowList}
-                </Link>
-              </Button>
             </div>
           )}
 

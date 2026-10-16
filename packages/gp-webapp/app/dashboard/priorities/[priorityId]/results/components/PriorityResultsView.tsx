@@ -5,8 +5,14 @@ import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type PriorityResults,
 } from '@goodparty_org/contracts'
+import { Button, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { RESULTS_COPY } from '../resultsCopy'
+import {
+  READ_STATUS_COPY,
+  getAnswersHref,
+  readPercent,
+} from '../../readStatusCopy'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
@@ -57,7 +63,7 @@ export const PriorityResultsView = ({
   title: string
   results: PriorityResults
 }) => {
-  const { respondents } = results
+  const { respondents, readStatus } = results
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -86,76 +92,105 @@ export const PriorityResultsView = ({
         />
       </div>
 
-      <Section
-        title={RESULTS_COPY.themesTitle}
-        caption={
-          results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
-        }
-      >
-        {results.summarizing && (
-          <p className="text-xs text-muted-foreground">
-            {RESULTS_COPY.themesUpdating}
-          </p>
-        )}
-        {results.themes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {RESULTS_COPY.themesEmpty}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {results.themes.map((theme) => (
-              <div
-                key={theme.id}
-                className="flex flex-col gap-1 rounded-lg border border-border p-4"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    {theme.title}
-                  </h3>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {RESULTS_COPY.people(theme.people)}
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground">{theme.summary}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      <Section
-        title={RESULTS_COPY.mapTitle}
-        caption={
-          results.points.length > 0 ? RESULTS_COPY.mapCaption : undefined
-        }
-      >
-        {results.points.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {RESULTS_COPY.mapEmpty}
-          </p>
-        ) : (
-          <RespondentHeatGrid points={results.points} />
-        )}
-      </Section>
-
-      <Section
-        title={RESULTS_COPY.representationTitle}
-        caption={
-          results.representation
-            ? RESULTS_COPY.representationCaption
-            : undefined
-        }
-      >
-        {results.representation ? (
-          <RepresentationBars representation={results.representation} />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {RESULTS_COPY.representationEmpty(
-              MIN_RESPONDENTS_FOR_REPRESENTATION,
+      {readStatus.good ? (
+        <HeardSections results={results} />
+      ) : (
+        <section
+          data-testid="results-held-back"
+          className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5"
+        >
+          <h2 className="text-base font-semibold text-foreground">
+            {READ_STATUS_COPY.moreAnswers(
+              readStatus.needed - readStatus.answers,
             )}
+          </h2>
+          <Progress
+            value={readPercent(readStatus.answers, readStatus.needed)}
+            aria-label={READ_STATUS_COPY.progress(
+              readStatus.answers,
+              readStatus.needed,
+            )}
+            className="h-2"
+          />
+          <p className="text-sm text-muted-foreground">
+            {READ_STATUS_COPY.tooEarly}
           </p>
-        )}
-      </Section>
+          <Button asChild size="small" className="self-start rounded-full">
+            <Link href={getAnswersHref(priorityId)}>
+              {READ_STATUS_COPY.getAnswers}
+            </Link>
+          </Button>
+        </section>
+      )}
     </div>
   )
 }
+
+// Themes, the map and the census comparison: only once the answers are
+// enough to say what the community thinks.
+const HeardSections = ({ results }: { results: PriorityResults }) => (
+  <>
+    <Section
+      title={RESULTS_COPY.themesTitle}
+      caption={
+        results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
+      }
+    >
+      {results.summarizing && (
+        <p className="text-xs text-muted-foreground">
+          {RESULTS_COPY.themesUpdating}
+        </p>
+      )}
+      {results.themes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {RESULTS_COPY.themesEmpty}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {results.themes.map((theme) => (
+            <div
+              key={theme.id}
+              className="flex flex-col gap-1 rounded-lg border border-border p-4"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {theme.title}
+                </h3>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {RESULTS_COPY.people(theme.people)}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">{theme.summary}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+
+    <Section
+      title={RESULTS_COPY.mapTitle}
+      caption={results.points.length > 0 ? RESULTS_COPY.mapCaption : undefined}
+    >
+      {results.points.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{RESULTS_COPY.mapEmpty}</p>
+      ) : (
+        <RespondentHeatGrid points={results.points} />
+      )}
+    </Section>
+
+    <Section
+      title={RESULTS_COPY.representationTitle}
+      caption={
+        results.representation ? RESULTS_COPY.representationCaption : undefined
+      }
+    >
+      {results.representation ? (
+        <RepresentationBars representation={results.representation} />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {RESULTS_COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+        </p>
+      )}
+    </Section>
+  </>
+)
