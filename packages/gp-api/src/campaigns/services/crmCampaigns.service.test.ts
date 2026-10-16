@@ -361,3 +361,66 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
     expect(errorMessage).not.toHaveBeenCalled()
   })
 })
+
+describe('CrmCampaignsService.getCrmCompanyOwnerNameOrThrow', () => {
+  const getCompany = vi.fn()
+  const getOwner = vi.fn()
+
+  const buildService = () =>
+    new CrmCampaignsService(
+      {} as never,
+      {} as never,
+      {
+        isConfigured: true,
+        client: {
+          crm: {
+            companies: { basicApi: { getById: getCompany } },
+            owners: { ownersApi: { getById: getOwner } },
+          },
+        },
+      } as unknown as HubspotService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      createMockLogger(),
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns the owner full name', async () => {
+    getCompany.mockResolvedValue({ properties: { hubspot_owner_id: '42' } })
+    getOwner.mockResolvedValue({ firstName: 'Casey', lastName: 'Success' })
+
+    await expect(
+      buildService().getCrmCompanyOwnerNameOrThrow('c1'),
+    ).resolves.toBe('Casey Success')
+    expect(getOwner).toHaveBeenCalledWith(42)
+  })
+
+  it('returns null when the company has no owner', async () => {
+    getCompany.mockResolvedValue({ properties: {} })
+
+    await expect(
+      buildService().getCrmCompanyOwnerNameOrThrow('c1'),
+    ).resolves.toBeNull()
+    expect(getOwner).not.toHaveBeenCalled()
+  })
+
+  it('rejects when HubSpot fails, so callers do not cache "unassigned"', async () => {
+    getCompany.mockRejectedValue(new Error('429 rate limited'))
+    await expect(
+      buildService().getCrmCompanyOwnerNameOrThrow('c1'),
+    ).rejects.toThrow('429')
+
+    getCompany.mockResolvedValue({ properties: { hubspot_owner_id: '42' } })
+    getOwner.mockRejectedValue(new Error('owner lookup failed'))
+    await expect(
+      buildService().getCrmCompanyOwnerNameOrThrow('c1'),
+    ).rejects.toThrow('owner lookup failed')
+  })
+})

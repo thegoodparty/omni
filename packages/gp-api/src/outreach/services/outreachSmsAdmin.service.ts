@@ -1191,7 +1191,9 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
             async () => {
               try {
                 const name =
-                  await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
+                  await this.crmCampaigns.getCrmCompanyOwnerNameOrThrow(
+                    hubspotId,
+                  )
                 return { ok: true, name: name?.trim() ? name.trim() : null }
               } catch (err) {
                 this.logger.warn(

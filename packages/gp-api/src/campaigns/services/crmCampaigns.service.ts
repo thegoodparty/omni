@@ -113,6 +113,27 @@ export class CrmCampaignsService {
     return `${firstName ? `${firstName} ` : ''}${lastName ? lastName : ''}`
   }
 
+  /**
+   * Like getCrmCompanyOwnerName, but a HubSpot read failure rejects instead
+   * of collapsing to ''. Callers that cache the result need to tell "the
+   * company has no owner" (resolves null) from "HubSpot errored / rate
+   * limited" (rejects); the lenient method reports both as ''.
+   */
+  async getCrmCompanyOwnerNameOrThrow(
+    crmCompanyId: string,
+  ): Promise<string | null> {
+    const crmCompany = await this.hubspot.client.crm.companies.basicApi.getById(
+      crmCompanyId,
+      HUBSPOT_COMPANY_PROPERTIES,
+    )
+    const ownerId = parseInt(crmCompany.properties?.hubspot_owner_id ?? '')
+    if (Number.isNaN(ownerId)) return null
+    const owner =
+      await this.hubspot.client.crm.owners.ownersApi.getById(ownerId)
+    const name = [owner.firstName, owner.lastName].filter(Boolean).join(' ')
+    return name.trim() || null
+  }
+
   private async createCompany(companyObj: CRMCompanyProperties) {
     let crmCompany: SimplePublicObject | null = null
     try {
