@@ -3084,7 +3084,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Your panel can give about 5 of the 96 answers you need.'),
+      screen.getByText(
+        'Your panel can give about 5 of the 96 answers you need.',
+      ),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Start the calls' }),
