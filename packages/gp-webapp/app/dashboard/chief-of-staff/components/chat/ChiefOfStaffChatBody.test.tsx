@@ -3003,7 +3003,28 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       currentWave: 1,
       createdAt: new Date('2026-10-15T00:00:00.000Z'),
       completedAt: null,
-      steps: [],
+      steps: next
+        ? [
+            {
+              id: next.stepId,
+              wave: 1,
+              channel: next.channel,
+              position: 1,
+              targetSize: 30,
+              status: next.status,
+              voterFileFilterId: null,
+              outreachId: null,
+              phoneBankingListId: null,
+              doorKnockingTurfId: null,
+              startedAt: null,
+              completedAt: null,
+              expectedRepliesBy: null,
+              markedDone: null,
+              reached: null,
+              joined: null,
+            },
+          ]
+        : [],
     },
     next,
     progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
@@ -3088,9 +3109,13 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
         'Your panel can give about 5 of the 96 answers you need.',
       ),
     ).toBeInTheDocument()
+    // The button opens the calls themselves (civicPanelWidgets.test.tsx).
     expect(
-      screen.getByRole('link', { name: 'Start the calls' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s1')
+      screen.getByRole('button', { name: 'Start the calls' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Start the calls' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
       'href',
       '/dashboard/contacts/citizens-panel',
