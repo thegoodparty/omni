@@ -689,6 +689,7 @@ describe('ChiefOfStaffHandler', () => {
         undefined,
         features as never,
         undefined,
+        undefined,
         {} as CivicPanelBuildPlanService,
       )
       return { handler, features }

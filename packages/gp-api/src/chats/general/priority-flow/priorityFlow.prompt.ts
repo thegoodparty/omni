@@ -1,5 +1,6 @@
 import {
   CONTACT_REST_DAYS,
+  GET_ANSWERS_MARKER,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
@@ -363,6 +364,23 @@ const buildReadingRepliesBlock = (
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
 
+// Behind serve-citizen-panels, with the read status in <priority>. A good
+// read is decided in gp-api (priorityReadStatus), never by the model.
+const buildGoodReadBlock = (canPropose: boolean): string =>
+  [
+    'BEFORE A GOOD READ',
+    '- <priority> says how many people have answered on this priority, across texts, calls and doors, and how many a good read of the district takes. Good read: no means they do not have enough yet.',
+    '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
+    '- Nudge toward getting more answers instead, in one line: how many more a good read takes, and the way to get them.',
+    '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
+    '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
+    ...(canPropose
+      ? [
+          `- A message that starts with ${GET_ANSWERS_MARKER} comes from the app, not the official: they pressed Get answers. Do not restate it. Propose getting more answers for the check that is out now, as a card, the way READING WHAT CAME BACK follows up a thin read. If no check is out yet, offer the check the current step needs, built the way a check is always built. The official sends it from the card: never say anything was sent, and never send anything yourself. If <priority> already says Good read: yes, say so in one line and offer what came back instead.`,
+        ]
+      : []),
+  ].join('\n')
+
 // The last turn of the brief's loop: ask, read, act, report back. Behind
 // serve-citizen-panels, with read_report_back registered.
 const REPORT_BACK_BLOCK = `REPORTING BACK TO THE PEOPLE YOU ASKED
@@ -427,6 +445,11 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     ...(ctx.civicPanelMembers === undefined
       ? []
       : [`Civic panel: ${ctx.civicPanelMembers} members`]),
+    ...(ctx.readStatus === undefined
+      ? []
+      : [
+          `Answers: ${ctx.readStatus.answers} of ${ctx.readStatus.needed} needed for a good read. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
+        ]),
     '</priority>',
   ].join('\n')
 
@@ -552,6 +575,9 @@ export const buildPriorityFlowSystemPrompt = (args: {
       ? [buildSamplingBlock(has)]
       : []),
     buildReadingRepliesBlock(has, panelFirst),
+    ...(args.ctx.readStatus !== undefined
+      ? [buildGoodReadBlock(has('present_outreach_proposal'))]
+      : []),
     ...(has('read_report_back') && has('present_outreach_proposal')
       ? [REPORT_BACK_BLOCK]
       : []),

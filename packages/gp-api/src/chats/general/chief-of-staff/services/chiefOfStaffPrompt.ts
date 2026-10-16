@@ -14,6 +14,7 @@ import {
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
+  type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import {
   ChiefOfStaffContext,
@@ -617,22 +618,40 @@ const formatFlow = (p: PriorityRecord): string => {
   return ` (id: ${p.id}) on: ${step}, next: ${next}, constituent checks: ${heard}`
 }
 
-const formatPriority = (p: PriorityRecord): string => {
+const formatRead = (read: PriorityReadStatus | undefined): string =>
+  read === undefined
+    ? ''
+    : `, answers: ${read.answers} of ${read.needed} needed for a good read, good read: ${read.good ? 'yes' : 'no'}`
+
+const formatPriority = (
+  p: PriorityRecord,
+  read: PriorityReadStatus | undefined,
+): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  return `- ${title}${formatFlow(p)}: ${description}`
+  return `- ${title}${formatFlow(p)}${formatRead(read)}: ${description}`
 }
 
-const prioritiesBlock = (priorities: PriorityRecord[]): string => {
+const prioritiesBlock = (
+  priorities: PriorityRecord[],
+  reads: Map<string, PriorityReadStatus> | undefined,
+): string => {
   if (priorities.length === 0) {
     return '<priorities>\nNone on file yet.\n</priorities>'
   }
   return [
     '<priorities>',
-    ...priorities.map(formatPriority),
+    ...priorities.map((p) => formatPriority(p, reads?.get(p.id))),
     '</priorities>',
   ].join('\n')
 }
+
+// Behind serve-citizen-panels, with each priority's read status in
+// <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
+const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
+- <priorities> says, for each priority, how many people have answered on it and how many a good read of the district takes. Good read: no means they do not have enough yet.
+- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward getting more answers instead, in one line, with the link to the priority, where they get them.
+- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
 
 // The report back is drafted in the priority's own conversation, never here,
 // so this only knows what is due and what went, and points there.
@@ -682,7 +701,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
     todayLine(ctx.state),
     officeContextBlock(ctx),
-    prioritiesBlock(ctx.priorities),
+    prioritiesBlock(ctx.priorities, ctx.priorityReads),
     ...[reportBacksBlock(ctx)].filter(
       (block): block is string => block !== null,
     ),
@@ -693,6 +712,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('record_check_reminder')
       ? [CHECK_REMINDER_RULES]
+      : []),
+    ...(ctx.priorityReads !== undefined && ctx.priorities.length > 0
+      ? [PRIORITY_READ_RULES]
       : []),
     ...(ctx.reportBacks !== undefined && ctx.reportBacks.length > 0
       ? [REPORT_BACK_RULES]

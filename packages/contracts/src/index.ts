@@ -861,6 +861,9 @@ export {
   REPORT_BACK_MARKER,
   reportBackMessage,
   isReportBackMessage,
+  GET_ANSWERS_MARKER,
+  GET_ANSWERS_MESSAGE,
+  isGetAnswersMessage,
   isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
@@ -915,6 +918,8 @@ export {
   type PriorityRepresentation,
   PriorityResultsSchema,
   type PriorityResults,
+  PriorityReadStatusSchema,
+  type PriorityReadStatus,
   PriorityThemeSchema,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'

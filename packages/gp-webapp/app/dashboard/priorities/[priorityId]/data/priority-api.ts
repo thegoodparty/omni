@@ -2,6 +2,7 @@
 
 import {
   parsePriorityStatus,
+  type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
@@ -29,6 +30,23 @@ export const fetchPriorityStatus = async (
   } catch {
     // The rail keeps what it already has rather than blanking on a failed
     // reconcile; the next turn tries again.
+    return null
+  }
+}
+
+/**
+ * How many answers the priority has against a good read. Re-read after a
+ * turn settles, since a send's answers land while the official is here.
+ */
+export const fetchPriorityReadStatus = async (
+  priorityId: string,
+): Promise<PriorityReadStatus | null> => {
+  try {
+    const { data } = await clientRequest('GET /v1/priorities/:id/read-status', {
+      id: priorityId,
+    })
+    return data
+  } catch {
     return null
   }
 }

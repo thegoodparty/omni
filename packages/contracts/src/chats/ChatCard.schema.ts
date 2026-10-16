@@ -238,6 +238,18 @@ export const isReportBackMessage = (content: string): boolean =>
   content === reportBackMessage(Number(content.split(':').at(-1)))
 
 /**
+ * The hidden turn the app sends when the official presses "Get answers" on a
+ * priority, so the agent proposes getting more answers for the check that is
+ * out and the transcript can leave the turn out.
+ */
+export const GET_ANSWERS_MARKER = '[Get answers]'
+
+export const GET_ANSWERS_MESSAGE = `${GET_ANSWERS_MARKER} Help me get more answers on this priority.`
+
+export const isGetAnswersMessage = (content: string): boolean =>
+  content === GET_ANSWERS_MESSAGE
+
+/**
  * A tool that refuses its arguments returns `{ error }` so the model can fix
  * them and call again. Its card must never show: the server drops the call's
  * persisted arguments and the live surfaces drop its widget, so the refused
