@@ -1,8 +1,13 @@
 // No 'use client' of its own: every caller is already inside a client
 // boundary, and a directive here would only cost a tick on the ratchet
 // (scripts/check-use-client-count.mjs).
-import { createContext, useContext, type ReactNode } from 'react'
-import { useIsMobile } from '@styleguide/hooks/use-mobile'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   Drawer,
   DrawerBody,
@@ -23,6 +28,23 @@ import {
 } from '@styleguide'
 
 const PanelDrawerMobile = createContext(true)
+
+// Below `lg`, the styleguide's mobile breakpoint, answered on the first render.
+// The styleguide's useIsMobile starts at true and corrects in an effect, which
+// on a desktop mounted a bottom Drawer and swapped it for the Sheet a frame
+// later: the very swap this frame exists to avoid, since the drawer handing
+// focus back as it unmounts dismisses what replaced it. The frame only mounts
+// after a tap, so window is always there.
+const LG = 1024
+const useBelowLg = () => {
+  const [below, setBelow] = useState(() => window.innerWidth < LG)
+  useEffect(() => {
+    const onResize = () => setBelow(window.innerWidth < LG)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return below
+}
 
 interface PanelDrawerProps {
   // The desktop sheet's width, matched to the panel it opens over so the step
@@ -59,7 +81,7 @@ export const PanelDrawer = ({
   busy,
   children,
 }: PanelDrawerProps) => {
-  const isMobile = useIsMobile()
+  const isMobile = useBelowLg()
   const onOpenChange = (open: boolean) => {
     if (!open && !busy) onDismiss()
   }
