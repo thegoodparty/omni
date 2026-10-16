@@ -16,10 +16,11 @@ import { SWEEP_VALUES } from './fixtures/sweep'
 // registry says — including a registry that lost one.
 //
 // Everything these lists share with the other nine — that they parse through
-// the loader, are `placeholder: true`, hold eight uniquely-named cases, and
-// satisfy their manifest's `required` and its pinned `additionalProperties` —
-// is checked for all fifteen in backgroundCaseLists.test.ts. What is only true
-// here is the placeholder behaviour, and that is all this file asserts.
+// the loader, carry the right `placeholder` flag, hold uniquely-named cases,
+// and satisfy their manifest's `required` and its pinned
+// `additionalProperties` — is checked for all fifteen in
+// backgroundCaseLists.test.ts. What is only true here is the token
+// behaviour, and that is all this file asserts.
 const AUTHORED = [
   'campaign_tracker_tasks',
   'find_existing_ordinances',
@@ -32,7 +33,7 @@ const AUTHORED = [
 const CASES_PER_LIST = 8
 // The real benches among the six carry six to eight probes and a control
 // (trending_issues drops the hint probe, since the agent takes no hint); the
-// placeholder list keeps the eight-case shape.
+// core-check list keeps the eight-case shape.
 const casesExpected = (agentId: string): number =>
   agentId === 'opportunities_and_challenges' ||
   agentId === 'campaign_tracker_tasks'

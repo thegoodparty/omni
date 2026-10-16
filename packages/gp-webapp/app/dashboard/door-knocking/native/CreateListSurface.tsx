@@ -519,6 +519,7 @@ export default function CreateListSurface({
     ...addressPreviewQueryOptions(
       previewPolygon ?? { type: 'Polygon', coordinates: [[]] },
       previewFilters,
+      selectedList?.id,
     ),
     // Gated on the draw step as well as on the ring, because the ring
     // OUTLIVES that step: Back keeps it and so does Continue. Without the

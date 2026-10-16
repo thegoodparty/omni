@@ -130,9 +130,8 @@ export const checkSmsStandards = (
   const failures: SmsStandardsRule[] = []
   const lower = script.toLowerCase()
 
-  // Whole word, as the composer's lock matches it (deriveSmsProtectedParts):
-  // "reply stoppage" must fail here rather than pass with nothing locked,
-  // where the opt-out instruction could then be deleted before the send.
+  // Whole word, as deriveSmsProtectedParts matches it: "reply stoppage"
+  // must fail here rather than pass with nothing for Improve to keep.
   // A quoted STOP ("Reply "STOP" to opt out") is the same instruction, so a
   // person retyping the line is not held to our exact punctuation.
   if (!/reply\s+["'“”‘’]?stop\b/i.test(script)) {
@@ -141,9 +140,9 @@ export const checkSmsStandards = (
   if (!script.includes('{first_name}')) {
     failures.push('first_name_token')
   }
-  // Whole words, as the composer's lock finds the name: "chen" inside
+  // Whole words, as deriveSmsProtectedParts finds the name: "chen" inside
   // "kitchen" is not an identification, and a verdict that accepted it
-  // would show the rule met with nothing locked to keep it met.
+  // would show the rule met with nothing for Improve to keep.
   // The full name first, then its words of 3+ letters, exactly as the lock
   // looks for it. A short name ("Al Bo") has no such words, so it must
   // appear in full: before, it passed this rule with no name in the script.
@@ -175,10 +174,11 @@ export const checkSmsStandards = (
   return { passed: failures.length === 0, failures }
 }
 
-// What a composer locks so a message cannot be edited out of compliance:
-// for each rule above, the exact text in `script` that satisfies it. It
-// lives beside `checkSmsStandards`, takes the same inputs and finds text the
-// same way, so a rule change moves the lock and the verdict together.
+// What Improve keeps word for word so a rewrite cannot take a message out of
+// compliance: for each rule above, the exact text in `script` that
+// satisfies it. It lives beside `checkSmsStandards`, takes the same inputs
+// and finds text the same way, so a rule change moves the lock and the
+// verdict together.
 //
 // Each part is the minimum its rule tests for, with one exception: the
 // paid-for-by disclaimer is the phrase AND the committee as one unit. A gap

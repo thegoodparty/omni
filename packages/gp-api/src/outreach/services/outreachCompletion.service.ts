@@ -10,6 +10,7 @@ import {
 import { Outreach, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { PeerlyJob, PeerlyJobStatus } from '../../vendors/peerly/peerly.types'
 import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 
 // Activity conditions (task 04) and the wizard's campaign picker (task 09)
 // reference a completed outreach days later, not minutes — hourly is plenty.
@@ -204,8 +205,7 @@ export class OutreachCompletionService extends createPrismaBase(
     const isUnbookedP2p =
       outreach.outreachType === OutreachType.p2p &&
       outreach.canvassRequestedAt === null &&
-      !job.has_canvassers_scheduled &&
-      !job.canvassers_schedule?.approved
+      !hasPeerlyCanvassersBooked(job)
     const nextStatus =
       mappedStatus === OutreachStatus.completed && isUnbookedP2p
         ? OutreachStatus.in_progress

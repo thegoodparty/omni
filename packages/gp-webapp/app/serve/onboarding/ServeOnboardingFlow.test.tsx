@@ -277,9 +277,6 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await findStoryHeading(storyHeading.represent)
-    expect(
-      screen.queryByText("Here's everything to know about your constituents"),
-    ).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await findStoryHeading(storyHeading.loudest)
     expect(screen.getByText('Heard from')).toBeInTheDocument()
@@ -391,6 +388,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       '3ActBring it to your vote',
       '4CommunicateTell them what you did',
     ])
+    // One column at every width, so the loop reads 1 to 4 top to bottom
+    // rather than left to right and wrapping.
+    expect(screen.getByRole('list').className).not.toMatch(/grid-cols/)
+    expect(screen.getByRole('list')).toHaveClass('flex-col')
     expect(
       screen.getByText('Then listen again. Each round, your panel grows.'),
     ).toBeInTheDocument()
@@ -460,7 +461,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
   })
 
-  it('sends a constituents checkpoint to the start of the story', async () => {
+  it('sends a checkpoint from a step that is gone to the start of the story', async () => {
     resumedAt('constituents')
     renderFlow()
 
@@ -919,7 +920,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('skips the priorities step, never starts community issues, and ignores a priorities checkpoint', async () => {
+  it('goes from the term to the pledge, never starts community issues, and ignores a priorities checkpoint', async () => {
     resumedAt('priorities')
     let communityStarts = 0
     let prioritiesLoads = 0
@@ -939,9 +940,6 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText("Here's everything to know about your constituents")
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
     await screen.findByText('Take our pledge to get your chief of staff')
     expect(
       screen.queryByText('What issues are you prioritizing solving right now?'),
@@ -950,7 +948,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
     )
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await screen.findByText("Here's everything to know about your constituents")
+    await screen.findByText('When does your term run?')
     expect(communityStarts).toBe(0)
     expect(prioritiesLoads).toBe(0)
   })
@@ -1104,7 +1102,7 @@ describe('ServeOnboardingFlow', () => {
     return user
   }
 
-  it('persists term dates and advances to constituents on the term-dates step', async () => {
+  it('persists term dates and advances to the pledge on the term-dates step', async () => {
     let putBody: Record<string, unknown> | undefined
     mockLoad(buildEO({ party: 'independent' }), buildOrg())
     api.mock('PATCH /v1/organizations/:slug', {
@@ -1123,17 +1121,15 @@ describe('ServeOnboardingFlow', () => {
     expect(putBody).toEqual({
       termStartDate: '2026-01-01',
       termEndDate: '2030-01-01',
-      onboardingStep: 'constituents',
+      onboardingStep: 'pledge',
     })
     expect(putBody).not.toHaveProperty('onboardingCompletedAt')
     expect(
-      await screen.findByText(
-        "Here's everything to know about your constituents",
-      ),
+      await screen.findByText('Take our pledge to get your chief of staff'),
     ).toBeInTheDocument()
   })
 
-  it('still advances to constituents when the term-dates save fails', async () => {
+  it('still advances to the pledge when the term-dates save fails', async () => {
     mockLoad(buildEO({ party: 'independent' }), buildOrg())
     api.mock('PATCH /v1/organizations/:slug', {
       status: 200,
@@ -1147,12 +1143,10 @@ describe('ServeOnboardingFlow', () => {
     const user = await reachTermDatesStep()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // saveThenAdvance swallows the failed PUT; the chained goToConstituents
-    // still runs, so the user reaches the constituents step.
+    // saveThenAdvance swallows the failed PUT; the chained advance still runs,
+    // so the user reaches the pledge.
     expect(
-      await screen.findByText(
-        "Here's everything to know about your constituents",
-      ),
+      await screen.findByText('Take our pledge to get your chief of staff'),
     ).toBeInTheDocument()
   })
 
@@ -1182,7 +1176,7 @@ describe('ServeOnboardingFlow', () => {
     // genuine sales/BR prefill. Prompt-first gating routes to the term-dates
     // step FIRST (instead of the confirm hub with a red error), but it stays in
     // the prefill branch — proven by the term-dates Continue returning to the
-    // confirm hub (a net-new user would advance to constituents) — so the BR
+    // confirm hub (a net-new user would advance to the pledge) — so the BR
     // suggestion-accuracy snapshot is still armed.
     mockLoad(
       buildEO({ party: 'independent', selfReported: false }),
@@ -1283,10 +1277,10 @@ describe('ServeOnboardingFlow', () => {
     expect(putBody).not.toHaveProperty('selfReported')
   })
 
-  it('advances from the prefill confirm hub to constituents without re-patching the org', async () => {
+  it('advances from the prefill confirm hub to the pledge without re-patching the org', async () => {
     // Prefill EO with party + office + term dates all saved resumes at
-    // constituents (the confirm review was already passed). Navigate back to
-    // the confirm hub, then Continue, to exercise confirm → goToConstituents:
+    // the pledge (the confirm review was already passed). Navigate back to
+    // the confirm hub, then Continue, to exercise confirm → pledge:
     // the office was never re-picked, so persistOfficeProgress is a no-op and
     // no PATCH should fire.
     const patchRequests: unknown[] = []
@@ -1305,7 +1299,7 @@ describe('ServeOnboardingFlow', () => {
       patchRequests.push(req)
       return { status: 200, data: buildOrg() }
     })
-    // The confirm → constituents Continue still writes the step checkpoint.
+    // The confirm → pledge Continue still writes the step checkpoint.
     api.mock('PUT /v1/elected-office/:id', {
       status: 200,
       data: buildEO({ party: 'independent' }),
@@ -1314,15 +1308,16 @@ describe('ServeOnboardingFlow', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText("Here's everything to know about your constituents")
+    await screen.findByText('Take our pledge to get your chief of staff')
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled(),
+    )
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await screen.findByText('Does this look right?')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(
-        "Here's everything to know about your constituents",
-      ),
+      await screen.findByText('Take our pledge to get your chief of staff'),
     ).toBeInTheDocument()
     // Office was already on the org and never re-picked — no PATCH fires.
     expect(patchRequests).toHaveLength(0)
@@ -1400,11 +1395,6 @@ describe('ServeOnboardingFlow', () => {
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-      await screen.findByText(
-        "Here's everything to know about your constituents",
-      )
-      await user.click(screen.getByRole('button', { name: 'Continue' }))
-
       await screen.findByText('Take our pledge to get your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Agree & Continue' }))
 
@@ -1414,11 +1404,10 @@ describe('ServeOnboardingFlow', () => {
       // The create-on-first-answer POST is a bare stub (no completion fields).
       expect(postBody).not.toHaveProperty('onboardingCompletedAt')
 
-      // Every post-create Continue wrote a step checkpoint, including a
-      // no-data-field step (`constituents`) that data-derived resume can't pinpoint.
+      // Every post-create Continue wrote a step checkpoint.
       const steps = putBodies.map((b) => b.onboardingStep)
       expect(steps).toContain('party')
-      expect(steps).toContain('constituents')
+      expect(steps).toContain('term-dates')
 
       // Completion is a PUT carrying the marker + onboardingCompletedAt so a
       // net-new user is never misclassified as a prefill on resume.
@@ -1431,36 +1420,6 @@ describe('ServeOnboardingFlow', () => {
     } finally {
       testQueryClient.removeQueries({ queryKey: positionsKey })
     }
-  })
-
-  it('full restart: a returning user resumes at the persisted step checkpoint, even a no-data-field step', async () => {
-    // Simulates a fresh navigation after a full restart: GET /current returns
-    // the saved record whose onboardingStep checkpoint is `constituents` — a
-    // step with no data field that the data-derived resume could only reach by
-    // inferring from term dates. The checkpoint drives routing straight there.
-    mockLoad(
-      buildEO({
-        party: 'independent',
-        termStartDate: '2026-01-01',
-        termEndDate: '2030-01-01',
-        selfReported: true,
-        onboardingStep: 'constituents',
-      }),
-      buildOrg({
-        positionName: 'Mayor',
-        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
-      }),
-    )
-    renderFlow()
-
-    expect(
-      await screen.findByText(
-        "Here's everything to know about your constituents",
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText('When does your term run?'),
-    ).not.toBeInTheDocument()
   })
 
   it('full restart: routes to a persisted inOffice checkpoint when present', async () => {
@@ -1515,10 +1474,6 @@ const PARTY_VIEWED = 'Serve Onboarding - Party Designation Viewed'
 const OFFICE_VIEWED = 'Serve Onboarding - Office Viewed'
 const OFFICE_COMPLETED = 'Serve Onboarding - Office Completed'
 const TERM_DATES_VIEWED = 'Serve Onboarding - Term Dates Viewed'
-const CONSTITUENTS_VIEWED = 'Serve Onboarding - Know Your Constituents Viewed'
-const CONSTITUENTS_COMPLETED =
-  'Serve Onboarding - Know Your Constituents Completed'
-const PLEDGE_VIEWED = 'Serve Onboarding - Pledge Viewed'
 const PLEDGE_COMPLETED = 'Serve Onboarding - Pledge Completed'
 const COMPLETED = 'Serve Onboarding - Net New Completed'
 // Events removed in the per-screen rework — asserted absent below.
@@ -1696,41 +1651,6 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     ])
     // Term Dates Viewed then fires on view of the next screen.
     expect(eventProps(TERM_DATES_VIEWED)).toHaveLength(1)
-  })
-
-  it('fires Know Your Constituents Viewed on view and Completed on Continue', async () => {
-    mockLoad(
-      buildEO({
-        party: 'independent',
-        termStartDate: '2026-01-01',
-        termEndDate: '2030-01-01',
-        selfReported: true,
-        onboardingStep: 'constituents',
-      }),
-      buildOrg({
-        positionName: 'Mayor',
-        position: { id: 'p1', brPositionId: 'br-1', state: 'CA' },
-      }),
-    )
-    api.mock('PATCH /v1/organizations/:slug', { status: 200, data: buildOrg() })
-    api.mock('PUT /v1/elected-office/:id', {
-      status: 200,
-      data: buildEO({ party: 'independent', selfReported: true }),
-    })
-    const user = userEvent.setup()
-    renderFlow()
-
-    await screen.findByText("Here's everything to know about your constituents")
-    await waitFor(() => expect(eventProps(CONSTITUENTS_VIEWED)).toHaveLength(1))
-    expect(eventProps(CONSTITUENTS_COMPLETED)).toHaveLength(0)
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    await screen.findByText('Take our pledge to get your chief of staff')
-    expect(eventProps(CONSTITUENTS_COMPLETED)).toEqual([
-      expect.objectContaining({ branch: 'net-new' }),
-    ])
-    expect(eventProps(PLEDGE_VIEWED)).toHaveLength(1)
   })
 
   it('fires Pledge Completed and the Net New Completed metric (without a branch prop) at completion', async () => {

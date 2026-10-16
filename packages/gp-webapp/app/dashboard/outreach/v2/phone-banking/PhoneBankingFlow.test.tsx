@@ -59,12 +59,6 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   }),
 }))
 
-// The question-asking card is offered only where issue capture is on; these
-// cases pick it, so the flag is on here.
-vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
-  useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
-}))
-
 const panelFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => panelFlag,

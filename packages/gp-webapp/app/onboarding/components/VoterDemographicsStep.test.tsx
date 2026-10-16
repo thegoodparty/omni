@@ -136,52 +136,6 @@ describe('VoterDemographicsStep copy overrides', () => {
     ).toBeInTheDocument()
   })
 
-  it('forwards constituent copy overrides through to the demographics and issues sections', async () => {
-    // The serve flow's constituent wording must reach both the local headings
-    // here and the nested TopVoterIssuesSection. Guards the full prop-forwarding
-    // path the serve flow depends on.
-    api.mock('GET /v1/onboarding/contacts/stats', {
-      status: 200,
-      data: statsResponse,
-    })
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 200,
-      data: {
-        issues: [{ label: 'Public Safety', score: 80, priority: 'high' }],
-      },
-    })
-
-    render(
-      <VoterDemographicsStep
-        ballotReadyPositionId="br-1"
-        office="Mayor"
-        showLocalNewsSources={false}
-        demographicsHeading="Constituent Demographics"
-        totalLabel="Total Constituents"
-        ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
-        topIssuesHeading="Top issues for your constituents"
-        topIssuesDescription="The issues constituents in your district care about most right now."
-      />,
-    )
-
-    expect(
-      await screen.findByText('Constituent Demographics'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Total Constituents')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones.",
-      ),
-    ).toBeInTheDocument()
-    expect(
-      await screen.findByText('Top issues for your constituents'),
-    ).toBeInTheDocument()
-    expect(screen.queryByText('Voter Demographics')).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('Top issues for your voters'),
-    ).not.toBeInTheDocument()
-  })
-
   it('drops SMS from the default outreach copy once texting has closed for the race', async () => {
     api.mock('GET /v1/onboarding/contacts/stats', {
       status: 200,

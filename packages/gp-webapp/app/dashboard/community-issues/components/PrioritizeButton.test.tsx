@@ -45,7 +45,11 @@ describe('<PrioritizeButton>', () => {
       screen.getByRole('button', { name: /add to my priorities/i }),
     )
 
-    await waitFor(() => expect(onPrioritized).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(onPrioritized).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'p-1' }),
+      ),
+    )
   })
 
   it('fires PrioritizeClicked event on click', async () => {

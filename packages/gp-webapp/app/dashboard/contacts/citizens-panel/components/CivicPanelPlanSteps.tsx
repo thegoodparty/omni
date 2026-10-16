@@ -1,45 +1,21 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { format, subBusinessDays } from 'date-fns'
 import {
   PANEL_CALLS_PER_HOUR,
   PANEL_DOORS_PER_HOUR,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
-  SERVE_PHONE_BANKING_PURPOSE_VALUES,
-  SERVE_SMS_PURPOSE_VALUES,
   type CivicPanelBuildNext,
   type CivicPanelBuildPlan,
   type CivicPanelBuildPlanResponse,
   type CivicPanelBuildStep,
-  type PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import { Button, Checkbox, cn } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { numberFormatter } from 'helpers/numberHelper'
-import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
-import {
-  PhoneBankingFlow,
-  SERVE_PHONE_BANKING_SURFACE,
-} from 'app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow'
-import {
-  SERVE_SMS_SURFACE,
-  SmsFlow,
-} from 'app/dashboard/outreach/v2/sms/SmsFlow'
-import { walkableAreaParam } from 'app/dashboard/door-knocking/native/walkableAreaParam'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
-
-type Opened =
-  | {
-      channel: 'text'
-      listId: number
-      purpose: (typeof SERVE_SMS_PURPOSE_VALUES)[number]
-    }
-  | {
-      channel: 'phone_banking'
-      listId: number
-      purpose: (typeof SERVE_PHONE_BANKING_PURPOSE_VALUES)[number]
-    }
+import { keepGoingHref, useCivicPanelStepFlow } from './useCivicPanelStepFlow'
 
 const CHANNEL_ORDER: CivicPanelBuildStep['channel'][] = [
   'text',
@@ -120,41 +96,13 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     : COPY.stepDetail.door_knocking(time)
 }
 
-// Where a call list or a walk already underway is worked.
-const keepGoingHref = (step: CivicPanelBuildStep): string | null => {
-  if (step.status !== 'in_progress') return null
-  if (step.channel === 'phone_banking' && step.phoneBankingListId !== null) {
-    return `/dashboard/outreach/phone-banking/${step.phoneBankingListId}`
-  }
-  if (step.channel === 'door_knocking' && step.doorKnockingTurfId !== null) {
-    return `/dashboard/door-knocking?walkTurfId=${step.doorKnockingTurfId}`
-  }
-  return null
-}
-
-// The door knocking create flow on the step's list and purpose, with the
-// walkable area it drew as the turf's boundary.
-const doorFlowHref = (data: PrepareCivicPanelBuildStepResponse): string => {
-  const params = new URLSearchParams({
-    create: '1',
-    listId: String(data.voterFileFilterId),
-    purpose: data.purpose,
-  })
-  const area = data.area ? walkableAreaParam(data.area) : null
-  if (area) params.set('area', area)
-  return `/dashboard/door-knocking?${params.toString()}`
-}
-
 /**
  * The plan as one checklist: the next step first and largest, with the one
  * primary action and Skip; the other open steps as compact rows with Get
  * started; and the done steps checked at the bottom. A text checks itself
  * once it is sent; a call list or a walk checks itself once it is worked
  * through, and the official can tick or untick it by hand. A step's action
- * opens the standard flow for its channel on the list it drew, at the
- * message, with its civic panel invite drafting: texts and calls in place
- * over the page, doors on the door knocking page with the walkable area as
- * the boundary.
+ * opens the standard flow for its channel (useCivicPanelStepFlow).
  */
 export const CivicPanelPlanSteps = ({
   plan,
@@ -165,10 +113,7 @@ export const CivicPanelPlanSteps = ({
   next: CivicPanelBuildNext | null
   onPlan: (plan: CivicPanelBuildPlanResponse) => void
 }) => {
-  const router = useRouter()
   const focusedStepId = useSearchParams()?.get('step') ?? null
-  const sms = useServeSmsFlag(false)
-  const [opened, setOpened] = useState<Opened | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<{
     stepId: string
@@ -193,44 +138,18 @@ export const CivicPanelPlanSteps = ({
   const fail = (stepId: string, message: string) =>
     setError({ stepId, message })
 
+  const stepFlow = useCivicPanelStepFlow({ onChange: refresh })
+
   const start = async (step: CivicPanelBuildStep) => {
     setPendingId(step.id)
     setError(null)
     try {
-      const { data } = await clientRequest(
-        'POST /v1/contacts/civic-panel/plan/steps/:id/prepare',
-        { id: step.id },
-      )
-      if (data.channel === 'door_knocking') {
-        router.push(doorFlowHref(data))
-        return
-      }
-      const smsPurpose = SERVE_SMS_PURPOSE_VALUES.find(
-        (purpose) => purpose === data.purpose,
-      )
-      const callPurpose = SERVE_PHONE_BANKING_PURPOSE_VALUES.find(
-        (purpose) => purpose === data.purpose,
-      )
-      if (data.channel === 'text' && smsPurpose) {
-        setOpened({
-          channel: 'text',
-          listId: data.voterFileFilterId,
-          purpose: smsPurpose,
-        })
-      } else if (data.channel === 'phone_banking' && callPurpose) {
-        setOpened({
-          channel: 'phone_banking',
-          listId: data.voterFileFilterId,
-          purpose: callPurpose,
-        })
-      } else {
-        fail(step.id, COPY.stepError)
-      }
-      setPendingId(null)
+      // Leaving for the door knocking page keeps the button loading.
+      if ((await stepFlow.open(step)) === 'navigating') return
     } catch {
       fail(step.id, COPY.stepError)
-      setPendingId(null)
     }
+    setPendingId(null)
   }
 
   const skip = async (step: CivicPanelBuildStep) => {
@@ -263,11 +182,6 @@ export const CivicPanelPlanSteps = ({
     } finally {
       setPendingId(null)
     }
-  }
-
-  const close = () => {
-    setOpened(null)
-    void refresh()
   }
 
   const byOrder = (a: CivicPanelBuildStep, b: CivicPanelBuildStep) =>
@@ -309,14 +223,14 @@ export const CivicPanelPlanSteps = ({
           asChild
           size={primary ? 'large' : 'medium'}
           variant={primary ? 'default' : 'outline'}
-          className={cn(primary && 'flex-1 sm:flex-none')}
+          className={cn(primary ? 'flex-1 sm:flex-none' : 'h-11 sm:h-10')}
         >
           <Link href={keepGoing}>{COPY.keepGoing[step.channel]}</Link>
         </Button>
       )
     }
     if (step.status !== 'not_started') return null
-    if (step.channel === 'text' && sms.ready && !sms.enabled) {
+    if (step.channel === 'text' && stepFlow.textingOff) {
       return <p className="text-sm text-muted-foreground">{COPY.textingOff}</p>
     }
     return (
@@ -324,7 +238,7 @@ export const CivicPanelPlanSteps = ({
         type="button"
         size={primary ? 'large' : 'medium'}
         variant={primary ? 'default' : 'outline'}
-        className={cn(primary && 'flex-1 sm:flex-none')}
+        className={cn(primary ? 'flex-1 sm:flex-none' : 'h-11 sm:h-10')}
         loading={pendingId === step.id}
         disabled={pendingId !== null && pendingId !== step.id}
         onClick={() => void start(step)}
@@ -393,30 +307,37 @@ export const CivicPanelPlanSteps = ({
             <div className="sm:ml-9">{errorFor(featured)}</div>
           </li>
         ) : null}
-        {rest.map((step) => (
-          <li
-            key={step.id}
-            {...rowProps(step)}
-            className={cn(
-              'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
-              ring(step),
-            )}
-          >
-            <div className="flex items-center gap-3 sm:gap-3.5">
-              {checkbox(step)}
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="text-base font-semibold text-foreground">
-                  {stepTitle(step)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {stepDetail(step)}
-                </p>
+        {rest.map((step) => {
+          const action = actionFor(step, false)
+          return (
+            <li
+              key={step.id}
+              {...rowProps(step)}
+              className={cn(
+                'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
+                ring(step),
+              )}
+            >
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-3.5">
+                {checkbox(step)}
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-base font-semibold text-foreground">
+                    {stepTitle(step)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {stepDetail(step)}
+                  </p>
+                </div>
+                {action ? (
+                  <div className="col-start-2 mt-3 justify-self-start sm:col-start-3 sm:row-start-1 sm:mt-0">
+                    {action}
+                  </div>
+                ) : null}
               </div>
-              <div className="shrink-0">{actionFor(step, false)}</div>
-            </div>
-            {errorFor(step)}
-          </li>
-        ))}
+              {errorFor(step)}
+            </li>
+          )
+        })}
         {done.map((step) => (
           <li
             key={step.id}
@@ -441,30 +362,7 @@ export const CivicPanelPlanSteps = ({
           </li>
         ))}
       </ul>
-      {opened?.channel === 'text' && sms.ready && sms.enabled ? (
-        <SmsFlow
-          open
-          onClose={close}
-          onScheduled={refresh}
-          surface={SERVE_SMS_SURFACE}
-          initialPurpose={opened.purpose}
-          preselectedListId={opened.listId}
-          audienceSettled
-          source="deep_link"
-        />
-      ) : null}
-      {opened?.channel === 'phone_banking' ? (
-        <PhoneBankingFlow
-          open
-          onClose={close}
-          onSaved={() => void refresh()}
-          surface={SERVE_PHONE_BANKING_SURFACE}
-          preselectedListId={opened.listId}
-          initialPurpose={opened.purpose}
-          initialName={COPY.callListName}
-          source="deep_link"
-        />
-      ) : null}
+      {stepFlow.flows}
     </section>
   )
 }

@@ -15,12 +15,12 @@ import { wait } from 'tests/utils/eventually'
  * flow. Both branches the flow supports are exercised:
  *
  *  - **net-new**  — a brand-new lead with no prefill redeems the ticket, then
- *    enters everything fresh: welcome → inOffice → party → office → term-dates →
- *    constituents → pledge.
+ *    enters everything fresh: welcome → inOffice → party → office → term-dates
+ *    → pledge.
  *  - **prefill**  — a lead whose `ElectedOffice` is pre-seeded (office + term
  *    dates, no `selfReported` marker) gets the "Does this look right?" Confirm
  *    hub instead of the office picker: welcome → inOffice → party → confirm →
- *    constituents → pledge.
+ *    pledge.
  *
  * The ticket is minted directly with the Clerk test-instance secret (see
  * `src/helpers/serve.helper.ts`) rather than via the admin/M2M magic-link
@@ -165,17 +165,6 @@ async function completeTermDatesStep(page: Page): Promise<void> {
   await clickContinue(page)
 }
 
-async function completeConstituentsStep(page: Page): Promise<void> {
-  console.log('Serve step: constituents')
-  await expect(
-    page.getByRole('heading', {
-      level: 1,
-      name: /everything to know about your constituents/i,
-    }),
-  ).toBeVisible({ timeout: 30_000 })
-  await clickContinue(page)
-}
-
 async function completePledgeStep(page: Page): Promise<void> {
   console.log('Serve step: pledge')
   await expect(
@@ -200,7 +189,6 @@ test('serve onboarding — net-new branch via magic link', async ({ page }) => {
   await completePartyStep(page, { assertMajorPartyBlock: true })
   await completeOfficeStep(page)
   await completeTermDatesStep(page)
-  await completeConstituentsStep(page)
   await completePledgeStep(page)
 
   expect(page.url()).toMatch(/\/dashboard(\/|$)/)
@@ -237,7 +225,6 @@ test('serve onboarding — prefilled confirm branch via magic link', async ({
   await expect(page.getByText('Governor of Maryland')).toBeVisible()
   await clickContinue(page)
 
-  await completeConstituentsStep(page)
   await completePledgeStep(page)
 
   expect(page.url()).toMatch(/\/dashboard(\/|$)/)

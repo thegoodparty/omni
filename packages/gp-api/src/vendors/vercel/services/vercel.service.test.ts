@@ -2,17 +2,30 @@ import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { VercelService } from './vercel.service'
+import { VERCEL_REQUEST_TIMEOUT_MS, VercelService } from './vercel.service'
 
-const { getDomainAuthCode } = vi.hoisted(() => ({
+const { getDomainAuthCode, vercelClientOptions } = vi.hoisted(() => ({
   getDomainAuthCode: vi.fn(),
+  vercelClientOptions: [] as unknown[],
 }))
 
 vi.mock('@vercel/sdk', () => ({
   Vercel: class {
     domainsRegistrar = { getDomainAuthCode }
+    constructor(options: unknown) {
+      vercelClientOptions.push(options)
+    }
   },
 }))
+
+describe('Vercel client', () => {
+  it('bounds every call so a stalled Vercel API fails before the gateway timeout', () => {
+    expect(vercelClientOptions[0]).toMatchObject({
+      timeoutMs: VERCEL_REQUEST_TIMEOUT_MS,
+    })
+    expect(VERCEL_REQUEST_TIMEOUT_MS).toBeLessThan(120_000)
+  })
+})
 
 describe('VercelService.getDomainAuthCode', () => {
   let service: VercelService

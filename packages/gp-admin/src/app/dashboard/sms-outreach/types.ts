@@ -48,3 +48,7 @@ export const TAB_STATUSES: Record<QueueTab, SmsApprovalStatus[]> = {
   denied: ['denied'],
   canceled: ['canceled'],
 }
+
+// Failures come back as data: Next redacts a thrown server-action message
+// in prod, and gp-api's refusal is what the staff member needs to read.
+export type SmsActionResult = { error: string | null }

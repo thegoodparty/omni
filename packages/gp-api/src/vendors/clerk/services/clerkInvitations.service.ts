@@ -176,13 +176,22 @@ export class ClerkInvitationsService {
     metadata: TeamInviteMetadata | null
     verifiedEmails: string[]
   }> {
+    const fetchUser = () =>
+      clerkCall('users.getUser', { 'clerk.user_id': clerkId }, () =>
+        this.clerkClient.users.getUser(clerkId),
+      )
     let user
     try {
-      user = await clerkCall(
-        'users.getUser',
-        { 'clerk.user_id': clerkId },
-        () => this.clerkClient.users.getUser(clerkId),
-      )
+      // A read-only lookup, so one retry after a Clerk stall is safe and
+      // absorbs the transient timeouts that otherwise surface as a 502.
+      try {
+        user = await fetchUser()
+      } catch (firstErr) {
+        if (!(firstErr instanceof ClerkTimeoutError)) {
+          throw firstErr
+        }
+        user = await fetchUser()
+      }
     } catch (err) {
       this.logger.error(
         { err },

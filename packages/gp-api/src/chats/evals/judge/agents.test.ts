@@ -176,12 +176,11 @@ describe('coverage', () => {
     expect(wired).toBe(3)
   })
 
-  // chief_of_staff and opposition_research were judged on placeholder case
-  // lists, so the line claims nothing about how they do on inputs written to
-  // test them. race_opponent_summary ran on Melecia's real bench, so it is the
-  // one wired agent the parenthetical does not count.
+  // chief_of_staff and opposition_research carry core checks and
+  // race_opponent_summary a real bench, so no wired agent runs on
+  // placeholder inputs.
   it('counts the wired agents that ran on placeholder inputs', () => {
-    expect(coverage()).toMatchObject({ wired: 3, placeholder: 2 })
+    expect(coverage()).toMatchObject({ wired: 3, placeholder: 0 })
   })
 
   // THE ONE EXPERIMENT THAT BYPASSES PERMISSION PROMPTS, and the reason this
@@ -256,9 +255,10 @@ describe('coverage', () => {
     expect(result).toMatchObject({ wired: 2, placeholder: 1, judgeable: 3 })
   })
 
-  // The default reads the case list itself, not a value the caller passed.
+  // The default reads the case list itself, not a value the caller passed:
+  // an unreadable list counts as placeholder (below), so a 0 here is a read.
   it('reads the placeholder flag from the case list by default', () => {
-    expect(coverage([requireAgent('chief_of_staff')]).placeholder).toBe(1)
+    expect(coverage([requireAgent('chief_of_staff')]).placeholder).toBe(0)
     const real = {
       ...requireAgent('race_opponent_summary'),
       status: 'wired',

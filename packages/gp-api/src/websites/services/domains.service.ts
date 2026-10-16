@@ -112,11 +112,20 @@ const DOMAIN_PURCHASE_IN_PROGRESS_MESSAGE =
   'Domain registration already in progress for this campaign'
 
 // Vercel's registrar buy is asynchronous: buySingleDomain 2xx means "order
-// accepted", not "domain bought" (completion is typically ~13s). Poll bound
-// keeps worst-case in-request wait under agent/ALB timeouts; on timeout the
-// domain goes inactive and a retry re-drives idempotently (boughtAt check).
+// accepted", not "domain bought" (completion is typically ~13s). The budget
+// keeps the in-request wait under agent/ALB timeouts; on timeout the domain
+// goes inactive and a retry of the same name re-drives it (see
+// findBoughtRetryPrice).
+//
+// Once the buy is accepted the money is spent, so a failed poll is not a
+// verdict on the order. On 2026-10-09 one nginx 502 on the first poll aborted
+// a purchase whose order completed seconds later; the retry then saw the name
+// as taken (by us) and the agent bought a second domain. On 2026-10-15 a
+// single poll hung for 320s before failing, which is why each poll carries
+// its own timeout.
 const REGISTRAR_ORDER_POLL_INTERVAL_MS = 3_000
-const REGISTRAR_ORDER_POLL_MAX_ATTEMPTS = 15
+const REGISTRAR_ORDER_POLL_BUDGET_MS = 45_000
+const REGISTRAR_ORDER_REQUEST_TIMEOUT_MS = 10_000
 
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
@@ -902,6 +911,77 @@ export class DomainsService
     }
   }
 
+  private async checkAvailabilityAndPrice(
+    domainName: string,
+    maxPrice: number,
+  ): Promise<number> {
+    let availabilityResp: Awaited<
+      ReturnType<typeof this.route53.checkDomainAvailability>
+    >
+    try {
+      availabilityResp = await this.route53.checkDomainAvailability(domainName)
+    } catch (error) {
+      throw new BadGatewayException(
+        `Could not check availability for ${domainName}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      )
+    }
+    if (availabilityResp.Availability !== DomainAvailability.AVAILABLE) {
+      throw new ConflictException(`Domain ${domainName} is no longer available`)
+    }
+
+    const price = await this.lookupDomainPrice(domainName)
+
+    if (price > maxPrice) {
+      throw new ConflictException(
+        `Domain ${domainName} price ${price} exceeds maxPrice ${maxPrice}`,
+      )
+    }
+    return price
+  }
+
+  /**
+   * The stored price of this campaign's own failed attempt at `domainName`,
+   * when Vercel shows the domain as bought on our team. Null otherwise, which
+   * sends the caller down the normal availability and price checks.
+   *
+   * Scoped to an inactive row for the same campaign and name, so it only ever
+   * re-drives a purchase this campaign already started. A domain our team
+   * owns for anyone else is never handed over.
+   */
+  private async findBoughtRetryPrice(
+    campaignId: number,
+    domainName: string,
+  ): Promise<number | null> {
+    const prior = await this.model.findUnique({
+      where: { name: domainName },
+      include: { website: { select: { campaignId: true } } },
+    })
+    if (
+      !prior ||
+      prior.status !== DomainStatus.inactive ||
+      prior.website.campaignId !== campaignId ||
+      !prior.price
+    ) {
+      return null
+    }
+    try {
+      const details = await this.vercel.getDomainDetails(domainName)
+      return details.domain.boughtAt ? prior.price.toNumber() : null
+    } catch (error) {
+      // Not found means the earlier order never completed, which is the
+      // normal retry. Anything else falls back to the normal checks too.
+      if (!this.vercel.isVercelNotFoundError(error)) {
+        this.logger.warn(
+          { err: error, domainName },
+          'could not check Vercel ownership of a retried domain',
+        )
+      }
+      return null
+    }
+  }
+
   private async lookupDomainPrice(domainName: string): Promise<number> {
     try {
       const priceResp = await this.vercel.checkDomainPrice(domainName)
@@ -949,29 +1029,17 @@ export class DomainsService
       }
     }
 
-    let availabilityResp: Awaited<
-      ReturnType<typeof this.route53.checkDomainAvailability>
-    >
-    try {
-      availabilityResp = await this.route53.checkDomainAvailability(domainName)
-    } catch (error) {
-      throw new BadGatewayException(
-        `Could not check availability for ${domainName}: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-      )
-    }
-    if (availabilityResp.Availability !== DomainAvailability.AVAILABLE) {
-      throw new ConflictException(`Domain ${domainName} is no longer available`)
-    }
-
-    const price = await this.lookupDomainPrice(domainName)
-
-    if (price > maxPrice) {
-      throw new ConflictException(
-        `Domain ${domainName} price ${price} exceeds maxPrice ${maxPrice}`,
-      )
-    }
+    // A retry of a purchase whose registrar order went through after we gave
+    // up on it. The name now reads as taken (by us), so the availability check
+    // would 409 and the caller would buy a different domain. Skip both checks
+    // and let completeDomainRegistration attach the domain we already own.
+    const boughtRetryPrice = await this.findBoughtRetryPrice(
+      campaign.id,
+      domainName,
+    )
+    const price =
+      boughtRetryPrice ??
+      (await this.checkAvailabilityAndPrice(domainName, maxPrice))
 
     const locked = await this.reserveDomainForCampaign(
       campaign.id,
@@ -1443,28 +1511,60 @@ export class DomainsService
     orderId: string,
     domainName: string,
   ): Promise<void> {
-    for (
-      let attempt = 1;
-      attempt <= REGISTRAR_ORDER_POLL_MAX_ATTEMPTS;
-      attempt++
-    ) {
-      const order = await this.vercel.getRegistrarOrder(orderId)
-      if (order.status === GetOrderStatus.Completed) {
+    const startedAt = new Date()
+    let lastPollError: unknown = null
+    for (;;) {
+      let order: Awaited<
+        ReturnType<VercelService['getRegistrarOrder']>
+      > | null = null
+      // Clamped to what is left of the budget, so the budget is a real
+      // ceiling on the wait and not a point after which one more slow poll
+      // can still start.
+      const remainingMs =
+        REGISTRAR_ORDER_POLL_BUDGET_MS -
+        differenceInMilliseconds(new Date(), startedAt)
+      if (remainingMs <= 0) {
+        break
+      }
+      try {
+        order = await this.vercel.getRegistrarOrder(
+          orderId,
+          Math.min(REGISTRAR_ORDER_REQUEST_TIMEOUT_MS, remainingMs),
+        )
+      } catch (error) {
+        // A failed poll says nothing about the order. Keep polling until the
+        // budget runs out; only the order's own status is a verdict.
+        lastPollError = error
+        this.logger.warn(
+          { err: error, orderId, domainName },
+          'registrar order poll failed; polling again',
+        )
+      }
+      if (order?.status === GetOrderStatus.Completed) {
         return
       }
-      if (order.status === GetOrderStatus.Failed) {
+      if (order?.status === GetOrderStatus.Failed) {
         throw new Error(
           `Registrar order ${orderId} for ${domainName} failed` +
             (order.error ? `: ${JSON.stringify(order.error)}` : ''),
         )
       }
-      if (attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS) {
-        await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
+      const elapsedMs = differenceInMilliseconds(new Date(), startedAt)
+      if (
+        elapsedMs + REGISTRAR_ORDER_POLL_INTERVAL_MS >=
+        REGISTRAR_ORDER_POLL_BUDGET_MS
+      ) {
+        break
       }
+      await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
     }
+    const cause =
+      lastPollError instanceof Error
+        ? `; last poll: ${lastPollError.message}`
+        : ''
     throw new Error(
-      `Registrar order ${orderId} for ${domainName} did not complete after ` +
-        `${REGISTRAR_ORDER_POLL_MAX_ATTEMPTS} polls`,
+      `Registrar order ${orderId} for ${domainName} did not complete within ` +
+        `${REGISTRAR_ORDER_POLL_BUDGET_MS / 1000}s${cause}`,
     )
   }
 

@@ -10,7 +10,7 @@ done this term, and where they open one to work it forward. Gated by
 | -------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `layout.tsx`                     | The flag gate for the whole segment. Flag off redirects to Chief of Staff                             |
 | `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page |
-| `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below                          |
+| `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below. Adding a priority (form or seed lane) opens its conversation |
 | `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                            |
 | `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`             |
 | `priorityFormCopy.ts`            | The add form's questions and limits, shared with Serve onboarding's priorities step                   |

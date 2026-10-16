@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
+import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import type {
   CommunityIssueContent,
   CommunityIssueDetail,
@@ -8,6 +12,9 @@ import type {
 import IssueDetail from './IssueDetail'
 
 vi.mock('./CommunityIssuesChatDock', () => ({ default: () => null }))
+vi.mock('@shared/experiments/servePrioritiesFlag', () => ({
+  useServePrioritiesFlag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
 
 const makeSource = (id: string) => ({
   id,
@@ -151,5 +158,34 @@ describe('IssueDetail', () => {
     expect(
       screen.getByRole('button', { name: /add to my priorities/i }),
     ).toBeInTheDocument()
+  })
+
+  it('opens the priority conversation once the issue is added', async () => {
+    vi.mocked(useServePrioritiesFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    api.mock('POST /v1/community-issues/:id/prioritize', {
+      status: 200,
+      data: {
+        id: 'p-9',
+        electedOfficeId: 'office-1',
+        title: 'Housing Crisis',
+        description: 'Rising rents',
+        source: 'community_issue',
+        sourceCampaignPositionId: null,
+        currentStep: null,
+        nextAction: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    })
+    render(<IssueDetail issue={makeFeedDetail()} />)
+    await userEvent.click(
+      screen.getByRole('button', { name: /add to my priorities/i }),
+    )
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/priorities/p-9'),
+    )
   })
 })
