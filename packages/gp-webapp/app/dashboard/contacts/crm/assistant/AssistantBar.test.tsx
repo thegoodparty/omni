@@ -23,6 +23,7 @@ describe('AssistantBar', () => {
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
         onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     expect(
@@ -32,20 +33,25 @@ describe('AssistantBar', () => {
     ).toBeInTheDocument()
   })
 
-  it('opens the drawer from the paperclip and mic', async () => {
+  it('opens the drawer from the mic, and with a file from the paperclip', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()
+    const onAttachFile = vi.fn()
     render(
       <AssistantBar
         chat={chat}
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
         onOpen={onOpen}
+        onAttachFile={onAttachFile}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'Attach a file' }))
     await user.click(screen.getByRole('button', { name: 'Dictate a message' }))
-    expect(onOpen).toHaveBeenCalledTimes(2)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+
+    const file = new File(['hi'], 'notes.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByTestId('crm-assistant-file-input'), file)
+    expect(onAttachFile).toHaveBeenCalledWith(file)
   })
 
   it('submits the trimmed message and clears the input', async () => {
@@ -57,6 +63,7 @@ describe('AssistantBar', () => {
         onSubmit={onSubmit}
         onOpenConversation={vi.fn()}
         onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     const input = screen.getByTestId('crm-assistant-input')
@@ -73,6 +80,7 @@ describe('AssistantBar', () => {
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
         onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     expect(

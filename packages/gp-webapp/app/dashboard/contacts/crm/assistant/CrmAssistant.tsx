@@ -37,6 +37,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
   // the same words twice still opens a fresh chat instead of being swallowed
   // by the body's sent-once latch. (The old drawer's `requestKey`.)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const submitCountRef = useRef(0)
 
   // The chat scope (and its history popover fetch) must not fire on the
@@ -77,6 +78,11 @@ export default function CrmAssistant(): React.JSX.Element | null {
     setOpen(true)
   }
 
+  const openWithFile = (file: File): void => {
+    openFresh()
+    setPendingFile(file)
+  }
+
   const openConversation = (id: string): void => {
     trackEvent(EVENTS.Contacts.AssistantChatOpened, {
       context,
@@ -95,6 +101,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
         onSubmit={openWithMessage}
         onOpenConversation={openConversation}
         onOpen={openFresh}
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={open}
@@ -102,11 +109,15 @@ export default function CrmAssistant(): React.JSX.Element | null {
           setOpen(next)
           // Drop the pending message on close so reopening from the bar's
           // clock popover doesn't re-send the last request.
-          if (!next) setPendingMessage(undefined)
+          if (!next) {
+            setPendingMessage(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={conversationId}
         openerKey={openerKey}
         pendingMessage={pendingMessage}
+        pendingFile={pendingFile}
         title={chat.agentName}
         subtitle={ASSISTANT_PLACEHOLDER}
         chatApi={chat.chatApi}

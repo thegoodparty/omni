@@ -107,6 +107,7 @@ export function CampaignManagerChatProvider({
   const router = useRouter()
   const pathname = usePathname()
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [conversationId, setConversationId] = useState<string | null>(null)
   // One-shot hidden kickoff sent once the resolved conversation loads (see
   // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
@@ -228,6 +229,16 @@ export function CampaignManagerChatProvider({
     setChatOpen(true)
   }, [dismissMeetCard, latestConversationId])
 
+  // The footer paperclip: the same open as the footer bar, with the picked
+  // file attached to whichever conversation that resumes.
+  const openManagerWithFile = useCallback(
+    (file: File) => {
+      openManager()
+      setPendingFile(file)
+    },
+    [openManager],
+  )
+
   const openConversation = useCallback(
     (id: string) => {
       dismissMeetCard()
@@ -328,6 +339,7 @@ export function CampaignManagerChatProvider({
         firstName={firstName}
         onOpen={openManager}
         onOpenConversation={openConversation}
+        onAttachFile={openManagerWithFile}
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
@@ -338,7 +350,10 @@ export function CampaignManagerChatProvider({
           setChatOpen(next)
           // Clear the one-shot kickoff on close: a later plain reopen (the
           // meet card, the footer bar) must never replay the story sentinel.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={conversationId}
         // The header's "New chat" clears any queued kickoff too, so a fresh
@@ -372,6 +387,7 @@ export function CampaignManagerChatProvider({
           firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
         }
         pendingKickoff={pendingKickoff}
+        pendingFile={pendingFile}
         composerRef={composerRef}
         // Overridden because `title` is sentence-cased ("Campaign manager") but
         // the agent's name reads as a proper noun in prose.

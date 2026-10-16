@@ -30,6 +30,7 @@ const CommunityIssuesChatDock = ({
   const selection = useTextSelection(selectionContainerRef ?? fallbackRef)
 
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [opener, setOpener] = useState<string[] | undefined>(undefined)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
@@ -41,6 +42,11 @@ const CommunityIssuesChatDock = ({
     setOpener(undefined)
     setOpenerKey(null)
     setChatOpen(true)
+  }
+
+  const openWithFile = (file: File) => {
+    openNewChat()
+    setPendingFile(file)
   }
 
   const openConversation = (id: string) => {
@@ -117,10 +123,15 @@ const CommunityIssuesChatDock = ({
         firstName={user?.firstName ?? undefined}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
-        onOpenChange={setChatOpen}
+        onOpenChange={(next) => {
+          setChatOpen(next)
+          if (!next) setPendingFile(undefined)
+        }}
+        pendingFile={pendingFile}
         initialConversationId={conversationId}
         opener={opener}
         openerKey={openerKey}
