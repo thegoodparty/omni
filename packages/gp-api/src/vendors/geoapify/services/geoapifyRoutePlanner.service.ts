@@ -3,6 +3,10 @@ import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
 import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
+import {
+  RoutePlannerResponseSchema,
+  RoutingResponseSchema,
+} from '../schemas/geoapify.schema'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -200,6 +204,14 @@ export class GeoapifyRoutePlannerService {
     }
     recordGeoapifyCall('route_planner', 'success')
 
+    const parseResult = RoutePlannerResponseSchema.safeParse(result.getRaw())
+    if (!parseResult.success) {
+      this.logger.warn(
+        { err: parseResult.error },
+        'Geoapify routeplanner response failed schema validation (observe)',
+      )
+    }
+
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
     if (!agentPlan) {
@@ -338,6 +350,14 @@ export class GeoapifyRoutePlannerService {
     }
     recordGeoapifyCall('routing', 'success')
     const billedWaypoints = args.waypoints.length
+
+    const routingParse = RoutingResponseSchema.safeParse(body)
+    if (!routingParse.success) {
+      this.logger.warn(
+        { err: routingParse.error },
+        'Geoapify routing response failed schema validation (observe)',
+      )
+    }
 
     const feature =
       typeof body === 'object' &&

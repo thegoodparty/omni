@@ -204,6 +204,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'dev-env',
   'version',
   'queue',
+  // 404s outside mock mode (non-prod only); prod traffic is by definition
+  // not ours, same posture as test-fixtures.
+  'vendor-mocks/geoapify',
 ]
 
 /**
