@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
+import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -154,7 +155,10 @@ export class GeoapifyRoutePlannerService {
     fetchGeometry?: boolean
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
-    const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
+    const planner = new sdk.RoutePlanner({
+      apiKey: this.apiKey(),
+      baseUrl: vendorBaseUrl('geoapify', 'https://api.geoapify.com'),
+    })
     planner.setMode(args.mode)
     const agent = new sdk.Agent()
     if (args.agent.start_location) {
@@ -303,7 +307,9 @@ export class GeoapifyRoutePlannerService {
     if (args.waypoints.length < 2) {
       return { geometry: null, legs: null, billedWaypoints: 0 }
     }
-    const url = new URL('https://api.geoapify.com/v1/routing')
+    const url = new URL(
+      `${vendorBaseUrl('geoapify', 'https://api.geoapify.com')}/v1/routing`,
+    )
     url.searchParams.set(
       'waypoints',
       args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
