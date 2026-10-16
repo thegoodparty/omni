@@ -15,7 +15,7 @@ import {
   Query,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { VendorMockVendor } from '@/generated/prisma'
+import { Prisma, VendorMockVendor } from '@/generated/prisma'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 
 // Haversine distance between two [lng, lat] points, in metres.
@@ -50,9 +50,9 @@ const parseWaypointParam = (raw: string): [number, number][] =>
 
 // In-process Geoapify mock — serves POST /v1/vendor-mocks/geoapify/v1/routeplanner
 // and GET /v1/vendor-mocks/geoapify/v1/routing when VENDOR_MODE=mock.
-// Mirrors the posture of TestFixturesController: 404 in prod so the surface
-// does not advertise itself, public so the service can call itself without a
-// session token.
+// @PublicAccess: the real GeoapifyRoutePlannerService calls this controller
+// via HTTP without a session token; assertMockMode() is the environment gate,
+// and assertApiKey() validates the caller supplies the real GEOAPIFY_API_KEY.
 @Controller('vendor-mocks/geoapify')
 @PublicAccess()
 export class GeoapifyMockController {
@@ -70,10 +70,12 @@ export class GeoapifyMockController {
     const jobs = body.jobs ?? []
     const agents = body.agents ?? []
 
-    // Check for a 'routeFail' flag on any existing geoapify record with no
-    // campaign (routeplanner calls carry no campaign context).
+    // Check for a 'routeFail' flag. orderBy ensures we inspect the most
+    // recently seeded/updated record when multiple records exist (e.g. after
+    // prior test calls within the same suite), keeping the flag check stable.
     const failRecord = await this.vendorMockRecord.findFirst({
       where: { vendor: VendorMockVendor.geoapify, campaignId: null },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
     })
 
     const routeFail =
@@ -200,16 +202,20 @@ export class GeoapifyMockController {
     }
   }
 
-  // Mirrors TestFixturesController.assertNonProdDeploy — 404 rather than 403
-  // so the surface does not advertise itself outside mock mode.
+  // 404 rather than 403 — the surface does not advertise itself outside mock mode.
   private assertMockMode() {
     if (VENDOR_MODE !== 'mock') {
       throw new NotFoundException()
     }
   }
 
+  // Accepts any non-empty key when GEOAPIFY_API_KEY is unconfigured (test
+  // environments); in configured environments it must match the real key so
+  // only the GeoapifyRoutePlannerService (which supplies it) can reach this
+  // endpoint.
   private assertApiKey(apiKey: string | undefined) {
-    if (!apiKey) {
+    const expectedKey = process.env.GEOAPIFY_API_KEY
+    if (!apiKey || (expectedKey && apiKey !== expectedKey)) {
       throw new BadRequestException('apiKey query param is required')
     }
   }
