@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
+import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
 import { answersNeeded } from '@goodparty_org/contracts'
@@ -183,7 +184,12 @@ const StoryContent = ({
           onCountStarted={() => setCountUp(false)}
         />
       </div>
-      <div className="order-1 rounded-xl border border-base-border bg-card p-3 sm:p-4 md:order-2">
+      <div
+        className={cn(
+          'order-1 overflow-hidden rounded-xl border border-base-border bg-card md:order-2',
+          !model.camera && 'p-3 sm:p-4',
+        )}
+      >
         <DistrictStoryMap
           model={model}
           mode={MODE_FOR_STEP[step]}
@@ -218,17 +224,28 @@ const useCountUp = (target: number, runOnMount: boolean): number => {
 const TITLE_CLASS =
   'text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl'
 
+// The sample headline is the longest, so it steps down on a phone. 24px is
+// the floor; at 390px it still wraps to three lines (two needs ~22px).
+const LONG_TITLE_CLASS =
+  'text-2xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl'
+
 const Title = ({
   title,
   accentClass,
   accent,
+  long = false,
 }: {
   title: ServeStoryTitle
   accentClass: string
   accent?: React.ReactNode
+  long?: boolean
 }): React.JSX.Element => (
-  <h1 className={TITLE_CLASS} style={{ fontFamily: 'var(--font-geist)' }}>
-    {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>{' '}
+  <h1
+    className={long ? LONG_TITLE_CLASS : TITLE_CLASS}
+    style={{ fontFamily: 'var(--font-geist)' }}
+  >
+    {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>
+    {/^[,.]/.test(title.tail) ? '' : ' '}
     {title.tail}
   </h1>
 )
@@ -368,7 +385,7 @@ const StoryText = ({
             {copy.heardFrom}
           </span>
           <span className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-base-border" />
+            <span className="h-3 w-3 rounded-full bg-muted-foreground/55" />
             {copy.notHeardFrom}
           </span>
         </div>
@@ -381,7 +398,7 @@ const StoryText = ({
     const answers = answersNeeded(population)
     return (
       <>
-        <Title title={copy.title(answers)} accentClass="text-primary" />
+        <Title title={copy.title(answers)} accentClass="text-primary" long />
         <Description>
           {copy.description}{' '}
           <AnswersInfo label={copy.howWeGotIt}>

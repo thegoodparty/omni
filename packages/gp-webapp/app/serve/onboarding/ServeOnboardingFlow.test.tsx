@@ -198,7 +198,7 @@ const mockDistrict = ({
 const storyHeading = {
   represent: /You represent 32,000 people/,
   loudest: "Until now, you've heard from the loudest voices only",
-  sample: 'About 96 answers is all it takes to get a good read',
+  sample: "With about 96 answers, you'll know where your community stands",
   grow: "We'll help you build and grow the list of people you hear from",
 }
 
@@ -365,7 +365,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await findStoryHeading(
-      'About 81 answers is all it takes to get a good read',
+      "With about 81 answers, you'll know where your community stands",
     )
   })
 
@@ -378,6 +378,22 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       'data-mode',
       'grow',
     )
+    expect(
+      screen.getByText(
+        'Listen to the people first. Then prioritize, act, and tell them what you did.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('listitem').map((item) => item.textContent),
+    ).toEqual([
+      '1ListenText, call or knock',
+      '2PrioritizeSee what matters most',
+      '3ActBring it to your vote',
+      '4CommunicateTell them what you did',
+    ])
+    expect(
+      screen.getByText('Then listen again. Each round, your panel grows.'),
+    ).toBeInTheDocument()
   })
 
   it("draws the official's district from its locations", async () => {
@@ -389,6 +405,8 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     const map = screen.getByTestId('district-story-map')
     expect(map).toHaveAttribute('data-abstract', 'false')
     expect(map.querySelectorAll('circle')).toHaveLength(400)
+    expect(map.querySelector('path')).toBeNull()
+    expect(screen.getByTestId('district-story-basemap')).toBeInTheDocument()
     expect(
       screen.getByText(
         'Every dot is about 80 residents of your district. Each of them counts on you to speak for them.',
