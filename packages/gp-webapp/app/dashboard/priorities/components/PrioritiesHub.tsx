@@ -145,6 +145,7 @@ const PrioritiesHub = ({
       openPriority(created.id)
     } catch {
       setError('Could not add that issue. Please try again.')
+    } finally {
       setPendingIssueId(null)
     }
   }
