@@ -8,6 +8,7 @@ import {
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
+  SMS_RESTRICTED_WORDS,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -222,6 +223,12 @@ export const standardsFailureCopy = (
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
       fix: 'Paste the full web address instead.',
+    }
+  }
+  if (rule === 'restricted_word') {
+    return {
+      problem: 'Your text has a word our texting provider won\u2019t send.',
+      fix: `Reword it without ${SMS_RESTRICTED_WORDS.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
     }
   }
   return {

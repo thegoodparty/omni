@@ -73,6 +73,7 @@ describe('standardsFailureCopy', () => {
       CIVIC_PANEL_LEAVE_LINE,
     ],
     ['link_shortener', 'Your text has a shortened link', undefined],
+    ['restricted_word', 'texting provider won\u2019t send', undefined],
   ])('says what happened and what to do for %s', (rule, problem, line) => {
     const copy = standardsFailureCopy(rule, context)
     expect(copy.problem).toContain(problem)
