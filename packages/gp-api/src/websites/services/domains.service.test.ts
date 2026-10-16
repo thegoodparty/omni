@@ -1349,6 +1349,102 @@ describe('DomainsService', () => {
       expect(mockPrisma.domain.create).not.toHaveBeenCalled()
     })
 
+    describe('retry after a registrar order completed late', () => {
+      const priorAttempt = {
+        ...mockDomain,
+        id: 99,
+        name: domainName,
+        status: DomainStatus.inactive,
+        price: new Decimal(12),
+        website: { campaignId: campaign.id },
+      }
+
+      beforeEach(() => {
+        mockPrisma.website.findUnique.mockResolvedValue({
+          ...baseWebsite,
+          domain: priorAttempt,
+        })
+        // Route53 reads our own purchase as taken.
+        mockRoute53.checkDomainAvailability.mockResolvedValue({
+          Availability: DomainAvailability.UNAVAILABLE,
+        })
+        mockPrisma.domain.create.mockResolvedValue({
+          ...mockDomain,
+          id: 100,
+          name: domainName,
+          paymentId: null,
+          price: new Decimal(12),
+        })
+      })
+
+      it('re-drives the owned domain instead of answering 409', async () => {
+        mockPrisma.domain.findUnique.mockResolvedValue(priorAttempt)
+        const complete = vi
+          .spyOn(service, 'completeDomainRegistration')
+          .mockResolvedValue({
+            vercelResult: null,
+            projectResult: null,
+            message: 'Enabled',
+          })
+
+        const result = await service.purchaseDomainForCampaign(
+          campaignWithUser,
+          domainName,
+          maxPrice,
+          DomainSource.manual,
+        )
+
+        expect(mockRoute53.checkDomainAvailability).not.toHaveBeenCalled()
+        expect(mockVercel.checkDomainPrice).not.toHaveBeenCalled()
+        expect(mockPrisma.domain.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ name: domainName, price: 12 }),
+        })
+        expect(complete).toHaveBeenCalledWith(
+          baseWebsite.id,
+          expect.anything(),
+          { skipPaymentVerification: true },
+        )
+        expect(result.alreadyExisted).toBe(false)
+      })
+
+      it('still answers 409 when the prior row belongs to another campaign', async () => {
+        mockPrisma.domain.findUnique.mockResolvedValue({
+          ...priorAttempt,
+          website: { campaignId: campaign.id + 1 },
+        })
+
+        await expect(
+          service.purchaseDomainForCampaign(
+            campaignWithUser,
+            domainName,
+            maxPrice,
+            DomainSource.manual,
+          ),
+        ).rejects.toBeInstanceOf(ConflictException)
+
+        expect(mockVercel.getDomainDetails).not.toHaveBeenCalled()
+        expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+      })
+
+      it('still answers 409 when Vercel does not show the domain as bought', async () => {
+        mockPrisma.domain.findUnique.mockResolvedValue(priorAttempt)
+        mockVercel.getDomainDetails.mockResolvedValue({
+          domain: { name: domainName, boughtAt: null },
+        })
+
+        await expect(
+          service.purchaseDomainForCampaign(
+            campaignWithUser,
+            domainName,
+            maxPrice,
+            DomainSource.manual,
+          ),
+        ).rejects.toBeInstanceOf(ConflictException)
+
+        expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+      })
+    })
+
     it('does NOT call getDomainSuggestions on the purchase path', async () => {
       mockPrisma.website.findUnique.mockResolvedValue(baseWebsite)
       mockRoute53.checkDomainAvailability.mockResolvedValue({
@@ -1941,6 +2037,58 @@ describe('DomainsService', () => {
       expect(mockPrisma.domain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: DomainStatus.submitted }),
+        }),
+      )
+    })
+
+    it('keeps polling through a failed poll and stamps submitted once the order completes', async () => {
+      vi.useFakeTimers()
+      Object.assign(mockPrisma.domain, {
+        findFirst: vi.fn(),
+        findFirstOrThrow: vi.fn(),
+        findUnique: vi.fn(),
+        count: vi.fn(),
+      })
+      service.onModuleInit()
+      vi.spyOn(service, 'shouldEnableDomainPurchase').mockReturnValue(true)
+      const getRegistrarOrderMock = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Status 502 Bad Gateway'))
+        .mockResolvedValueOnce({ status: GetOrderStatus.Completed })
+      Object.assign(mockVercel, {
+        getDomainDetails: vi.fn().mockRejectedValue(new Error('not found')),
+        isVercelNotFoundError: vi.fn().mockReturnValue(true),
+        purchaseDomain: vi.fn().mockResolvedValue({ orderId: 'order_123' }),
+        getProjectDomain: vi.fn().mockRejectedValue(new Error('not found')),
+        getRegistrarOrder: getRegistrarOrderMock,
+        addDomainToProject: vi.fn().mockResolvedValue({}),
+      })
+      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
+        ...mockDomain,
+        paymentId: null,
+        price: new Decimal(12),
+      })
+
+      const registration = service.completeDomainRegistration(10, contact, {
+        skipPaymentVerification: true,
+      })
+      await vi.advanceTimersByTimeAsync(3_000)
+      await registration
+
+      expect(getRegistrarOrderMock).toHaveBeenCalledTimes(2)
+      expect(getRegistrarOrderMock).toHaveBeenCalledWith(
+        'order_123',
+        expect.any(Number),
+      )
+      expect(mockPrisma.domain.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: DomainStatus.inactive } }),
+      )
+      expect(mockPrisma.domain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DomainStatus.submitted,
+            operationId: 'order_123',
+          }),
         }),
       )
     })

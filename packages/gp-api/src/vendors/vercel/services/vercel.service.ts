@@ -264,13 +264,13 @@ export class VercelService {
     }
   }
 
-  async getRegistrarOrder(orderId: string) {
+  async getRegistrarOrder(orderId: string, timeoutMs?: number) {
     const { client, teamId } = this.requireClient()
     try {
-      return await client.domainsRegistrar.getOrder({
-        orderId,
-        teamId,
-      })
+      return await client.domainsRegistrar.getOrder(
+        { orderId, teamId },
+        timeoutMs === undefined ? undefined : { timeoutMs },
+      )
     } catch (error) {
       this.logger.error({ error }, `Error getting registrar order ${orderId}:`)
       throw error
