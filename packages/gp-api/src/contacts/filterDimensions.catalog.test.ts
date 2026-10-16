@@ -198,31 +198,34 @@ describe('FILTER_DIMENSIONS provenance', () => {
   })
 })
 
-describe('ContactsService.getFilterDimensions', () => {
-  const buildService = () =>
-    new ContactsService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      createMockLogger() as unknown as PinoLogger,
-    )
+// One constructor per file for the service under test: a second copy
+// drifts the moment the service gains a parameter, and the mock logger
+// then lands one slot early.
+const buildService = () =>
+  new ContactsService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    createMockLogger() as unknown as PinoLogger,
+  )
 
+describe('ContactsService.getFilterDimensions', () => {
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
   const PANELS_ON = { citizenPanels: true }
@@ -347,28 +350,6 @@ describe('ContactsService.getFilterDimensions', () => {
 // and the catalog's static "observed" mark would have the model report an
 // estimate as a fact on the file.
 describe('ContactsService.getFilterDimensions: party by state', () => {
-  const buildService = () =>
-    new ContactsService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      createMockLogger() as unknown as PinoLogger,
-    )
   const win = { slug: 'win-campaign' } as Organization
   const party = (state: string | null | undefined) =>
     buildService()
