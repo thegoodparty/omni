@@ -6670,9 +6670,23 @@ describe('door-knocking routes', () => {
     })
 
     it('refuses a list from another organization', async () => {
-      const res = await preview({ voterFileFilterId: 999_999_999 })
+      await service.prisma.organization.create({
+        data: { slug: 'someone-else', ownerId: service.user.id },
+      })
+      const foreign = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: 'someone-else', name: 'not yours' },
+      })
+      const evaluateCalls = () => {
+        const { evaluate } = service.app.get(DoorKnockingPeopleApiService)
+        return (evaluate as unknown as ReturnType<typeof vi.fn>).mock.calls
+          .length
+      }
+      const before = evaluateCalls()
+
+      const res = await preview({ voterFileFilterId: foreign.id })
 
       expect(res.status).toBe(404)
+      expect(evaluateCalls()).toBe(before)
     })
 
     it('spends no vendor credit and freezes nothing', async () => {

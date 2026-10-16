@@ -23,6 +23,8 @@ interface BarProps {
   chat: AssistantChatBinding
   onSubmit: (message: string) => void
   onOpenConversation: (conversationId: string) => void
+  onOpen: () => void
+  onAttachFile: (file: File) => void
 }
 let lastBarProps: BarProps | null = null
 vi.mock('./AssistantBar', () => ({
@@ -42,6 +44,7 @@ interface SurfaceProps {
   openerKey?: string | null
   initialConversationId?: string | null
   pendingMessage?: string
+  pendingFile?: File
   title?: string
   subtitle?: string
   chatApi?: unknown
@@ -166,6 +169,20 @@ describe('CrmAssistant', () => {
     expect(lastSurfaceProps?.pendingMessage).toBe('young supporters')
     act(() => lastSurfaceProps?.onOpenChange(false))
     expect(lastSurfaceProps?.pendingMessage).toBeUndefined()
+  })
+
+  // The file is a one-shot like the message: a later open from the mic would
+  // otherwise remount the body and upload it again into a new chat.
+  it('opens with a picked file and drops it on the next open', () => {
+    setContext(false)
+    render(<CrmAssistant />)
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+    act(() => lastBarProps?.onAttachFile(file))
+    expect(lastSurfaceProps?.open).toBe(true)
+    expect(lastSurfaceProps?.pendingFile).toBe(file)
+
+    act(() => lastBarProps?.onOpen())
+    expect(lastSurfaceProps?.pendingFile).toBeUndefined()
   })
 
   // ENG-10767: chat opened + message sent, so open-to-send drop-off is

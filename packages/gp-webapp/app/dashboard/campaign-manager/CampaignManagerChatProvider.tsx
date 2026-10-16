@@ -214,6 +214,7 @@ export function CampaignManagerChatProvider({
   // conversation in the history popover. Does NOT touch the meet card — the
   // callers below decide whether opening counts as "meeting the manager".
   const openNewChat = useCallback((kickoff?: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(kickoff)
     setConversationId(null)
     setChatOpen(true)
@@ -224,6 +225,7 @@ export function CampaignManagerChatProvider({
   // only a candidate with no history lands on a new chat.
   const openManager = useCallback(() => {
     dismissMeetCard()
+    setPendingFile(undefined)
     setPendingKickoff(undefined)
     setConversationId(latestConversationId)
     setChatOpen(true)
@@ -242,6 +244,7 @@ export function CampaignManagerChatProvider({
   const openConversation = useCallback(
     (id: string) => {
       dismissMeetCard()
+      setPendingFile(undefined)
       setPendingKickoff(undefined)
       setConversationId(id)
       setChatOpen(true)

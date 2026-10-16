@@ -62,6 +62,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
     submitCountRef.current += 1
     setConversationId(null)
     setPendingMessage(message)
+    setPendingFile(undefined)
     setOpenerKey(`bar-submit-${submitCountRef.current}`)
     setOpen(true)
   }
@@ -74,6 +75,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
     submitCountRef.current += 1
     setConversationId(null)
     setPendingMessage(undefined)
+    setPendingFile(undefined)
     setOpenerKey(`bar-open-${submitCountRef.current}`)
     setOpen(true)
   }
@@ -90,6 +92,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
     })
     setConversationId(id)
     setPendingMessage(undefined)
+    setPendingFile(undefined)
     setOpenerKey(id)
     setOpen(true)
   }

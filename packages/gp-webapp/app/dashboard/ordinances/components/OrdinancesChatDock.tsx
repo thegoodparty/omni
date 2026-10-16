@@ -16,6 +16,7 @@ export default function OrdinancesChatDock(): React.JSX.Element {
   const [openerKey, setOpenerKey] = useState<string | null>(null)
 
   const openNewChat = (): void => {
+    setPendingFile(undefined)
     setConversationId(null)
     setOpenerKey(null)
     setChatOpen(true)
@@ -27,6 +28,7 @@ export default function OrdinancesChatDock(): React.JSX.Element {
   }
 
   const openConversation = (id: string): void => {
+    setPendingFile(undefined)
     setConversationId(id)
     setOpenerKey(id)
     setChatOpen(true)

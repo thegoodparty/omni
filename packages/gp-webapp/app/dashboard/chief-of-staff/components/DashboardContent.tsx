@@ -73,6 +73,7 @@ export default function DashboardContent(): React.JSX.Element {
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
 
   const openNewChat = () => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
@@ -83,18 +84,21 @@ export default function DashboardContent(): React.JSX.Element {
     setPendingFile(file)
   }
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(id)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
+    setPendingFile(undefined)
     setOpenerKey(key)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const discussCard = (message: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(message)
     setOpenerKey(null)
     setInitialConversationId(null)

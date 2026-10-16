@@ -38,6 +38,7 @@ const CommunityIssuesChatDock = ({
   const [creating, setCreating] = useState(false)
 
   const openNewChat = () => {
+    setPendingFile(undefined)
     setConversationId(null)
     setOpener(undefined)
     setOpenerKey(null)
@@ -50,6 +51,7 @@ const CommunityIssuesChatDock = ({
   }
 
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setConversationId(id)
     setOpener(undefined)
     setOpenerKey(id)
@@ -77,6 +79,7 @@ const CommunityIssuesChatDock = ({
     try {
       const { conversationId: newId } =
         await chiefOfStaffChatApi.createConversation(anchor)
+      setPendingFile(undefined)
       setConversationId(newId)
       setOpener([
         highlightedText
