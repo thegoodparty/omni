@@ -7,6 +7,7 @@ import {
   type MergeTagChannel,
   mergeTagToken,
   type SmsProtectedPart,
+  SMS_RESTRICTED_WORDS,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -53,8 +54,8 @@ import {
 
 // Why each locked part cannot change, shown when an edit runs into it. Both
 // surfaces read the same words: none of them names voters or constituents.
-// Partial because link_shortener forbids text rather than requiring it, so
-// nothing is ever locked for it.
+// Partial because link_shortener and restricted_word forbid text rather than
+// requiring it, so nothing is ever locked for them.
 const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
   first_name_token: 'Keep the first name so each person sees their own.',
   candidate_name:
@@ -222,6 +223,12 @@ export const standardsFailureCopy = (
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
       fix: 'Paste the full web address instead.',
+    }
+  }
+  if (rule === 'restricted_word') {
+    return {
+      problem: 'Your text has a word our texting provider won\u2019t send.',
+      fix: `Reword it without ${SMS_RESTRICTED_WORDS.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
     }
   }
   return {

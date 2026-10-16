@@ -85,6 +85,38 @@ describe('checkSmsStandards link_shortener', () => {
   })
 })
 
+describe('checkSmsStandards restricted_word', () => {
+  // The wording that reached payment on 2026-10-15 (ENG-11310): the vendor
+  // refused it at job creation, after the card was held.
+  it.each([
+    'I have fought for victims of domestic violence and sexual assault.',
+    'SEXUAL assault survivors deserve better.',
+    '(Stop2End)',
+  ])('fails a script the vendor refuses: %s', (line) => {
+    const verdict = checkSmsStandards(
+      compliant.replace('Read the plan', `${line} Read the plan`),
+      context,
+    )
+
+    expect(verdict.passed).toBe(false)
+    expect(verdict.failures).toEqual(['restricted_word'])
+  })
+
+  // Whole words only. Nothing shows the vendor refuses these, and a false
+  // block stops a candidate who could have sent.
+  it.each(['asexual', 'sexuality', 'stop2ending'])(
+    'passes a word that only contains a restricted one: %s',
+    (word) => {
+      const verdict = checkSmsStandards(
+        compliant.replace('Read the plan', `${word} Read the plan`),
+        context,
+      )
+
+      expect(verdict.failures).not.toContain('restricted_word')
+    },
+  )
+})
+
 describe('checkSmsStandards opt_out_line', () => {
   const failures = (script: string) =>
     checkSmsStandards(`Hi {first_name}. ${script}`).failures
