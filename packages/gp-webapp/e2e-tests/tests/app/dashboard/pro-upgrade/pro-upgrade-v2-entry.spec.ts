@@ -5,7 +5,11 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import {
+  acceptCookieBanner,
+  setFlagOverrides,
+} from 'src/helpers/campaignStory.helper'
+import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // Purchase-only (outreach-pro-gating-v2) wizard entry. Nothing here pays, so
 // it runs on every PR preview: a free candidate opens on the guidance
@@ -22,11 +26,13 @@ test.beforeEach(async ({ page }) => {
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await acceptCookieBanner(page)
 })
 
 test.describe('Pro upgrade v2 entry', () => {
   test('opens a free candidate on the guidance overview', async ({ page }) => {
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
@@ -57,7 +63,8 @@ test.describe('Pro upgrade v2 entry', () => {
   test('sends an already-Pro candidate with no filing on to campaign verification', async ({
     page,
   }) => {
-    await setupProCampaignUser(page)
+    const { client } = await setupProCampaignUser(page)
+    await openSmsWindow(client)
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
