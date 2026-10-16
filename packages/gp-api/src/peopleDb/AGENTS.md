@@ -185,10 +185,17 @@ targeting later; today only this read uses it.
 ## Random samples: a seeded slice, not a sort
 
 `samplePeople` (`buildSampleSql`) cuts the population to a 1/divisor slice by
-`pmod(xxhash64(id, seed), divisor) = 0` and lets `LIMIT` stop early. Sorting
-everyone by a seeded hash measured 3-6s; the slice is a flat ~2s from a ward
-to a state. The divisor is sized from the pool so the slice holds about three
-times what was asked for, and a pool smaller than the request is a 400
+`pmod(xxhash64(id, seed), divisor) = 0`, then orders only the slice by
+`xxhash64(id, seed), id` before `LIMIT`. Sorting everyone by the hash measured
+3-6s; the slice keeps the sort to a few times the request, and measured no
+slower than the unordered `LIMIT` it replaced. The `ORDER BY` is what makes it
+random: without it `LIMIT` takes the slice rows Spark scans first, which
+follow file layout. A pool under six times the request has no slice (divisor
+1), and the whole pool is ordered by the hash instead.
+
+The divisor is sized from the pool so the slice holds about three times what
+was asked for. A slice that still comes back short is widened once to half
+the divisor, then to the whole pool. A pool smaller than the request is a 400
 ("Not enough non-excluded constituents"), never a short sample.
 
 Two kinds of draw share it:
@@ -203,10 +210,10 @@ Two kinds of draw share it:
   would make the count and the draw read different rows.
 
 The seed rotates every minute by default. A caller that passes `seedKey`
-(the list sample uses the proposal key) gets the same slice whenever it asks.
-`LIMIT` without `ORDER BY` still lets Spark pick which rows of the slice come
-back, so a draw is repeatable in its slice, not row for row; that is why a
-saved sample freezes the ids it got rather than redrawing on read.
+(the list sample uses the proposal key) gets the same people, row for row,
+whenever it asks of the same pool. The pool moves when the mart refreshes or
+the excluded ids change, so a saved sample still freezes the ids it got
+rather than redrawing on read.
 
 ## Street lines come from AddressLine
 

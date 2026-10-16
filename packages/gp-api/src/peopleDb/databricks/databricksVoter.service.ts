@@ -99,7 +99,7 @@ const EMPTY_FILTERS = filtersSchema.parse({})
 // `| 0` because hash32 returns unsigned 32-bit and the parameter binds as INT:
 // a district whose hash lands above 2^31-1 is otherwise rejected outright.
 //
-// A caller that names the draw (`seedKey`) gets the same slice whenever it
+// A caller that names the draw (`seedKey`) gets the same people whenever it
 // asks, so a list's sample can be drawn again the same way.
 const sampleSeed = (districtId: string, seedKey?: string): number =>
   hash32(`${districtId}:${seedKey ?? Math.floor(Date.now() / 60_000)}`) | 0
@@ -549,23 +549,41 @@ export class DatabricksVoterService {
     }
 
     const desiredRows = size * SAMPLE_OVERSAMPLE_FACTOR
-    const hashDivisor = Math.min(
+    let hashDivisor = Math.min(
       MAX_SAMPLE_HASH_DIVISOR,
       Math.max(1, Math.floor(remaining / desiredRows)),
     )
 
     const { columnNames } = buildVoterSelectSql()
-    const { rows } = await this.run(
-      buildSampleSql({
-        ...scope,
-        columns: columnNames,
-        size,
-        seed: sampleSeed(dto.districtId, dto.seedKey),
-        hashDivisor,
-        hasCellPhone,
-        excludeIds,
-      }),
-    )
+    const seed = sampleSeed(dto.districtId, dto.seedKey)
+    const draw = (divisor: number) =>
+      this.run(
+        buildSampleSql({
+          ...scope,
+          columns: columnNames,
+          size,
+          seed,
+          hashDivisor: divisor,
+          hasCellPhone,
+          excludeIds,
+        }),
+      )
+    let { rows } = await draw(hashDivisor)
+    // The slice holds three times the request on average, so it can still
+    // land short: a small draw by chance, or a stale pool count. Widen once
+    // to a slice twice the size, then to the whole pool, which either fills
+    // or proves the pool too small. Each step is fixed by the seed, so a seed
+    // still maps to one set of people.
+    for (const wider of [Math.floor(hashDivisor / 2), 1]) {
+      if (rows.length >= size || hashDivisor <= 1) break
+      hashDivisor = Math.max(1, wider)
+      rows = (await draw(hashDivisor)).rows
+    }
+    if (rows.length < size) {
+      throw new BadRequestException(
+        `Not enough non-excluded constituents ${rows.length} to satisfy target: ${size}`,
+      )
+    }
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
