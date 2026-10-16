@@ -128,6 +128,8 @@ const createHold = async ({
   projectId = 'peerly-job-1' as string | null,
   campaignId = campaign.id,
   approvedAt = null as Date | null,
+  canvassRequestedAt = null as Date | null,
+  deniedAt = null as Date | null,
   date = addHours(new Date(), 72),
 }: {
   settleState: P2pSmsSettleState
@@ -138,6 +140,8 @@ const createHold = async ({
   projectId?: string | null
   campaignId?: number
   approvedAt?: Date | null
+  canvassRequestedAt?: Date | null
+  deniedAt?: Date | null
   date?: Date
 }): Promise<number> => {
   const spine = await service.prisma.outreach.create({
@@ -150,6 +154,8 @@ const createHold = async ({
       voterFileFilterId: filterId,
       projectId,
       approvedAt,
+      canvassRequestedAt,
+      deniedAt,
       stripeCheckoutSessionId: 'cs_paid_1',
     },
   })
@@ -758,6 +764,61 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect(voidSpy).not.toHaveBeenCalled()
     // The spine is still flipped canceled on the idempotent path.
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
+  })
+
+  it('refuses a candidate cancel after a deny released a hand-booked row, never a false success', async () => {
+    // Deny's claim only needs approvedAt null, so it can release the hold on a
+    // row canvassers were booked for by hand (canvassRequestedAt set) and leave
+    // the spine in_progress. The candidate's guarded flip cannot cancel that
+    // row, so the cancel must say so rather than report success over it.
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.voided,
+      spineStatus: OutreachStatus.in_progress,
+      canvassRequestedAt: new Date(),
+      deniedAt: new Date(),
+      date: subHours(new Date(), 1),
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(retrieveSpy).not.toHaveBeenCalled()
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect(notifyCanceledSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.voided,
+    )
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe(OutreachStatus.in_progress)
+    expect(spine.canceledAt).toBeNull()
+  })
+
+  it('refuses a candidate cancel that waited out a deny refund on a hand-booked row', async () => {
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.refunding,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      canvassRequestedAt: new Date(),
+      deniedAt: new Date(),
+      date: subHours(new Date(), 1),
+    })
+
+    // The deny owns the refund and commits it while this cancel polls.
+    const cancelP = cancel.cancel(outreachId, campaign.id)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await service.prisma.outreachP2pSms.updateMany({
+      where: { outreachId },
+      data: { settleState: P2pSmsSettleState.refunded },
+    })
+
+    await expect(cancelP).rejects.toBeInstanceOf(BadRequestException)
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect(notifyCanceledSpy).not.toHaveBeenCalled()
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
+    )
   })
 
   it('re-attempts and actually refunds when the refund owner reverts refunding → captured', async () => {

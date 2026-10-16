@@ -111,7 +111,8 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     // released the money) still finishes the spine flip, then returns the
     // settled outcome without touching money again.
     if (this.isTerminal(satellite.settleState)) {
-      await this.markSpineCanceled(outreachId, attribution)
+      const flipped = await this.markSpineCanceled(outreachId, attribution)
+      await this.assertSpineCanceled(outreachId, campaignId, flipped)
       return this.result(
         outreachId,
         satellite.settleState === P2pSmsSettleState.refunded,
@@ -138,7 +139,8 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     // money, and never an orphaned live job (the owner's delete stands).
     if (satellite.settleState === P2pSmsSettleState.refunding) {
       const { refunded } = await this.releaseHold(outreachId)
-      await this.markSpineCanceled(outreachId, attribution)
+      const flipped = await this.markSpineCanceled(outreachId, attribution)
+      await this.assertSpineCanceled(outreachId, campaignId, flipped)
       await this.tryNotifyCanceled(outreachId, campaignId, attribution)
       return this.result(outreachId, refunded)
     }
@@ -777,9 +779,9 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
   private async markSpineCanceled(
     outreachId: number,
     attribution?: { canceledBy: string; byAdmin: boolean },
-  ): Promise<void> {
+  ): Promise<number> {
     try {
-      await this.client.outreach.updateMany({
+      const { count } = await this.client.outreach.updateMany({
         where: {
           id: outreachId,
           OR: [
@@ -803,12 +805,41 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
           canceledByAdmin: attribution?.byAdmin ?? false,
         },
       })
+      return count
     } catch (err) {
       this.logger.error(
         { err, outreachId },
         'win sms release: failed to cancel spine after money release',
       )
+      return 0
     }
+  }
+
+  // The money already settled elsewhere (a deny's release, another cancel), so
+  // a cancel that flipped nothing must not report success over a spine that is
+  // still live: a deny can release a hand-booked in_progress row the
+  // candidate's guarded flip is not allowed to cancel. Already canceled is the
+  // idempotent case and passes.
+  private async assertSpineCanceled(
+    outreachId: number,
+    campaignId: number,
+    flipped: number,
+  ): Promise<void> {
+    if (flipped > 0) return
+    const spine = await this.client.outreach.findFirstOrThrow({
+      where: { id: outreachId, campaignId },
+    })
+    if (spine.status === OutreachStatus.canceled) return
+    const bookedPastSendTime =
+      (spine.approvedAt !== null || spine.canvassRequestedAt !== null) &&
+      spine.date !== null &&
+      !isBefore(new Date(), spine.date)
+    throw new BadRequestException(
+      bookedPastSendTime
+        ? 'This campaign has reached its send time and can no longer be ' +
+            'canceled'
+        : 'Only scheduled campaigns can be canceled',
+    )
   }
 
   private async result(
