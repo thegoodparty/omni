@@ -704,7 +704,8 @@ and answers (1, 2, 3, or 4 or more hours a week). The answer goes to
 (4 for "4 or more", a written number as given, 1 to 20); then
 `present_panel_next_step` shows the plan's next step as a card that reads the
 plan itself (`GET …/plan`): the Next line, members of the goal, the page's
-button opening `next.href`, and See your plan. With a plan, it shows that
+button for that step (it opens the step's own text, call or door flow the way
+the page does, not `next.href`), and See your plan. With a plan, it shows that
 card and never asks again (`ask_panel_weekly_time` refuses), and "I can give
 2 hours now" goes to the same save, which then calls `updateHours` (PATCH's
 path). A 409 it cannot settle (nobody left to reach, the goal already met)
@@ -848,7 +849,10 @@ it is the uncorrected 96. The panel's own math is in
 `ContactsService.getDistrictPopulation` reads the population
 (`StatsService.findDistrictPopulation`, the census mart's
 `district_population` on its own, without the voter scan) and folds any
-failure into null.
+failure into null. The priority flow reads it instead through
+`PriorityResultsService.districtPopulation` (the memoized
+`CensusCompositionSource.population`), once per turn, and hands the figure to
+both its panel sizing and `readStatuses`.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`

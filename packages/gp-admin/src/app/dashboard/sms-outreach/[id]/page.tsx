@@ -25,6 +25,7 @@ import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
+import { PhoneMessagePreview } from '../components/PhoneMessagePreview'
 import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
@@ -91,22 +92,10 @@ export default async function Page({ params }: PageProps) {
                 ? 'Message as it sent'
                 : 'Message as it will send'}
             </Heading>
-            {item.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.imageUrl}
-                alt="Campaign attachment"
-                style={{
-                  maxHeight: 240,
-                  borderRadius: 8,
-                  marginBottom: 12,
-                  maxWidth: '100%',
-                }}
-              />
-            )}
-            <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
-              {item.script ?? '—'}
-            </Text>
+            <PhoneMessagePreview
+              imageUrl={item.imageUrl}
+              script={item.script}
+            />
             {canDecide && !isClosed && (
               <Box mt="3">
                 <Flex gap="3">

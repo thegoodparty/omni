@@ -65,8 +65,9 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   / "Visited 58 residents. 6 joined." from the step's `reached` and
   `joined`. Skipped steps are not shown. A text's checkbox only reflects
   it; a call or door step's can be ticked or unticked by hand
-  (`POST …/steps/:id/mark` with `{ done }`). The action calls `prepare` and
-  opens the standard flow on the frozen list, every channel on
+  (`POST …/steps/:id/mark` with `{ done }`). The action
+  (`useCivicPanelStepFlow`, which the Chief of Staff chat's next step card
+  uses too) calls `prepare` and opens the standard flow on the frozen list, every channel on
   `build_citizens_panel` and, by `outreachLandingStep`, at the message with
   the invite drafting: a text opens `SmsFlow` (Serve surface,
   `initialPurpose`, `preselectedListId`, `audienceSettled`) on compose;

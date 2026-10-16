@@ -653,8 +653,8 @@ const PriorityWorkspaceBody = ({
 
   const getAnswersDisabled = sending || awaitingReply || phase !== 'ready'
 
-  return (
-    <div className="flex h-[calc(100dvh-4rem)] w-full bg-background lg:h-dvh">
+  const workspace = (
+    <div className="flex min-h-0 w-full flex-1 bg-background">
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent side="bottom" className="max-h-[85dvh]">
           <SheetHeader>
@@ -718,25 +718,23 @@ const PriorityWorkspaceBody = ({
           className="min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
-            <header
-              className={
-                panelsOn
-                  ? 'hidden items-start justify-between gap-3 lg:flex'
-                  : 'flex items-start justify-between gap-3'
-              }
-            >
-              <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-              <Button
-                type="button"
-                variant="outline"
-                size="small"
-                className="shrink-0 gap-1.5 lg:hidden"
-                onClick={() => setSheetOpen(true)}
-              >
-                <ListChecksIcon className="size-4" aria-hidden />
-                {RAIL_TITLE}
-              </Button>
-            </header>
+            {panelsOn ? null : (
+              <header className="flex items-start justify-between gap-3">
+                <h1 className="text-xl font-semibold text-foreground">
+                  {title}
+                </h1>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  className="shrink-0 gap-1.5 lg:hidden"
+                  onClick={() => setSheetOpen(true)}
+                >
+                  <ListChecksIcon className="size-4" aria-hidden />
+                  {RAIL_TITLE}
+                </Button>
+              </header>
+            )}
 
             {phase === 'loading' ? (
               <div className="flex flex-col gap-3" aria-busy="true">
@@ -854,6 +852,29 @@ const PriorityWorkspaceBody = ({
         )}
       </aside>
       <CardDetailSheetHost />
+    </div>
+  )
+
+  return (
+    <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
+      {panelsOn ? (
+        // Desktop, behind serve-citizen-panels: the title in a bar across the
+        // chat and the rail, so it stays put while the conversation scrolls.
+        <div
+          data-testid="priority-desktop-bar"
+          className="hidden h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 lg:flex"
+        >
+          <IconButton asChild variant="ghost" size="medium">
+            <Link href="/dashboard/priorities" aria-label={BACK_TO_PRIORITIES}>
+              <ArrowLeftIcon className="size-5" aria-hidden />
+            </Link>
+          </IconButton>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-foreground">
+            {title}
+          </h1>
+        </div>
+      ) : null}
+      {workspace}
     </div>
   )
 }

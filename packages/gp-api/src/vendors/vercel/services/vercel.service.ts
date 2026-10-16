@@ -38,9 +38,20 @@ const resolveVercelConfig = (): VercelConfig | null => {
   }
 }
 
+// Every Vercel call gets this bound. Without one the SDK waits out undici's
+// 300s headers timeout, long after the gateway has dropped the caller at
+// ~120s. On 2026-10-15 Vercel's registrar API stalled for about an hour, and
+// both the price lookup and the buy hung for 300s on each purchase attempt
+// (ENG-11299). Healthy calls finish in under 12s, so 30s fails a stalled call
+// fast and leaves the request time to return its 502.
+export const VERCEL_REQUEST_TIMEOUT_MS = 30_000
+
 const vercelConfig = resolveVercelConfig()
 const vercelClient = vercelConfig
-  ? new Vercel({ bearerToken: vercelConfig.token })
+  ? new Vercel({
+      bearerToken: vercelConfig.token,
+      timeoutMs: VERCEL_REQUEST_TIMEOUT_MS,
+    })
   : null
 
 export const FORWARDEMAIL_MX1_VALUE = 'mx1.forwardemail.net'
