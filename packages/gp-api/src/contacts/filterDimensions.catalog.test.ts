@@ -168,6 +168,7 @@ describe('FILTER_DIMENSIONS provenance', () => {
       [
         'audience',
         'businessOwner',
+        'earlyVote',
         'education',
         'ethnicity',
         'homeowner',

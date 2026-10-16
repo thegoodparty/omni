@@ -33,7 +33,7 @@ import { z } from 'zod'
  * Filter Types:
  * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
- * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
+ * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
  *   independentAffinity
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
@@ -64,6 +64,15 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'Likely',
     'Unreliable',
     'Unlikely',
+    'Unknown',
+  ] as const,
+  // Likelihood of voting before Election Day (early in person or by mail).
+  // Like voterStatus, a selection that includes 'Unknown' also matches NULL.
+  earlyVoteStatus: [
+    'Very likely',
+    'Likely',
+    'Unlikely',
+    'Very unlikely',
     'Unknown',
   ] as const,
   politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,
@@ -279,6 +288,9 @@ export const PeopleFiltersSchema = z.object({
   gender: createEnumFilterSchema(PEOPLE_FILTER_VALUE_ENUMS.gender).optional(),
   voterStatus: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.voterStatus,
+  ).optional(),
+  earlyVoteStatus: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.earlyVoteStatus,
   ).optional(),
   politicalParty: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.politicalParty,

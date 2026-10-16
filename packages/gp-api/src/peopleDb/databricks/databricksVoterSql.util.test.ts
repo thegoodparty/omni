@@ -288,6 +288,7 @@ describe('buildVoterFiltersSql', () => {
       homeowner: { in: ['Yes'] },
       gender: { in: ['F'] },
       voterStatus: { in: ['Super'] },
+      earlyVoteStatus: { in: ['Likely'] },
       politicalParty: { in: ['Democratic'] },
       language: { in: ['English'] },
       estimatedIncomeAmountInt: { gte: 50000 },
@@ -655,6 +656,33 @@ describe('buildVoterFiltersSql', () => {
 
     expect(sql).toBe('v.`Voter_Status` IN (:p0, :p1)')
     expect(sql).not.toContain('IS NULL')
+  })
+
+  it('matches a NULL Early_Vote_Status when Unknown is among the values', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { in: ['Very likely', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`Early_Vote_Status` IN (:p0, :p1)' +
+        ' OR v.`Early_Vote_Status` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very likely', type: 'STRING' },
+      { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('leaves NULL Early_Vote_Status out when Unknown is not selected', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Likely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
   })
 
   it('scopes idOverrides to the voterStatus clause only', () => {

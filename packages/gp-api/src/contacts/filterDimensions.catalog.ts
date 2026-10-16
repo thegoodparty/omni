@@ -8,6 +8,7 @@ import {
 } from '@/shared/schemas/activityCondition.schema'
 import {
   AUDIENCE_VOTER_STATUS_VALUES,
+  EARLY_VOTE_STATUS_VALUES,
   CONTACTS_MADE_BUCKET_FIELDS,
   INCOME_RANGE_MAPPING,
   LANGUAGE_CODE_TO_LABEL,
@@ -215,6 +216,19 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     modes: 'both',
     provenance: 'modeled',
     values: AUDIENCE_VOTER_STATUS_VALUES.map(({ field, value }) => ({
+      key: field,
+      label: value,
+    })),
+  },
+  {
+    // Voting before Election Day, early in person or by mail. Built from
+    // within-state percentiles, so each bucket is relative to the state.
+    key: 'earlyVote',
+    label: 'Early Vote Likelihood',
+    kind: 'boolean-group',
+    modes: 'both',
+    provenance: 'modeled',
+    values: EARLY_VOTE_STATUS_VALUES.map(({ field, value }) => ({
       key: field,
       label: value,
     })),

@@ -209,6 +209,35 @@ describe('convertVoterFileFilterToFilters voter status', () => {
   })
 })
 
+describe('convertVoterFileFilterToFilters early vote status', () => {
+  it('maps a single selection with eq', () => {
+    expect(
+      convertVoterFileFilterToFilters({ earlyVoteVeryLikely: true }),
+    ).toEqual({ earlyVoteStatus: { eq: 'Very likely' } })
+  })
+
+  it('maps several selections with in, Unknown included', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        earlyVoteVeryUnlikely: true,
+        earlyVoteUnknown: true,
+      }),
+    ).toEqual({ earlyVoteStatus: { in: ['Very unlikely', 'Unknown'] } })
+  })
+
+  it('stays separate from voterStatus', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        audienceSuperVoters: true,
+        earlyVoteLikely: true,
+      }),
+    ).toEqual({
+      voterStatus: { eq: 'Super' },
+      earlyVoteStatus: { eq: 'Likely' },
+    })
+  })
+})
+
 // The precincts branch is the converter's most failure-prone path: the saved
 // column is `precincts` but the filter key is `precinct`, and the filter
 // accepts only `in`. Falling through to the generic array branch would emit

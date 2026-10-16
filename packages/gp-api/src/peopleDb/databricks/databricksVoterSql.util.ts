@@ -648,6 +648,21 @@ export const buildVoterFiltersSql = (
           : voterStatusClause
         break
       }
+      case 'earlyVoteStatus': {
+        const statusClause = buildFieldFilter(bag, 'Early_Vote_Status', op)
+        // Consumer-only constituents carry no score at all; they are Unknown
+        // too, as with Voter_Status above.
+        const selectsUnknown =
+          op?.operator === 'eq'
+            ? op.value === 'Unknown'
+            : op?.operator === 'in' &&
+              !!op.values?.map(String).includes('Unknown')
+        sql =
+          statusClause && selectsUnknown
+            ? `(${statusClause} OR ${col('Early_Vote_Status')} IS NULL)`
+            : statusClause
+        break
+      }
       case 'politicalParty':
         sql = buildPoliticalPartyFilter(bag, op)
         break
