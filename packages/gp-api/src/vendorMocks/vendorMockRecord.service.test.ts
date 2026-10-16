@@ -8,9 +8,7 @@ import { VendorMockRecordService } from './vendorMockRecord.service'
 // (where OTEL_SERVICE_ENVIRONMENT is unset) without mutating process.env.
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import('@/shared/util/appEnvironment.util')
-    >()
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
   return {
     ...actual,
     get IS_NON_PROD_DEPLOY() {
