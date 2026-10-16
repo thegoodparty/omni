@@ -388,7 +388,11 @@ export class CampaignsController {
     // carries the same SMS window fields as GET mine or the cutoff UI reopens.
     const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
       where: { campaignId: updated.id },
-      select: { kickoffSentAt: true, internalTestingAt: true },
+      select: {
+        kickoffSentAt: true,
+        internalTestingAt: true,
+        peerlyIdentityId: true,
+      },
     })
     return {
       ...updated,
