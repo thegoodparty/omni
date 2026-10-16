@@ -246,6 +246,14 @@ export default function ContactListMap({
       new maplibregl.AttributionControl({ compact: true }),
       'bottom-right',
     )
+    // A compact attribution opens expanded and collapses only on the first
+    // drag, and a map previewed in chat or on a list is often never dragged.
+    map.on('load', () => {
+      map
+        .getContainer()
+        .querySelector('.maplibregl-ctrl-attrib')
+        ?.classList.remove('maplibregl-compact-show')
+    })
     // Slop on top of each dot's drawn radius. A Deck prop, not a layer one.
     const overlay = new MapboxOverlay({
       interleaved: false,
