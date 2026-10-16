@@ -246,7 +246,14 @@ export class P2pPhoneListUploadService {
       // leaves it alone for this error. Hand it over; the caller polls the
       // buildId exactly as it does for the async path (token null).
       if (!(error instanceof ResolutionBudgetExceededException)) throw error
-      await this.enqueueBuild(build.id, 0)
+      try {
+        await this.enqueueBuild(build.id, 0)
+      } catch (enqueueError) {
+        // The stale-building reaper only looks at `building` rows, so a
+        // `queued` row with a dead enqueue would otherwise sit forever.
+        await this.markBuildFailed(build.id, enqueueError)
+        throw enqueueError
+      }
       this.logger.info(
         { buildId: build.id, campaignId: campaign.id },
         'P2P phone list too large to build interactively; enqueued',

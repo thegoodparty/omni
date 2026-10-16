@@ -1019,6 +1019,44 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
       token: null,
     })
   })
+
+  it('marks the row failed when handing the build to the queue throws', async () => {
+    await seedWinCampaign()
+    stubPeerlyUpload()
+    let now = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    restoreClock = () => clock.mockRestore()
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockImplementation(((dto: { page: number }) => {
+      now += 200_000
+      return Promise.resolve({
+        people: Array.from({ length: 1000 }, (_, i) =>
+          personPayload({
+            id: `00000000-0000-0000-${String(dto.page).padStart(4, '0')}-${String(i).padStart(12, '0')}`,
+            cellPhone: `555${String(dto.page).padStart(3, '0')}${String(i).padStart(4, '0')}`,
+          }),
+        ),
+        pagination: { totalResults: 82_000, hasNextPage: true },
+      })
+    }) as never)
+    vi.spyOn(
+      service.app.get(QueueProducerService),
+      'sendMessage',
+    ).mockRejectedValue(new Error('sqs down'))
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Whole county' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBeGreaterThanOrEqual(500)
+    expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
+      buildStatus: 'failed',
+    })
+  })
 })
 
 describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)', () => {
