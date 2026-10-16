@@ -151,64 +151,69 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
     }
     // Only a not-yet-sent row is cancelable, BEFORE any money moves — mirrors the
     // shared immediate-charge body, extended with pending_payment for a
-    // pre-build authorized draft whose finalize deferred. An in_progress row is
-    // cancelable only when unbooked: the completion sweep ratchets it there on
-    // its send day whether or not it was booked, and nothing sends without a
-    // booking (prod outreach 85286). A completed (sent) or booked in_progress row
-    // is refused so release can never refund a delivered send or leave the spine
-    // active while the money is returned.
+    // pre-build authorized draft whose finalize deferred. A candidate may cancel
+    // an in_progress row only when it is unbooked: the completion sweep ratchets
+    // it there on its send day whether or not it was booked, and nothing sends
+    // without a booking (prod outreach 85286). Staff may cancel a booked send
+    // too, since they unbook through our portal rather than Peerly. A completed
+    // (sent) row is always refused so release can never refund a delivered send.
+    const byAdmin = attribution?.byAdmin === true
     const bookedToSend =
       spine.approvedAt !== null || spine.canvassRequestedAt !== null
-    const unbookedSendDay =
-      spine.status === OutreachStatus.in_progress && !bookedToSend
+    const cancelableInProgress =
+      spine.status === OutreachStatus.in_progress && (byAdmin || !bookedToSend)
     if (
       spine.status !== OutreachStatus.pending &&
       spine.status !== OutreachStatus.pending_payment &&
-      !unbookedSendDay
+      !cancelableInProgress
     ) {
       throw new BadRequestException('Only scheduled campaigns can be canceled')
     }
-    // Cancel is available up to the send, not through it: a BOOKED send past its
-    // date may be mid-send, so deleting the vendor job then is a mess, not a
-    // cancel (mirrors the immediate-charge guard). An unbooked row past its date
-    // never sends and stays cancelable.
-    if (bookedToSend && spine.date && !isBefore(new Date(), spine.date)) {
-      throw new BadRequestException(
-        'This campaign has reached its send time and can no longer be canceled',
-      )
-    }
-    // Staff can book canvassers by hand in Peerly, which stamps nothing on
-    // the spine, so past the send time the live job decides. A failed read
-    // refuses: deleting a job we could not check may be deleting a live send.
-    const pastSendTime =
-      spine.date === null || !isBefore(new Date(), spine.date)
-    if (unbookedSendDay && spine.projectId && pastSendTime) {
-      let job: PeerlyJob
-      try {
-        job = await this.peerlyP2pJobService.getJob(spine.projectId)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId },
-          'win sms cancel: could not read the Peerly job to confirm it is unbooked',
-        )
-        throw new BadGatewayException(
-          'Could not confirm with the texting vendor that this campaign ' +
-            'is not booked to send. Try canceling again.',
-        )
-      }
-      if (hasPeerlyCanvassersBooked(job)) {
+    if (!byAdmin) {
+      // A candidate's cancel is available up to the send, not through it: a
+      // BOOKED send past its date may be mid-send (mirrors the immediate-charge
+      // guard). An unbooked row past its date never sends and stays cancelable.
+      if (bookedToSend && spine.date && !isBefore(new Date(), spine.date)) {
         throw new BadRequestException(
           'This campaign has reached its send time and can no longer be ' +
             'canceled',
         )
       }
+      // Staff can book canvassers by hand in Peerly, which stamps nothing on
+      // the spine, so past the send time the live job decides. A failed read
+      // refuses: deleting a job we could not check may be deleting a live send.
+      const pastSendTime =
+        spine.date === null || !isBefore(new Date(), spine.date)
+      if (cancelableInProgress && spine.projectId && pastSendTime) {
+        let job: PeerlyJob
+        try {
+          job = await this.peerlyP2pJobService.getJob(spine.projectId)
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId },
+            'win sms cancel: could not read the Peerly job to confirm it is ' +
+              'unbooked',
+          )
+          throw new BadGatewayException(
+            'Could not confirm with the texting vendor that this campaign ' +
+              'is not booked to send. Try canceling again.',
+          )
+        }
+        if (hasPeerlyCanvassersBooked(job)) {
+          throw new BadRequestException(
+            'This campaign has reached its send time and can no longer be ' +
+              'canceled',
+          )
+        }
+      }
     }
 
     // Claim the spine BEFORE the vendor delete and the money release, the
     // shared cancel's discipline: approve's claim requires a reviewable,
-    // unapproved row, so whichever claim lands first wins and a cancel can
-    // never refund a send an approve just booked.
-    const claimedFrom = unbookedSendDay
+    // unapproved row, so whichever claim lands first wins and a candidate's
+    // cancel can never refund a send an approve just booked. Staff may cancel
+    // a booked send, so their claim only serializes on status.
+    const claimedFrom = cancelableInProgress
       ? OutreachStatus.in_progress
       : spine.status === OutreachStatus.pending_payment
         ? OutreachStatus.pending_payment
@@ -217,7 +222,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       where: {
         id: outreachId,
         status: claimedFrom,
-        ...(unbookedSendDay
+        ...(cancelableInProgress && !byAdmin
           ? { approvedAt: null, canvassRequestedAt: null }
           : {}),
       },
@@ -785,8 +790,9 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
             },
             {
               status: OutreachStatus.in_progress,
-              approvedAt: null,
-              canvassRequestedAt: null,
+              ...(attribution?.byAdmin
+                ? {}
+                : { approvedAt: null, canvassRequestedAt: null }),
             },
           ],
         },

@@ -58,6 +58,11 @@ export default async function Page({ params }: PageProps) {
   // Nothing is left to change once the send is over or ended.
   const isClosed =
     item.approvalStatus === 'canceled' || item.approvalStatus === 'sent'
+  const canvassersBooked =
+    item.approvalStatus === 'canvass_requested' ||
+    item.approvalStatus === 'peerly_approved' ||
+    item.job?.hasCanvassersScheduled === true ||
+    item.job?.peerlyApproved === true
 
   return (
     <Container size="3">
@@ -299,7 +304,11 @@ export default async function Page({ params }: PageProps) {
           )}
           {canDecide && !isClosed && (
             <Box mt="4">
-              <CancelAction id={item.id} paid={item.paid} />
+              <CancelAction
+                id={item.id}
+                paid={item.paid}
+                canvassersBooked={canvassersBooked}
+              />
             </Box>
           )}
         </Box>

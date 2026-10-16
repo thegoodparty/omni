@@ -13,13 +13,19 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 vi.mock('@/components/Toast', () => ({ useToast: () => ({ showToast }) }))
 vi.mock('../actions', () => ({ cancelSms }))
 
-const renderAndConfirm = async () => {
+const renderAction = (canvassersBooked = false) =>
   render(
     <Theme>
-      <CancelAction id={85286} paid />
+      <CancelAction id={85286} paid canvassersBooked={canvassersBooked} />
     </Theme>
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Cancel campaign' }))
+
+const openDialog = () =>
+  userEvent.click(screen.getByRole('button', { name: 'Cancel campaign' }))
+
+const renderAndConfirm = async () => {
+  renderAction()
+  await openDialog()
   await userEvent.click(
     within(screen.getByRole('alertdialog')).getByRole('button', {
       name: 'Cancel campaign',
@@ -44,6 +50,28 @@ describe('CancelAction', () => {
     expect(cancelSms).toHaveBeenCalledWith(85286)
     expect(showToast).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('warns in the dialog when canvassers are booked', async () => {
+    renderAction(true)
+    await openDialog()
+
+    expect(
+      within(screen.getByRole('alertdialog')).getByText(
+        /Canvassers are booked for this send/
+      )
+    ).toBeTruthy()
+  })
+
+  it('shows no booking warning when nobody is booked', async () => {
+    renderAction(false)
+    await openDialog()
+
+    expect(
+      within(screen.getByRole('alertdialog')).queryByText(
+        /Canvassers are booked/
+      )
+    ).toBeNull()
   })
 
   it('confirms with a toast and refreshes on success', async () => {

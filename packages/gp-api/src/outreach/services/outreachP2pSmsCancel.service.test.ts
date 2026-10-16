@@ -600,6 +600,35 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     )
   })
 
+  it('lets staff cancel a booked in_progress hold row past its send time', async () => {
+    retrieveSpy.mockResolvedValue(
+      mockIntent({ status: 'succeeded', latest_charge: CHARGE_ID }),
+    )
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      approvedAt: new Date(),
+      date: subHours(new Date(), 1),
+    })
+
+    const { refunded } = await cancel.cancel(outreachId, campaign.id, {
+      canceledBy: 'cas@goodparty.org',
+      byAdmin: true,
+    })
+
+    expect(refunded).toBe(true)
+    expect(getJobSpy).not.toHaveBeenCalled()
+    expect(deleteJobSpy).toHaveBeenCalledWith('peerly-job-1')
+    expect(refundChargeSpy).toHaveBeenCalledWith(
+      CHARGE_ID,
+      `p2p-sms-refund-${CHARGE_ID}`,
+    )
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe(OutreachStatus.canceled)
+    expect(spine.canceledByAdmin).toBe(true)
+  })
+
   it('refuses an in_progress hold row booked by hand in Peerly', async () => {
     getJobSpy.mockResolvedValue({
       ...unbookedJob(),

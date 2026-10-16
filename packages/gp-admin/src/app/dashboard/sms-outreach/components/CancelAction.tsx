@@ -11,9 +11,14 @@ import { cancelSms } from '../actions'
 interface CancelActionProps {
   id: number
   paid: boolean
+  canvassersBooked: boolean
 }
 
-export function CancelAction({ id, paid }: CancelActionProps) {
+export function CancelAction({
+  id,
+  paid,
+  canvassersBooked,
+}: CancelActionProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [submitting, setSubmitting] = useState(false)
@@ -74,6 +79,14 @@ export function CancelAction({ id, paid }: CancelActionProps) {
           and the campaign cannot be re-queued. The candidate is not notified
           automatically.
         </AlertDialog.Description>
+        {canvassersBooked && (
+          <Callout.Root color="amber" mt="3">
+            <Callout.Text>
+              Canvassers are booked for this send. Canceling deletes the Peerly
+              job and removes their booking.
+            </Callout.Text>
+          </Callout.Root>
+        )}
         {failure && (
           <Callout.Root color="red" role="alert" mt="3">
             <Callout.Text>{failure}</Callout.Text>
