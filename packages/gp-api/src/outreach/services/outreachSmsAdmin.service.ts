@@ -380,10 +380,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   /**
    * Admin cancel runs the candidate's own unwind (vendor delete, refund,
-   * promo restore) with staff attribution. The past-send-time guard
-   * inside cancelOutreach applies to staff too — a mid-send vendor
-   * delete is a mess regardless of who clicks — but only for a booked
-   * send; an unbooked row past its date never sends and stays cancelable.
+   * promo restore) with staff attribution. Staff may cancel any unsent
+   * campaign, booked or past its send time: they unbook canvassers through
+   * this console, not Peerly, so cancelOutreach skips the candidate's
+   * send-time refusals for them and the console warns instead.
    */
   async cancel(
     outreachId: number,

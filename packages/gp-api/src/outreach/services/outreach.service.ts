@@ -39,6 +39,7 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import {
@@ -46,6 +47,7 @@ import {
   type P2pJobGeographyResult,
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import {
   createUnderProposalKey,
@@ -1116,21 +1118,25 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   /**
    * Cancel-before-send (product decision: permanent, vendor job deleted,
-   * automatic refund). Cancelable = status `pending` only: that is the
-   * scheduled-not-started state finalize leaves a paid campaign in;
-   * `in_progress`/`completed` rows have sent messages and are not
-   * refundable here.
+   * automatic refund). Cancelable = status `pending` (the
+   * scheduled-not-started state finalize leaves a paid campaign in), plus
+   * an UNBOOKED p2p row the completion sweep ratcheted to `in_progress` on
+   * its send day — nothing sends without a booking, so it is no more
+   * started than a pending row. Staff (`attribution.byAdmin`) may also
+   * cancel a booked send at any point before it completes; a candidate may
+   * not once its send time arrives. A `completed` row is never refundable
+   * here.
    *
    * Ordering is the failure policy. The row is CLAIMED first (finalize's
-   * updateMany-as-CAS pattern, `pending` → `canceled`), so the hourly
-   * completion sweep can never advance it mid-cancel — canceled rows are
-   * outside the sweep's candidate set. The vendor delete runs second — if
-   * it fails, the claim is reverted and the user keeps their campaign. The
-   * refund runs third — if IT fails, the claim is reverted too, so the row
-   * deliberately reads `pending`: the cancel CTA stays live, and a retry
-   * re-runs every step safely (the claim is atomic, the vendor delete
-   * treats already-deleted as done, and the refund's idempotency key is
-   * stable per outreach, so it can neither be lost nor doubled).
+   * updateMany-as-CAS pattern, its current status → `canceled`), so the
+   * hourly completion sweep can never advance it mid-cancel — canceled rows
+   * are outside the sweep's candidate set. The vendor delete runs second —
+   * if it fails, the claim is reverted and the user keeps their campaign.
+   * The refund runs third — if IT fails, the claim is reverted too, so the
+   * row deliberately reads its original status: the cancel CTA stays live,
+   * and a retry re-runs every step safely (the claim is atomic, the vendor
+   * delete treats already-deleted as done, and the refund's idempotency key
+   * is stable per outreach, so it can neither be lost nor doubled).
    */
   async cancelOutreach(
     outreachId: number,
@@ -1173,27 +1179,88 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (outreach.status === OutreachStatus.canceled) {
       return { outreach, refunded: false }
     }
-    if (outreach.status !== OutreachStatus.pending) {
-      throw new BadRequestException('Only scheduled campaigns can be canceled')
-    }
-    // Cancel is available up to the scheduled send, not through it: once the
-    // send time arrives canvassers may be texting, and deleting the vendor
-    // job mid-send is not a cancel, it is a mess (product decision
-    // 2026-09-02). That mess is only possible for a BOOKED send — nothing
-    // sends without the approve gate's canvasser booking — so an unbooked
-    // row past its date is dead, not mid-send, and must stay cancelable:
-    // the guard otherwise strands it in Awaiting Review with the payment
-    // unrefundable (QA 2026-09-10, prod outreach 81412).
+    const byAdmin = attribution?.byAdmin === true
     const bookedToSend =
       outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
-    if (bookedToSend && outreach.date && !isBefore(new Date(), outreach.date)) {
-      throw new BadRequestException(
-        'This campaign has reached its send time and can no longer be canceled',
-      )
+    // The completion sweep moves a p2p row to `in_progress` at the UTC start
+    // of its send day whether or not it was booked, which would otherwise
+    // defeat the unbooked-row rule below on exactly the day staff need it
+    // (prod outreach 85286, 2026-10-15). Staff cancel booked sends from the
+    // console too: they unbook through our portal, not Peerly, so the
+    // booking refusals below are the candidate's alone. Scoped to p2p: a
+    // Serve text reads `in_progress` once its delivery handoff has claimed
+    // the send.
+    const cancelableInProgress =
+      outreach.status === OutreachStatus.in_progress &&
+      outreach.outreachType === OutreachType.p2p &&
+      (byAdmin || !bookedToSend)
+    if (outreach.status !== OutreachStatus.pending && !cancelableInProgress) {
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+    if (!byAdmin) {
+      // Cancel is available up to the scheduled send, not through it: once
+      // the send time arrives canvassers may be texting, and a candidate
+      // deleting the vendor job mid-send is not a cancel, it is a mess
+      // (product decision 2026-09-02). That mess is only possible for a
+      // BOOKED send — nothing sends without the approve gate's canvasser
+      // booking — so an unbooked row past its date is dead, not mid-send,
+      // and must stay cancelable: the guard otherwise strands it in Awaiting
+      // Review with the payment unrefundable (QA 2026-09-10, outreach 81412).
+      if (
+        bookedToSend &&
+        outreach.date &&
+        !isBefore(new Date(), outreach.date)
+      ) {
+        throw new BadRequestException(
+          'This campaign has reached its send time and can no longer be ' +
+            'canceled',
+        )
+      }
+      // Staff can book canvassers by hand in Peerly, which stamps nothing on
+      // this row, so past the send time the live job decides. A failed read
+      // refuses: deleting a job we could not check may be deleting a live
+      // send. A dateless row counts as past it: the sweep only moves a row to
+      // `in_progress` once Peerly's start day has begun, so a dateless one is
+      // on its send day with no time of ours to compare, possibly hand-booked.
+      const pastSendTime =
+        outreach.date === null || !isBefore(new Date(), outreach.date)
+      if (cancelableInProgress && outreach.projectId && pastSendTime) {
+        let job: PeerlyJob
+        try {
+          job = await this.peerlyP2pJobService.getJob(outreach.projectId)
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId },
+            'Cancel could not read the Peerly job to confirm it is unbooked',
+          )
+          throw new BadGatewayException(
+            'Could not confirm with the texting vendor that this campaign ' +
+              'is not booked to send. Try canceling again.',
+          )
+        }
+        if (hasPeerlyCanvassersBooked(job)) {
+          throw new BadRequestException(
+            'This campaign has reached its send time and can no longer be ' +
+              'canceled',
+          )
+        }
+      }
     }
 
+    const claimedFrom = cancelableInProgress
+      ? OutreachStatus.in_progress
+      : OutreachStatus.pending
+    // For a candidate the booking guard keeps an approve that lands after
+    // the read above from being canceled out from under it mid-send. Staff
+    // may cancel a booked send, so their claim only serializes on status.
     const claimed = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending },
+      where: {
+        id: outreachId,
+        status: claimedFrom,
+        ...(cancelableInProgress && !byAdmin
+          ? { approvedAt: null, canvassRequestedAt: null }
+          : {}),
+      },
       data: {
         status: OutreachStatus.canceled,
         canceledAt: new Date(),
@@ -1220,7 +1287,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         await this.model.update({
           where: { id: outreachId },
           data: {
-            status: OutreachStatus.pending,
+            status: claimedFrom,
             canceledAt: null,
             canceledBy: null,
             canceledByAdmin: false,

@@ -2,7 +2,9 @@
 
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
+import { SdkError } from '@goodparty_org/sdk'
 import { PERMISSIONS } from '@/lib/permissions'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import { gpAction } from '@/shared/util/gpClient.util'
 import type {
   SmsAdminDetailResponse,
@@ -10,6 +12,7 @@ import type {
   SmsApprovalQueueResponse,
   SmsVendorAccount,
 } from '@goodparty_org/contracts'
+import type { SmsActionResult } from './types'
 
 const ADMIN_ROLE = 'org:admin'
 
@@ -89,14 +92,26 @@ export const denySms = async (
   return item
 }
 
-export const cancelSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.cancel(id, { canceledBy: email })
-  )
+export const cancelSms = async (id: number): Promise<SmsActionResult> => {
+  const fallback = 'Failed to cancel campaign'
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.cancel(id, { canceledBy: email })
+    )
+  } catch (error) {
+    return {
+      error:
+        error instanceof SdkError
+          ? extractApiErrorMessage(error, fallback)
+          : error instanceof Error
+            ? error.message
+            : fallback,
+    }
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
 }
 
 // Rescheduling moves the vendor send window (and rebooks canvassers on a
