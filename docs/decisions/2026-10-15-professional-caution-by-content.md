@@ -3,7 +3,7 @@ title: The professional caution triggers on what the answer says, including rela
 status: active
 decided_by: [melecia-gp]
 date: 2026-10-15
-code: []
+code: ['#2856']
 scope:
   - packages/gp-api/src/chats/general/chief-of-staff/services/chiefOfStaffPrompt.ts
   - packages/gp-api/src/chats/briefing-chats/services/systemPromptBuilder.ts
