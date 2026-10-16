@@ -16,7 +16,7 @@ import { SWEEP_VALUES } from './fixtures/sweep'
 // registry says — including a registry that lost one.
 //
 // Everything these lists share with the other nine — that they parse through
-// the loader, are `placeholder: true`, hold eight uniquely-named cases, and
+// the loader, carry the right `placeholder` flag, hold uniquely-named cases, and
 // satisfy their manifest's `required` and its pinned `additionalProperties` —
 // is checked for all fifteen in backgroundCaseLists.test.ts. What is only true
 // here is the placeholder behaviour, and that is all this file asserts.

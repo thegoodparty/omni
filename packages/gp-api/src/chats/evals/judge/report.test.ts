@@ -153,12 +153,10 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
-  // The real registry, pinned. race_opponent_summary was wired on Melecia's
-  // real bench, so it is the one wired agent outside the parenthetical.
-  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
-    expect(coverageLines()[0]).toBe(
-      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
-    )
+  // The real registry, pinned. Every case list now carries a real bench or
+  // core checks, so no wired agent is counted as on placeholder inputs.
+  it('reads 3 of 20 wired, none on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe('**Coverage: 3 of 20 agents wired.**')
   })
 
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
@@ -166,7 +164,7 @@ describe('the coverage line', () => {
   // like coverage and is not.
   it('counts the wired agents against the judgeable ones', () => {
     expect(coverageLines(REGISTRY)[0]).toBe(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+      '**Coverage: 1 of 2 agents wired.**',
     )
   })
 
@@ -184,14 +182,16 @@ describe('the coverage line', () => {
   })
 
   // Wired and placeholder differ here, so the parenthetical cannot be
-  // printing the wired count by mistake.
+  // printing the wired count by mistake. No real list is a placeholder any
+  // more, so the placeholder is a wired agent whose list will not load, which
+  // coverage counts as one.
   it('counts placeholder inputs apart from wired', () => {
     const mixed: readonly AgentEntry[] = [
       ...REGISTRY,
       {
         agentId: 'race_opponent_summary',
         shape: 'background',
-        cases: 'race_opponent_summary.json',
+        cases: 'no-such-list.json',
         status: 'wired',
       },
     ]
@@ -210,9 +210,7 @@ describe('the coverage line', () => {
   // so this prints even when the sweep produced nothing at all.
   it('prints even when no agent was judged', () => {
     const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
     expect(report).toContain('No agent produced a verdict')
   })
 })
@@ -711,9 +709,7 @@ describe('refusals', () => {
     })
     expect(report).toContain('### ordinance_flow — refused')
     expect(report).toContain('both arms hashed to the same config digest')
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
   })
 })
 

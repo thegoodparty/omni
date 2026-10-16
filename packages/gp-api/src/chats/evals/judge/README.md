@@ -43,7 +43,7 @@ Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. The PR thread says the sweep started but
 not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
 **CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
-Almost all the case lists are still placeholders (see below), and every list
+Every list
 has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
@@ -280,7 +280,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but ten are placeholders
+## Case lists: every judgeable agent, ten benches and ten core-check lists
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -305,7 +305,7 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but ten are `placeholder: true`.** The exceptions are
+**Ten are real benches.** They are
 `race_opponent_summary.json`, a real bench of eight probes and a control,
 `race_opponent_actions.json`, nine probes and a control built from the summary
 agent's own outputs over that bench, `opportunities_and_challenges.json`,
@@ -320,14 +320,17 @@ and three discover a past meeting live. Five more are the acquisition benches,
 `meeting_schedule.json`: six to eight probes and a control each, written as
 dispatch parameters on real districts and bodies, since a live-search agent's
 input world cannot be held still, so a scored case says where the agent was
-pointed and its condition line says what it should have found. Each other
-background list is
-schema-valid against its experiment manifest's `input_schema` and each value
-is plausible; each chat list asks a question the seeded fixture org can
-actually be asked. But nobody wrote them to test the agent, so a verdict drawn
-from any of them is a statement about the pipeline and not about the agent.
-That holds for a wired agent too, which is why the coverage line counts the
-wired ones on placeholder inputs separately. A case list is not a verdict.
+pointed and its condition line says what it should have found.
+
+**The other ten are core-check lists, also `placeholder: false`.** Their inputs
+are synthetic: each background list is schema-valid against its experiment
+manifest's `input_schema` with plausible values, and each chat list asks a
+question the seeded fixture org can actually be asked. Nobody drew them from a
+real dispatch, but their checked cases test the agent (see "The core-check
+lists" below), so they are not placeholders. The flag stays for a list whose
+cases test nothing yet; the coverage line counts wired agents on such a list
+separately, and a list that will not load counts as one. A case list is not a
+verdict.
 
 **A chat question has to be answerable against the state the harness seeds,
 and the seed is what decides which tools register.** A scope handler
@@ -830,7 +833,7 @@ their `control` as `scored: false`, every probe in all four carries a
 `condition` and two or three `dimensions`, and every probe that plants a
 mutation carries a `handledWhen`; the unmutated baseline carries none.
 
-The ten placeholder lists carry core-contract checks instead: three to five
+**The core-check lists.** The other ten lists carry core-contract checks: three to five
 per agent, written from the agent's own prompt or `instruction.md`, on
 existing cases with their inputs unchanged. Each covers the agent's main job,
 its top guardrail or a fallback path, and is gradeable from the final output
