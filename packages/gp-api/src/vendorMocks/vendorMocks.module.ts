@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common'
+import { VendorMockRecordService } from './vendorMockRecord.service'
 
-@Module({})
+@Module({
+  providers: [VendorMockRecordService],
+  exports: [VendorMockRecordService],
+})
 export class VendorMocksModule {}
