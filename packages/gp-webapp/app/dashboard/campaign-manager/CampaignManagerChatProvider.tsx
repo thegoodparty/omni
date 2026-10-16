@@ -331,7 +331,6 @@ export function CampaignManagerChatProvider({
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
-        showAttachIcon
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}

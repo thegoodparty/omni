@@ -3,6 +3,7 @@ import { render } from 'helpers/test-utils/render'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Priority } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
+import { router } from 'helpers/test-utils/router-mocking'
 import PrioritiesHub from './PrioritiesHub'
 import {
   listPriorities,
@@ -73,6 +74,16 @@ describe('PrioritiesHub', () => {
     )
     await waitFor(() =>
       expect(screen.getAllByText('Sidewalk gaps')).toHaveLength(1),
+    )
+  })
+
+  it('opens the new priority conversation after adding it', async () => {
+    const added = priority({ id: 'p2', title: 'Sidewalk gaps' })
+    vi.mocked(prioritizeCommunityIssue).mockResolvedValue(added)
+    render(<PrioritiesHub priorities={[priority()]} seedIssues={[issue()]} />)
+    fireEvent.click(screen.getByText('Make this a priority'))
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/priorities/p2'),
     )
   })
 

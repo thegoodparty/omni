@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { IconButton, Input } from '@styleguide'
-import { SparklesIcon } from '@styleguide/components/ui/icons'
+import {
+  MicIcon,
+  PaperclipIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
 import ChatHistoryPopover from '../../../chief-of-staff/components/chat/ChatHistoryPopover'
 import {
   ASSISTANT_PLACEHOLDER,
@@ -17,16 +21,19 @@ interface Props {
   onSubmit: (message: string) => void
   /** Reopen a past conversation picked from the clock popover. */
   onOpenConversation: (conversationId: string) => void
+  /** Open a fresh conversation drawer (the paperclip and mic). */
+  onOpen: () => void
 }
 
 // The persistent assistant pill pinned to the bottom of the contacts surface.
 // Mirrors the Chief of Staff FooterChatBar's placement and gradient pill
-// (fixed bottom, offset by the sidebar rail on lg+), but carries a real input
-// so the first message is typed here, and no mic — the epic ships text-only.
+// (fixed bottom, offset by the sidebar rail on lg+) and toolbar, but carries a
+// real input so the first message is typed here.
 export default function AssistantBar({
   chat,
   onSubmit,
   onOpenConversation,
+  onOpen,
 }: Props): React.JSX.Element {
   const [value, setValue] = useState('')
 
@@ -60,6 +67,26 @@ export default function AssistantBar({
               data-testid="crm-assistant-input"
               className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
             />
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Attach a file"
+              className="size-10 shrink-0"
+              onClick={onOpen}
+            >
+              <PaperclipIcon className="size-5" aria-hidden />
+            </IconButton>
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Dictate a message"
+              className="size-10 shrink-0"
+              onClick={onOpen}
+            >
+              <MicIcon className="size-5" aria-hidden />
+            </IconButton>
             <IconButton
               type="submit"
               size="small"

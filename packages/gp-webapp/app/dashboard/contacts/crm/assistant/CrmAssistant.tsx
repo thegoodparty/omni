@@ -65,6 +65,18 @@ export default function CrmAssistant(): React.JSX.Element | null {
     setOpen(true)
   }
 
+  const openFresh = (): void => {
+    trackEvent(EVENTS.Contacts.AssistantChatOpened, {
+      context,
+      source: 'toolbar',
+    })
+    submitCountRef.current += 1
+    setConversationId(null)
+    setPendingMessage(undefined)
+    setOpenerKey(`bar-open-${submitCountRef.current}`)
+    setOpen(true)
+  }
+
   const openConversation = (id: string): void => {
     trackEvent(EVENTS.Contacts.AssistantChatOpened, {
       context,
@@ -82,6 +94,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
         chat={chat}
         onSubmit={openWithMessage}
         onOpenConversation={openConversation}
+        onOpen={openFresh}
       />
       <ChiefOfStaffChatSurface
         open={open}

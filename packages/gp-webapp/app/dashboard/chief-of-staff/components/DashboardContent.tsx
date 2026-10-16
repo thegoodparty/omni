@@ -157,7 +157,6 @@ export default function DashboardContent(): React.JSX.Element {
         firstName={firstName}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
-        showAttachIcon
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}

@@ -16,12 +16,13 @@ const chatApi = {
 const chat = { chatApi, historyKey: ['test', 'chat-history'] as const }
 
 describe('AssistantBar', () => {
-  it('renders the list-building placeholder and no mic control', () => {
+  it('renders the list-building placeholder', () => {
     render(
       <AssistantBar
         chat={chat}
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
       />,
     )
     expect(
@@ -29,9 +30,22 @@ describe('AssistantBar', () => {
         "Describe the list you want and I'll make it for you",
       ),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /dictate/i }),
-    ).not.toBeInTheDocument()
+  })
+
+  it('opens the drawer from the paperclip and mic', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(
+      <AssistantBar
+        chat={chat}
+        onSubmit={vi.fn()}
+        onOpenConversation={vi.fn()}
+        onOpen={onOpen}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Attach a file' }))
+    await user.click(screen.getByRole('button', { name: 'Dictate a message' }))
+    expect(onOpen).toHaveBeenCalledTimes(2)
   })
 
   it('submits the trimmed message and clears the input', async () => {
@@ -42,6 +56,7 @@ describe('AssistantBar', () => {
         chat={chat}
         onSubmit={onSubmit}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
       />,
     )
     const input = screen.getByTestId('crm-assistant-input')
@@ -57,6 +72,7 @@ describe('AssistantBar', () => {
         chat={chat}
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
       />,
     )
     expect(
