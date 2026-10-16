@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common'
-import { CampaignTaskType, Prisma } from '../../../generated/prisma'
+import {
+  CampaignTaskType,
+  Prisma,
+  TcrComplianceStatus,
+} from '../../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE, toDateOnlyString } from 'src/shared/util/date.util'
@@ -326,6 +330,10 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                 AND (
                   tc.kickoff_sent_at IS NOT NULL
                   OR tc.internal_testing_at IS NOT NULL
+                  -- Matches smsComplianceWindow: approved/pending records
+                  -- from before kickoffSentAt existed count as made (ENG-11326).
+                  OR tc.status::text = ${TcrComplianceStatus.approved}
+                  OR tc.status::text = ${TcrComplianceStatus.pending}
                 )
             )
           )

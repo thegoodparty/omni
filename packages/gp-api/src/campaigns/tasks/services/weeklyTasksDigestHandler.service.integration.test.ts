@@ -1,5 +1,9 @@
 import { useTestService } from '@/test-service'
-import { CampaignTaskType } from '../../../generated/prisma'
+import {
+  CampaignTaskType,
+  OfficeLevel,
+  TcrComplianceStatus,
+} from '../../../generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -538,6 +542,59 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         properties.task_name_2,
         properties.task_name_3,
       ]).not.toContain('Intro Text')
+    })
+
+    it('keeps text sends past the cutoff for a legacy approved record with no kickoffSentAt', async () => {
+      const closedElection = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
+      const campaign = await makeCampaign({ electionDate: closedElection })
+      // Approved before kickoffSentAt existed, so the stamp is null (ENG-11326).
+      await service.prisma.tcrCompliance.create({
+        data: {
+          campaignId: campaign.id,
+          ein: '12-3456789',
+          postalAddress: '1 Main St, Springfield, IL 62701',
+          committeeName: 'Committee to Elect Test',
+          websiteDomain: 'example.com',
+          filingUrl: 'https://example.com/filing',
+          phone: '5555555555',
+          email: 'test@test.goodparty.org',
+          officeLevel: OfficeLevel.local,
+          status: TcrComplianceStatus.approved,
+          kickoffSentAt: null,
+        },
+      })
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, {
+          title: `Dynamic ${i}`,
+          flowType: CampaignTaskType.education,
+          week: 10,
+        })
+      }
+      await makeTask(campaign.id, {
+        title: 'Intro Text',
+        flowType: CampaignTaskType.text,
+        week: 10,
+        isDefaultTask: true,
+        date: new Date('2026-04-21T00:00:00.000Z'),
+      })
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(4)
+      expect(properties.task_name_1).toBe('Intro Text')
     })
 
     it('does not send a tracker digest when a campaign has only non-outreach default rows and no dynamic generation', async () => {
