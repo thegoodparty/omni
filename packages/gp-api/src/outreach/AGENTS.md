@@ -1171,7 +1171,7 @@ outreach proposal can carry the same details as `event` (contracts
   parts.** With `currentDraft`, `POST /outreach/sms/draft` and
   `POST /outreach/serve/sms/draft` receive the full message as sent
   (greeting, body, paid-for-by, opt-out), not a body: the webapp's compose
-  field holds all of it, with those parts locked. `OutreachSmsGenerationService`
+  field holds all of it. `OutreachSmsGenerationService`
   swaps each part contracts `deriveSmsProtectedParts` would lock for a `⟦n⟧`
   marker (`util/smsProtectedImprove.util.ts`), accepts a reply only if every
   marker comes back exactly once and in order, puts the text back, and refuses
