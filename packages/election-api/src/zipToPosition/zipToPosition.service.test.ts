@@ -272,7 +272,7 @@ describe('ZipToPositionService.getZipCodesByBrPositionId', () => {
     expect(findMany).not.toHaveBeenCalled()
   })
 
-  it('queries ZipToPosition by positionId, future elections, threshold, non-null zip', async () => {
+  it('queries ZipToPosition by positionId, threshold, non-null zip', async () => {
     findUnique.mockResolvedValue({ id: 'position-uuid-1' })
 
     await service.getZipCodesByBrPositionId('br-pos-1')
@@ -284,7 +284,6 @@ describe('ZipToPositionService.getZipCodesByBrPositionId', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {
         positionId: 'position-uuid-1',
-        electionDate: { gte: new Date('2026-05-12T00:00:00Z') },
         OR: [
           { pctDistrictzipToZip: null },
           { pctDistrictzipToZip: { gte: 0.005 } },

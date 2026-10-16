@@ -135,13 +135,9 @@ export class ZipToPositionService extends createPrismaBase(
       throw new NotFoundException(`Position ${brPositionId} not found`)
     }
 
-    const today = new Date()
-    today.setUTCHours(0, 0, 0, 0)
-
     const rows = await this.model.findMany({
       where: {
         positionId: position.id,
-        electionDate: { gte: today },
         OR: [
           { pctDistrictzipToZip: null },
           { pctDistrictzipToZip: { gte: PCT_DISTRICTZIP_TO_ZIP_THRESHOLD } },
