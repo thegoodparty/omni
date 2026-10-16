@@ -1517,10 +1517,16 @@ export class DomainsService
       let order: Awaited<
         ReturnType<VercelService['getRegistrarOrder']>
       > | null = null
+      // Clamped to what is left of the budget, so the budget is a real
+      // ceiling on the wait and not a point after which one more slow poll
+      // can still start.
+      const remainingMs =
+        REGISTRAR_ORDER_POLL_BUDGET_MS -
+        differenceInMilliseconds(new Date(), startedAt)
       try {
         order = await this.vercel.getRegistrarOrder(
           orderId,
-          REGISTRAR_ORDER_REQUEST_TIMEOUT_MS,
+          Math.min(REGISTRAR_ORDER_REQUEST_TIMEOUT_MS, remainingMs),
         )
       } catch (error) {
         // A failed poll says nothing about the order. Keep polling until the
