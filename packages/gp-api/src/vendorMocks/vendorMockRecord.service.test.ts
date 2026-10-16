@@ -1,7 +1,23 @@
 import { useTestService } from '@/test-service'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VendorMockVendor } from '@/generated/prisma'
 import { VendorMockRecordService } from './vendorMockRecord.service'
+
+// IS_NON_PROD_DEPLOY is a module-level constant computed at import time.
+// Mock it as a getter so the non-prod gate passes in the test environment
+// (where OTEL_SERVICE_ENVIRONMENT is unset) without mutating process.env.
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@/shared/util/appEnvironment.util')
+    >()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return true
+    },
+  }
+})
 
 const service = useTestService()
 
@@ -10,7 +26,6 @@ describe('VendorMockRecordService', () => {
 
   beforeEach(() => {
     svc = service.app.get(VendorMockRecordService)
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
   })
 
   const vendor = VendorMockVendor.geoapify
