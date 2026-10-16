@@ -2,9 +2,10 @@
 
 Provides ``run_query(sql) -> pandas.DataFrame``. Auth is resolved by the Databricks
 SDK ``Config`` via ``credentials_provider`` — no personal access token. If the SDK
-``Config`` carries a service-principal ``client_id`` / ``client_secret`` (e.g. CI) it
-uses OAuth M2M; otherwise it uses the ``~/.databrickscfg`` CLI / SDK default profile
-(``databricks auth login``, honoring ``DATABRICKS_CONFIG_PROFILE``).
+``Config`` carries a service-principal ``client_id`` / ``client_secret`` it uses OAuth
+M2M; otherwise it uses the SDK default chain: the ``~/.databrickscfg`` CLI profile
+locally (``databricks auth login``, honoring ``DATABRICKS_CONFIG_PROFILE``), or GitHub
+OIDC federation in CI (``DATABRICKS_AUTH_TYPE=github-oidc``, no secret).
 
 Both the event-health monitor and the provenance backfill use this OAuth path (the
 analytics standard) — no PAT. (``databricks_query.py`` remains the PAT-based helper for
@@ -52,7 +53,7 @@ def _build_connect_kwargs(config: Any, http_path: str, *, oauth_m2m: Callable[[A
     # databricks-sql calls credentials_provider() once and expects a *header factory*
     # back: a no-arg callable that returns the auth headers dict, which the connector then
     # calls per request. oauth_service_principal(config) builds such a factory for M2M; the
-    # SDK's config.authenticate bound method already *is* one for the default profile. Both
+    # SDK's config.authenticate bound method already *is* one for the default chain. Both
     # branches therefore yield a header factory. Do NOT call config.authenticate() here:
     # that returns the headers dict, not the factory, and the connector would then try to
     # call the dict and fail. Verified live against the default profile.

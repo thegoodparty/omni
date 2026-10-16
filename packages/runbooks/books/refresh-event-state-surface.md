@@ -3,7 +3,7 @@ Refresh the consumer-facing analytics event-state surface (the Google Sheet).
 ## Prerequisites
 
 **scripts/.env variables**: `GP_EVENT_STATE_SHEET_ID`, `DATABRICKS_HTTP_PATH`
-**Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`), or service-principal env vars (`DATABRICKS_HOST` + `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`) in CI — the shared `databricks_oauth` path, no PAT
+**Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`), or GitHub OIDC federation for the `product_analytics` service principal in CI (`DATABRICKS_AUTH_TYPE=github-oidc`, no secret) — the shared `databricks_oauth` path, no PAT
 **Tools**: `uv`, Databricks access, a Google OAuth client (Sheets write scope)
 
 ## Manual trigger (one command)
