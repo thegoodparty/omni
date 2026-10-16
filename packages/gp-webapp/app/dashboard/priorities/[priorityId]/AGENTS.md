@@ -8,18 +8,18 @@ they see the whole path rather than only the step they are on.
 
 ## Files
 
-| File                                | Role                                                                               |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`         |
-| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                    |
-| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                            |
-| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                     |
+| File                                | Role                                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------------- |
+| `page.tsx`                          | Server component. Loads the priority and its status, passes `hideChatDock`          |
+| `components/PriorityWorkspace.tsx`  | The client orchestrator: conversation, rail, live status, cards                     |
+| `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                             |
+| `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                      |
 | `components/ReadStatus.tsx`         | The good read strip (phone) and rail block (desktop), behind `serve-citizen-panels` |
-| `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                   |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy |
-| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers  |
-| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                      |
-| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                          |
+| `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                    |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy  |
+| `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers   |
+| `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                       |
+| `data/toolLabels.ts`                | Which tools show a pill, and what it says                                           |
 
 ## It is the shared chat kit, not a new one
 
@@ -242,12 +242,32 @@ same list so neither asks what the record answers.
 
 Behind `serve-citizen-panels`, a priority has a good read once the people who
 answered on it, pooled across texts, calls and doors (the results page's
-count), reach `answersNeeded(population)` from contracts for the district's
-census population. gp-api decides it in one place, `priorityReadStatus`
+count), are enough for the district and look like it. gp-api decides it in one
+place, `priorityReadStatus`
 (`gp-api/src/priorities/util/priorityReadStatus.util.ts`), returning
-`{ answers, needed, good }`; census closeness joins `good` there later. The
-population is the census row's (`CensusCompositionSource.population`,
-memoized per district), and an unknown one uses the uncorrected 96.
+`{ answers, needed, good, status, underrepresented }`:
+
+| `status`               | Rule                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)       |
+| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census    |
+| `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed` |
+| `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this     |
+
+The answers are raked to the district's census marginals
+(`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
+ACS adults 18 to 64 and 65 and over, owner and renter households, and adults
+per census tract. Small groups pool, weights are capped at 0.2x to 5x the
+average, and an unknown value sits out its dimension. Gender is wired as a
+dimension and joins once the census marts publish sex by age. Race is never
+weighted. `underrepresented` names the one or two groups whose raw share
+trails the census most, by at least 5 points
+(`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
+read, the read falls back to the count alone. `needed` is
+`answersNeeded(population)` from contracts for the census row's population
+(`CensusCompositionSource.population`, memoized per district); an unknown one
+uses the uncorrected 96. **The official never sees a weight, a quota or a
+discounted count**: only the status, the groups and actions.
 `PriorityResultsService.readStatuses` serves `GET /v1/priorities/:id/read-status`
 (404 with the flag off), `readStatus` on the results response, the
 `<priority>` context of the priority flow and the Chief of Staff's
@@ -255,12 +275,17 @@ memoized per district), and an unknown one uses the uncorrected 96.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it one row: "N more answers for a good read" with a thin bar
-  and Get answers, or a check, "You have a good read" and See what we heard.
-  The text and bar link to the results page; the button is the one action.
-  The in-scroll title is desktop-only with the flag on.
-- **Desktop**: the rail opens with the same line, bar and button, a quiet
-  "What we heard" link, then "Where this stands". Nothing goes above the chat.
+  sheet. Under it one row: too early, "N more answers for a good read" with a
+  thin bar; otherwise a status dot and "Not yet representative. Hear from
+  more renters" (or "Getting close. ...", "Getting close. A few more answers
+  will do it"), each with Get answers; or a check, "Representative of your
+  district" and See what we heard. The text links to the results page; the
+  button is the one action. The in-scroll title is desktop-only with the
+  flag on.
+- **Desktop**: the rail opens with the status label and dot, the answers
+  still needed with a bar while there are fewer than `needed`, "Hear from
+  more renters and people 65 and over", Get answers, a quiet "What we heard"
+  link, then "Where this stands". Nothing goes above the chat.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. The agent proposes more answers as a
@@ -271,9 +296,16 @@ memoized per district), and an unknown one uses the uncorrected 96.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,
-  quotes or "most said"; it nudges toward more answers, and a direct "what
-  have people said" gets one or two honest sentences and "too early to act
-  on". The Chief of Staff follows the same rule from `<priorities>`
+  quotes or "most said"; it names the status and the group to hear more
+  from and offers outreach aimed at it, and a direct "what have people said"
+  gets one or two honest sentences and "too early to act on". It never
+  mentions weights or discounting.
+- **Parts not reached yet**: a proposal on a priority can carry
+  `areaTarget: 'unreached'`. Saving its list sends `unreachedAreaOfPriorityId`
+  to `POST /v1/voters/voter-file/filter`, and gp-api draws the area and saves
+  it as the list's boundary, named "Not reached yet", which the list's map
+  shows and edits like a drawn one. The model never sees coordinates; the
+  tool checks its count against the audience inside the area. The Chief of Staff follows the same rule from `<priorities>`
   (`PRIORITY_READ_RULES`). Reporting back to the people a text asked is not
   held back.
 

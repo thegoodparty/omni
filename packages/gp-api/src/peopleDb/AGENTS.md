@@ -40,6 +40,18 @@ the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
 
+A priority's read weights its answers to the census
+(`districtCensusSql.util.ts`, read through `StatsService`):
+`buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure
+and tract (the first 11 digits of `Census_Block_Group_Geoid`),
+`buildDistrictTractAdultsSql` sums adults per tract, and
+`buildTractGridCellsSql` returns the grid squares a set of tracts' people
+live in, from which gp-api draws the area a priority has not reached. All
+three return counts or square indexes, never a person. The grid stands in
+for tract outlines until the warehouse publishes them
+(https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
+is the one place to swap.
+
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
 `hf_ideology_general`, every `hs_*` score) and most have no `LALVOTERID`,

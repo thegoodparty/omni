@@ -284,7 +284,7 @@ export const ProposalFlowsProvider = ({
       const { proposal } = opened
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
-      const audience = proposedAudienceOf(proposal)
+      const audience = proposedAudienceOf(proposal, opened.priorityId)
       let listId = proposal.savedFilterId ?? null
       if (listId === null && audience) {
         try {
@@ -296,6 +296,9 @@ export const ProposalFlowsProvider = ({
               supportStatus: audience.supportStatus,
               precincts: audience.precincts,
               ...(audience.sample && { sample: audience.sample }),
+              ...(audience.unreachedAreaOfPriorityId && {
+                unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
+              }),
             },
           )
           listId = data.id
@@ -325,7 +328,10 @@ export const ProposalFlowsProvider = ({
   // The panel invite always goes to its seeded draw of the district, never a
   // list a card named.
   const saveProposalList = useCallback(
-    (proposal: OutreachProposal): Promise<number | null> => {
+    (
+      proposal: OutreachProposal,
+      priorityId?: string,
+    ): Promise<number | null> => {
       const key = proposal.proposalKey
       const inFlight = savingLists.current.get(key)
       if (inFlight) return inFlight
@@ -345,10 +351,10 @@ export const ProposalFlowsProvider = ({
             return known
           }
         }
-        const audience = proposedAudienceOf({
-          ...proposal,
-          savedFilterId: undefined,
-        })
+        const audience = proposedAudienceOf(
+          { ...proposal, savedFilterId: undefined },
+          priorityId,
+        )
         if (!audience) return null
         const { data } = await clientRequest(
           'POST /v1/voters/voter-file/filter',
@@ -358,6 +364,9 @@ export const ProposalFlowsProvider = ({
             supportStatus: audience.supportStatus,
             precincts: audience.precincts,
             ...(audience.sample && { sample: audience.sample }),
+            ...(audience.unreachedAreaOfPriorityId && {
+              unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
+            }),
           },
         )
         savedLists.current.set(key, data.id)
@@ -390,7 +399,7 @@ export const ProposalFlowsProvider = ({
       }
       const link = { ...(priorityId !== undefined && { priorityId }) }
       if (READY_CHANNELS.has(proposal.channel)) {
-        void saveProposalList(proposal).then(
+        void saveProposalList(proposal, priorityId).then(
           (listId) =>
             setOpened({
               proposal,
@@ -438,7 +447,7 @@ export const ProposalFlowsProvider = ({
   const readyListId = opened?.listId
   const proposedAudience =
     proposal && readyListId === undefined
-      ? proposedAudienceOf(proposal)
+      ? proposedAudienceOf(proposal, opened?.priorityId)
       : undefined
   const listId = readyListId ?? proposal?.savedFilterId ?? undefined
   // Stable across renders, since the Win text create effect depends on it.

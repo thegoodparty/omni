@@ -2,7 +2,12 @@ import Link from 'next/link'
 import type { PriorityReadStatus } from '@goodparty_org/contracts'
 import { Button, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
-import { READ_STATUS_COPY, readPercent, resultsHref } from '../readStatusCopy'
+import {
+  READ_STATUS_COPY,
+  READ_STATUS_DOT,
+  readPercent,
+  resultsHref,
+} from '../readStatusCopy'
 
 type ReadStatusProps = {
   priorityId: string
@@ -26,6 +31,13 @@ const GoodReadMark = ({ size }: { size: 'small' | 'medium' }) => (
   </span>
 )
 
+const StatusDot = ({ readStatus }: { readStatus: PriorityReadStatus }) => (
+  <span
+    aria-hidden
+    className={`size-2 shrink-0 rounded-full ${READ_STATUS_DOT[readStatus.status]}`}
+  />
+)
+
 const ReadProgress = ({
   readStatus,
   className,
@@ -43,8 +55,28 @@ const ReadProgress = ({
   />
 )
 
-// Phone: one compact row under the top bar. The text and bar open the
-// results page; the button is the one action.
+const GetAnswers = ({
+  onGetAnswers,
+  disabled,
+  className,
+}: {
+  onGetAnswers: () => void
+  disabled: boolean
+  className: string
+}) => (
+  <Button
+    type="button"
+    size="small"
+    className={className}
+    onClick={onGetAnswers}
+    disabled={disabled}
+  >
+    {READ_STATUS_COPY.getAnswers}
+  </Button>
+)
+
+// Phone: one compact row under the top bar. The text opens the results
+// page; the button is the one action.
 export const ReadStatusStrip = ({
   priorityId,
   readStatus,
@@ -60,7 +92,7 @@ export const ReadStatusStrip = ({
         >
           <GoodReadMark size="small" />
           <span className="truncate text-sm font-semibold">
-            {READ_STATUS_COPY.goodRead}
+            {READ_STATUS_COPY.representative}
           </span>
         </Link>
         <Button asChild size="small" className="shrink-0 rounded-full">
@@ -75,22 +107,29 @@ export const ReadStatusStrip = ({
           href={resultsHref(priorityId)}
           className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
         >
-          <span className="truncate text-sm font-semibold">
-            {READ_STATUS_COPY.moreAnswers(
-              readStatus.needed - readStatus.answers,
-            )}
-          </span>
-          <ReadProgress readStatus={readStatus} className="h-1.5" />
+          {readStatus.status === 'tooEarly' ? (
+            <>
+              <span className="truncate text-sm font-semibold">
+                {READ_STATUS_COPY.moreAnswers(
+                  readStatus.needed - readStatus.answers,
+                )}
+              </span>
+              <ReadProgress readStatus={readStatus} className="h-1.5" />
+            </>
+          ) : (
+            <span className="flex min-w-0 items-center gap-2">
+              <StatusDot readStatus={readStatus} />
+              <span className="truncate text-sm font-semibold">
+                {READ_STATUS_COPY.stripLine(readStatus)}
+              </span>
+            </span>
+          )}
         </Link>
-        <Button
-          type="button"
-          size="small"
-          className="shrink-0 rounded-full"
-          onClick={onGetAnswers}
+        <GetAnswers
+          onGetAnswers={onGetAnswers}
           disabled={getAnswersDisabled}
-        >
-          {READ_STATUS_COPY.getAnswers}
-        </Button>
+          className="shrink-0 rounded-full"
+        />
       </>
     )}
   </div>
@@ -109,7 +148,7 @@ export const ReadStatusRailBlock = ({
         <div className="flex items-center gap-2">
           <GoodReadMark size="medium" />
           <span className="text-base font-semibold text-foreground">
-            {READ_STATUS_COPY.goodRead}
+            {READ_STATUS_COPY.label(readStatus)}
           </span>
         </div>
         <Button asChild size="small" className="mt-1 self-start rounded-full">
@@ -120,19 +159,40 @@ export const ReadStatusRailBlock = ({
       </>
     ) : (
       <>
-        <span className="text-base font-semibold text-foreground">
-          {READ_STATUS_COPY.moreAnswers(readStatus.needed - readStatus.answers)}
-        </span>
-        <ReadProgress readStatus={readStatus} className="h-2" />
-        <Button
-          type="button"
-          size="small"
-          className="mt-1 self-start rounded-full"
-          onClick={onGetAnswers}
+        {readStatus.status === 'tooEarly' ? null : (
+          <div className="flex items-center gap-2">
+            <StatusDot readStatus={readStatus} />
+            <span className="text-base font-semibold text-foreground">
+              {READ_STATUS_COPY.label(readStatus)}
+            </span>
+          </div>
+        )}
+        {readStatus.answers < readStatus.needed ? (
+          <>
+            <span
+              className={
+                readStatus.status === 'tooEarly'
+                  ? 'text-base font-semibold text-foreground'
+                  : 'text-sm text-muted-foreground'
+              }
+            >
+              {READ_STATUS_COPY.moreAnswers(
+                readStatus.needed - readStatus.answers,
+              )}
+            </span>
+            <ReadProgress readStatus={readStatus} className="h-2" />
+          </>
+        ) : null}
+        {readStatus.underrepresented.length > 0 ? (
+          <span className="text-sm text-foreground">
+            {READ_STATUS_COPY.hearFromMore(readStatus.underrepresented)}
+          </span>
+        ) : null}
+        <GetAnswers
+          onGetAnswers={onGetAnswers}
           disabled={getAnswersDisabled}
-        >
-          {READ_STATUS_COPY.getAnswers}
-        </Button>
+          className="mt-1 self-start rounded-full"
+        />
       </>
     )}
     <Link

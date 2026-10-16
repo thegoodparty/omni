@@ -981,8 +981,27 @@ describe('PriorityWorkspace', () => {
   })
 
   describe('the read status, behind serve-citizen-panels', () => {
-    const thin: PriorityReadStatus = { answers: 54, needed: 96, good: false }
-    const good: PriorityReadStatus = { answers: 103, needed: 96, good: true }
+    const thin: PriorityReadStatus = {
+      answers: 24,
+      needed: 96,
+      good: false,
+      status: 'tooEarly',
+      underrepresented: [],
+    }
+    const skewed: PriorityReadStatus = {
+      answers: 103,
+      needed: 96,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['renters', 'age65plus'],
+    }
+    const good: PriorityReadStatus = {
+      answers: 103,
+      needed: 96,
+      good: true,
+      status: 'representative',
+      underrepresented: [],
+    }
     const reply: ChatMessageDto = {
       id: 'a1',
       conversationId: CONVERSATION_ID,
@@ -1014,7 +1033,7 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /42 more answers for a good read/,
+        name: /72 more answers for a good read/,
       })
       expect(status).toHaveAttribute(
         'href',
@@ -1022,7 +1041,7 @@ describe('PriorityWorkspace', () => {
       )
       expect(
         within(status).getByRole('progressbar', {
-          name: '54 of 96 answers for a good read',
+          name: '24 of 96 answers for a good read',
         }),
       ).toBeInTheDocument()
       expect(
@@ -1050,7 +1069,9 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const bar = screen.getByTestId('priority-phone-bar')
-      expect(within(bar).getByText('You have a good read')).toBeInTheDocument()
+      expect(
+        within(bar).getByText('Representative of your district'),
+      ).toBeInTheDocument()
       expect(
         within(bar).getByRole('link', { name: 'See what we heard' }),
       ).toHaveAttribute('href', '/dashboard/priorities/pri-1/results')
@@ -1065,7 +1086,7 @@ describe('PriorityWorkspace', () => {
 
       const rail = screen.getByRole('complementary')
       expect(
-        within(rail).getByText('42 more answers for a good read'),
+        within(rail).getByText('72 more answers for a good read'),
       ).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1083,9 +1104,35 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const rail = screen.getByRole('complementary')
-      expect(within(rail).getByText('You have a good read')).toBeInTheDocument()
+      expect(within(rail).getByText('Representative')).toBeInTheDocument()
       expect(
         within(rail).getByRole('link', { name: 'See what we heard' }),
+      ).toBeInTheDocument()
+    })
+
+    it('names who to hear more from once there are enough answers', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: skewed,
+      })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByText('Not yet representative. Hear from more renters'),
+      ).toBeInTheDocument()
+      const rail = screen.getByRole('complementary')
+      expect(
+        within(rail).getByText('Not yet representative'),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByText('Hear from more renters and people 65 and over'),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).queryByText(/more answers for a good read/),
+      ).not.toBeInTheDocument()
+      expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
+      expect(
+        within(rail).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
     })
 
@@ -1229,7 +1276,7 @@ describe('PriorityWorkspace', () => {
         expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
       )
       expect(
-        (await screen.findAllByText('You have a good read')).length,
+        (await screen.findAllByText('Representative of your district')).length,
       ).toBeGreaterThan(0)
     })
   })

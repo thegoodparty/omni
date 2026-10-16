@@ -10,6 +10,7 @@ import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
+  READ_STATUS_DOT,
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
@@ -99,22 +100,47 @@ export const PriorityResultsView = ({
           data-testid="results-held-back"
           className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5"
         >
-          <h2 className="text-base font-semibold text-foreground">
-            {READ_STATUS_COPY.moreAnswers(
-              readStatus.needed - readStatus.answers,
-            )}
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <span
+              aria-hidden
+              className={`size-2 shrink-0 rounded-full ${READ_STATUS_DOT[readStatus.status]}`}
+            />
+            {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          <Progress
-            value={readPercent(readStatus.answers, readStatus.needed)}
-            aria-label={READ_STATUS_COPY.progress(
-              readStatus.answers,
-              readStatus.needed,
-            )}
-            className="h-2"
-          />
+          {readStatus.answers < readStatus.needed ? (
+            <>
+              <p className="text-sm text-foreground">
+                {READ_STATUS_COPY.moreAnswers(
+                  readStatus.needed - readStatus.answers,
+                )}
+              </p>
+              <Progress
+                value={readPercent(readStatus.answers, readStatus.needed)}
+                aria-label={READ_STATUS_COPY.progress(
+                  readStatus.answers,
+                  readStatus.needed,
+                )}
+                className="h-2"
+              />
+            </>
+          ) : null}
           <p className="text-sm text-muted-foreground">
-            {READ_STATUS_COPY.tooEarly}
+            {readStatus.status === 'tooEarly'
+              ? READ_STATUS_COPY.tooEarly
+              : READ_STATUS_COPY.notLikeDistrict}
           </p>
+          {readStatus.underrepresented.length > 0 ? (
+            <div data-testid="results-hear-from-more">
+              <h3 className="text-sm font-semibold text-foreground">
+                {READ_STATUS_COPY.hearFromMoreHeading}
+              </h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
+                {readStatus.underrepresented.map((group) => (
+                  <li key={group}>{READ_STATUS_COPY.groupName(group)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <Button asChild size="small" className="self-start rounded-full">
             <Link href={getAnswersHref(priorityId)}>
               {READ_STATUS_COPY.getAnswers}
