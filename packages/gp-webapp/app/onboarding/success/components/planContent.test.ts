@@ -387,6 +387,102 @@ describe('buildPlanData contact schedule', () => {
   })
 })
 
+describe('buildPlanData once texting is closed', () => {
+  // Started Oct 15: the four past sends get one day each before the Oct 20
+  // send.
+  const closed = () =>
+    buildPlanData(makeInput({ planStartIso: '2026-10-15', smsClosed: true }))
+
+  it('swaps each text send for the tracker robocall on the same date and drops election day', () => {
+    expect(closed().contactSchedule).toEqual([
+      {
+        date: 'Oct 15, 2026',
+        tactic: 'Robocall',
+        purpose: 'Introduce yourself to voters with an automated call.',
+      },
+      {
+        date: 'Oct 16, 2026',
+        tactic: 'Robocall',
+        purpose: 'Introduce yourself to voters with landlines.',
+      },
+      {
+        date: 'Oct 17, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Build trust and make your case for why voters should pick you, by automated call.',
+      },
+      {
+        date: 'Oct 18, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Build trust and persuade voters with landlines to vote for you.',
+      },
+      {
+        date: 'Oct 20, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Encourage your supporters to vote early with an automated call.',
+      },
+      {
+        date: 'Nov 2, 2026',
+        tactic: 'Robocall',
+        purpose: 'Get out the vote on election day.',
+      },
+    ])
+  })
+
+  it('drops a text send that lands on a day a robocall already has', () => {
+    // Started Nov 2: every send but election day's text crowds onto Nov 2,
+    // where the election-day robocall already is.
+    const plan = buildPlanData(
+      makeInput({ planStartIso: '2026-11-02', smsClosed: true }),
+    )
+    expect(plan.contactSchedule.map((s) => [s.date, s.tactic])).toEqual([
+      ['Nov 2, 2026', 'Robocall'],
+      ['Nov 2, 2026', 'Robocall'],
+      ['Nov 2, 2026', 'Robocall'],
+    ])
+  })
+
+  it('drops the text budget line and leaves it out of the total', () => {
+    const open = buildPlanData(makeInput({ planStartIso: '2026-10-15' }))
+    const plan = closed()
+    expect(plan.budgetLineItems.map((row) => row.category)).not.toContain(
+      'Text campaigns',
+    )
+    expect(open.budgetLineItems.map((row) => row.category)).toContain(
+      'Text campaigns',
+    )
+    expect(plan.totalBudget).toBeLessThan(open.totalBudget)
+    const rowsTotal = plan.budgetLineItems
+      .filter((row) => row.category !== 'Total')
+      .reduce((sum, row) => sum + Number(row.amount.replace(/[$,]/g, '')), 0)
+    expect(rowsTotal).toBe(plan.totalBudget)
+  })
+
+  it('says nothing in the plan about texts', () => {
+    const plan = closed()
+    expect(plan.smsClosed).toBe(true)
+    expect(plan.glossary.map((row) => row.term)).not.toContain('Text')
+    expect(plan.planAtAGlance[1]?.body).toMatch(/^6 coordinated robocalls/)
+    for (const row of plan.timeline) {
+      expect(row.notes).not.toMatch(/\btext\b/i)
+    }
+  })
+
+  it('keeps the texts while texting is open', () => {
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-10-15' }))
+    expect(plan.smsClosed).toBe(false)
+    expect(plan.contactSchedule.map((s) => s.tactic)).toEqual(
+      VOTER_CONTACT_SCHEDULE.map((s) => s.tactic),
+    )
+    expect(plan.glossary.map((row) => row.term)).toContain('Text')
+    expect(plan.planAtAGlance[1]?.body).toMatch(
+      /^7 coordinated voter contacts \(text \+ robocall\)/,
+    )
+  })
+})
+
 describe('buildPlanData prediction intervals', () => {
   const rangeFor = (estimate: string, plan: ReturnType<typeof buildPlanData>) =>
     plan.confidenceEstimates.find((c) => c.estimate === estimate)?.range

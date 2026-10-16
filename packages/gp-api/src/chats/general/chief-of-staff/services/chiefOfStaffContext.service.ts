@@ -2,6 +2,7 @@ import type { ReportBackSend } from '@/outreach/services/outreachReportBack.serv
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
+  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ContactStatusField,
   OutreachType,
@@ -10,8 +11,12 @@ import {
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
-import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
+import {
+  ChatAnchorSchema,
+  type ChatAnchor,
+  type PriorityReadStatus,
+} from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
 
 export interface ChiefOfStaffContext {
@@ -63,6 +68,9 @@ export interface ChiefOfStaffContext {
   // The office's priority texts whose replies are in, and whether each has
   // been reported back on. Read per turn behind the same flag.
   reportBacks?: ReportBackSend[]
+  // Each active priority's answers against what a good read of the district
+  // needs, keyed by priority id. Read per turn behind the same flag.
+  priorityReads?: Map<string, PriorityReadStatus>
 }
 
 export interface CivicPanelBuildState {
@@ -70,8 +78,12 @@ export interface CivicPanelBuildState {
   // A text asking people to join is past checkout: the invite is out, and
   // the build card is done.
   inviteSent: boolean
-  // The serve-sms-outreach flag: without it there is no text flow to open.
-  textingEnabled: boolean
+  // The office has a plan building the panel across texts, calls and doors,
+  // on the panel page.
+  hasPlan: boolean
+  // The members it takes to answer one question in their district
+  // (panelGoalMembers).
+  goalMembers: number
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -166,9 +178,9 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
   async civicPanelBuildState(
     organizationSlug: string,
-    textingEnabled: boolean,
+    goalMembers: number,
   ): Promise<CivicPanelBuildState> {
-    const [members, invite] = await Promise.all([
+    const [members, invite, plan] = await Promise.all([
       this.client.contactCurrentStatus.count({
         where: {
           organizationSlug,
@@ -186,7 +198,19 @@ export class ChiefOfStaffContextService extends createPrismaBase(
         },
         select: { id: true },
       }),
+      this.client.civicPanelBuildPlan.findFirst({
+        where: {
+          organizationSlug,
+          status: CivicPanelBuildPlanStatus.active,
+        },
+        select: { id: true },
+      }),
     ])
-    return { members, inviteSent: invite !== null, textingEnabled }
+    return {
+      members,
+      inviteSent: invite !== null,
+      hasPlan: plan !== null,
+      goalMembers,
+    }
   }
 }

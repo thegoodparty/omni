@@ -9,6 +9,7 @@ import Image from 'next/image'
 import { useEffect } from 'react'
 import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
 import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 export type P2PModalVariant = 'ProFreeTextsNonCompliant' | 'NonProUpgrade'
 
@@ -42,6 +43,10 @@ export function P2PUpgradeModal({
   onUpgradeLinkClick,
   trackingAttrs = {},
 }: P2PUpgradeModalProps): React.JSX.Element {
+  // Every line of this modal sells texting, which Pro cannot unlock once the
+  // window has closed for the race.
+  const { smsCompliance } = useSmsCompliance()
+  const shown = open && smsCompliance !== 'closed'
   const isProFreeTextsNonCompliant =
     variant === P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
 
@@ -74,14 +79,14 @@ export function P2PUpgradeModal({
       }
 
   useEffect(() => {
-    if (open) {
+    if (shown) {
       trackEvent(EVENTS.P2PUpgrade.Modal.Shown, {
         variant,
         modalType: 'P2PUpgrade',
         ...trackingAttrs,
       })
     }
-  }, [open, variant, trackingAttrs])
+  }, [shown, variant, trackingAttrs])
 
   const handleClose = (): void => {
     trackEvent(EVENTS.P2PUpgrade.Modal.Exit, {
@@ -108,7 +113,7 @@ export function P2PUpgradeModal({
 
   return (
     <Modal
-      open={open}
+      open={shown}
       closeCallback={handleClose}
       preventBackdropClose
       preventEscClose

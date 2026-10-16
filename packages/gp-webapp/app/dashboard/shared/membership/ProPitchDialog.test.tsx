@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { MEMBERSHIP_COPY } from './membershipCopy'
@@ -163,5 +165,38 @@ describe('ProPitchDialog', () => {
     expect(router.push).toHaveBeenCalledWith(
       '/dashboard/pro-upgrade?source=contacts&channel=voter-data&cta=Join+Pro',
     )
+  })
+
+  it('drops the verification tile and shows the closed reason once texting has closed', () => {
+    render(
+      <CampaignContext.Provider
+        value={[
+          {
+            smsCompliance: 'closed',
+            smsCutoffDate: '2026-10-15',
+            generalElectionDate: '2026-11-03',
+          } as Campaign,
+        ]}
+      >
+        <ProPitchDialog
+          source="navigation"
+          channel="generic"
+          open
+          onOpenChange={vi.fn()}
+        />
+      </CampaignContext.Provider>,
+    )
+
+    expect(
+      screen.getByText(
+        'The Oct. 15 deadline to get verified for texting has passed.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Campaign verification')).toBeNull()
+    MEMBERSHIP_COPY.pitch.tiles
+      .filter(({ title }) => title !== 'Campaign verification')
+      .forEach(({ title }) => {
+        expect(screen.getByText(title)).toBeInTheDocument()
+      })
   })
 })

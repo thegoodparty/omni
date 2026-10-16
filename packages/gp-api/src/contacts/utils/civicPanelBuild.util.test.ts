@@ -12,14 +12,18 @@ import {
 const pools = { text: 50_000, phone: 50_000, door: 50_000 }
 
 describe('sizePanelWave', () => {
-  it('texts only with no hours, sized to the gap at the cold join rate', () => {
-    expect(sizePanelWave({ gap: 100, hoursPerMonth: 0, pools })).toEqual([
-      { channel: 'text', position: 1, targetSize: 3_334 },
-    ])
+  it('texts the whole gap at the cold rate when nobody can be called or visited', () => {
+    expect(
+      sizePanelWave({
+        gap: 100,
+        hoursPerWeek: 1,
+        pools: { text: 50_000, phone: 0, door: 0 },
+      }),
+    ).toEqual([{ channel: 'text', position: 1, targetSize: 3_334 }])
   })
 
-  it('splits a few hours between calls and one walkable area', () => {
-    expect(sizePanelWave({ gap: 100, hoursPerMonth: 4, pools })).toEqual([
+  it('splits an hour a week between calls and one walkable area', () => {
+    expect(sizePanelWave({ gap: 100, hoursPerWeek: 1, pools })).toEqual([
       { channel: 'text', position: 1, targetSize: 3_150 },
       { channel: 'phone_banking', position: 1, targetSize: 30 },
       { channel: 'door_knocking', position: 1, targetSize: 40 },
@@ -27,7 +31,7 @@ describe('sizePanelWave', () => {
   })
 
   it('caps doors at two areas and gives the spare hours to calls', () => {
-    expect(sizePanelWave({ gap: 100, hoursPerMonth: 40, pools })).toEqual([
+    expect(sizePanelWave({ gap: 100, hoursPerWeek: 10, pools })).toEqual([
       { channel: 'text', position: 1, targetSize: 1_917 },
       { channel: 'phone_banking', position: 1, targetSize: 450 },
       { channel: 'door_knocking', position: 1, targetSize: 100 },
@@ -36,7 +40,7 @@ describe('sizePanelWave', () => {
   })
 
   it('never sizes a channel past the gap it can fill', () => {
-    expect(sizePanelWave({ gap: 2, hoursPerMonth: 40, pools })).toEqual([
+    expect(sizePanelWave({ gap: 2, hoursPerWeek: 10, pools })).toEqual([
       { channel: 'door_knocking', position: 1, targetSize: 20 },
     ])
   })
@@ -45,7 +49,7 @@ describe('sizePanelWave', () => {
     expect(
       sizePanelWave({
         gap: 100,
-        hoursPerMonth: 4,
+        hoursPerWeek: 1,
         pools: { text: 500, phone: 0, door: 50_000 },
       }),
     ).toEqual([
@@ -55,7 +59,7 @@ describe('sizePanelWave', () => {
   })
 
   it('makes nothing once the goal is met', () => {
-    expect(sizePanelWave({ gap: 0, hoursPerMonth: 10, pools })).toEqual([])
+    expect(sizePanelWave({ gap: 0, hoursPerWeek: 3, pools })).toEqual([])
   })
 })
 
@@ -108,6 +112,7 @@ describe('step status and waves', () => {
     startedAt: null,
     completedAt: null,
     expectedRepliesBy: null,
+    skippedAt: null,
   }
 
   it('reads a text from scheduled to waiting to done', () => {
@@ -134,6 +139,31 @@ describe('step status and waves', () => {
   it('reads an untouched step in an earlier wave as skipped', () => {
     expect(stepStatus(base, true, now)).toBe('skipped')
     expect(stepStatus(base, false, now)).toBe('not_started')
+  })
+
+  it('reads a skip only while nothing was started from the step', () => {
+    expect(stepStatus({ ...base, skippedAt: now }, false, now)).toBe('skipped')
+    expect(
+      stepStatus(
+        { ...base, skippedAt: now, startedAt: now, channel: 'phone_banking' },
+        false,
+        now,
+      ),
+    ).toBe('in_progress')
+  })
+
+  it('does not wait on a skipped step, and moves on when all were skipped', () => {
+    const done = { ...base, status: 'done' as const, completedAt: now }
+    const skipped = {
+      ...base,
+      channel: 'door_knocking' as const,
+      skippedAt: now,
+      status: 'skipped' as const,
+    }
+    const untouched = { ...base, status: 'not_started' as const }
+    expect(waveIsDue([done, skipped], now)).toBe(true)
+    expect(waveIsDue([skipped], now)).toBe(true)
+    expect(waveIsDue([skipped, untouched], now)).toBe(false)
   })
 
   it('moves to the next wave once the started steps are done and the rest waited', () => {
@@ -179,7 +209,7 @@ describe('step status and waves', () => {
       stepId: 'text',
       channel: 'text',
       status: 'waiting_on_replies',
-      line: 'Replies to your invite arrive by Tuesday, October 20',
+      line: 'Replies to your civic panel invite should be in by Tuesday, October 20',
       href: null,
     })
   })

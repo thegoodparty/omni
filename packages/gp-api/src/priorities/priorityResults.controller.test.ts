@@ -1,8 +1,19 @@
 import { useTestService } from '@/test-service'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+  type MockInstance,
+} from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
-import type { PriorityResults } from '@goodparty_org/contracts'
+import type {
+  PriorityReadStatus,
+  PriorityResults,
+} from '@goodparty_org/contracts'
 import {
   ContactStatusField,
   DoorKnockOutcome,
@@ -14,6 +25,14 @@ import {
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { seedTurfEffort } from '@/constituentFeedback/tests/issueCaptureFixtures'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from './services/censusComposition'
 
 const service = useTestService()
 
@@ -25,6 +44,19 @@ const headers = () => ({ headers: { 'x-organization-slug': eoOrgSlug } })
 
 const results = (id = priorityId) =>
   service.client.get<PriorityResults>(`/v1/priorities/${id}/results`, headers())
+
+const readStatus = (id = priorityId) =>
+  service.client.get<PriorityReadStatus>(
+    `/v1/priorities/${id}/read-status`,
+    headers(),
+  )
+
+const blockGroup = Object.fromEntries(
+  ACS_COUNT_KEYS.map((key) => [key, 100]),
+) as AcsCounts
+
+let compose: MockInstance<CensusCompositionSource['compose']>
+let population: MockInstance<CensusCompositionSource['population']>
 
 const pointsFor = (ids: string[]) =>
   ids.map((id, index) => ({
@@ -109,6 +141,27 @@ beforeEach(async () => {
     points: pointsFor(ids),
     truncated: false,
   }))
+  vi.spyOn(
+    service.app.get(ContactsService),
+    'resolveEligibleDistrict',
+  ).mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
+  compose = vi
+    .spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'compose',
+    )
+    .mockImplementation(async ({ personIds }) => ({
+      available: true,
+      district: blockGroup,
+      respondentBlockGroups: personIds.map(() => blockGroup),
+    }))
+  // A district of 10 needs 9 answers for a good read.
+  population = vi
+    .spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'population',
+    )
+    .mockResolvedValue(10)
 })
 
 describe('GET /v1/priorities/:id/results', () => {
@@ -140,11 +193,27 @@ describe('GET /v1/priorities/:id/results', () => {
       expect(Math.round(lat * 1000) / 1000).toBe(lat)
       expect(Math.round(lng * 1000) / 1000).toBe(lng)
     }
-    expect(res.data.representation).toMatchObject({
-      source: 'sample',
-      respondentCount: 12,
+    expect(compose.mock.calls[0]?.[0]).toEqual({
+      districtId: 'd-1',
+      dataset: 'voters',
+      personIds: expect.arrayContaining(respondents),
     })
+    expect(res.data.representation?.respondentCount).toBe(12)
     expect(res.data.representation?.groups.length).toBeGreaterThan(0)
+    expect(res.data.readStatus).toEqual({ answers: 12, needed: 9, good: true })
+  })
+
+  it('shows unavailable census as a comparison with no rows, not an error', async () => {
+    compose.mockResolvedValue({ available: false })
+    await createTextSend(12, 0)
+
+    const res = await results()
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.representation).toEqual({
+      respondentCount: 12,
+      groups: [],
+    })
   })
 
   it('does not count a reply that was only STOP as hearing from someone', async () => {
@@ -273,6 +342,83 @@ describe('GET /v1/priorities/:id/results', () => {
     onTestFinished(() => flag.mockRestore())
 
     const res = await results()
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('GET /v1/priorities/:id/read-status', () => {
+  it('is not a good read below the answers the district needs', async () => {
+    await createTextSend(8, 4)
+
+    const res = await readStatus()
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({ answers: 8, needed: 9, good: false })
+    expect(population).toHaveBeenCalledWith({
+      districtId: 'd-1',
+      dataset: 'voters',
+    })
+  })
+
+  it('is a good read at exactly the answers needed', async () => {
+    await createTextSend(9, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({ answers: 9, needed: 9, good: true })
+  })
+
+  it('pools people across sends and channels, counting each once', async () => {
+    const { respondents } = await createTextSend(6, 0)
+    const second = await createTextSend(4, 0)
+    await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: uuidv7(),
+        personId: respondents[0]!,
+        outreachId: second.outreach.id,
+        electedOfficeId: eoId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date(),
+        content: 'Still flooding.',
+        isOptOut: false,
+      },
+    })
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({ answers: 10, needed: 9, good: true })
+  })
+
+  it("leaves out another priority's answers", async () => {
+    await createTextSend(9, 0, { priorityId: null })
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({ answers: 0, needed: 9, good: false })
+  })
+
+  it('uses the uncorrected figure when the population is unknown', async () => {
+    population.mockResolvedValue(null)
+    await createTextSend(12, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({ answers: 12, needed: 96, good: false })
+  })
+
+  it("404s on a priority this office doesn't hold", async () => {
+    const res = await readStatus(uuidv7())
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('404s with serve-citizen-panels off', async () => {
+    const flag = vi
+      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+      .mockResolvedValue(false)
+    onTestFinished(() => flag.mockRestore())
+
+    const res = await readStatus()
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })

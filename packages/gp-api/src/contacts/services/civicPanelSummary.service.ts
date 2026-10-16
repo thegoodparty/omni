@@ -15,9 +15,9 @@ import { ContactStatusService } from '@/contactInteraction/services/contactStatu
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
+  representationFrom,
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
-import { computeRepresentation } from '@/priorities/util/representation.util'
 import { ContactsService } from './contacts.service'
 
 // Serve's civic panel as a whole: how many are on it, how many can be
@@ -77,34 +77,11 @@ export class CivicPanelSummaryService {
     if (members.length < MIN_RESPONDENTS_FOR_REPRESENTATION) {
       return { representation: null }
     }
-    // Past the map's cap the comparison is drawn from the members returned,
-    // and respondentCount says how many that was.
-    const { points } = await this.contactsService.pointsForPeople(
-      members,
-      organization,
-    )
-    if (points.length < MIN_RESPONDENTS_FOR_REPRESENTATION) {
-      return { representation: null }
-    }
     const composition = await this.census.compose({
-      districtKey: organization.slug,
-      respondents: points.map(({ id, lat, lng }) => ({
-        personId: id,
-        lat,
-        lng,
-      })),
+      ...(await this.contactsService.resolveEligibleDistrict(organization)),
+      personIds: members,
     })
-    if (!composition) return { representation: null }
-    return {
-      representation: {
-        source: composition.source,
-        respondentCount: points.length,
-        groups: computeRepresentation(
-          composition.district,
-          composition.respondentBlockGroups,
-        ),
-      },
-    }
+    return { representation: representationFrom(composition, members.length) }
   }
 
   private async memberIds(organization: Organization): Promise<string[]> {

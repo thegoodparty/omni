@@ -6,7 +6,9 @@ import {
   emptyPriorityStatus,
   PROPOSAL_SENT_MARKER,
   REPORT_BACK_MARKER,
+  GET_ANSWERS_MARKER,
 } from '@goodparty_org/contracts'
+import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
@@ -1070,6 +1072,7 @@ describe('PriorityFlowHandler', () => {
       ...baseCtx(),
       outreachFeedbackEnabled: true,
       civicPanelMembers: members,
+      panelAnswersNeeded: 96,
     })
 
     it('offers one card asking the rested panel and as many new residents', () => {
@@ -1081,9 +1084,15 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain(
         'civicPanelMember true, Has Cell Phone and notContactedRecently true',
       )
-      expect(prompt).toContain('replyRate 0.4')
-      expect(prompt).toContain('panelSampleSize set to that panel part')
-      expect(prompt).toContain('sampleSize set to twice it')
+      expect(prompt).toContain('Size the send with size_panel_ask')
+      expect(prompt).toContain('for about 96 answers')
+      expect(prompt).toContain(
+        'panelSampleSize when it returned one (leave it out when it did not)',
+      )
+      expect(prompt).toContain(
+        'size_outreach_sample and HOW MANY PEOPLE TO ASK do not apply to this send',
+      )
+      expect(prompt).toContain('When reachesAnswersNeeded comes back false')
       expect(prompt).toContain('civicPanelAsk true')
       expect(prompt).toContain('never add civicPanelMember to audienceFilters')
       expect(prompt).toContain(
@@ -1143,10 +1152,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('THE CIVIC PANEL COMES FIRST')
       expect(prompt).toContain('nobody on their civic panel yet')
       expect(prompt).toContain('Civic panel: 0 members')
-      expect(prompt).toContain(
-        'If it is 0, the card is the fresh residents alone',
-      )
-      expect(prompt).toContain('civicPanelAsk true and no panelSampleSize')
+      expect(prompt).toContain('Size the send with size_panel_ask')
     })
 
     it('behaves as before with the flag off: no panel, both sides up front', () => {
@@ -1201,11 +1207,13 @@ describe('PriorityFlowHandler', () => {
 
       const on = await handlerWith(true).loadContext('c1', USER_ID)
       expect(on.civicPanelMembers).toBe(42)
+      expect(on.panelAnswersNeeded).toBe(96)
       expect(countCivicPanelMembers).toHaveBeenCalledWith(ORG)
 
       countCivicPanelMembers.mockClear()
       const off = await handlerWith(false).loadContext('c1', USER_ID)
       expect(off.civicPanelMembers).toBeUndefined()
+      expect(off.panelAnswersNeeded).toBeUndefined()
       expect(countCivicPanelMembers).not.toHaveBeenCalled()
     })
 
@@ -1246,7 +1254,7 @@ describe('PriorityFlowHandler', () => {
         await tool.execute({ ...combined, sampleSize: 42 }),
       ).toHaveProperty(
         'error',
-        expect.stringContaining('twice panelSampleSize'),
+        expect.stringContaining('as size_panel_ask returned it'),
       )
       expect(
         await tool.execute({ ...combined, channel: 'phoneBanking' as const }),
@@ -1517,6 +1525,98 @@ describe('PriorityFlowHandler', () => {
       }
       expect(tool.inputSchema.parse(card)).not.toHaveProperty(
         'reportBackForOutreachId',
+      )
+    })
+  })
+
+  describe('behind serve-citizen-panels, before a good read', () => {
+    const thin = { answers: 54, needed: 96, good: false }
+    let readStatuses: ReturnType<typeof vi.fn>
+
+    const withReadStatus = (enabled = true) => {
+      readStatuses = vi.fn(() => Promise.resolve(new Map([['pri-1', thin]])))
+      return new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+          countSegment: vi.fn(),
+          getDistrictPopulation: vi.fn(() => Promise.resolve(null)),
+        } as never,
+        {} as never,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)) } as never,
+        undefined,
+        { readStatuses } as unknown as PriorityResultsService,
+      )
+    }
+    const at = (readStatus: typeof thin): PriorityFlowContext => ({
+      ...baseCtx(),
+      outreachFeedbackEnabled: true,
+      readStatus,
+    })
+
+    it('reads the status only with the flag on', async () => {
+      context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
+      const ctx = await withReadStatus(true).loadContext('c1', USER_ID)
+      expect(ctx.readStatus).toEqual(thin)
+      expect(readStatuses).toHaveBeenCalledWith(ORG, ['pri-1'])
+
+      const off = await withReadStatus(false).loadContext('c1', USER_ID)
+      expect(off.readStatus).toBeUndefined()
+      expect(readStatuses).not.toHaveBeenCalled()
+      const prompt = withReadStatus().buildSystemPrompt(baseCtx())
+      expect(prompt).not.toContain('BEFORE A GOOD READ')
+      expect(prompt).not.toContain('needed for a good read')
+    })
+
+    it('tells the agent where the read stands in <priority>', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        'Answers: 54 of 96 needed for a good read. Good read: no.',
+      )
+      const good = withReadStatus().buildSystemPrompt(
+        at({ answers: 103, needed: 96, good: true }),
+      )
+      expect(good).toContain(
+        'Answers: 103 of 96 needed for a good read. Good read: yes.',
+      )
+    })
+
+    it('holds results back and nudges toward more answers', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain('BEFORE A GOOD READ')
+      expect(prompt).toContain(
+        'Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said"',
+      )
+      expect(prompt).toContain('Nudge toward getting more answers instead')
+    })
+
+    it('answers a direct question honestly and says it is too early', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        'If they ask directly what people have said so far, answer honestly in one or two sentences',
+      )
+      expect(prompt).toContain('say it is too early to act on')
+    })
+
+    it('proposes more answers on Get answers, and never sends', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        `A message that starts with ${GET_ANSWERS_MARKER} comes from the app`,
+      )
+      expect(prompt).toContain(
+        'Propose getting more answers for the check that is out now, as a card',
+      )
+      expect(prompt).toContain(
+        'never say anything was sent, and never send anything yourself',
       )
     })
   })

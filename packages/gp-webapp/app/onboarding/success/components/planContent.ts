@@ -1,4 +1,5 @@
 import {
+  TEXT_SEND_ROBOCALL_SWAPS,
   VOTER_CONTACT_SCHEDULE,
   voterContactSendDate,
 } from '@goodparty_org/contracts'
@@ -78,6 +79,9 @@ export interface PlanInput {
   // joiner's past-due sends are compressed the same way the tracker does.
   // Unset before the tracker exists, when the plan is starting today.
   planStartIso?: string | null
+  // gp-api's texting window is closed: the plan swaps its text sends for
+  // robocalls the way the tracker does, and drops the text budget.
+  smsClosed?: boolean
   filingDateStartIso: string | null | undefined
   filingDateEndIso: string | null | undefined
   winNumber: number
@@ -243,6 +247,7 @@ export interface PlanData {
   electionDateRaw: Date | null
   planGenerationDate: string
   contactWindowStart: string
+  smsClosed: boolean
 
   winNumber: number
   projectedTurnout: number
@@ -306,6 +311,7 @@ const buildTimeline = (
   filingDateEnd: Date | null,
   milestones: RaceMilestones | null,
   stateCode: string,
+  smsClosed: boolean,
 ): {
   timeline: TimelineRow[]
   keyDates: KeyDate[]
@@ -487,7 +493,9 @@ const buildTimeline = (
               milestone: 'Absentee ballot request opens',
               notes: sourceNote(
                 requestBallotStartIsReal,
-                'Plan introduction text and robocall campaigns to land before this date.',
+                smsClosed
+                  ? 'Plan introduction robocall campaigns to land before this date.'
+                  : 'Plan introduction text and robocall campaigns to land before this date.',
               ),
             },
           ]),
@@ -527,14 +535,18 @@ const buildTimeline = (
               notes: curatedNote(
                 requestBallotEndSource,
                 requestBallotTierNote,
-                'Push via text campaign.',
+                smsClosed
+                  ? 'Push via robocall campaign.'
+                  : 'Push via text campaign.',
               ),
             },
           ]),
       {
         date: electionDate,
         milestone: 'Election Day, polls open; absentee ballots due',
-        notes: 'All hands on deck; push via GOTV text and robocall campaigns.',
+        notes: smsClosed
+          ? 'All hands on deck; push via GOTV robocall campaigns.'
+          : 'All hands on deck; push via GOTV text and robocall campaigns.',
       },
     ]
 
@@ -607,9 +619,11 @@ const buildTimeline = (
 const buildContactSchedule = (
   electionDate: Date | null,
   planStart: Date,
+  smsClosed: boolean,
 ): ContactSend[] => {
   if (!electionDate) return []
-  return VOTER_CONTACT_SCHEDULE.map((send) => ({
+  const sends = VOTER_CONTACT_SCHEDULE.map((send) => ({
+    catalogId: send.catalogId,
     date: formatDate(
       voterContactSendDate(send.catalogId, electionDate, planStart) ??
         addDays(electionDate, -send.daysBeforeElection),
@@ -617,6 +631,25 @@ const buildContactSchedule = (
     tactic: send.tactic,
     purpose: send.purpose,
   }))
+  if (!smsClosed) {
+    return sends.map(({ date, tactic, purpose }) => ({ date, tactic, purpose }))
+  }
+  // Past the texting cutoff each text send becomes the tracker's swapped
+  // robocall on its date, unless a robocall already lands that day.
+  const robocallDates = new Set(
+    sends.filter((send) => send.tactic === 'Robocall').map((send) => send.date),
+  )
+  return sends.flatMap((send): ContactSend[] => {
+    if (send.tactic !== 'Text') {
+      return [{ date: send.date, tactic: send.tactic, purpose: send.purpose }]
+    }
+    const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+      (candidate) => candidate.catalogId === send.catalogId,
+    )
+    if (!swap || robocallDates.has(send.date)) return []
+    robocallDates.add(send.date)
+    return [{ date: send.date, tactic: 'Robocall', purpose: swap.description }]
+  })
 }
 
 const OUTLET_TYPE_LABEL: Record<ApiPressOutlet['type'], string> = {
@@ -662,19 +695,29 @@ const buildBudgetBreakdown = (
   contactGoal: number,
   projectedTurnout: number,
   filingFee: number | null,
+  smsClosed: boolean,
 ): BudgetBreakdown => {
-  const budget = computeBudget(contactGoal, projectedTurnout, filingFee)
+  const budget = computeBudget(
+    contactGoal,
+    projectedTurnout,
+    filingFee,
+    smsClosed,
+  )
 
   const lineItems: BudgetRow[] = [
-    {
-      category: 'Text campaigns',
-      amount: formatDollars(budget.textCost),
-      rationale: `60% of your ${contactGoal.toLocaleString(
-        'en-US',
-      )} voter contacts (${budget.textCount.toLocaleString(
-        'en-US',
-      )} texts) at $${TEXT_COST.toFixed(3)} per text.`,
-    },
+    ...(smsClosed
+      ? []
+      : [
+          {
+            category: 'Text campaigns',
+            amount: formatDollars(budget.textCost),
+            rationale: `60% of your ${contactGoal.toLocaleString(
+              'en-US',
+            )} voter contacts (${budget.textCount.toLocaleString(
+              'en-US',
+            )} texts) at $${TEXT_COST.toFixed(3)} per text.`,
+          },
+        ]),
     {
       category: 'Robocall campaigns',
       amount: formatDollars(budget.robocallCost),
@@ -835,6 +878,8 @@ const buildPlanAtAGlance = (
   projectedTurnout: number,
   contactWindowStart: string,
   electionDate: string,
+  smsClosed: boolean,
+  contactCount: number,
 ): { title: string; body: string }[] => [
   {
     title: 'Voter turnout is the ball game.',
@@ -844,7 +889,7 @@ const buildPlanAtAGlance = (
   },
   {
     title: 'Stack the channels.',
-    body: `7 coordinated voter contacts (text + robocall) blanket your targeted voters between ${
+    body: `${smsClosed ? `${contactCount} coordinated robocalls` : '7 coordinated voter contacts (text + robocall)'} blanket your targeted voters between ${
       contactWindowStart || '{12_weeks_before_election_date}'
     } and ${electionDate || '{election_date}'}.`,
   },
@@ -1050,6 +1095,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const districtName = (input.district ?? '').trim()
   const hasDistrict = districtName !== ''
   const electionType = resolveElectionType(input.partisanType ?? '')
+  const smsClosed = input.smsClosed ?? false
 
   const electionDateValid = parseDateIso(input.electionDateIso)
   const electionDate = electionDateValid ? formatDate(electionDateValid) : ''
@@ -1095,7 +1141,12 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const metricsReady = voterContactGoal > 0 && projectedTurnout > 0
   const emptyBudget: BudgetBreakdown = { totalBudget: 0, lineItems: [] }
   const { totalBudget, lineItems: budgetLineItems } = metricsReady
-    ? buildBudgetBreakdown(voterContactGoal, projectedTurnout, input.filingFee)
+    ? buildBudgetBreakdown(
+        voterContactGoal,
+        projectedTurnout,
+        input.filingFee,
+        smsClosed,
+      )
     : emptyBudget
 
   const weeksRemaining = resolveWeeksRemaining(electionDateValid)
@@ -1115,6 +1166,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     filingDateEnd,
     input.milestones,
     input.state,
+    smsClosed,
   )
   const contactSchedule = buildContactSchedule(
     electionDateValid,
@@ -1122,6 +1174,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     input.planStartIso
       ? new Date(input.planStartIso.slice(0, 10).replace(/-/g, '/'))
       : new Date(new Date().setHours(0, 0, 0, 0)),
+    smsClosed,
   )
 
   const confidenceEstimates = buildConfidenceEstimates(
@@ -1135,6 +1188,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     projectedTurnout,
     contactWindowStart,
     electionDate,
+    smsClosed,
+    contactSchedule.length,
   )
 
   const opponents = buildOpponents(
@@ -1213,6 +1268,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     electionDateRaw: electionDateValid,
     planGenerationDate,
     contactWindowStart,
+    smsClosed,
     winNumber,
     projectedTurnout,
     registeredVoters,
@@ -1250,7 +1306,9 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     keyAssumptions: KEY_ASSUMPTIONS,
     confidenceEstimates,
     planDoesNotDo: PLAN_DOES_NOT_DO,
-    glossary: GLOSSARY,
+    glossary: smsClosed
+      ? GLOSSARY.filter((row) => row.term !== 'Text')
+      : GLOSSARY,
     filingFee: input.filingFee,
     filingRequirementsText: input.filingRequirementsText,
   }

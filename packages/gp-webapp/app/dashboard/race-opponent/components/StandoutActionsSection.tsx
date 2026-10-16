@@ -7,6 +7,7 @@ import { SendIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import type { RaceOpponentStandoutAction } from 'gpApi/api-endpoints'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 type Props = {
   standoutActions: RaceOpponentStandoutAction[] | null | undefined
@@ -23,6 +24,7 @@ const StandoutActionsSection = ({
 }: Props): React.JSX.Element | null => {
   const router = useRouter()
   const [campaign] = useCampaign()
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
   const actionCount = standoutActions?.length ?? 0
   // Fire the viewed event once per mount, only when cards actually render. The
@@ -87,12 +89,14 @@ const StandoutActionsSection = ({
             <p className="min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
               {action.body}
             </p>
-            <Button
-              className="w-full"
-              onClick={() => handleSendSms(action, index)}
-            >
-              Send SMS to voters
-            </Button>
+            {!smsClosed && (
+              <Button
+                className="w-full"
+                onClick={() => handleSendSms(action, index)}
+              >
+                Send SMS to voters
+              </Button>
+            )}
           </div>
         ))}
       </div>

@@ -20,6 +20,7 @@ import type {
   VoterInsightsContext,
 } from '../components/PlanSections'
 import { useStrategicLandscape } from './useStrategicLandscape'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 // Lifecycle signals per async plan resource, shaped for analytics.
 // `isGenerating` is true only while the server reports an active background
@@ -56,6 +57,7 @@ export const useCampaignPlanData = (
   const user = clientUser ?? initialUser
   const [campaign] = useCampaign()
   const campaignId = campaign?.id
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
   // The candidate is the campaign OWNER, not the viewer — a Campaign Manager
   // opening the plan must not become the headline name. Fall back to the
@@ -232,6 +234,7 @@ export const useCampaignPlanData = (
       partisanType,
       electionDateIso,
       planStartIso,
+      smsClosed,
       filingDateStartIso,
       filingDateEndIso,
       winNumber,
@@ -270,6 +273,7 @@ export const useCampaignPlanData = (
     partisanType,
     electionDateIso,
     planStartIso,
+    smsClosed,
     filingDateStartIso,
     filingDateEndIso,
     winNumber,

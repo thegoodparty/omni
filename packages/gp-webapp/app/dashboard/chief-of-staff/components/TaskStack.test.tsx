@@ -237,7 +237,7 @@ describe('<TaskStack>', () => {
     summary:
       'A civic panel is a group of residents who agree to tell you what they think before you decide.',
     ctaLabel: 'Build my panel',
-    ctaHref: '/dashboard/chief-of-staff?chat=build_citizens_panel',
+    ctaHref: '/dashboard/contacts/citizens-panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
   })
@@ -313,14 +313,10 @@ describe('<TaskStack>', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'People first' }),
     ).toBeInTheDocument()
-    // Build my panel stays on the home: it opens the chat there, never the
-    // outreach page.
+    // Build my panel opens the panel page, where the plan is made.
     expect(
       screen.getByRole('link', { name: 'Build my panel' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/chief-of-staff?chat=build_citizens_panel',
-    )
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
 
     withCards([card({})])
     rerender(<TaskStack onOpenCard={vi.fn()} />)
@@ -332,6 +328,45 @@ describe('<TaskStack>', () => {
     ]
     rerender(<TaskStack onOpenCard={vi.fn()} />)
     expect(frontTitle()).toBe('Prep for the zoning vote')
+  })
+
+  // Once the build card is done, the plan's next step takes its place.
+  it("puts the plan's next step where the build card was, with no explainer or due date", () => {
+    onboardingRef.current = [
+      { key: 'meet', status: 'completed' },
+      { key: 'priorities', status: 'active' },
+    ]
+    withCards([
+      card({}),
+      card({
+        id: 'step',
+        type: 'civic_panel',
+        title: 'Call residents to invite them to your civic panel',
+        summary: '12 of 100 members so far.',
+        ctaLabel: 'Start the calls',
+        ctaHref: '/dashboard/contacts/citizens-panel?step=s2',
+        dueDate: '2026-10-21T18:00:00.000Z',
+        sourceExternalId: 'panel-step:s2',
+      }),
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+    expect(frontTitle()).toBe(
+      'Call residents to invite them to your civic panel',
+    )
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'People first' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Start the calls' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s2')
+    expect(screen.queryByText(/October 21/)).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: "What's a civic panel?" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mark done' }),
+    ).not.toBeInTheDocument()
   })
 
   it('puts the build card ahead of priorities once meet is skipped', () => {

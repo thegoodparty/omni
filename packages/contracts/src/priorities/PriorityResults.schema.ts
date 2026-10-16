@@ -61,10 +61,8 @@ export const RepresentationGroupSchema = z.object({
 export type RepresentationGroup = z.infer<typeof RepresentationGroupSchema>
 
 export const PriorityRepresentationSchema = z.object({
-  // `sample` is stand-in figures shaped like the census tables, shown with a
-  // label until the real district and block group demographics are readable.
-  source: z.enum(['sample', 'census']),
   respondentCount: z.number().int(),
+  // Empty when the district's census figures are unavailable.
   groups: z.array(RepresentationGroupSchema),
 })
 export type PriorityRepresentation = z.infer<
@@ -82,8 +80,19 @@ export const PriorityThemeSchema = z.object({
 })
 export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
 
+// Whether a priority has heard from enough people to read the district:
+// pooled answers across texts, calls and doors against answersNeeded for
+// the district's population. gp-api's priorityReadStatus decides `good`.
+export const PriorityReadStatusSchema = z.object({
+  answers: z.number().int().nonnegative(),
+  needed: z.number().int().positive(),
+  good: z.boolean(),
+})
+export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
+
 export const PriorityResultsSchema = z.object({
   priorityId: z.string(),
+  readStatus: PriorityReadStatusSchema,
   sends: z.array(PriorityResultsSendSchema),
   respondents: z.object({
     total: z.number().int(),

@@ -5,8 +5,9 @@ import {
   CAMPAIGN_TASK_CATALOG,
   campaignPhaseWindows,
   resolveTrackerTaskDate,
+  TEXT_SEND_ROBOCALL_SWAPS,
 } from '@goodparty_org/contracts'
-import { Campaign, Prisma } from '../../../generated/prisma'
+import { Campaign, CampaignTaskType, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { getMidnightForDate } from 'src/shared/util/date.util'
@@ -125,15 +126,45 @@ export const buildBallotAccessTrackerTaskRows = (
 // the tracker must never suggest further texts/robocalls (gated on the
 // HubSpot-sourced `campaign.primaryResult`) — and none without an upcoming
 // election to anchor to, since every send is election-relative and a `start`
-// fallback would schedule the whole contact program for next week.
+// fallback would schedule the whole contact program for next week. With
+// texting closed, each text send is swapped for a robocall on its date, or
+// dropped when a robocall already lands there.
 export const buildOutreachTrackerTaskRows = (
   campaignId: number,
   start: Date,
   electionDate: Date | null,
   primaryLost: boolean,
-): Prisma.CampaignTrackerTaskCreateManyInput[] =>
-  primaryLost || !electionDate
-    ? []
-    : CAMPAIGN_TASK_CATALOG.filter((task) =>
-        OUTREACH_CHANNELS.has(task.channel),
-      ).map((task) => toRow(campaignId, start, electionDate, task))
+  smsClosed: boolean,
+): Prisma.CampaignTrackerTaskCreateManyInput[] => {
+  if (primaryLost || !electionDate) return []
+  const sends = CAMPAIGN_TASK_CATALOG.filter((task) =>
+    OUTREACH_CHANNELS.has(task.channel),
+  ).map((task) => ({
+    task,
+    row: toRow(campaignId, start, electionDate, task),
+  }))
+  if (!smsClosed) return sends.map(({ row }) => row)
+
+  const robocallDates = new Set(
+    sends
+      .filter(({ task }) => task.channel === 'robocall')
+      .map(({ row }) => new Date(row.date).getTime()),
+  )
+  return sends.flatMap(({ task, row }) => {
+    if (task.channel !== 'text') return [row]
+    const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+      (candidate) => candidate.catalogId === task.id,
+    )
+    const date = new Date(row.date).getTime()
+    if (!swap || robocallDates.has(date)) return []
+    robocallDates.add(date)
+    return [
+      {
+        ...row,
+        title: swap.title,
+        description: swap.description,
+        flowType: CampaignTaskType.robocall,
+      },
+    ]
+  })
+}

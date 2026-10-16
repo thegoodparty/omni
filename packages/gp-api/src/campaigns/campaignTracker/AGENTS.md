@@ -35,7 +35,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
 - **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
   a task aside. `later` moves its `date` three days out
   (`trackerTaskPutOffDate`); from then on the date is the candidate's, so
-  `alignTrackerTaskDates` leaves it alone. Tasks dated by fact (the Election
+  `alignTrackerTaskDates` leaves the date alone. Tasks dated by fact (the Election
   admin dates, Election Day) 400 on it (`canPutOffTask`). `notForMe` holds until
   `DELETE /skip/:id`; ballot access 400s on it (`canSetTaskAsideForGood`), while
   finance reporting doesn't, since not every candidate must file. Neither
@@ -128,6 +128,32 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **No text sends once texting is closed.** When `smsComplianceWindow`
+  (`campaigns/util/eligibility.util.ts`) reads `closed` for the campaign (it
+  did not file and pay before the cutoff, 19 days before the general), each
+  text send becomes a robocall on the same date, per
+  `TEXT_SEND_ROBOCALL_SWAPS` (contracts `VoterContactSchedule.data.ts`, which
+  the webapp plan document also reads):
+  - Introduction Text -> Early Introduction Robocall
+  - Persuasion Text -> Early Persuasion Robocall
+  - Early Voting Text -> Early Voting Robocall
+  - Election Day Reminder Text has no swap and is dropped (the reminder
+    robocall lands the day before).
+
+  A text whose date already has a robocall is dropped instead of doubled. New
+  rows get this in `buildOutreachTrackerTaskRows`; existing open rows get it
+  on the GET in `alignTrackerTaskDates`, which dates a swap off the text send
+  it replaced. The swaps have their own titles because align finds a row's
+  catalog entry by title, and the catalog robocall titles sit on other dates.
+  Completed text rows are never touched. A put-off text row keeps the
+  candidate's date and its skip state; only its channel and title change.
+  Rows only swap on that read, so the two CAS posts run the same align first
+  (the one-time schedule post would otherwise miss the swapped robocalls for
+  good) and list no text rows. The legacy `campaign_task` Pro-upgrade post
+  (`sendCampaignPlanSlackMessage`) lists each text as its swapped robocall by
+  the same rule without changing the legacy rows, and the weekly digest SQL
+  leaves text rows out for a closed race.
+
 - **A past election date anchors nothing.** `resolveElectionDate` takes the
   general date, falls back to the primary, and ignores whichever has already
   passed; with no upcoming date `buildOutreachTrackerTaskRows` emits **no**

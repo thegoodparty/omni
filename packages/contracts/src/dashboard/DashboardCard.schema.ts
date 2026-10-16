@@ -4,6 +4,7 @@ import {
   DashboardCardTypeSchema,
   type DashboardCardType,
 } from '../generated/enums'
+import { CIVIC_PANEL_PAGE_HREF } from '../people/CivicPanelBuildPlan.schema'
 
 export {
   DASHBOARD_CARD_TYPE_VALUES,
@@ -60,12 +61,23 @@ export const isCivicPanelBuildCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
 
-// Where the build card's Build my panel goes: the Chief of Staff home, which
-// opens its chat on the conversation that builds the panel and drops the
-// param, so the official never leaves the home to start.
-export const CIVIC_PANEL_BUILD_CHAT_PARAM = 'chat'
-export const CIVIC_PANEL_BUILD_CHAT_VALUE = 'build_citizens_panel'
-export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/chief-of-staff?${CIVIC_PANEL_BUILD_CHAT_PARAM}=${CIVIC_PANEL_BUILD_CHAT_VALUE}`
+export const CIVIC_PANEL_STEP_CARD_PREFIX = 'panel-step:'
+
+// A card for one ready step of the panel's plan, once the build card is done.
+// Keyed by the step, so a skipped card stays skipped while that step is next
+// and the step after it gets a card of its own.
+export const civicPanelStepCardSourceId = (stepId: string): string =>
+  `${CIVIC_PANEL_STEP_CARD_PREFIX}${stepId}`
+
+export const isCivicPanelStepCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
+
+// Where the build card's Build my panel goes: the panel page, which asks the
+// hours question or shows the plan already made.
+export const CIVIC_PANEL_BUILD_CARD_HREF = CIVIC_PANEL_PAGE_HREF
 
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,

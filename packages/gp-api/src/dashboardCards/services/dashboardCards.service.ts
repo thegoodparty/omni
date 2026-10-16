@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { addDays, endOfWeek, startOfWeek } from 'date-fns'
 import {
@@ -7,7 +8,6 @@ import {
   DashboardCardType,
   ElectedOffice,
   MeetingBriefing,
-  OutreachStatus,
   OutreachType,
   Prisma,
   Priority,
@@ -15,7 +15,12 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   CIVIC_PANEL_BUILD_CARD_HREF,
+  CIVIC_PANEL_PAGE_HREF,
+  CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
+  civicPanelStepCardSourceId,
+  type CivicPanelBuildChannel,
+  type CivicPanelBuildPlanResponse,
   DASHBOARD_CARD_SNOOZE_DAYS,
   DashboardCardBucket,
   PRIORITY_STEP_IDS,
@@ -31,6 +36,8 @@ import {
   OutreachReportBackService,
   REPORT_BACK_DUE_DAYS,
 } from '@/outreach/services/outreachReportBack.service'
+import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
@@ -100,15 +107,43 @@ const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }
 
-// A text past checkout. The same statuses the priority flow counts as sent.
-// The Chief of Staff reads the build card's invite as sent off this same list.
-export const UNSENT_OUTREACH_STATUSES = [
-  OutreachStatus.pending_payment,
-  OutreachStatus.draft,
-  OutreachStatus.canceled,
-  OutreachStatus.denied,
-  OutreachStatus.failed,
-]
+// The panel page's own button words for the step the card points at.
+const START_STEP_LABELS: Record<CivicPanelBuildChannel, string> = {
+  text: 'Start the text',
+  phone_banking: 'Start the calls',
+  door_knocking: 'Start door knocking',
+}
+const KEEP_GOING_LABELS: Record<CivicPanelBuildChannel, string> = {
+  text: 'See your plan',
+  phone_banking: 'Keep calling',
+  door_knocking: 'Keep knocking',
+}
+
+// Before a plan, the card asks the official to start; once there is one, it
+// is the panel page's Next line and opens that step.
+export const civicPanelBuildCardContent = (
+  panel: CivicPanelBuildPlanResponse,
+): typeof CIVIC_PANEL_BUILD_CARD_CONTENT => {
+  const { next, plan, progress } = panel
+  if (!plan || plan.status !== 'active' || !next) {
+    return CIVIC_PANEL_BUILD_CARD_CONTENT
+  }
+  const ctaLabel =
+    next.channel === null || next.href === null
+      ? 'See your plan'
+      : next.status === 'not_started'
+        ? START_STEP_LABELS[next.channel]
+        : KEEP_GOING_LABELS[next.channel]
+  return {
+    title: next.line,
+    summary:
+      progress.expectedAnswers >= progress.answersNeeded
+        ? `Your panel can give the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`
+        : `Your panel can give about ${progress.expectedAnswers.toLocaleString('en-US')} of the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`,
+    ctaLabel,
+    ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
+  }
+}
 
 type DesiredCard = {
   type: DashboardCardType
@@ -124,7 +159,10 @@ type DesiredCard = {
 export class DashboardCardsService extends createPrismaBase(
   MODELS.DashboardCard,
 ) {
-  constructor(private readonly reportBack: OutreachReportBackService) {
+  constructor(
+    private readonly reportBack: OutreachReportBackService,
+    private readonly moduleRef: ModuleRef,
+  ) {
     super()
   }
 
@@ -312,23 +350,53 @@ export class DashboardCardsService extends createPrismaBase(
   async syncCivicPanelCards(
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
   ): Promise<void> {
+    // Read before the lock: it reads the people db, and reading the plan is
+    // what moves it, so the card and the panel page agree.
+    const panel = await this.readCivicPanelPlan(electedOffice)
     await this.client.$transaction(async (tx) => {
       // The home page and the archive read the list at once, and the build
       // card's null sourceItemId leaves the unique key unable to stop a
       // second insert.
       const lockKey = `civic_panel_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      await this.syncCivicPanelBuildCard(tx, electedOffice)
+      await this.syncCivicPanelBuildCard(tx, electedOffice, panel)
+      await this.syncCivicPanelStepCard(tx, electedOffice.id, panel)
       await this.syncPriorityPanelCards(tx, electedOffice.id)
     })
   }
 
+  // Null when the plan could not be read; the card then keeps its words.
+  private async readCivicPanelPlan(
+    electedOffice: Pick<ElectedOffice, 'organizationSlug'>,
+  ): Promise<CivicPanelBuildPlanResponse | null> {
+    try {
+      const organization = await this.client.organization.findUniqueOrThrow({
+        where: { slug: electedOffice.organizationSlug },
+      })
+      // Looked up rather than injected: importing the contacts module here
+      // closes a module cycle through voters, peerly and outreach.
+      const plans = this.moduleRef.get(CivicPanelBuildPlanService, {
+        strict: false,
+      })
+      return await plans.read(organization)
+    } catch (err) {
+      this.logger.warn(
+        { err, organizationSlug: electedOffice.organizationSlug },
+        'dashboard card sync: civic panel plan read failed',
+      )
+      return null
+    }
+  }
+
   // The build card has no Mark done: it is done once any sent text asked
-  // people to JOIN, whichever purpose it went out under. The purpose is not
-  // stored on the row, and the ask is what puts people on the panel.
+  // people to JOIN, whichever purpose it went out under (the purpose is not
+  // stored on the row, and the ask is what puts people on the panel), or
+  // once the panel's plan reached its goal. Until then its words follow the
+  // plan: the panel page's Next line, opening that step.
   private async syncCivicPanelBuildCard(
     tx: Prisma.TransactionClient,
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+    panel: CivicPanelBuildPlanResponse | null,
   ): Promise<void> {
     const where = {
       electedOfficeId: electedOffice.id,
@@ -337,24 +405,27 @@ export class DashboardCardsService extends createPrismaBase(
       sourceItemId: null,
     }
     const now = new Date()
+    const content = panel
+      ? civicPanelBuildCardContent(panel)
+      : CIVIC_PANEL_BUILD_CARD_CONTENT
     const card =
       (await tx.dashboardCard.findFirst({ where })) ??
       (await tx.dashboardCard.create({
         data: {
           ...where,
-          ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+          ...content,
           dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
         },
       }))
-    // Its words follow the current copy in every state, so a done card in the
-    // archive reads the same as an open one.
-    const stale =
-      card.title !== CIVIC_PANEL_BUILD_CARD_CONTENT.title ||
-      card.summary !== CIVIC_PANEL_BUILD_CARD_CONTENT.summary ||
-      card.ctaLabel !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaLabel ||
-      card.ctaHref !== CIVIC_PANEL_BUILD_CARD_CONTENT.ctaHref
+    // A done card reads as the card it was in the archive; an open one
+    // follows the plan, and an unreadable plan leaves its words as they are.
+    const differs = (words: typeof CIVIC_PANEL_BUILD_CARD_CONTENT) =>
+      card.title !== words.title ||
+      card.summary !== words.summary ||
+      card.ctaLabel !== words.ctaLabel ||
+      card.ctaHref !== words.ctaHref
     if (card.completedAt) {
-      if (stale) {
+      if (differs(CIVIC_PANEL_BUILD_CARD_CONTENT)) {
         await tx.dashboardCard.update({
           where: { id: card.id },
           data: CIVIC_PANEL_BUILD_CARD_CONTENT,
@@ -362,6 +433,7 @@ export class DashboardCardsService extends createPrismaBase(
       }
       return
     }
+    const stale = panel !== null && differs(content)
 
     const seedSent = await tx.outreach.findFirst({
       where: {
@@ -373,7 +445,8 @@ export class DashboardCardsService extends createPrismaBase(
       },
       select: { id: true },
     })
-    if (seedSent) {
+    const goalMet = panel?.plan?.status === 'completed'
+    if (seedSent || goalMet) {
       await tx.dashboardCard.update({
         where: { id: card.id },
         data: {
@@ -393,7 +466,83 @@ export class DashboardCardsService extends createPrismaBase(
       await tx.dashboardCard.update({
         where: { id: card.id },
         data: {
-          ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+          ...(stale && content),
+          ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
+        },
+      })
+    }
+  }
+
+  // Once the build card is done (its text is paid for), the plan's calls,
+  // doors and later rounds would have no card on the home. So the plan's
+  // ready step gets one: the panel page's Next line, opening that step. One
+  // at a time, keyed by the step, so a skipped card stays skipped while its
+  // step is next and the step after it gets its own. It goes once its step
+  // is no longer next or ready (waiting on replies is not a step to take).
+  // An unreadable plan leaves things as they are.
+  private async syncCivicPanelStepCard(
+    tx: Prisma.TransactionClient,
+    electedOfficeId: string,
+    panel: CivicPanelBuildPlanResponse | null,
+  ): Promise<void> {
+    if (!panel) return
+    const build = await tx.dashboardCard.findFirst({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: civicPanelBuildCardSourceId(electedOfficeId),
+        sourceItemId: null,
+      },
+      select: { completedAt: true },
+    })
+    const next =
+      build?.completedAt && panel.plan?.status === 'active' ? panel.next : null
+    const ready = next?.stepId && next.href ? next.stepId : null
+    const sourceExternalId = ready ? civicPanelStepCardSourceId(ready) : null
+    await tx.dashboardCard.deleteMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId: {
+          startsWith: CIVIC_PANEL_STEP_CARD_PREFIX,
+          ...(sourceExternalId && { not: sourceExternalId }),
+        },
+      },
+    })
+    if (!sourceExternalId) return
+    const content = civicPanelBuildCardContent(panel)
+    const now = new Date()
+    const card = await tx.dashboardCard.findFirst({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId,
+      },
+    })
+    if (!card) {
+      await tx.dashboardCard.create({
+        data: {
+          electedOfficeId,
+          type: DashboardCardType.civic_panel,
+          sourceExternalId,
+          sourceItemId: null,
+          ...content,
+          dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
+        },
+      })
+      return
+    }
+    const stale =
+      card.title !== content.title ||
+      card.summary !== content.summary ||
+      card.ctaLabel !== content.ctaLabel ||
+      card.ctaHref !== content.ctaHref
+    const lapsed = !card.dismissedAt && card.dueDate < now
+    if (stale || lapsed) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: {
+          ...content,
           ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
         },
       })
@@ -430,6 +579,9 @@ export class DashboardCardsService extends createPrismaBase(
         type: DashboardCardType.civic_panel,
         sourceExternalId: {
           notIn: [...openIds, civicPanelBuildCardSourceId(electedOfficeId)],
+        },
+        NOT: {
+          sourceExternalId: { startsWith: CIVIC_PANEL_STEP_CARD_PREFIX },
         },
       },
     })

@@ -1210,8 +1210,9 @@ one release the response also carries the optional `engagementQuestion`,
 deploy keeps working.
 
 **The list's purpose and its audience are the whole prompt input that is
-specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine
-slugs phone banking uses, and the audience reaches the prompt through
+specific to this channel.** `DoorKnockingTurf.purpose` takes the same ten
+slugs phone banking uses (Serve's include `build_citizens_panel`, the civic
+panel invite, offered behind `serve-citizen-panels`), and the audience reaches the prompt through
 `describeFilterForTalkingPoints` (`src/contacts/utils/describeFilter.util.ts`)
 rather than as raw filter columns — an allowlist of conversational dimensions,
 which is how **party never reaches the prompt** on either rail. The filters

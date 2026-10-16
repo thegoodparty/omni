@@ -65,7 +65,64 @@ describe('CitizensPanelSection', () => {
     ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
   })
 
-  it('points to the Chief of Staff when nobody has joined yet', async () => {
+  it('shows members toward the goal with the same bar as the panel page', async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: {
+        members: 120,
+        reachedRecently: 30,
+        askableNow: 90,
+        lastOutreachAt: null,
+      },
+    })
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: {
+        plan: null,
+        next: null,
+        progress: {
+          members: 120,
+          goal: 240,
+          answersNeeded: 96,
+          expectedAnswers: 48,
+        },
+      },
+    })
+
+    render(<CitizensPanelSection />)
+
+    const bar = await screen.findByTestId('civic-panel-progress')
+    expect(bar).toHaveTextContent('120 of 240 members')
+    expect(
+      bar.querySelector('[data-slot="progress"]')?.getAttribute('data-filled'),
+    ).toBe('50')
+    expect(bar).toHaveTextContent(
+      'About 4 in 10 members answer each question, so 240 members gets you the 96 answers you need.',
+    )
+    expect(
+      screen.getByRole('link', { name: 'See your panel' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+  })
+
+  it('leaves the bar out when the plan cannot be read', async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: {
+        members: 120,
+        reachedRecently: 30,
+        askableNow: 90,
+        lastOutreachAt: null,
+      },
+    })
+    api.mock('GET /v1/contacts/civic-panel/plan', { status: 500, data: {} })
+
+    render(<CitizensPanelSection />)
+
+    expect(await screen.findByText('120')).toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
+  })
+
+  it('points to the panel page when nobody has joined yet', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: {
@@ -83,7 +140,7 @@ describe('CitizensPanelSection', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute('href', '/dashboard/chief-of-staff')
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
     expect(
       screen.queryByRole('link', { name: 'See your panel' }),
     ).not.toBeInTheDocument()

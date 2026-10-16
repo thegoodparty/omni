@@ -37,13 +37,18 @@ describe('outreachLandingStep', () => {
         messageSettled: false,
       }),
     ).toBe('audience')
+  })
+
+  // A civic panel plan step: the purpose and its frozen list are settled, so
+  // the message is drafted for it on arrival.
+  it('lands on the message when the purpose and the audience are settled', () => {
     expect(
       outreachLandingStep({
         purposeSettled: true,
         audienceSettled: true,
         messageSettled: false,
       }),
-    ).toBe('audience')
+    ).toBe('message')
   })
 
   it('lands on the purpose when the entry settled nothing to write from', () => {

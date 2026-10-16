@@ -710,8 +710,12 @@ nothing else, so the agent never sees any of them.
   a short quote. The report's **Condition handling** section lists each case
   with both arms' values in each order it was judged, and sorts it: both
   handled, a shared failure (neither said yes), a regression (the base said
-  yes, the candidate did not) or an improvement (the reverse). `partly`, and
-  a value that changes between the two orders, count as not handled. The
+  yes, the candidate did not), an improvement (the reverse) or unsettled.
+  `partly`, and a value that changes between the two orders, count as not
+  handled; when that split is on the arm that fell short, the pair is
+  unsettled rather than a change. So a regression needs the candidate to fall
+  short in every order it was read, and an improvement the same of the base.
+  The
   quotes go to the private rulings file only. The section does not move the
   verdict label or any score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
@@ -835,9 +839,11 @@ alone. Checked cases come first, because a background list is walked only to
 check is only useful while the base passes it: one the current agent fails
 reads as a shared failure on every sweep and catches nothing. These
 conditions state a contract the input exercises rather than a mutation it
-planted. `opposition_research` is the weak one: every roster opponent is a
-`Test` placeholder the agent is told to drop, so its checks catch the
-candidate listing itself but not a run that drops real filers.
+planted. `opposition_research`'s roster opponents carry plain invented names
+rather than `Test` ones, because its instruction drops `Test` rows as junk and
+its checks would then have nothing to grade. Only its partisan-race check
+runs in CI: on unchanged code its three-way and head-to-head checks flipped
+between runs, which a live-search agent walked once per case can't avoid.
 
 ## A chat case can carry the same checks
 
@@ -1218,6 +1224,15 @@ compare run to run, and the type is printed in the public report. A type off
 the list is replaced with `other_severe` rather than failing the seat. Changing
 the list is a rubric change: edit the doc and `FLAG_TYPES` together and bump
 `RUBRIC_VERSION`.
+
+**The report headlines a flag only when it repeats.** A flag type the
+candidate raised and the base did not goes at the top of the agent's section
+once it appears on two or more cases, or on one case for `restricted_data`.
+Every flag still prints on the `Flags (cases affected)` line. On unchanged
+code the judge raised single-case flags on the candidate (three on one
+chief_of_staff sweep), while each flag from a deliberate break repeated across
+cases, so a one-case flag is a reason to look, not a finding. Flags never move
+the verdict.
 
 **The schema the panel is sent has to fit the structured-output API's
 limits**: at most 24 optional parameters and 16 union parameters (a nullable

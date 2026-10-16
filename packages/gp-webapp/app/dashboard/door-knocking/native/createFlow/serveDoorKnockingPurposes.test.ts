@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { SERVE_PHONE_BANKING_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import {
   SERVE_DOOR_KNOCKING_PURPOSES,
   SERVE_DOOR_KNOCKING_PURPOSE_LABELS,
@@ -12,11 +12,12 @@ import {
 // Serve's own goal cards for the same one door-knocking route — door
 // knocking's wording, not phone banking's, on the shared Serve vocabulary.
 describe('SERVE_DOOR_KNOCKING_PURPOSES', () => {
-  it('is the shared serve outreach vocabulary, in order', () => {
+  it('is serve phone banking’s vocabulary, in order', () => {
     expect(SERVE_DOOR_KNOCKING_PURPOSE_VALUES).toEqual(
-      SERVE_OUTREACH_PURPOSE_VALUES,
+      SERVE_PHONE_BANKING_PURPOSE_VALUES,
     )
     expect(SERVE_DOOR_KNOCKING_PURPOSES).toEqual([
+      { id: 'build_citizens_panel', label: 'Invite to your civic panel' },
       { id: 'introduce_myself', label: 'Introduce myself' },
       { id: 'explain_decision', label: 'Explain a recent decision' },
       { id: 'event_invite', label: 'Invite people to an event' },

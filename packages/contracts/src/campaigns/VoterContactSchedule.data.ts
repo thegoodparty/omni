@@ -55,6 +55,35 @@ export const VOTER_CONTACT_SCHEDULE = [
 
 export type VoterContactSend = (typeof VOTER_CONTACT_SCHEDULE)[number]
 
+/**
+ * Once texting is closed for the race, each text send becomes a robocall on
+ * the same date (dropped when a robocall already lands that day). The gp-api
+ * tracker rows and the plan document's Voter Contact Plan both read this, so
+ * they never disagree. The catalog's robocall titles already belong to the
+ * sends on other dates, and the tracker finds a row's catalog entry by title,
+ * so a swap gets its own title. The election day text has no swap and is
+ * dropped: the reminder robocall lands the day before.
+ */
+export const TEXT_SEND_ROBOCALL_SWAPS = [
+  {
+    catalogId: 'introduction-text',
+    title: 'Early Introduction Robocall',
+    description: 'Introduce yourself to voters with an automated call.',
+  },
+  {
+    catalogId: 'persuasion-text',
+    title: 'Early Persuasion Robocall',
+    description:
+      'Build trust and make your case for why voters should pick you, by automated call.',
+  },
+  {
+    catalogId: 'early-voting-text',
+    title: 'Early Voting Robocall',
+    description:
+      'Encourage your supporters to vote early with an automated call.',
+  },
+] as const
+
 export const voterContactSendOffsetDays = (catalogId: string): number => {
   const send = VOTER_CONTACT_SCHEDULE.find((s) => s.catalogId === catalogId)
   if (!send) {

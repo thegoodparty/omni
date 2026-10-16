@@ -1,8 +1,6 @@
 import { z } from 'zod'
-import {
-  OutreachPurposeSchema,
-  ServeOutreachPurposeSchema,
-} from './OutreachPurpose.schema'
+import { OutreachPurposeSchema } from './OutreachPurpose.schema'
+import { ServePhoneBankingPurposeSchema } from '../phoneBanking/PhoneBankingCreate.schema'
 
 // Talking points for a door-knocking list: what the canvasser says, written
 // once for the whole list rather than per person at the door.
@@ -27,8 +25,10 @@ export type DoorKnockingTalkingPointsPurpose = z.infer<
   typeof DoorKnockingTalkingPointsPurposeSchema
 >
 
+// The shared Serve list plus the civic panel invite, the same list Serve
+// phone banking reads.
 export const ServeDoorKnockingTalkingPointsPurposeSchema =
-  ServeOutreachPurposeSchema
+  ServePhoneBankingPurposeSchema
 export type ServeDoorKnockingTalkingPointsPurpose = z.infer<
   typeof ServeDoorKnockingTalkingPointsPurposeSchema
 >

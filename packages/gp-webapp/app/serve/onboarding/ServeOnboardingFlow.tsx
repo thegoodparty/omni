@@ -23,6 +23,7 @@ import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import ServeOfficePicker from './ServeOfficePicker'
+import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
 import {
   buildDisabledRanges,
   CALENDAR_END,
@@ -43,6 +44,8 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  firstStepAfterTerm,
+  isServeStoryStep,
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
@@ -51,12 +54,14 @@ import {
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
+  SERVE_CITIZEN_PANELS_PLEDGE_BUTTON,
   SERVE_CITIZEN_PANELS_STEP_COPY,
   SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
   SERVE_STEP_COPY,
   SERVE_WELCOME_VALUE_PROPS,
   type InOfficeStatus,
+  SERVE_STORY_STEPS,
   type ServeBranch,
   type ServeStepId,
 } from './serveOnboardingConfig'
@@ -97,6 +102,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // advancing through the net-new order.
   const [returnToConfirm, setReturnToConfirm] = useState(false)
   const [switchToCampaign, setSwitchToCampaign] = useState(false)
+  // The district story's intro plays once a session, not on every visit.
+  const [storyIntroPlayed, setStoryIntroPlayed] = useState(false)
 
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
   // Mirror of `currentEO` for synchronous reads inside async save handlers, so
@@ -516,7 +523,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const constituentsPositionId = office?.positionId ?? orgPositionId
 
   const progress = getServeProgress(branch, step, citizenPanels)
-  const afterConstituents: ServeStepId = citizenPanels ? 'priorities' : 'pledge'
+  const afterTerm = firstStepAfterTerm(citizenPanels)
 
   // Tracks which BR position id we've already written to the EO org so a
   // back-and-forth through the constituents step doesn't re-PATCH needlessly.
@@ -947,7 +954,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       }
       case 'term-dates': {
-        const target = returnToConfirm ? 'confirm' : 'constituents'
+        const target = returnToConfirm ? 'confirm' : afterTerm
         void persistAndAdvance(
           {
             targetStep: target,
@@ -956,22 +963,22 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               termEndDate: toApiDate(termEndDate),
             },
             // Carry the office pointer forward to the EO org before the
-            // constituents step (idempotent if already patched) so its
-            // org-derived voter sections can resolve a district. Skipped on the
-            // confirm detour, which only edits dates.
-            ...(target === 'constituents' ? { office: officePayload() } : {}),
+            // constituents step or district story (idempotent if already
+            // patched) so their org-derived district data can resolve. Skipped
+            // on the confirm detour, which only edits dates.
+            ...(returnToConfirm ? {} : { office: officePayload() }),
           },
           // Continue is gated on valid dates here, so the confirm detour returns
           // straight to the (now satisfiable) hub via enterConfirmHub.
-          returnToConfirm ? enterConfirmHub : () => setStep('constituents'),
+          returnToConfirm ? enterConfirmHub : () => setStep(afterTerm),
           'serveOnboarding.persistTermDatesProgress',
         )
         return
       }
       case 'confirm':
         void persistAndAdvance(
-          { targetStep: 'constituents', office: officePayload() },
-          () => setStep('constituents'),
+          { targetStep: afterTerm, office: officePayload() },
+          () => setStep(afterTerm),
           'serveOnboarding.persistOfficeProgress',
         )
         return
@@ -981,11 +988,28 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           { branch, electedOfficeId: currentEO?.id },
         )
         void persistAndAdvance(
-          { targetStep: afterConstituents },
-          () => setStep(afterConstituents),
+          { targetStep: 'pledge' },
+          () => setStep('pledge'),
           'serveOnboarding.checkpoint.constituents',
         )
         return
+      case 'story-represent':
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow': {
+        // The story collects nothing, so it moves on at once and saves the
+        // checkpoint behind it: waiting on the save would hold the next
+        // step's motion.
+        const next =
+          SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) + 1] ?? 'priorities'
+        setStep(next)
+        saveProgress({ targetStep: next }).catch((err: Error) =>
+          reportErrorToSentry(err, {
+            context: 'serveOnboarding.checkpoint.story',
+          }),
+        )
+        return
+      }
       case 'priorities':
         void savePrioritiesAndAdvance()
         return
@@ -1031,8 +1055,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'constituents':
         setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         return
+      case 'story-represent':
+        setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
+        return
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow':
+        setStep(SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) - 1]!)
+        return
       case 'priorities':
-        setStep('constituents')
+        setStep(citizenPanels ? 'story-grow' : 'constituents')
         return
       case 'pledge':
         if (citizenPanels) {
@@ -1111,7 +1143,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // The current step's explainer copy. When present it renders in the right
   // rail on wide viewports and stacks below the content on narrow ones — the
   // same responsive treatment as the Win flow's "Why this matters" aside.
-  const whyThisMatters = SERVE_STEP_COPY[step].whyWeAsk
+  const whyThisMatters = isServeStoryStep(step)
+    ? undefined
+    : SERVE_STEP_COPY[step].whyWeAsk
 
   return (
     <div className="min-h-screen bg-base-surface pb-28 text-foreground">
@@ -1185,6 +1219,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 state={office?.state ?? orgState}
               />
             )}
+            {isServeStoryStep(step) && (
+              <DistrictStoryStep
+                step={step}
+                eoId={currentEO?.id}
+                positionId={constituentsPositionId}
+                place={office?.city}
+                introPlayed={storyIntroPlayed}
+                onIntroPlayed={() => setStoryIntroPlayed(true)}
+              />
+            )}
             {citizenPanels && step === 'priorities' && (
               <PrioritiesStep
                 options={priorityOptions}
@@ -1235,7 +1279,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             disabled={!canContinue || saving}
             loading={saving}
           >
-            {step === 'pledge' ? 'Agree & Continue' : 'Continue'}
+            {step !== 'pledge'
+              ? 'Continue'
+              : citizenPanels
+                ? SERVE_CITIZEN_PANELS_PLEDGE_BUTTON
+                : 'Agree & Continue'}
           </Button>
         </div>
       </div>

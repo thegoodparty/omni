@@ -5,9 +5,9 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { CampaignProvider } from './CampaignProvider'
 import { useCampaign } from './useCampaign'
 
-const mockUseOrganization = vi.fn<() => { role?: string } | undefined>(
-  () => undefined,
-)
+const mockUseOrganization = vi.fn<
+  () => { role?: string; electedOfficeId?: string } | undefined
+>(() => undefined)
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockUseOrganization(),
 }))
@@ -101,5 +101,32 @@ describe('CampaignProvider', () => {
         document.querySelector('[data-testid="campaign"]'),
       ).toHaveTextContent('owner-slug'),
     )
+  })
+
+  // ENG-11308: a Serve org never has a campaign, so the request is a
+  // guaranteed 404 on every dashboard load.
+  it('does not request GET /v1/campaigns/mine when the active org is an elected-office org', async () => {
+    mockUseOrganization.mockReturnValue({
+      role: 'owner',
+      electedOfficeId: 'office-1',
+    })
+    let requested = false
+    api.mock('GET /v1/campaigns/mine', () => {
+      requested = true
+      return { status: 200, data: { slug: 'should-not-load' } as any }
+    })
+
+    render(
+      <CampaignProvider campaign={null}>
+        <CampaignConsumer />
+      </CampaignProvider>,
+    )
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="campaign"]'),
+      ).toHaveTextContent('null'),
+    )
+    expect(requested).toBe(false)
   })
 })

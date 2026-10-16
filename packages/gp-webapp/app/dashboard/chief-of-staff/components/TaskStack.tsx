@@ -7,6 +7,7 @@ import {
   DASHBOARD_CARD_SNOOZE_DAYS,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   isCivicPanelBuildCard,
+  isCivicPanelStepCard,
 } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
@@ -63,6 +64,9 @@ type DeckCard = {
   // The civic panel build card: it follows the meet card, and closes
   // itself once its text has gone out.
   buildsPanel: boolean
+  // The build card, or the card for the panel plan's next step that takes
+  // its place once it is done: same headline, same place in the deck.
+  peopleFirst: boolean
 }
 
 const HEADLINES: Record<DeckKind, string> = {
@@ -162,6 +166,7 @@ const TaskStack = ({
     ctaHref: card.ctaHref,
     onboardingKey: null,
     buildsPanel: isCivicPanelBuildCard(card),
+    peopleFirst: isCivicPanelBuildCard(card) || isCivicPanelStepCard(card),
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
     onboarding?.some((c) => c.key === key && c.status === 'active'),
@@ -175,14 +180,15 @@ const TaskStack = ({
     ctaHref: null,
     onboardingKey: key,
     buildsPanel: false,
+    peopleFirst: false,
   }))
   // A new official meets their Chief of Staff before anything else, then
   // builds the panel, then sets priorities.
   const deck: DeckCard[] = [
     ...onboardingCards.filter((card) => card.onboardingKey === 'meet'),
-    ...dashboardCards.filter((card) => card.buildsPanel),
+    ...dashboardCards.filter((card) => card.peopleFirst),
     ...onboardingCards.filter((card) => card.onboardingKey !== 'meet'),
-    ...dashboardCards.filter((card) => !card.buildsPanel),
+    ...dashboardCards.filter((card) => !card.peopleFirst),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]
@@ -232,7 +238,7 @@ const TaskStack = ({
 
   // The build card's due date only keeps it from sitting forever; it is not
   // a deadline the official has.
-  const dueLine = front.buildsPanel ? null : formatDueDate(front.dueDate)
+  const dueLine = front.peopleFirst ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
     cardId: front.id,
@@ -266,7 +272,7 @@ const TaskStack = ({
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {front.buildsPanel ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
+        {front.peopleFirst ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(

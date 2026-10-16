@@ -76,3 +76,103 @@ describe('win constituent scope', () => {
     expect(scope.allowedDimensions.has('voter_key')).toBe(false)
   })
 })
+
+// Parties_Description is a registration only where the state reports one
+// (peopleDb/partySource.ts). The labels are the model's only meaning surface,
+// so they say how L2 assigned the value everywhere else.
+describe('win constituent scope: party by state', () => {
+  const labelFor = (state: string | null | undefined, name: string) =>
+    buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      state,
+    ).advertisedDimensions.find((d) => d.name === name)?.label
+
+  it('keeps the registration wording where the state registers by party', () => {
+    const scope = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'CA',
+    )
+    expect(scope.advertisedDimensions).toBe(
+      WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS,
+    )
+    expect(labelFor('CA', 'Parties_Description')).toBe('Party registration')
+    expect(scope.partyNote).toBeNull()
+  })
+
+  it('keeps the registration wording when the state is unknown', () => {
+    expect(labelFor(null, 'Parties_Description')).toBe('Party registration')
+    expect(labelFor(undefined, 'Parties_Description')).toBe(
+      'Party registration',
+    )
+    expect(
+      buildWinConstituentDataScope(FILTERS, WIN_CONSTITUENT_TABLES).partyNote,
+    ).toBeNull()
+  })
+
+  it('says the vendor assigned the value where party is modeled', () => {
+    const scope = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'MN',
+    )
+    expect(labelFor('MN', 'Parties_Description')).toBe(
+      'Party as the vendor assigns it, not a registration',
+    )
+    expect(labelFor('MN', 'Residence_HHParties_Description')).toBe(
+      'Household party mix, built from the same assigned party values, ' +
+        'not registrations',
+    )
+    expect(scope.partyNote).toBe(
+      'Minnesota provides no party information in its voter file. The ' +
+        "voter file vendor models every voter's party from commercial " +
+        'data, with a limited amount of partisan-contribution and ' +
+        'office-holding records.',
+    )
+  })
+
+  it('says the same where the vendor assigns party from primary ballots', () => {
+    expect(labelFor('GA', 'Parties_Description')).toBe(
+      'Party as the vendor assigns it, not a registration',
+    )
+    expect(
+      buildWinConstituentDataScope(FILTERS, WIN_CONSTITUENT_TABLES, 'ga')
+        .partyNote,
+    ).toMatch(/^Georgia voters do not register by party\./)
+  })
+
+  // The column seed says L2 leaves the flag empty where party is modeled, so
+  // offering it there would send the model to a column of nulls. Where L2
+  // assigns party from primary ballots the flag stays, worded as assigned.
+  it('advertises the party-change flag only where the vendor could fill it', () => {
+    expect(labelFor('MN', 'VoterParties_Change_Changed_Party')).toBe(undefined)
+    expect(labelFor('GA', 'VoterParties_Change_Changed_Party')).toBe(
+      'Has changed party, as the vendor assigns it',
+    )
+    expect(labelFor('CA', 'VoterParties_Change_Changed_Party')).toBe(
+      'Has changed party registration',
+    )
+  })
+
+  it('leaves every other dimension and the rest of the scope as it was', () => {
+    const plain = buildWinConstituentDataScope(FILTERS, WIN_CONSTITUENT_TABLES)
+    const modeled = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'MN',
+    )
+    const others = (scope: typeof plain) =>
+      scope.advertisedDimensions.filter(
+        (d) =>
+          ![
+            'Parties_Description',
+            'Residence_HHParties_Description',
+            'VoterParties_Change_Changed_Party',
+          ].includes(d.name),
+      )
+    expect(others(modeled)).toEqual(others(plain))
+    expect(modeled.allowedDimensions).toEqual(plain.allowedDimensions)
+    expect(modeled.partisanQueriesAllowed).toBe(true)
+  })
+})

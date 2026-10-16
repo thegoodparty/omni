@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import {
   POLL_QUESTION_MAX_LENGTH,
   POLL_QUESTION_MIN_LENGTH,
@@ -16,7 +17,11 @@ import {
 } from '@styleguide'
 import {
   Loader2Icon,
+  MessageSquareIcon,
   RefreshIcon,
+  SmileIcon,
+  SunIcon,
+  TargetIcon,
   TriangleAlertIcon,
 } from '@styleguide/components/ui/icons'
 import PollTextBiasInput, {
@@ -24,8 +29,16 @@ import PollTextBiasInput, {
 } from 'app/dashboard/polls/shared/components/poll-text-bias/PollTextBiasInput'
 import { PollImageUpload } from 'app/dashboard/polls/components/PollImageUpload'
 import { Intro } from '../social/Intro'
+import { withSampleFirstName } from '../sms/smsCompose.util'
 import { pollFooter } from './pollCompose.util'
 import { POLL_TONE_LABELS, SERVE_POLL_QUESTION_COPY } from './pollCopy'
+
+const POLL_TONE_ICONS: Record<PollTone, ReactNode> = {
+  Neutral: <MessageSquareIcon className="size-4" />,
+  Warm: <SunIcon className="size-4" />,
+  Direct: <TargetIcon className="size-4" />,
+  Friendly: <SmileIcon className="size-4" />,
+}
 
 interface PollQuestionStepProps {
   tone: PollTone
@@ -33,6 +46,9 @@ interface PollQuestionStepProps {
   question: string
   onQuestionChange: (question: string) => void
   intro: string
+  // Who the draft was written for, or null when the official wrote the
+  // question themselves and nothing was suggested.
+  suggestedFor: string | null
   composedLength: number
   onRegenerate: () => void
   canRegenerate: boolean
@@ -58,6 +74,7 @@ export const PollQuestionStep = ({
   question,
   onQuestionChange,
   intro,
+  suggestedFor,
   composedLength,
   onRegenerate,
   canRegenerate,
@@ -81,6 +98,40 @@ export const PollQuestionStep = ({
         body={SERVE_POLL_QUESTION_COPY.body}
       />
 
+      <FilterPillGroup
+        type="single"
+        value={tone}
+        onValueChange={(value) => value && onToneChange(value as PollTone)}
+      >
+        {POLL_TONE_VALUES.map((value) => (
+          <FilterPill
+            key={value}
+            value={value}
+            disabled={drafting}
+            className="gap-1.5"
+          >
+            {POLL_TONE_ICONS[value]}
+            {POLL_TONE_LABELS[value]}
+          </FilterPill>
+        ))}
+      </FilterPillGroup>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {suggestedFor !== null &&
+            SERVE_POLL_QUESTION_COPY.suggestedFor(suggestedFor)}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onRegenerate}
+          disabled={drafting || !canRegenerate}
+        >
+          <RefreshIcon className="size-4" />
+          {SERVE_POLL_QUESTION_COPY.regenerate}
+        </Button>
+      </div>
+
       <div className="space-y-2">
         <Label>{SERVE_POLL_QUESTION_COPY.questionLabel}</Label>
         <Card className="gap-3 p-4">
@@ -88,7 +139,7 @@ export const PollQuestionStep = ({
             <span className="font-medium text-foreground">
               {SERVE_POLL_QUESTION_COPY.introLabel}
             </span>{' '}
-            {intro}
+            {withSampleFirstName(intro)}
           </p>
           {drafting ? (
             <div
@@ -131,28 +182,6 @@ export const PollQuestionStep = ({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FilterPillGroup
-          type="single"
-          value={tone}
-          onValueChange={(value) => value && onToneChange(value as PollTone)}
-        >
-          {POLL_TONE_VALUES.map((value) => (
-            <FilterPill key={value} value={value} disabled={drafting}>
-              {POLL_TONE_LABELS[value]}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onRegenerate}
-          disabled={drafting || !canRegenerate}
-        >
-          <RefreshIcon className="size-4" />
-          {SERVE_POLL_QUESTION_COPY.regenerate}
-        </Button>
-      </div>
       {draftError && (
         <p role="alert" className="text-sm text-destructive">
           {SERVE_POLL_QUESTION_COPY.draftError}

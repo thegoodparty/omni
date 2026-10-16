@@ -905,6 +905,22 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingStep).toBe('constituents')
     })
 
+    it.each(['story-represent', 'story-grow', 'priorities'])(
+      'persists the %s checkpoint the citizen panels flow writes',
+      async (onboardingStep) => {
+        const created = await createElectedOffice()
+        expect(created.status).toBe(200)
+
+        const result = await service.client.put(
+          `/v1/elected-office/${created.data.id}`,
+          { onboardingStep },
+        )
+
+        expect(result.status).toBe(200)
+        expect(result.data.onboardingStep).toBe(onboardingStep)
+      },
+    )
+
     it('rejects an unknown onboardingStep value', async () => {
       // The column is validated against the known step set, so a typo or stale
       // client can't poison the resume pointer.

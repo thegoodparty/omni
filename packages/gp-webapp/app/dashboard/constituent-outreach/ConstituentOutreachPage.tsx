@@ -60,7 +60,7 @@ interface ConstituentOutreachPageProps {
   outreaches?: HistoryRow[]
 }
 
-// The four wired channels. Door knocking joined them in 3.0: a Serve turf
+// The wired channels. Door knocking joined them in 3.0: a Serve turf
 // now gets an outreach envelope like every other channel's, so it has a row
 // here at all, and `GET /v1/outreach/serve/:id` fills its `doorKnocking`
 // detail block — which is what makes the row worth opening. Anything left
@@ -76,7 +76,8 @@ const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
   row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
   row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
-  row.outreachType === OUTREACH_TYPES.text
+  row.outreachType === OUTREACH_TYPES.text ||
+  row.outreachType === 'poll'
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()

@@ -1,9 +1,9 @@
 import {
   CONTACT_REST_DAYS,
+  GET_ANSWERS_MARKER,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
-  PANEL_ASSUMED_REPLY_RATE,
   PROPOSAL_SENT_MARKER,
   REPORT_BACK_MARKER,
   PRIORITY_STEP_IDS,
@@ -298,10 +298,14 @@ const buildCheckWorkBlock = (
   ].join('\n')
 
 // The panel is the residents who asked to be asked, and every send grows it:
-// a check's first send asks the rested panel and as many residents not on
-// it, in one card, with the join ask on. The targeted groups wait for that
+// a check's first send asks the rested panel and a random group of residents
+// not on it, sized together for the answers a question needs
+// (size_panel_ask), in one card, with the join ask on. The targeted groups wait for that
 // send's read.
-const buildCivicPanelFirstBlock = (members: number): string =>
+const buildCivicPanelFirstBlock = (
+  members: number,
+  answersNeeded: number,
+): string =>
   [
     'THE CIVIC PANEL COMES FIRST',
     members > 0
@@ -310,8 +314,8 @@ const buildCivicPanelFirstBlock = (members: number): string =>
     '- When a check is warranted, offer ONE card, one text: the panel members who can be asked now, plus as many residents not on the panel, picked at random. Not the most or least affected groups: those come later, as the steps below say.',
     `  1. Count everyone the text can reach with count_contacts: Has Cell Phone and notContactedRecently true, nothing else. That count is the card's count, and those two filters are its audienceFilters. notContactedRecently leaves out anyone the office reached in the last ${CONTACT_REST_DAYS} days, so never drop it, and never add civicPanelMember to audienceFilters.`,
     '  2. Count the panel members who can be asked now with count_contacts: civicPanelMember true, Has Cell Phone and notContactedRecently true.',
-    `  3. If that is more than 0, size the panel part with size_outreach_sample on that count with replyRate ${PANEL_ASSUMED_REPLY_RATE}, since people who asked to be asked answer far more often. Its sampleSize is the panel part; a small panel comes back whole, which is right. Present the text with panelSampleSize set to that panel part, sampleSize set to twice it (the panel part plus as many residents not on the panel), targetResponses and assumedReplyRate from that sizing, and civicPanelAsk true.`,
-    '  4. If it is 0, the card is the fresh residents alone: size it with size_outreach_sample on the count from step 1, as HOW MANY PEOPLE TO ASK says, and present the text with sampleSize, targetResponses and assumedReplyRate from that sizing, civicPanelAsk true and no panelSampleSize.',
+    `  3. Size the send with size_panel_ask: canReach is the count from step 1 and panelCanAsk the count from step 2. It sizes the panel part and the residents not on the panel together for about ${answersNeeded} answers, since people who asked to be asked answer far more often. Use its numbers as given: present the text with sampleSize, targetResponses and assumedReplyRate from it, panelSampleSize when it returned one (leave it out when it did not), and civicPanelAsk true. size_outreach_sample and HOW MANY PEOPLE TO ASK do not apply to this send. If it returns an error, say why in one line and do not present.`,
+    '  4. When reachesAnswersNeeded comes back false, say in one line that it may bring back fewer answers than a clear read needs, so the read is rougher.',
     '  5. Either way: a short listName, an audience line in plain words (like "Your civic panel and residents across the district"), the question as the message, the stepId the check is on and side main. The flow adds the line inviting people to join, so never write it into the message.',
     '- In your message, say in one line why the panel goes first: they asked to be asked. Say in one line that the same text invites new people to join. Say how many people get it. Never explain how the list is drawn or who was left out, and never say rotation, rested or sample sizing.',
     '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which card is real.',
@@ -358,6 +362,23 @@ const buildReadingRepliesBlock = (
         ]
       : []),
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
+  ].join('\n')
+
+// Behind serve-citizen-panels, with the read status in <priority>. A good
+// read is decided in gp-api (priorityReadStatus), never by the model.
+const buildGoodReadBlock = (canPropose: boolean): string =>
+  [
+    'BEFORE A GOOD READ',
+    '- <priority> says how many people have answered on this priority, across texts, calls and doors, and how many a good read of the district takes. Good read: no means they do not have enough yet.',
+    '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
+    '- Nudge toward getting more answers instead, in one line: how many more a good read takes, and the way to get them.',
+    '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
+    '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
+    ...(canPropose
+      ? [
+          `- A message that starts with ${GET_ANSWERS_MARKER} comes from the app, not the official: they pressed Get answers. Do not restate it. Propose getting more answers for the check that is out now, as a card, the way READING WHAT CAME BACK follows up a thin read. If no check is out yet, offer the check the current step needs, built the way a check is always built. The official sends it from the card: never say anything was sent, and never send anything yourself. If <priority> already says Good read: yes, say so in one line and offer what came back instead.`,
+        ]
+      : []),
   ].join('\n')
 
 // The last turn of the brief's loop: ask, read, act, report back. Behind
@@ -424,6 +445,11 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     ...(ctx.civicPanelMembers === undefined
       ? []
       : [`Civic panel: ${ctx.civicPanelMembers} members`]),
+    ...(ctx.readStatus === undefined
+      ? []
+      : [
+          `Answers: ${ctx.readStatus.answers} of ${ctx.readStatus.needed} needed for a good read. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
+        ]),
     '</priority>',
   ].join('\n')
 
@@ -515,9 +541,10 @@ export const buildPriorityFlowSystemPrompt = (args: {
   // and only where the agent can count, size, present and read the one send.
   const panelFirst =
     args.ctx.civicPanelMembers !== undefined &&
+    args.ctx.panelAnswersNeeded !== undefined &&
     canFindGroup &&
     has('present_outreach_proposal') &&
-    has('size_outreach_sample') &&
+    has('size_panel_ask') &&
     has('read_outreach_feedback')
   return [
     ROLE_BLOCK,
@@ -534,7 +561,12 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildStageGateBlock(has, panelFirst),
     ...(canFindGroup ? [buildAffectednessBlock(panelFirst)] : []),
     ...(panelFirst
-      ? [buildCivicPanelFirstBlock(args.ctx.civicPanelMembers ?? 0)]
+      ? [
+          buildCivicPanelFirstBlock(
+            args.ctx.civicPanelMembers ?? 0,
+            args.ctx.panelAnswersNeeded ?? 0,
+          ),
+        ]
       : []),
     ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has, panelFirst)]
@@ -543,6 +575,9 @@ export const buildPriorityFlowSystemPrompt = (args: {
       ? [buildSamplingBlock(has)]
       : []),
     buildReadingRepliesBlock(has, panelFirst),
+    ...(args.ctx.readStatus !== undefined
+      ? [buildGoodReadBlock(has('present_outreach_proposal'))]
+      : []),
     ...(has('read_report_back') && has('present_outreach_proposal')
       ? [REPORT_BACK_BLOCK]
       : []),

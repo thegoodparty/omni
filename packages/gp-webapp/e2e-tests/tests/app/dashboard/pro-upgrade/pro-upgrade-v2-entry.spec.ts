@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -26,7 +27,12 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Pro upgrade v2 entry', () => {
   test('opens a free candidate on the guidance overview', async ({ page }) => {
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
@@ -57,7 +63,12 @@ test.describe('Pro upgrade v2 entry', () => {
   test('sends an already-Pro candidate with no filing on to campaign verification', async ({
     page,
   }) => {
-    await setupProCampaignUser(page)
+    const { client } = await setupProCampaignUser(page)
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)

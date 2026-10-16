@@ -67,7 +67,14 @@ import {
   mapDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
-import { buildDistrictCensusSql } from './districtCensusSql.util'
+import { type AffinityColumn } from '../affinityColumns.const'
+import {
+  buildDistrictCensusSql,
+  buildDistrictCompositionSql,
+  buildRespondentBlockGroupsSql,
+  mapCensusCompositionRows,
+  type CensusCompositionRows,
+} from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -222,6 +229,7 @@ export class DatabricksVoterService {
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -244,6 +252,7 @@ export class DatabricksVoterService {
         search: dto.search,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -271,6 +280,7 @@ export class DatabricksVoterService {
         savedFilterSets: dto.savedFilterSets,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     return PeopleOverlapCountResponseSchema.parse({
@@ -337,9 +347,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<number> {
     const { rows } = await this.run(
-      buildCountSql({ district, filters, idOverrides }),
+      buildCountSql({ district, filters, idOverrides, affinityColumn }),
     )
     return Number(rows[0]?.[0] ?? 0)
   }
@@ -352,9 +363,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<RankPrecinctsResult> {
     const { rows } = await this.run(
-      buildRankPrecinctsSql({ district, filters, idOverrides }),
+      buildRankPrecinctsSql({ district, filters, idOverrides, affinityColumn }),
     )
     const precincts: RankedPrecinct[] = rows.map((row) => ({
       county: row[0] ?? '',
@@ -376,6 +388,7 @@ export class DatabricksVoterService {
       search: dto.search,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
     }
     const page = Math.max(1, dto.page)
 
@@ -464,6 +477,40 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
+  // The district's census population on its own, without the voter scan
+  // findStats runs: the civic panel sizes its goal from it. Null without a
+  // census row. Throws on a warehouse failure; the caller decides what that
+  // means.
+  async findDistrictPopulation(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<number | null> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(buildDistrictCensusSql(district))
+    const raw = rows[0]?.[0]
+    return raw == null ? null : Math.round(Number(raw))
+  }
+
+  // The district's census row and the block groups the given people live
+  // in, for comparing the two. Not through `run()`: every caller treats a
+  // failure as "comparison unavailable" and answers 200, so the error-level
+  // log and HTTP translation `run()` adds would be wrong here (see the census
+  // lookup in findStats).
+  async findCensusComposition(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<CensusCompositionRows> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, blockGroupResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      personIds.length > 0
+        ? this.client.query(buildRespondentBlockGroupsSql(district, personIds))
+        : Promise.resolve({ columns: [], rows: [] }),
+    ])
+    return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
+  }
+
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
   // know how big the population is, and the two rejections below are product
   // behavior the Postgres path enforced (a missing-stats district unmounts the
@@ -483,6 +530,7 @@ export class DatabricksVoterService {
       filters: dto.filters ?? EMPTY_FILTERS,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
       search: dto.search,
     }
 
@@ -556,6 +604,7 @@ export class DatabricksVoterService {
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
         bbox: dto.bbox,
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,

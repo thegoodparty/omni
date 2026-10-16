@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { P2PUpgradeModal } from './P2PUpgradeModal'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -36,4 +39,24 @@ describe('P2PUpgradeModal', () => {
       screen.getByRole('link', { name: 'Complete Registration' }),
     ).toHaveAttribute('href', '/dashboard/account#texting-compliance')
   })
+
+  it.each(['NonProUpgrade', 'ProFreeTextsNonCompliant'] as const)(
+    'does not show the %s variant once texting has closed',
+    (variant) => {
+      render(
+        <CampaignContext.Provider
+          value={[{ smsCompliance: 'closed' } as Campaign]}
+        >
+          <P2PUpgradeModal open variant={variant} onClose={vi.fn()} />
+        </CampaignContext.Provider>,
+      )
+
+      expect(screen.queryByText(/free texts/)).toBeNull()
+      expect(screen.queryByRole('link')).toBeNull()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.P2PUpgrade.Modal.Shown,
+        expect.anything(),
+      )
+    },
+  )
 })
