@@ -49,7 +49,8 @@ const isIntroduce = (variant: RecommendedListVariant): boolean =>
 // variants are left out; inside it they move up to sit right after the
 // introduce list and ahead of persuade. Everything else keeps registry order.
 // A candidate who asks for early voting by purpose, or arrives on a variant
-// from a task, is not routed through here and always gets the lists.
+// from the voter data page, is not routed through here and always gets the
+// lists.
 export const globalVariantOrder = (
   windowOpen: boolean,
 ): RecommendedListVariant[] => {

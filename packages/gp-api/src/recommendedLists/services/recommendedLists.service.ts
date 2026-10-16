@@ -218,7 +218,7 @@ export class RecommendedListsService {
     )
 
     // The global set is the one surface the early-vote window governs (see
-    // globalVariantOrder). A purpose or task that names early voting comes
+    // globalVariantOrder). A purpose or variant that names early voting comes
     // in with an intent or a variant and is never gated.
     const isGlobal = !variant && !intent && !channel
 

@@ -7,7 +7,6 @@ import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
   composeOutreachHref,
   parseTrackerOrigin,
-  recommendedVariantForTask,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import {
   CheckIcon,
@@ -165,13 +164,7 @@ export const taskAction = (
   if (row.flowType === 'text' || row.flowType === 'robocall') {
     return {
       label: row.flowType === 'text' ? 'Send a text' : 'Set up a robocall',
-      href: composeOutreachHref(
-        row.flowType,
-        source,
-        row.date,
-        tracker,
-        recommendedVariantForTask(row.title),
-      ),
+      href: composeOutreachHref(row.flowType, source, row.date, tracker),
       external: false,
     }
   }

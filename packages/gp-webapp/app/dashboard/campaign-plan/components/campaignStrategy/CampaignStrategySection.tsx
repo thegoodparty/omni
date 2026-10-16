@@ -20,10 +20,7 @@ import {
   useHeadStartWeek,
 } from './NextTaskCard'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
-import {
-  composeOutreachHref,
-  recommendedVariantForTask,
-} from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import {
   CampaignStrategyPhaseKeySchema,
   timelineElectionDate,
@@ -56,7 +53,6 @@ const CampaignStrategySection = ({
           'campaign_tracker',
           date,
           trackerOrigin(taskId, task?.phase),
-          recommendedVariantForTask(task?.title),
         ),
       )
     },

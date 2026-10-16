@@ -68,7 +68,11 @@ const reliableBandFor = (
 // What makes an early-vote list an early-vote audience: voters likely to
 // cast their ballot before Election Day, early in person or by mail
 // (Early_Vote_Status). Very likely and Likely together are the top ~59% of
-// the file nationally; the other two buckets and Unknown are left out.
+// the file nationally; the other two buckets and Unknown are left out. On the
+// modelled variants it stands in for the turnout band rather than adding to
+// it: someone who tends to vote early is the audience whether or not they
+// vote reliably. Supporters are not screened at all -- every supporter is
+// worth asking to vote early, including those for whom it would be new.
 const EARLY_VOTE_LIKELY = {
   earlyVoteVeryLikely: true,
   earlyVoteLikely: true,
@@ -167,16 +171,14 @@ const buildUniverse = (
         ...ideologyFilter(ideologyBucket),
       }
     case 'earlyVoteSupporters':
-      return { supportStatus: ['supporter'], ...EARLY_VOTE_LIKELY }
+      return { supportStatus: ['supporter'] }
     case 'earlyVoteAffinity':
       return {
-        voterStatus: [...reliable],
         independentAffinity: true,
         ...EARLY_VOTE_LIKELY,
       }
     case 'earlyVoteIdeology':
       return {
-        voterStatus: [...reliable],
         ...ideologyFilter(ideologyBucket),
         ...EARLY_VOTE_LIKELY,
       }
@@ -207,8 +209,9 @@ const buildUniverse = (
 // exists to fix. Pass null explicitly where the code is genuinely unknown.
 //
 // SCOPE NOTE. This narrows only the `reliable` band, which is the screen on
-// `introNeverIded`, the three persuade variants, and the two modelled
-// early-vote variants. The GOTV variants are untouched on purpose:
+// `introNeverIded` and the three persuade variants. The early-vote variants
+// carry no turnout band at all (early-vote likelihood stands in for it). The
+// GOTV variants are untouched on purpose:
 // `electionDayAffinity` / `electionDayIdeology` use `mid` (Likely +
 // Unreliable) and `electionDaySupporters` uses `belowHigh`, and those bands
 // are deliberately *below* the likely-voter screen because chasing

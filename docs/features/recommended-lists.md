@@ -166,19 +166,19 @@ carry an answer. `unsure` rolls up to `undecided`.
 | Invite to event  | `eventAffinity`         | high                         | `affinity` = true, `supportStatus` in (supporter, undecided, unknown, refused) |
 | Invite to event  | `eventIdeology`         | high                         | `ideology` = target bucket, same support exclusion                             |
 | Early voting     | `earlyVoteSupporters`   | —                            | `supportStatus` = supporter                                                    |
-| Early voting     | `earlyVoteAffinity`     | reliable †                   | `affinity` = true                                                              |
-| Early voting     | `earlyVoteIdeology`     | reliable †                   | `ideology` = target bucket                                                     |
+| Early voting     | `earlyVoteAffinity`     | —                            | `affinity` = true, early vote likely ‡                                         |
+| Early voting     | `earlyVoteIdeology`     | —                            | `ideology` = target bucket, early vote likely ‡                                |
 | Election day     | `electionDaySupporters` | Likely, Unreliable, Unlikely | `supportStatus` = supporter                                                    |
 | Election day     | `electionDayAffinity`   | mid                          | `affinity` = true                                                              |
 | Election day     | `electionDayIdeology`   | mid                          | `ideology` = target bucket                                                     |
 
 † `reliable` only for a November general. Any known non-`General`
-`electionCode` narrows these six to `high` — see
+`electionCode` narrows these four to `high` — see
 [`reliable` is a November band](#reliable-is-a-november-band-so-it-scales-with-the-electorate).
 
 ‡ Early vote likely = `Early_Vote_Status` in (Very likely, Likely): the
 higher of Haystaq's early-in-person and vote-by-mail scores, at 80 or above
-and 55 or above. See [Early voting is its own audience](#early-voting-is-its-own-audience-and-its-own-window).
+and 55 or above. It replaces the turnout band rather than adding to it. See [Early voting is its own audience](#early-voting-is-its-own-audience-and-its-own-window).
 
 Notes on specific rows:
 
@@ -199,16 +199,22 @@ unknown, refused`) is the inclusion-list expression of "not a known opponent
 
 ### Early voting is its own audience, and its own window
 
-Every early-vote variant carries the same screen on top of its universe:
-`Early_Vote_Status` Very likely or Likely, saved as the `earlyVoteVeryLikely`
-and `earlyVoteLikely` booleans. That is what separates them from the persuade
-and event lists they used to duplicate. They differed only by message until
-the mart carried an early-vote score; v1 declined `hf_likely_vbm` for exactly
-that gap, and `Early_Vote_Status` (gp-data-platform #1215) closes it. It takes
-the higher of `hs_likely_ev` and `hs_likely_vbm` because either route puts the
-vote in before Election Day. The two buckets are the top ~59% of the file
-nationally, and like every Haystaq score they are relative to the voter's
-state.
+The modelled early-vote variants screen on early-vote likelihood instead of
+turnout: `Early_Vote_Status` Very likely or Likely, saved as the
+`earlyVoteVeryLikely` and `earlyVoteLikely` booleans, in place of the
+`reliable` band. Someone who tends to vote early is the audience whether or
+not they vote reliably. The supporter variant is not screened at all: every
+supporter is worth asking to vote early, including those for whom it would be
+new. That makes it the same universe as `eventSupporters`, so the global set
+keeps whichever comes first in display order.
+
+These lists used to duplicate the persuade and event lists, differing only by
+message, because the mart had no early-vote score (v1 declined
+`hf_likely_vbm` for exactly that gap). `Early_Vote_Status`
+(gp-data-platform #1215) closes it. It takes the higher of `hs_likely_ev` and
+`hs_likely_vbm` because either route puts the vote in before Election Day.
+The two buckets are the top ~59% of the file nationally, and like every
+Haystaq score they are relative to the voter's state.
 
 **The window gates only the global set.** The voter data page's
 recommended-for-you cards (no channel, no intent) show the early-vote variants
@@ -218,16 +224,12 @@ that window rank them right after the introduce list and ahead of persuade
 OPEN milestone for the race's election, else Election Day minus 14 days, the
 same fallback the campaign plan uses. No election date, no window. A flow
 whose purpose is early voting, and a task deep link that names a variant,
-always get the lists: the candidate asked for them.
+always get the lists: the candidate asked for them. Start outreach on the
+early-vote task opens the flow at its purpose step like every other task.
 
 At launch, 92% of Pro campaigns voting on 2026-11-03 had a BallotReady
 early-voting start. 2027 elections have almost none yet, so they run on the
 fallback until BallotReady publishes them.
-
-**The early-vote task opens on `earlyVoteAffinity`.** "Early Voting Text" and
-its robocall swap pass `recommended=earlyVoteAffinity` from Start outreach
-(`recommendedVariantForTask`), since it is the variant most campaigns can be
-shown.
 
 ## Channel refinements
 
