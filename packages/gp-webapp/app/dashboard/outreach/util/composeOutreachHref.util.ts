@@ -1,4 +1,9 @@
-import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
+import {
+  CAMPAIGN_TASK_CATALOG,
+  CampaignStrategyPhaseKeySchema,
+  TEXT_SEND_ROBOCALL_SWAPS,
+  type RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import type {
   OutreachFlowSource,
   OutreachTrackerOrigin,
@@ -39,8 +44,13 @@ export const composeOutreachHref = (
   // task id travelling with the press, task completion and voter outreach stay
   // two funnels that cannot be joined.
   tracker?: OutreachTrackerOrigin,
+  // A recommended list to open the flow on. The hub answers the purpose
+  // from it and lands on the audience step with the list applied, the same
+  // as the voter data page's channel picker.
+  recommended?: RecommendedListVariant | null,
 ): string => {
   const params = new URLSearchParams({ compose: type, source })
+  if (recommended) params.set('recommended', recommended)
   // YYYY-MM-DD only — the hub re-validates, so a malformed value is dropped
   // there rather than trusted here.
   if (due) params.set('due', due.slice(0, 10))
@@ -50,6 +60,28 @@ export const composeOutreachHref = (
   }
   return `/dashboard/outreach?${params.toString()}`
 }
+
+// Tracker rows carry a title, not a catalog id, so the early-vote task is
+// recognized by its catalog title and by the robocall swap's title for the
+// same send.
+const EARLY_VOTE_TASK_TITLES: ReadonlySet<string> = new Set([
+  ...CAMPAIGN_TASK_CATALOG.filter(
+    (task) => task.id === 'early-voting-text',
+  ).map((task) => task.title),
+  ...TEXT_SEND_ROBOCALL_SWAPS.filter(
+    (swap) => swap.catalogId === 'early-voting-text',
+  ).map((swap) => swap.title),
+])
+
+// The recommended list a task's Start outreach should open on, if any. The
+// early-vote task opens on the independent-leaning early-vote list: it is
+// the one most campaigns can be shown (the supporter list is empty until a
+// campaign has logged answers, the ideology list needs a target bucket), and
+// the candidate can still switch lists on the audience step.
+export const recommendedVariantForTask = (
+  title: string | null | undefined,
+): RecommendedListVariant | null =>
+  title && EARLY_VOTE_TASK_TITLES.has(title) ? 'earlyVoteAffinity' : null
 
 // Both halves or neither: a phase with no task id names nothing joinable, and
 // a task id with no phase loses the cut the activation work is measured on.

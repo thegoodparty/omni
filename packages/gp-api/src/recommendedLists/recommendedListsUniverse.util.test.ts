@@ -197,6 +197,8 @@ describe('buildVariantFilter', () => {
     expect(filter).toEqual({
       supportStatus: ['supporter'],
       hasCellPhone: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
     })
   })
 
@@ -211,6 +213,8 @@ describe('buildVariantFilter', () => {
       voterStatus: ['Super', 'Likely'],
       independentAffinity: true,
       hasCellPhone: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
     })
   })
 
@@ -236,6 +240,8 @@ describe('buildVariantFilter', () => {
       voterStatus: ['Super', 'Likely'],
       ideologyConservative: true,
       hasCellPhone: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
     })
   })
 

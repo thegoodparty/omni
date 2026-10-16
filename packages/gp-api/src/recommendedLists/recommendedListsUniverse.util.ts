@@ -65,6 +65,15 @@ const reliableBandFor = (
     ? VOTER_STATUS_BANDS.reliable
     : VOTER_STATUS_BANDS.high
 
+// What makes an early-vote list an early-vote audience: voters likely to
+// cast their ballot before Election Day, early in person or by mail
+// (Early_Vote_Status). Very likely and Likely together are the top ~59% of
+// the file nationally; the other two buckets and Unknown are left out.
+const EARLY_VOTE_LIKELY = {
+  earlyVoteVeryLikely: true,
+  earlyVoteLikely: true,
+} as const satisfies Partial<VoterFilterShape>
+
 // The inclusion-list expression of "not a known opponent supporter" — used
 // on both event variants that carry the support exclusion.
 const EVENT_SUPPORT_EXCLUSION = [
@@ -158,16 +167,18 @@ const buildUniverse = (
         ...ideologyFilter(ideologyBucket),
       }
     case 'earlyVoteSupporters':
-      return { supportStatus: ['supporter'] }
+      return { supportStatus: ['supporter'], ...EARLY_VOTE_LIKELY }
     case 'earlyVoteAffinity':
       return {
         voterStatus: [...reliable],
         independentAffinity: true,
+        ...EARLY_VOTE_LIKELY,
       }
     case 'earlyVoteIdeology':
       return {
         voterStatus: [...reliable],
         ...ideologyFilter(ideologyBucket),
+        ...EARLY_VOTE_LIKELY,
       }
     case 'electionDaySupporters':
       return {

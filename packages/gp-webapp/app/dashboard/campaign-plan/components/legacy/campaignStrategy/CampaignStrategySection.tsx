@@ -16,7 +16,10 @@ import {
 } from '../../campaignStrategy/useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import CountModal from '../../../../components/tasks/CountModal'
-import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import {
+  composeOutreachHref,
+  recommendedVariantForTask,
+} from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import {
   outreachChannel,
   outreachEventProps,
@@ -61,6 +64,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
           'campaign_tracker',
           date,
           trackerOrigin(taskId, task?.phase),
+          recommendedVariantForTask(task?.title),
         ),
       )
     },

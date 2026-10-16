@@ -159,10 +159,10 @@ carry an answer. `unsure` rolls up to `undecided`.
 | Intent           | Variant                 | `voterStatus`                | Other filters                                                                  |
 | ---------------- | ----------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
 | Introduce myself | `introNeverIded`        | reliable †                   | `supportStatus` = unknown                                                      |
-| Persuade         | `persuadeAffinity`      | reliable †                   | `affinity` = true                                                              |
-| Persuade         | `persuadeIdeology`      | reliable †                   | `ideology` = target bucket                                                     |
+| Persuade         | `persuadeAffinity`      | reliable †                   | `affinity` = true, early vote likely ‡                                         |
+| Persuade         | `persuadeIdeology`      | reliable †                   | `ideology` = target bucket, early vote likely ‡                                |
 | Persuade         | `persuadeUndecided`     | reliable †                   | `supportStatus` = undecided                                                    |
-| Invite to event  | `eventSupporters`       | —                            | `supportStatus` = supporter                                                    |
+| Invite to event  | `eventSupporters`       | —                            | `supportStatus` = supporter, early vote likely ‡                               |
 | Invite to event  | `eventAffinity`         | high                         | `affinity` = true, `supportStatus` in (supporter, undecided, unknown, refused) |
 | Invite to event  | `eventIdeology`         | high                         | `ideology` = target bucket, same support exclusion                             |
 | Early voting     | `earlyVoteSupporters`   | —                            | `supportStatus` = supporter                                                    |
@@ -175,6 +175,10 @@ carry an answer. `unsure` rolls up to `undecided`.
 † `reliable` only for a November general. Any known non-`General`
 `electionCode` narrows these six to `high` — see
 [`reliable` is a November band](#reliable-is-a-november-band-so-it-scales-with-the-electorate).
+
+‡ Early vote likely = `Early_Vote_Status` in (Very likely, Likely): the
+higher of Haystaq's early-in-person and vote-by-mail scores, at 80 or above
+and 55 or above. See [Early voting is its own audience](#early-voting-is-its-own-audience-and-its-own-window).
 
 Notes on specific rows:
 
@@ -193,20 +197,37 @@ unknown, refused`) is the inclusion-list expression of "not a known opponent
   near-certain voter needs no turnout reminder; the whole point is chasing the
   supporters who don't reliably show up.
 
-### Early voting has no distinct audience, by decision
+### Early voting is its own audience, and its own window
 
-`earlyVoteAffinity` is identical to `persuadeAffinity`, and the ideology and
-supporter variants likewise duplicate their persuade and event counterparts.
-This is accepted: the two intents differ by **message**, not by audience.
+Every early-vote variant carries the same screen on top of its universe:
+`Early_Vote_Status` Very likely or Likely, saved as the `earlyVoteVeryLikely`
+and `earlyVoteLikely` booleans. That is what separates them from the persuade
+and event lists they used to duplicate. They differed only by message until
+the mart carried an early-vote score; v1 declined `hf_likely_vbm` for exactly
+that gap, and `Early_Vote_Status` (gp-data-platform #1215) closes it. It takes
+the higher of `hs_likely_ev` and `hs_likely_vbm` because either route puts the
+vote in before Election Day. The two buckets are the top ~59% of the file
+nationally, and like every Haystaq score they are relative to the voter's
+state.
 
-The screen that would have differentiated them is `hf_likely_vbm`, a Haystaq
-vote-by-mail propensity. It is not in the mart and adding it was declined for
-v1. In the eval, a VBM-refined early-vote list was 26% of the persuasion list
-and ranged from 8.6% to 80.8% across districts, tracking real vote-by-mail
-culture — so the differentiation would have been genuine. Two zero-new-column
-options remain available later: `AbsenteeTypes_Description` (already in the
-mart, `Permanent U.S.` is 13.3% of voters, though those people already vote by
-mail and need no encouragement) or promoting `hf_likely_vbm` into the mart.
+**The window gates only the global set.** The voter data page's
+recommended-for-you cards (no channel, no intent) show the early-vote variants
+only from early voting's start until two days before Election Day, and inside
+that window rank them right after the introduce list and ahead of persuade
+(`globalVariantOrder`). The start is BallotReady's earliest `EARLY_VOTING`
+OPEN milestone for the race's election, else Election Day minus 14 days, the
+same fallback the campaign plan uses. No election date, no window. A flow
+whose purpose is early voting, and a task deep link that names a variant,
+always get the lists: the candidate asked for them.
+
+At launch, 92% of Pro campaigns voting on 2026-11-03 had a BallotReady
+early-voting start. 2027 elections have almost none yet, so they run on the
+fallback until BallotReady publishes them.
+
+**The early-vote task opens on `earlyVoteAffinity`.** "Early Voting Text" and
+its robocall swap pass `recommended=earlyVoteAffinity` from Start outreach
+(`recommendedVariantForTask`), since it is the variant most campaigns can be
+shown.
 
 ## Channel refinements
 
@@ -439,10 +460,11 @@ Three shapes of request, all optional params:
   (`custom` and social's `issue_update` map to no intent).
 - **No `channel`** — the voter data page. Every intent's variants as the
   global universes: no contactability cut, no `estimatedCostCents`, the
-  normal vote-goal floor. Two intents can describe the same universe (early
-  voting duplicates persuasion and event audiences by decision), so a global
-  response collapses equivalent filters and keeps the first in registry
-  order. An `intent` alongside narrows it to that intent's universes.
+  normal vote-goal floor. The early-vote variants are gated by
+  date and reordered here (see
+  [Early voting is its own audience](#early-voting-is-its-own-audience-and-its-own-window)).
+  Two intents can still describe the same universe, so a global response
+  collapses equivalent filters and keeps the first in display order. An `intent` alongside narrows it to that intent's universes.
 - **`variant`** — one universe by registry key, regardless of intent, cut for
   the channel if one is given. This is how a flow entered from the voter data
   page fetches the recommendation it arrived with: the purpose the candidate
@@ -457,7 +479,7 @@ shape plus everything the card displays:
 | Field                | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `variant`            | the registry key, e.g. `persuadeAffinity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `intent`             | the intent the variant belongs to. Provenance (`recommendedIntent`) and the accept event carry this, not the purpose the candidate picked to reach the card — the two differ for a recommendation carried in from the voter data page |
+| `intent`             | the intent the variant belongs to. Provenance (`recommendedIntent`) and the accept event carry this, not the purpose the candidate picked to reach the card — the two differ for a recommendation carried in from the voter data page                                                                                                                                                                                                                                                                                            |
 | `filter`             | the unsaved `VoterFileFilter` shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `count`              | contactable size after the channel refinement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `voteGoalShare`      | `count` over `votesNeededToWin`. Omitted — not nulled — when the vote goal can't be resolved. Deliberately unbounded above: a list can hold several times the votes a race needs                                                                                                                                                                                                                                                                                                                                                 |
@@ -587,7 +609,6 @@ Listed so nobody helpfully reimplements them.
 | County and city geography levels                            | You can't door-knock a county                                                                                       | None. `pickSubGeo` is gone; always precinct                                                                                                                                                                                                                                                                                                              |
 | Geography on the event intent                               | We don't know the venue at recommendation time, so "densest 3 precincts" doesn't do the job its rationale claims    | Event invites aren't geographically targeted. Revisit if the flow starts collecting an event location                                                                                                                                                                                                                                                    |
 | `regAddon` / `modeledIAddon` per-campaign party adjustments | `modeledIAddon` needs `hs_` columns absent from the mart; `regAddon` widens with an OR, which AND-only would invert | **The affinity list doesn't know who you're running against.** A candidate facing a lone Republican and one facing a lone Democrat get the same list. Best candidate for reinstatement once unions are on the table                                                                                                                                      |
-| `hf_likely_vbm`                                             | Not in the mart, and adding it was declined for v1                                                                  | Early voting has no distinct audience                                                                                                                                                                                                                                                                                                                    |
 | Opponent placement and district-lean gating on ideology     | v1 simplification                                                                                                   | No "target moderate when you and your opponent are at opposite extremes" case. The district-lean guard is partly redundant with the size floor anyway                                                                                                                                                                                                    |
 
 ## Gotchas

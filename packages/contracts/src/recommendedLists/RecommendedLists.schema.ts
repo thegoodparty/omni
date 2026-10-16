@@ -95,6 +95,10 @@ export const RecommendedListFilterSchema = z
     voterStatus: z.array(z.string()).optional(),
     supportStatus: z.array(SupportStatusRollupSchema).optional(),
     independentAffinity: z.boolean().optional(),
+    // The early-vote variants' screen: Early_Vote_Status Very likely or
+    // Likely, as the same two booleans a saved list stores.
+    earlyVoteVeryLikely: z.boolean().optional(),
+    earlyVoteLikely: z.boolean().optional(),
     ideologyLiberal: z.boolean().optional(),
     ideologyModerate: z.boolean().optional(),
     ideologyConservative: z.boolean().optional(),

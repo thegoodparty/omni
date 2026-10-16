@@ -14,6 +14,7 @@ import StoryReadyCard from './StoryReadyCard'
 import {
   composeOutreachHref,
   parseTrackerOrigin,
+  recommendedVariantForTask,
   type ComposeFlowType,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
@@ -49,6 +50,7 @@ const composeFlowType = (task: {
 // channel's flow behind its own gate.
 const taskHref = (task: {
   id: string
+  title: string
   link: string | null
   flowType: string | null
   date: string | null
@@ -65,6 +67,7 @@ const taskHref = (task: {
         // The same tracker task the campaign plan links, so an arrival from
         // either surface joins its outreach and Pro upgrade events to it.
         parseTrackerOrigin(task.id, task.phase),
+        recommendedVariantForTask(task.title),
       )
     : TRACKER_HREF
 }
