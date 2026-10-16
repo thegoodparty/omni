@@ -2213,6 +2213,59 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 })
 
+describe('<ChiefOfStaffChatBody> file picked from a chat bar', () => {
+  const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+  })
+
+  it('uploads it once the conversation is ready, and only once', async () => {
+    const view = render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    view.rerender(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores it on a scope without attachment support', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        scope="ordinance_flow"
+        pendingFile={file}
+      />,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."
@@ -3003,7 +3056,28 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       currentWave: 1,
       createdAt: new Date('2026-10-15T00:00:00.000Z'),
       completedAt: null,
-      steps: [],
+      steps: next
+        ? [
+            {
+              id: next.stepId,
+              wave: 1,
+              channel: next.channel,
+              position: 1,
+              targetSize: 30,
+              status: next.status,
+              voterFileFilterId: null,
+              outreachId: null,
+              phoneBankingListId: null,
+              doorKnockingTurfId: null,
+              startedAt: null,
+              completedAt: null,
+              expectedRepliesBy: null,
+              markedDone: null,
+              reached: null,
+              joined: null,
+            },
+          ]
+        : [],
     },
     next,
     progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
@@ -3088,9 +3162,13 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
         'Your panel can give about 5 of the 96 answers you need.',
       ),
     ).toBeInTheDocument()
+    // The button opens the calls themselves (civicPanelWidgets.test.tsx).
     expect(
-      screen.getByRole('link', { name: 'Start the calls' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s1')
+      screen.getByRole('button', { name: 'Start the calls' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Start the calls' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
       'href',
       '/dashboard/contacts/citizens-panel',

@@ -6650,6 +6650,45 @@ describe('door-knocking routes', () => {
       })
     })
 
+    // A list's boundary is frozen member rows the draft cannot carry. The
+    // create resolves them off the list, so a preview sent the bare draft
+    // counted doors the save then refused as an empty turf.
+    it('narrows by a picked list the way the create does', async () => {
+      const bounded = await service.prisma.voterFileFilter.create({
+        data: {
+          organizationSlug: orgSlug,
+          name: 'Bounded',
+          geoPoly: GEO_POLY,
+          geoMembersResolvedAt: new Date(),
+        },
+      })
+
+      const res = await preview({ voterFileFilterId: bounded.id })
+
+      expect(res.status).toBe(201)
+      expect(res.data).toMatchObject({ stops: 0, audienceEmpty: true })
+    })
+
+    it('refuses a list from another organization', async () => {
+      await service.prisma.organization.create({
+        data: { slug: 'someone-else', ownerId: service.user.id },
+      })
+      const foreign = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: 'someone-else', name: 'not yours' },
+      })
+      const evaluateCalls = () => {
+        const { evaluate } = service.app.get(DoorKnockingPeopleApiService)
+        return (evaluate as unknown as ReturnType<typeof vi.fn>).mock.calls
+          .length
+      }
+      const before = evaluateCalls()
+
+      const res = await preview({ voterFileFilterId: foreign.id })
+
+      expect(res.status).toBe(404)
+      expect(evaluateCalls()).toBe(before)
+    })
+
     it('spends no vendor credit and freezes nothing', async () => {
       const fetchSpy = stubVendors()
 

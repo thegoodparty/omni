@@ -38,13 +38,12 @@ export type ServeStepId =
   | 'office'
   | 'term-dates'
   | 'confirm'
-  | 'constituents'
   | ServeStoryStepId
   | 'priorities'
   | 'pledge'
 
-// The district story serve-citizen-panels shows in place of `constituents`:
-// one persistent map that changes mode on each step.
+// The district story serve-citizen-panels shows after the term: one
+// persistent map that changes mode on each step.
 export const SERVE_STORY_STEPS = [
   'story-represent',
   'story-loudest',
@@ -78,7 +77,7 @@ const PREFILL_STEPS: ServeStepId[] = [
   'inOffice',
   'party',
   'confirm',
-  'constituents',
+  ...SERVE_STORY_STEPS,
   'priorities',
   'pledge',
 ]
@@ -89,28 +88,25 @@ const NET_NEW_STEPS: ServeStepId[] = [
   'party',
   'office',
   'term-dates',
-  'constituents',
+  ...SERVE_STORY_STEPS,
   'priorities',
   'pledge',
 ]
 
-// With serve-citizen-panels on, the district story replaces `constituents`
-// and the `priorities` step follows it. Without the flag the flow goes from
-// `constituents` straight to `pledge`.
+// The district story and the `priorities` step are serve-citizen-panels
+// only. Without the flag the flow goes from the term straight to `pledge`.
 export const getServeBranchSteps = (
   branch: ServeBranch,
   citizenPanels = false,
 ): ServeStepId[] => {
   const steps = branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
-  if (!citizenPanels) return steps.filter((s) => s !== 'priorities')
-  return steps.flatMap((s) =>
-    s === 'constituents' ? [...SERVE_STORY_STEPS] : [s],
-  )
+  if (citizenPanels) return steps
+  return steps.filter((s) => !isServeStoryStep(s) && s !== 'priorities')
 }
 
 // The first step after the office and term are settled.
 export const firstStepAfterTerm = (citizenPanels = false): ServeStepId =>
-  citizenPanels ? SERVE_STORY_STEPS[0] : 'constituents'
+  citizenPanels ? SERVE_STORY_STEPS[0] : 'pledge'
 
 /**
  * Which of the data-collecting answers are already persisted on the EO/org
@@ -178,8 +174,9 @@ export const resolveServeBranch = ({
  *    reviewed/edited on the `confirm` hub, so an incomplete pair resumes there;
  *    in the net-new branch they are their own steps.
  *
- * Never returns `pledge`: a completed office is redirected away before the flow
- * renders, and the pledge is the completion action the user must always take.
+ * With every answer saved it resumes at the first step after the term: the
+ * pledge itself with serve-citizen-panels off. A completed office is redirected
+ * away before the flow renders, so the pledge is always still to take.
  */
 export const computeServeResumeStep = (
   branch: ServeBranch,
@@ -218,7 +215,7 @@ const maxDataSufficientStep = (
 /**
  * Resume target that honors the persisted step checkpoint (written on every
  * "Continue") so a returning user lands on the EXACT most recent step — even
- * steps with no data field (`inOffice`, `constituents`) that the data-derived
+ * steps with no data field (`inOffice`, the district story) that the data-derived
  * `computeServeResumeStep` cannot pinpoint.
  *
  *  - No checkpoint (legacy rows / sales prefills provisioned before this
@@ -355,13 +352,6 @@ export const SERVE_STEP_COPY: Record<
       'We pulled this from public records. Confirm your office and term dates, or change anything that looks off.',
     whyWeAsk:
       'These details ensure we pull the right information and data to help you serve your community',
-  },
-  constituents: {
-    title: "Here's everything to know about your constituents",
-    description:
-      'We crunch constituent data and local news to prioritize the most important issues for your office.',
-    whyWeAsk:
-      "Understanding your constituents' makeup and concerns helps you prioritize where to focus and how to communicate.",
   },
   priorities: {
     title: 'Turn what you ran on into what you work on',

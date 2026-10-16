@@ -177,10 +177,6 @@ export const EVENTS = {
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
-    KnowYourConstituentsViewed:
-      'Serve Onboarding - Know Your Constituents Viewed',
-    KnowYourConstituentsCompleted:
-      'Serve Onboarding - Know Your Constituents Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
   },
@@ -463,9 +459,10 @@ export const EVENTS = {
     // justify building self-serve remediation.
     VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
     // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
-    // once per drawer open with { context, source: 'message' | 'history' }
-    // (a bar submit opens with a message; a history pick opens a past
-    // conversation); MessageSent fires per user send ({ context }) — the
+    // once per drawer open with
+    // { context, source: 'message' | 'history' | 'toolbar' } (a bar submit
+    // opens with a message; a history pick opens a past conversation; the
+    // paperclip or mic opens a fresh one); MessageSent fires per user send ({ context }) — the
     // initial bar submit and every composer follow-up — so open-to-send
     // drop-off is visible.
     AssistantChatOpened: 'Contacts - Assistant Chat Opened',

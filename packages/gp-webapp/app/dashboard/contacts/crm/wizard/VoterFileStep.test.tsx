@@ -894,3 +894,40 @@ describe('VoterFileStep — Precinct group', () => {
     expect(onPrecinctsChange).toHaveBeenCalledWith(['LARAMIE|14'])
   })
 })
+
+// renderField takes an optional `below` node, so passing it straight to
+// .map() rendered each group's array index ("0", "1", ...) under its pills.
+describe('VoterFileStep — no stray text under filter groups', () => {
+  it('renders nothing but the header and pills in each group below Support status', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    for (const label of ['Voter likelihood', 'Political party', 'Age']) {
+      const group = screen.getByRole('heading', {
+        name: new RegExp(`^${label}$`, 'i'),
+      }).parentElement?.parentElement
+      if (!group) throw new Error(`${label} group not rendered`)
+
+      const strayText = Array.from(group.childNodes).filter(
+        (node) => node.nodeType === Node.TEXT_NODE,
+      )
+      expect(strayText).toEqual([])
+    }
+  })
+})

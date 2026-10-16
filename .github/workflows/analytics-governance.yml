@@ -42,11 +42,19 @@ permissions: {}
 jobs:
   govern:
     runs-on: ubuntu-latest
+    # id-token lets the run mint a GitHub OIDC token, which Databricks trades
+    # for a product_analytics session via a federation policy on that service
+    # principal. No client secret exists to expire: the policy matches
+    # repo:thegoodparty/omni:ref:refs/heads/main exactly, so only runs on main
+    # (the schedule, or a dispatch against main) can authenticate.
+    permissions:
+      id-token: write
     env:
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
       DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_TOKEN_AUDIENCE: https://github.com/thegoodparty
       SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
       SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
       # Interim sheet identity until the Google service account (DATA-2072):
@@ -75,7 +83,6 @@ jobs:
           [ -n "$DATABRICKS_HOST" ] || missing="$missing vars.DATABRICKS_HOST"
           [ -n "$DATABRICKS_HTTP_PATH" ] || missing="$missing vars.DATABRICKS_HTTP_PATH"
           [ -n "$DATABRICKS_CLIENT_ID" ] || missing="$missing secrets.DATABRICKS_CLIENT_ID"
-          [ -n "$DATABRICKS_CLIENT_SECRET" ] || missing="$missing secrets.DATABRICKS_CLIENT_SECRET"
           [ -n "$AUTOMATION_APP_ID" ] || missing="$missing vars.AUTOMATION_APP_ID"
           [ -n "$AUTOMATION_APP_PRIVATE_KEY" ] || missing="$missing secrets.AUTOMATION_APP_PRIVATE_KEY"
           if [ -n "$missing" ]; then

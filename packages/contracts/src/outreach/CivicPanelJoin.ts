@@ -1,7 +1,8 @@
 // The one way a Serve text asks a constituent onto the official's civic
 // panel. A fixed sentence rather than composed copy, because two readers
-// depend on its exact words: the composer locks it so the ask cannot be
-// edited into something the reply reader would not recognize, and gp-api
+// depend on its exact words: the composer will not continue without it and
+// Improve keeps it word for word, so the ask cannot become something the
+// reply reader would not recognize, and gp-api
 // marks a send as asking (and so reads JOIN replies off it) only when the
 // sentence is in the message it stored.
 export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
@@ -13,7 +14,7 @@ export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join 
 
 // Every line a stored send may carry, newest first. Sends written before a
 // rewrite carry an older wording (the panel's earlier name among them), so
-// the reader and the composer's lock still recognize them; the composer only
+// the reader and Improve's masking still recognize them; the composer only
 // ever writes CIVIC_PANEL_JOIN_LINE. Never drop or edit a legacy line.
 export const CIVIC_PANEL_JOIN_LINES = [
   CIVIC_PANEL_JOIN_LINE,
@@ -36,10 +37,10 @@ export const findCivicPanelJoinLine = (
 
 // The way off the panel that is not STOP. STOP ends every text from the
 // office; a member who only wants off the panel replies LEAVE and still gets
-// the office's other texts. Carried, locked, by a send that goes only to
+// the office's other texts. Carried by a send that goes only to
 // panel members (isCivicPanelOnlyList), and never beside the JOIN line. The
 // reply ingest honors LEAVE from a member on any Serve send, so this line is
-// an offer, not the only door: the words matter to the composer's lock and
+// an offer, not the only door: the words matter to the composer's check and
 // to the stamp the create reads off the stored message.
 export const CIVIC_PANEL_LEAVE_KEYWORD = 'LEAVE'
 

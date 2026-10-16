@@ -348,7 +348,7 @@ export default function VoterFileStep({
         </ToggleGroup>
       </div>
 
-      {fieldsBelowSupportStatus.map(renderField)}
+      {fieldsBelowSupportStatus.map((field) => renderField(field))}
 
       {/* Serve offers the same rest window as Last asked, above. */}
       {showCitizenPanelFilters &&

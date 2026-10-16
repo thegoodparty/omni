@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -26,7 +27,12 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Pro upgrade v2 entry', () => {
   test('opens a free candidate on the guidance overview', async ({ page }) => {
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
@@ -50,6 +56,9 @@ test.describe('Pro upgrade v2 entry', () => {
       await expect(page.getByText(row, { exact: true })).toBeVisible()
     }
 
+    // The cookie banner can mount after the dismissal above, which ran before
+    // the redirect to guidance, and it sits over the footer's Continue.
+    await NavigationHelper.dismissCookieBanner(page)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/status`)
   })
@@ -57,7 +66,12 @@ test.describe('Pro upgrade v2 entry', () => {
   test('sends an already-Pro candidate with no filing on to campaign verification', async ({
     page,
   }) => {
-    await setupProCampaignUser(page)
+    const { client } = await setupProCampaignUser(page)
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)

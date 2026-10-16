@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
-  type SmsProtectedPart,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -21,7 +22,6 @@ import {
   FilterPillGroup,
   IconButton,
   Label,
-  type ProtectedSpec,
   seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
@@ -51,29 +51,6 @@ import {
   OPT_OUT_FOOTER,
 } from './smsCompose.util'
 
-// Why each locked part cannot change, shown when an edit runs into it. Both
-// surfaces read the same words: none of them names voters or constituents.
-// Partial because link_shortener forbids text rather than requiring it, so
-// nothing is ever locked for it.
-const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
-  first_name_token: 'Keep the first name so each person sees their own.',
-  candidate_name:
-    "Your name stays so people know who's texting, but you can reword anything around it.",
-  paid_for_by: 'The law requires this line, but you can write around it.',
-  opt_out_line:
-    'Every text has to offer a way to opt out, but you can write around it.',
-  civic_panel_join:
-    'This is how people join your civic panel. Uncheck the box below to remove it.',
-  civic_panel_leave:
-    'This is how people leave your civic panel and keep getting your texts. You can write around it.',
-}
-
-// A text that builds the panel is its ask, so there is no box to uncheck.
-const LOCKED_JOIN_REASON =
-  'This is how people join your civic panel, but you can write around it.'
-
-const LOCKED_FALLBACK =
-  'This part is required, but you can reword anything around it.'
 const FIRST_NAME_TAG = MERGE_TAGS[0]
 
 const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
@@ -120,21 +97,19 @@ interface SmsComposeStepProps {
   isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
-  standardsFailures: SmsStandardsRule[]
+  standardsFailures: SmsRequiredPart[]
   unfilledBrackets: string[]
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
   // surface or a campaign with no committee to name.
   paidForByText: string | null
   // Puts a deleted required line back where the flow writes it.
-  onAddRequiredBack: (rule: SmsStandardsRule) => void
+  onAddRequiredBack: (rule: SmsRequiredPart) => void
   // The whole message as sent: greeting, body, disclaimer and opt-out.
   message: string
   onMessageChange: (message: string) => void
-  // The parts of `message` nobody may change, from deriveSmsProtectedParts.
-  protectedParts: SmsProtectedPart[]
   mergeTagChannel: MergeTagChannel
-  // Whether the candidate has written anything between the locked parts.
+  // Whether the candidate has written anything between the required parts.
   hasWrittenBody: boolean
   composedLength: number
   // The one AI action: a fresh draft while the words are still the AI's,
@@ -153,7 +128,7 @@ interface SmsComposeStepProps {
   // before the first, and each one moves to the first field still missing.
   continueAttempts: number
   // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
-  // on a text whose purpose is the ask.
+  // on a text whose purpose is the ask, so the box cannot be unchecked.
   civicPanelAsk?: {
     checked: boolean
     locked?: boolean
@@ -161,10 +136,18 @@ interface SmsComposeStepProps {
   }
 }
 
-// What is wrong and how to fix it, per failed compliance rule: rule 8 of
-// docs/product-copy.md. The greeting, name, disclaimer and opt-out are
-// written by the flow, so these mostly fire when an edit deletes one, and
-// each shows the exact line to restore plus a one-click way to restore it.
+// What a send needs beyond the standards rules: the civic panel line the
+// reply reader or the create looks for.
+export type SmsRequiredPart =
+  | SmsStandardsRule
+  | 'civic_panel_join'
+  | 'civic_panel_leave'
+
+// What is wrong and how to fix it, per missing required part: rule 8 of
+// docs/product-copy.md. The greeting, name, disclaimer, opt-out and panel
+// line are written by the flow and editable like any other text, so these
+// fire when an edit deletes one, and each shows the exact line to restore
+// plus a one-click way to restore it.
 interface StandardsFailureCopy {
   problem: string
   fix: string
@@ -178,7 +161,7 @@ interface StandardsFailureCopy {
 const GREETING_EXAMPLE = 'Hello [First name],'
 
 export const standardsFailureCopy = (
-  rule: SmsStandardsRule,
+  rule: SmsRequiredPart,
   {
     identificationExample,
     paidForByText,
@@ -186,8 +169,8 @@ export const standardsFailureCopy = (
 ): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
     return {
-      problem: "Your text needs to say who it's from.",
-      fix: 'Add your name back at the start, like:',
+      problem: 'Your text needs your name.',
+      fix: 'Add it back at the start:',
       line: identificationExample,
       addBackLabel: 'Add your name back',
     }
@@ -218,6 +201,22 @@ export const standardsFailureCopy = (
       }),
     }
   }
+  if (rule === 'civic_panel_join') {
+    return {
+      problem: 'Your text needs its civic panel ask.',
+      fix: 'Add it back before the opt-out line:',
+      line: CIVIC_PANEL_JOIN_LINE,
+      addBackLabel: 'Add the civic panel ask back',
+    }
+  }
+  if (rule === 'civic_panel_leave') {
+    return {
+      problem: 'Your text needs the line for leaving your civic panel.',
+      fix: 'Add it back before the opt-out line:',
+      line: CIVIC_PANEL_LEAVE_LINE,
+      addBackLabel: 'Add the civic panel line back',
+    }
+  }
   if (rule === 'link_shortener') {
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
@@ -241,7 +240,6 @@ export const SmsComposeStep = ({
   onAddRequiredBack,
   message,
   onMessageChange,
-  protectedParts,
   mergeTagChannel,
   hasWrittenBody,
   composedLength,
@@ -264,7 +262,6 @@ export const SmsComposeStep = ({
   const attempted = continueAttempts > 0
   const imageMissing = attempted && !imagePreviewUrl
   const messageMissing = attempted && !hasWrittenBody
-  const [lockReason, setLockReason] = useState<string | null>(null)
   // Dictation lands at the cursor, not at the end: the end of the message is
   // the opt-out line, and nothing may follow it.
   const dictation = useDictation({
@@ -286,29 +283,9 @@ export const SmsComposeStep = ({
       id: FIRST_NAME_TAG.id,
       label: FIRST_NAME_TAG.label,
       text: firstNameText,
-      required: protectedParts.some((part) => part.kind === 'token'),
     },
   ]
-  const protectedRanges: ProtectedSpec[] = protectedParts.flatMap((part) =>
-    part.kind === 'phrase'
-      ? [
-          {
-            id: part.rule,
-            text: part.text,
-            // The copy the lock rules chose (the footer, not a quote of it).
-            start: part.start,
-            reason:
-              part.rule === 'civic_panel_join' && civicPanelAsk?.locked
-                ? LOCKED_JOIN_REASON
-                : (LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK),
-          },
-        ]
-      : [],
-  )
   const isImprove = aiAction === 'improve'
-  useEffect(() => {
-    setLockReason(null)
-  }, [message])
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
   const segments = Math.max(1, Math.ceil(composedLength / 160))
 
@@ -462,14 +439,6 @@ export const SmsComposeStep = ({
             value={message}
             onChange={onMessageChange}
             tokens={tokens}
-            protectedRanges={protectedRanges}
-            onBlockedEdit={(target) =>
-              setLockReason(
-                'reason' in target
-                  ? target.reason
-                  : (LOCK_REASONS.first_name_token ?? LOCKED_FALLBACK),
-              )
-            }
             // Read-only until the first draft lands, so nothing typed is
             // overwritten by it.
             readOnly={isDrafting && !message.trim()}
@@ -483,9 +452,6 @@ export const SmsComposeStep = ({
             variant="seamless"
             className="min-h-[140px]"
           />
-          <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
-            {lockReason}
-          </p>
           {messageMissing && (
             <p className="text-xs text-destructive">{MESSAGE_REQUIRED_ERROR}</p>
           )}

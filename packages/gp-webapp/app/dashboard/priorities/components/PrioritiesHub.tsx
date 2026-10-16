@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Badge, Button, EmptyState, cn } from '@styleguide'
 import { ArchiveIcon, ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
@@ -74,6 +75,7 @@ const PrioritiesHub = ({
   const [pendingIssueId, setPendingIssueId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
   const changedHere = useRef(false)
 
   useEffect(() => {
@@ -124,6 +126,12 @@ const PrioritiesHub = ({
     [seedIssues],
   )
 
+  // Adding a priority is the start of working it, so go straight into its
+  // conversation rather than leaving a new row on the list.
+  const openPriority = (id: string): void => {
+    router.push(`/dashboard/priorities/${id}`)
+  }
+
   const addFromIssue = async (issue: CommunityIssueCard): Promise<void> => {
     if (pendingIssueId) return
     setPendingIssueId(issue.id)
@@ -134,6 +142,7 @@ const PrioritiesHub = ({
       setItems((prev) =>
         prev.some((p) => p.id === created.id) ? prev : [...prev, created],
       )
+      openPriority(created.id)
     } catch {
       setError('Could not add that issue. Please try again.')
     } finally {
@@ -187,6 +196,7 @@ const PrioritiesHub = ({
                   : [...prev, created],
               )
               setAdding(false)
+              openPriority(created.id)
             }}
             onCancel={() => setAdding(false)}
           />

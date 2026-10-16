@@ -1,17 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
-  createFlowStepHeading,
-  gotoDoorKnocking,
-} from 'src/helpers/door-knocking-e2e'
-import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// The rollout gate for issue capture: with `issue-capture` off, nothing of it
-// reaches a candidate. The flag is pinned off here rather than read from
+// The rollout gate for issue capture: with `issue-capture` off, no report or
+// report link reaches a candidate. The community feedback goal is not part of
+// it; every channel offers that goal. The flag is pinned off here rather than read from
 // Amplitude, so turning it on for test users later cannot break this spec.
 //
 // The drawer has no real effort behind it: a phone row is stubbed, as in
@@ -103,36 +100,10 @@ test.describe('issue capture with its flag off', () => {
     await blockSlowScripts(page)
   })
 
-  test('offers no question, no report and no report link', async ({ page }) => {
+  test('offers no report and no report link', async ({ page }) => {
     test.setTimeout(4 * 60 * 1000)
     await setFlagOverrides(page, { 'issue-capture': 'off' })
     await setupProCampaignUser(page)
-
-    await gotoDoorKnocking(page)
-    await expect(
-      createFlowStepHeading(page, 'What do you want to do?'),
-    ).toBeVisible({ timeout: 60_000 })
-    await expect(
-      page.getByRole('button', { name: 'Introduce myself' }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Hear from voters' }),
-    ).toHaveCount(0)
-
-    await page.goto('/dashboard/outreach')
-    await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
-      timeout: 30_000,
-    })
-    await page.getByRole('button', { name: /^Phone banking/ }).click()
-    await expect(
-      page.getByRole('button', { name: 'Write my own script' }),
-    ).toBeVisible({ timeout: 15_000 })
-    await expect(
-      page.getByRole('button', { name: 'Introduce myself to voters' }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Hear from voters' }),
-    ).toHaveCount(0)
 
     await page.goto(`/dashboard/issue-capture/${FIXTURE_OUTREACH_ID}`)
     await page.waitForURL(

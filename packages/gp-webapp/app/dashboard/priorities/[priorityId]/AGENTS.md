@@ -258,9 +258,10 @@ memoized per district), and an unknown one uses the uncorrected 96.
   sheet. Under it one row: "N more answers for a good read" with a thin bar
   and Get answers, or a check, "You have a good read" and See what we heard.
   The text and bar link to the results page; the button is the one action.
-  The in-scroll title is desktop-only with the flag on.
-- **Desktop**: the rail opens with the same line, bar and button, a quiet
-  "What we heard" link, then "Where this stands". Nothing goes above the chat.
+- **Desktop**: a 56px bar across the chat and the rail holds back and the
+  title, so there is no title in the scroll with the flag on. The rail opens
+  with the same line, bar and button, a quiet "What we heard" link, then
+  "Where this stands".
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. The agent proposes more answers as a
