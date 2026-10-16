@@ -272,11 +272,11 @@ describe('DashboardLayout mobile title on issue capture', () => {
     expect(screen.getByText('Voter Outreach')).toBeInTheDocument()
   })
 
-  it('reads Constituent Outreach for an elected official', () => {
+  it('reads Outreach for an elected official', () => {
     mockWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     renderLayout()
 
-    expect(screen.getByText('Constituent Outreach')).toBeInTheDocument()
+    expect(screen.getByText('Outreach')).toBeInTheDocument()
     expect(screen.queryByText('Voter Outreach')).toBeNull()
   })
 })
