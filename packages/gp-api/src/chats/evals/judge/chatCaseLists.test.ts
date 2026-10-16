@@ -70,8 +70,8 @@ describe('the authored chat case lists', () => {
     expect(list.placeholder).toBe(false)
     expect(list.note).toContain('CORE CHECKS')
     expect(
-      list.cases.filter((c) => 'handledWhen' in c && c.handledWhen),
-    ).not.toHaveLength(0)
+      list.cases.filter((c) => 'handledWhen' in c && c.handledWhen).length,
+    ).toBeGreaterThanOrEqual(3)
     expect(list.cases).toHaveLength(CASES_PER_LIST)
 
     // Ids name stored records, so a duplicate would overwrite rather than

@@ -216,6 +216,7 @@ describe('the authored background case lists', () => {
       const window = loadBackgroundCases(agent)
         .filter((c) => c.scored !== false)
         .slice(0, DEFAULT_JUDGE_CONFIG.background.maxCases)
+      expect(window).toHaveLength(DEFAULT_JUDGE_CONFIG.background.maxCases ?? 0)
       expect(window.filter((c) => c.handledWhen).length).toBe(
         CI_CHECKED_CASES[agentId] ?? window.length,
       )

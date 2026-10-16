@@ -176,7 +176,7 @@ describe('coverage', () => {
     expect(wired).toBe(3)
   })
 
-  // chief_of_staff and opposition_research now carry core checks and
+  // chief_of_staff and opposition_research carry core checks and
   // race_opponent_summary a real bench, so no wired agent runs on
   // placeholder inputs.
   it('counts the wired agents that ran on placeholder inputs', () => {

@@ -42,8 +42,7 @@ Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. The PR thread says the sweep started but
 not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. Most are CAN'T SAY today, and that's expected for two reasons.
-Every list
+**CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
 has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
@@ -833,8 +832,8 @@ their `control` as `scored: false`, every probe in all four carries a
 `condition` and two or three `dimensions`, and every probe that plants a
 mutation carries a `handledWhen`; the unmutated baseline carries none.
 
-**The core-check lists.** The other ten lists carry core-contract checks: three to five
-per agent, written from the agent's own prompt or `instruction.md`, on
+**The core-check lists.** The ten core-check lists carry three to five
+checks per agent, written from the agent's own prompt or `instruction.md`, on
 existing cases with their inputs unchanged. Each covers the agent's main job,
 its top guardrail or a fallback path, and is gradeable from the final output
 alone. Checked cases come first, because a background list is walked only to

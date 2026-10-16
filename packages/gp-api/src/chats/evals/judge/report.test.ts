@@ -153,8 +153,8 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
-  // The real registry, pinned. Every case list now carries a real bench or
-  // core checks, so no wired agent is counted as on placeholder inputs.
+  // The real registry, pinned. Every case list carries a real bench or core
+  // checks, so no wired agent is counted as on placeholder inputs.
   it('reads 3 of 20 wired, none on placeholder inputs, for the registry', () => {
     expect(coverageLines()[0]).toBe('**Coverage: 3 of 20 agents wired.**')
   })
@@ -182,9 +182,9 @@ describe('the coverage line', () => {
   })
 
   // Wired and placeholder differ here, so the parenthetical cannot be
-  // printing the wired count by mistake. No real list is a placeholder any
-  // more, so the placeholder is a wired agent whose list will not load, which
-  // coverage counts as one.
+  // printing the wired count by mistake. No real list is a placeholder, so
+  // the placeholder is a wired agent whose list will not load, which coverage
+  // counts as one.
   it('counts placeholder inputs apart from wired', () => {
     const mixed: readonly AgentEntry[] = [
       ...REGISTRY,
