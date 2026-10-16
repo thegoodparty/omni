@@ -555,11 +555,12 @@ export default function RecordKnockStepForm({
   })
 
   // Skip saves too: the note is confirmed with no issues, so its words still
-  // go into the summary, and the issues can be added later from the report's
-  // Edit. Only the event tells the two apart.
+  // go into the summary. `skipped` tells gp-api it was a Skip, so it keeps the
+  // model's proposal for measuring extraction, counted nowhere.
   const confirm = useMutation({
     mutationFn: ({
       issues,
+      skipped,
     }: {
       issues: ConfirmedConstituentFeedbackIssue[]
       skipped: boolean
@@ -567,6 +568,8 @@ export default function RecordKnockStepForm({
       clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
         id: captured?.id ?? '',
         issues,
+        // A Skip keeps the model's proposal for measurement, never counted.
+        ...(skipped ? { skipped: true } : {}),
       }).then((res) => res.data),
     onSuccess: (_data, { issues, skipped }) => {
       if (skipped) {

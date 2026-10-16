@@ -285,7 +285,7 @@ describe('RecordKnockForm issue capture', () => {
   })
 
   // Skip still saves: the note is confirmed with no issues, so its words go
-  // into the summary and the issues can be added from the report's Edit.
+  // into the summary, and `skipped` tells gp-api to keep the model's proposal.
   it('saves the note with no issues on skip, and advances', async () => {
     let confirmed: unknown = null
     api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
@@ -315,7 +315,7 @@ describe('RecordKnockForm issue capture', () => {
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
     )
-    expect(confirmed).toEqual({ issues: [] })
+    expect(confirmed).toEqual({ issues: [], skipped: true })
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
       channel: 'doorKnocking',
       product: 'serve',

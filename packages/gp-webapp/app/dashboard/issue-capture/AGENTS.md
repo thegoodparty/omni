@@ -146,7 +146,10 @@ A note is confirmed at the door or on the call, in the confirm step: "Looks
 right" saves the issues as shown, and Skip (or closing the step) saves the
 note confirmed with no issues, so its words still go into the summary.
 A note sent later from a phone with no signal has nobody at the door to
-confirm it, so it stays unconfirmed and out of the themes.
+confirm it, so gp-api confirms it once it is transcribed, the way Skip does
+(`packages/gp-api/src/constituentFeedback/AGENTS.md`). The confirm step sends
+`skipped: true` on Skip, so gp-api keeps the model's proposal for measuring
+extraction without counting it.
 
 ## Entry points
 
