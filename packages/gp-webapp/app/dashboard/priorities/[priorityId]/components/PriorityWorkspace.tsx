@@ -435,6 +435,8 @@ const PriorityWorkspaceBody = ({
   // Get answers asks the agent for a proposal; the official sends it from
   // the card, so this never sends anything to constituents itself.
   const requestAnswers = useCallback((): void => {
+    // A second click before the button disables would queue it twice.
+    if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
     pendingSent.current.push(GET_ANSWERS_MESSAGE)
     setSentTick((tick) => tick + 1)
   }, [])
@@ -489,12 +491,17 @@ const PriorityWorkspaceBody = ({
           pendingSent.current.push(reportBackTurn)
           setSentTick((tick) => tick + 1)
         }
-        // The message never changes, so a reload that kept the param is
-        // caught by the last thing the official asked being this turn.
-        const lastUserTurn = history.findLast((m) => m.role === 'user')
+        // The message never changes, and asking again later is the point,
+        // so a reload that kept the param is caught by the turn already
+        // being in the thread since the official last typed anything.
+        const sinceOfficial = history.slice(
+          history.findLastIndex(
+            (m) => m.role === 'user' && !isAppTurn(m.content),
+          ) + 1,
+        )
         if (
           getAnswersTurn !== null &&
-          lastUserTurn?.content !== getAnswersTurn
+          !sinceOfficial.some((m) => m.content === getAnswersTurn)
         ) {
           pendingSent.current.push(getAnswersTurn)
           setSentTick((tick) => tick + 1)

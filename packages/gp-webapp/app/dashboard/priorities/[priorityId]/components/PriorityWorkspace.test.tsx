@@ -1157,6 +1157,63 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).not.toHaveBeenCalled()
     })
 
+    it('asks once for a double click on Get answers', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const button = within(screen.getByRole('complementary')).getByRole(
+        'button',
+        { name: 'Get answers' },
+      )
+      act(() => {
+        fireEvent.click(button)
+        fireEvent.click(button)
+      })
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalled(),
+      )
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks again from the results page once the official has said more', async () => {
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: 'Not now, thanks.',
+          createdAt: '2026-09-02T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Okay.',
+          segments: [{ kind: 'text', text: 'Okay.' }],
+          createdAt: '2026-09-02T00:00:05.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Okay.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+    })
+
     it('re-reads the status once a turn settles', async () => {
       mocks.fetchPriorityReadStatus.mockResolvedValue(good)
       renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
