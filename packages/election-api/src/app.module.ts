@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
 import { RacesModule } from './races/races.module'
 import { PlacesModule } from './places/places.module'
 import { HealthModule } from './health/health.module'
@@ -15,6 +16,7 @@ import { PersonMergesModule } from './personMerges/person-merges.module'
 import { OfficeHoldersModule } from './officeHolders/officeHolders.module'
 import { loggerModule } from './observability/logging/logger-module'
 import { AuthenticationModule } from './authentication/authentication.module'
+import { ResponseCacheInterceptor } from './shared/interceptors/responseCache.interceptor'
 
 @Module({
   imports: [
@@ -35,5 +37,6 @@ import { AuthenticationModule } from './authentication/authentication.module'
     PersonMergesModule,
     OfficeHoldersModule,
   ],
+  providers: [{ provide: APP_INTERCEPTOR, useClass: ResponseCacheInterceptor }],
 })
 export class AppModule {}
