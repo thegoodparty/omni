@@ -82,11 +82,14 @@ export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
 
 // How closely the people who answered look like the district. An official
 // sees only this label and the groups to hear more from, never a weight.
+// `enoughAnswers` is a good read the census could not be checked against,
+// so it makes no claim about who answered.
 export const ReadRepresentativenessSchema = z.enum([
   'tooEarly',
   'notYetRepresentative',
   'gettingClose',
   'representative',
+  'enoughAnswers',
 ])
 export type ReadRepresentativeness = z.infer<
   typeof ReadRepresentativenessSchema
@@ -127,6 +130,7 @@ export const READ_REPRESENTATIVENESS_LABELS: Record<
   notYetRepresentative: 'Not yet representative',
   gettingClose: 'Getting close',
   representative: 'Representative',
+  enoughAnswers: 'Enough answers',
 }
 
 // Grid squares about 400m on a side at US latitudes: a few blocks, so one
@@ -137,8 +141,8 @@ export const DISTRICT_GRID_CELL_DEGREES = 0.004
 // Whether a priority has heard from enough people, and the right mix of
 // people, to read the district: pooled answers across texts, calls and
 // doors against answersNeeded for the district's population, weighted to
-// its census mix. gp-api's priorityReadStatus decides `good`, which is
-// `status === 'representative'`.
+// its census mix. gp-api's priorityReadStatus decides `good`: representative,
+// or enough answers when the census could not be read.
 export const PriorityReadStatusSchema = z.object({
   answers: z.number().int().nonnegative(),
   needed: z.number().int().positive(),

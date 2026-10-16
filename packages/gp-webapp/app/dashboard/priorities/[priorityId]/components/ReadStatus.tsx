@@ -92,7 +92,7 @@ export const ReadStatusStrip = ({
         >
           <GoodReadMark size="small" />
           <span className="truncate text-sm font-semibold">
-            {READ_STATUS_COPY.representative}
+            {READ_STATUS_COPY.goodLine(readStatus)}
           </span>
         </Link>
         <Button asChild size="small" className="shrink-0 rounded-full">

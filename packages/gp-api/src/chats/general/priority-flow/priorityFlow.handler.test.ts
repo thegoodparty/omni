@@ -1688,6 +1688,9 @@ describe('PriorityFlowHandler', () => {
     it('aims outreach at who to hear more from, and never at weights', () => {
       const prompt = withReadStatus().buildSystemPrompt(at(thin))
       expect(prompt).toContain('Then offer outreach aimed at that group.')
+      expect(prompt).toContain(
+        'you could not check them against the census, and never call them representative',
+      )
       expect(prompt).toContain('set areaTarget to unreached on the proposal')
       expect(prompt).toContain(
         'Never mention weights, weighting, quotas, discounting',

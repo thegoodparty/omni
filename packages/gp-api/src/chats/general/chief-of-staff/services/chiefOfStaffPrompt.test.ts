@@ -155,6 +155,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       )
       expect(prompt).toContain('Nudge toward a good read instead')
       expect(prompt).toContain(
+        'you could not check them against the census, and never call them representative',
+      )
+      expect(prompt).toContain(
         'Never mention weights, weighting, quotas, discounting',
       )
       expect(prompt).toContain(

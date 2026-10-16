@@ -247,12 +247,13 @@ place, `priorityReadStatus`
 (`gp-api/src/priorities/util/priorityReadStatus.util.ts`), returning
 `{ answers, needed, good, status, underrepresented }`:
 
-| `status`               | Rule                                                                                |
-| ---------------------- | ----------------------------------------------------------------------------------- |
-| `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)       |
-| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census    |
-| `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed` |
-| `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this     |
+| `status`               | Rule                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)                   |
+| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census                |
+| `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed`             |
+| `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this                 |
+| `enoughAnswers`        | the census could not be read and answers meet `needed`; `good`, but no claim about who answered |
 
 The answers are raked to the district's census marginals
 (`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
@@ -263,7 +264,12 @@ dimension and joins once the census marts publish sex by age. Race is never
 weighted. `underrepresented` names the one or two groups whose raw share
 trails the census most, by at least 5 points
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
-read, the read falls back to the count alone. `needed` is
+read, enough answers are a good read labeled "Enough answers", never
+"Representative", and fewer are too early. A weighting is kept in process for
+15 minutes per priority and answer count (`PriorityResultsService`), so a new
+answer reweighs and a failure is never kept. The tenure target is owner
+households, not adults, a known bias that makes renters look less heard; it
+waits on a statistician. `needed` is
 `answersNeeded(population)` from contracts for the census row's population
 (`CensusCompositionSource.population`, memoized per district); an unknown one
 uses the uncorrected 96. **The official never sees a weight, a quota or a

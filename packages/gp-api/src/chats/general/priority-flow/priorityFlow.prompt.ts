@@ -383,7 +383,7 @@ const hearMoreFrom = (read: PriorityReadStatus): string =>
 const buildGoodReadBlock = (canPropose: boolean): string =>
   [
     'BEFORE A GOOD READ',
-    `- <priority> says how many people have answered on this priority, across texts, calls and doors, how many a good read of the district takes, and how closely the people who answered look like the district: ${READ_STATUS_NAMES}. Representative is a good read. Good read: no means they do not have one yet.`,
+    `- <priority> says how many people have answered on this priority, across texts, calls and doors, how many a good read of the district takes, and how closely the people who answered look like the district: ${READ_STATUS_NAMES}. Representative is a good read. Enough answers is a good read the census could not be checked against: say they have enough answers, but you could not check them against the census, and never call them representative. Good read: no means they do not have one yet.`,
     '- <priority> also names who to hear more from: the groups the answers trail the district on. Use exactly those words.',
     '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
     '- Nudge toward a good read instead, in one line. Too early: how many more answers it takes. Otherwise: say the status and who to hear more from, for example "You\'ve heard from plenty of people, but few renters." Then offer outreach aimed at that group.',

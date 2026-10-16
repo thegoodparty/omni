@@ -44,7 +44,11 @@ const ageTargets = (district: AcsCounts): Record<string, number> | null => {
 }
 
 // Households, not people: the census publishes tenure per household, and a
-// respondent's tenure is their household's.
+// respondent's tenure is their household's. A known bias, kept on purpose
+// until a statistician weighs in: owner households hold more adults than
+// renter ones, so the owner share of households sits below the owner share
+// of adults, and holding person answers to it makes renters look less
+// heard than they are.
 const tenureTargets = (district: AcsCounts): Record<string, number> | null => {
   const { households, ownerOccupiedHouseholds } = district
   if (households === null || ownerOccupiedHouseholds === null) return null

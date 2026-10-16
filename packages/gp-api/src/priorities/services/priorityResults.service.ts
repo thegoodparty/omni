@@ -44,6 +44,8 @@ const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
 const roundCoordinate = (value: number): number =>
   Math.round(value * 1000) / 1000
 
+const WEIGHTING_CACHE_MS = 15 * 60 * 1000
+
 interface SendRespondents {
   send: PriorityResultsSend
   respondentIds: string[]
@@ -51,6 +53,11 @@ interface SendRespondents {
 
 @Injectable()
 export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
+  private readonly weightings = new Map<
+    string,
+    { weighting: CensusWeighting; expiresAt: number }
+  >()
+
   constructor(
     private readonly moduleRef: ModuleRef,
     @Inject(CENSUS_COMPOSITION_SOURCE)
@@ -107,7 +114,12 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const population = await this.populationOf(organization)
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
-    const weighting = await this.weightingOf(organization, ids, population)
+    const weighting = await this.weightingOf(
+      organization,
+      priorityId,
+      ids,
+      population,
+    )
 
     const representation =
       ids.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
@@ -183,6 +195,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
           ]
           const weighting = await this.weightingOf(
             organization,
+            id,
             people,
             population,
           )
@@ -284,17 +297,35 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
   }
 
   // Below the answers a status needs, there is nothing to weigh yet, so
-  // the warehouse is not asked.
+  // the warehouse is not asked. Every Chief of Staff and priority turn reads
+  // the status, and a weighting is three warehouse reads, so one is kept for
+  // a while per priority and answer count: a new answer is a new key. A
+  // failure is never kept, so the next read tries again.
   private async weightingOf(
     organization: Organization,
+    priorityId: string,
     personIds: string[],
     population: number | null,
   ): Promise<CensusWeighting | null> {
     if (personIds.length < minAnswersForStatus(population)) return null
+    const key = `${organization.slug}:${priorityId}:${personIds.length}`
+    const now = Date.now()
+    const kept = this.weightings.get(key)
+    if (kept && kept.expiresAt > now) return kept.weighting
     try {
       const district =
         await this.resolveContacts().resolveEligibleDistrict(organization)
-      return await this.census.weighting({ ...district, personIds })
+      const weighting = await this.census.weighting({ ...district, personIds })
+      if (weighting) {
+        for (const [stale, entry] of this.weightings) {
+          if (entry.expiresAt <= now) this.weightings.delete(stale)
+        }
+        this.weightings.set(key, {
+          weighting,
+          expiresAt: now + WEIGHTING_CACHE_MS,
+        })
+      }
+      return weighting
     } catch {
       return null
     }

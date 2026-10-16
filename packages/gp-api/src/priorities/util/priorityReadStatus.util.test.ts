@@ -71,13 +71,22 @@ describe('priorityReadStatus', () => {
     expect(read).toMatchObject({ status: 'representative', good: true })
   })
 
-  it('falls back to the count alone when the census is unavailable', () => {
+  it('says enough answers, never representative, when the census is unavailable', () => {
     expect(
       priorityReadStatus({ answers: 92, population: 2_000, weighting: null }),
-    ).toMatchObject({ status: 'representative', good: true })
+    ).toEqual({
+      answers: 92,
+      needed: 92,
+      good: true,
+      status: 'enoughAnswers',
+      underrepresented: [],
+    })
     expect(
       priorityReadStatus({ answers: 91, population: 2_000, weighting: null }),
-    ).toMatchObject({ status: 'gettingClose', good: false })
+    ).toMatchObject({ status: 'tooEarly', good: false })
+    expect(
+      priorityReadStatus({ answers: 40, population: 2_000, weighting: null }),
+    ).toMatchObject({ status: 'tooEarly', good: false })
   })
 
   it('uses the uncorrected figure when the population is unknown', () => {

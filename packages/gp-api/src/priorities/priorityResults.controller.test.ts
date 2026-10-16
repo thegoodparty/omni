@@ -160,6 +160,7 @@ beforeEach(async () => {
   // Every respondent an owner in a district of owners: representative.
   weightingInputs = vi
     .spyOn(service.app.get(StatsService), 'findWeightingInputs')
+    .mockClear()
     .mockImplementation(async (_districtId, _dataset, personIds) => ({
       district: blockGroup,
       cells: [
@@ -476,13 +477,53 @@ describe('GET /v1/priorities/:id/read-status', () => {
     })
   })
 
-  it('reads the count alone when the census cannot be read', async () => {
+  it('says enough answers, not representative, when the census cannot be read', async () => {
     weightingInputs.mockRejectedValue(new Error('warehouse down'))
     await createTextSend(9, 0)
 
     const res = await readStatus()
 
-    expect(res.data).toMatchObject({ good: true, status: 'representative' })
+    expect(res.data).toEqual({
+      answers: 9,
+      needed: 9,
+      good: true,
+      status: 'enoughAnswers',
+      underrepresented: [],
+    })
+  })
+
+  it('weighs a priority once per answer count, and again after a new answer', async () => {
+    const { outreach } = await createTextSend(12, 0)
+
+    await readStatus()
+    await readStatus()
+    expect(weightingInputs).toHaveBeenCalledTimes(1)
+
+    await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: uuidv7(),
+        personId: uuidv7(),
+        outreachId: outreach.id,
+        electedOfficeId: eoId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date(),
+        content: 'Same here.',
+        isOptOut: false,
+      },
+    })
+    const res = await readStatus()
+
+    expect(res.data.answers).toBe(13)
+    expect(weightingInputs).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not keep a failed weighting', async () => {
+    weightingInputs.mockRejectedValueOnce(new Error('warehouse down'))
+    await createTextSend(12, 0)
+
+    expect((await readStatus()).data.status).toBe('enoughAnswers')
+    expect((await readStatus()).data.status).toBe('representative')
+    expect(weightingInputs).toHaveBeenCalledTimes(2)
   })
 
   it("404s on a priority this office doesn't hold", async () => {

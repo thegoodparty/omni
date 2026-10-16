@@ -1110,6 +1110,22 @@ describe('PriorityWorkspace', () => {
       ).toBeInTheDocument()
     })
 
+    it('says enough answers, not representative, when the census was not checked', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: { ...good, status: 'enoughAnswers' },
+      })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(within(bar).getByText('Enough answers')).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'See what we heard' }),
+      ).toBeInTheDocument()
+      const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('Enough answers')).toBeInTheDocument()
+      expect(screen.queryByText(/Representative/)).not.toBeInTheDocument()
+    })
+
     it('names who to hear more from once there are enough answers', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: skewed,

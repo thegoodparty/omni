@@ -15,7 +15,12 @@ export const READ_STATUS_COPY = {
     more === 1
       ? '1 more answer for a good read'
       : `${more.toLocaleString()} more answers for a good read`,
-  representative: 'Representative of your district',
+  // Enough answers is a good read the census could not be checked against,
+  // so it says nothing about who answered.
+  goodLine: (read: PriorityReadStatus): string =>
+    read.status === 'enoughAnswers'
+      ? READ_REPRESENTATIVENESS_LABELS.enoughAnswers
+      : 'Representative of your district',
   getAnswers: 'Get answers',
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
@@ -62,4 +67,5 @@ export const READ_STATUS_DOT: Record<PriorityReadStatus['status'], string> = {
   notYetRepresentative: 'bg-destructive',
   gettingClose: 'bg-warning',
   representative: 'bg-primary',
+  enoughAnswers: 'bg-primary',
 }

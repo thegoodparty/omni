@@ -66,7 +66,8 @@ export const underrepresentedGroups = (
 // The one place a "good read" is decided, so every surface that reads it
 // changes together. A good read is a representative one: enough answers,
 // once weighted to the district's census mix, and every weighted group
-// within MAX_REPRESENTATIVE_GAP of the census.
+// within MAX_REPRESENTATIVE_GAP of the census. When the census cannot be
+// read, enough answers alone are a good read, under its own status.
 export const priorityReadStatus = (input: {
   answers: number
   population: number | null
@@ -78,10 +79,11 @@ export const priorityReadStatus = (input: {
   const underrepresented =
     weighting && !tooEarly ? underrepresentedGroups(weighting.gaps) : []
   const status = ((): ReadRepresentativeness => {
+    // Without the census there is nothing to weigh against: enough answers
+    // still unlock the results, but nothing claims they look like the
+    // district.
+    if (!weighting) return answers >= needed ? 'enoughAnswers' : 'tooEarly'
     if (tooEarly) return 'tooEarly'
-    // Without the census there is nothing to weigh against, so the read
-    // falls back to the count alone.
-    if (!weighting) return answers >= needed ? 'representative' : 'gettingClose'
     if (weighting.largestGap > MAX_REPRESENTATIVE_GAP) {
       return 'notYetRepresentative'
     }
@@ -92,7 +94,7 @@ export const priorityReadStatus = (input: {
   return {
     answers,
     needed,
-    good: status === 'representative',
+    good: status === 'representative' || status === 'enoughAnswers',
     status,
     underrepresented,
   }
