@@ -15,6 +15,10 @@ import {
   P2P_PHONE_LIST_MAP,
 } from '../constants/p2pJob.constants'
 import { PinoLogger } from 'nestjs-pino'
+import {
+  isPeerlyNotCellRejection,
+  NOT_CELL_MESSAGE,
+} from '../utils/peerlyTestSendRejection.util'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
@@ -166,7 +170,11 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
   // Adds one number to a list that already exists, which is how a second
   // reviewer's handset joins a test list without uploading another one.
   // Throws Peerly's own message through — the caller decides whether a
-  // rejection (already present, list full) is fatal.
+  // rejection (already present, list full) is fatal. A number Peerly says is
+  // not a cell can never be texted, so it is a 400 the caller can surface.
+  //
+  // Logged at warn whatever the cause: the only caller sends right after and
+  // lets that send judge, so a real Peerly fault still pages from there.
   async addContactToPhoneList(listId: number, phone: string): Promise<void> {
     try {
       await this.peerlyHttpService.post(`/phonelists/${listId}/addcontact`, {
@@ -176,6 +184,13 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       return this.peerlyErrorHandling.handleApiError({
         error,
         logger: this.logger,
+        context: isPeerlyNotCellRejection(error)
+          ? {
+              expectedRejection: true,
+              httpExceptionClass: BadRequestException,
+              customMessage: NOT_CELL_MESSAGE,
+            }
+          : { expectedRejection: true },
       })
     }
   }

@@ -30,6 +30,7 @@ const CommunityIssuesChatDock = ({
   const selection = useTextSelection(selectionContainerRef ?? fallbackRef)
 
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [opener, setOpener] = useState<string[] | undefined>(undefined)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
@@ -37,13 +38,20 @@ const CommunityIssuesChatDock = ({
   const [creating, setCreating] = useState(false)
 
   const openNewChat = () => {
+    setPendingFile(undefined)
     setConversationId(null)
     setOpener(undefined)
     setOpenerKey(null)
     setChatOpen(true)
   }
 
+  const openWithFile = (file: File) => {
+    openNewChat()
+    setPendingFile(file)
+  }
+
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setConversationId(id)
     setOpener(undefined)
     setOpenerKey(id)
@@ -71,6 +79,7 @@ const CommunityIssuesChatDock = ({
     try {
       const { conversationId: newId } =
         await chiefOfStaffChatApi.createConversation(anchor)
+      setPendingFile(undefined)
       setConversationId(newId)
       setOpener([
         highlightedText
@@ -117,10 +126,15 @@ const CommunityIssuesChatDock = ({
         firstName={user?.firstName ?? undefined}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
-        onOpenChange={setChatOpen}
+        onOpenChange={(next) => {
+          setChatOpen(next)
+          if (!next) setPendingFile(undefined)
+        }}
+        pendingFile={pendingFile}
         initialConversationId={conversationId}
         opener={opener}
         openerKey={openerKey}

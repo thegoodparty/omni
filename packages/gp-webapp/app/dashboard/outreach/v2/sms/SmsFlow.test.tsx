@@ -204,7 +204,7 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-const openFlow = () => {
+const openFlow = (tcrCompliance: TcrCompliance = TCR_FIXTURE) => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
@@ -213,7 +213,7 @@ const openFlow = () => {
       open
       onClose={onClose}
       onScheduled={onScheduled}
-      tcrCompliance={TCR_FIXTURE}
+      tcrCompliance={tcrCompliance}
     />,
   )
   return { onClose, onScheduled }
@@ -783,7 +783,7 @@ describe('SmsFlow', () => {
     })
   })
 
-  // The greeting is part of the message, its first name a locked pill, so
+  // The greeting is part of the message, its first name a pill, so
   // a candidate writing their own body sees it already opens with "Hello" —
   // CAS saw "Hello {first_name}, Hello! My name is…" reach the P2P queue
   // while the greeting sat outside the box. The review bubble stays
@@ -886,7 +886,7 @@ describe('SmsFlow', () => {
   })
 
   describe('the message field', () => {
-    // Improve gets the whole message back from gp-api, locked parts
+    // Improve gets the whole message back from gp-api, required parts
     // restored there, so the mock answers with the message it was sent.
     const mockDraftAndImprove = () => {
       const calls: SmsDraftRequest[] = []
@@ -904,8 +904,8 @@ describe('SmsFlow', () => {
       return calls
     }
 
-    const reachCompose = async () => {
-      openFlow()
+    const reachCompose = async (tcrCompliance?: TcrCompliance) => {
+      openFlow(tcrCompliance)
       await userEvent.click(screen.getByText('Introduce myself to voters'))
       await userEvent.click(screen.getByText('Choose a voter list'))
       await userEvent.click(await screen.findByText('Likely voters'))
@@ -1151,7 +1151,7 @@ describe('SmsFlow', () => {
       expect(box).not.toHaveTextContent(/The AI rewrite/)
     })
 
-    it('gives a failed first draft the locked parts to write between', async () => {
+    it('gives a failed first draft the required parts to write between', async () => {
       api.mock('POST /v1/outreach/sms/draft', {
         status: 502,
         data: { message: 'SMS draft generation failed' },
@@ -1244,18 +1244,127 @@ describe('SmsFlow', () => {
       )
     })
 
-    it('refuses an edit inside a locked part and says why', async () => {
+    // A candidate who goes by a shorter name than the one on file: the
+    // committee does not carry the name, so only the intro identifies them.
+    const goesByJosh = () => {
+      campaignState.campaign = {
+        ...campaignState.base(),
+        ownerName: 'Joshua Martin',
+      }
+      return {
+        ...TCR_FIXTURE,
+        committeeName: 'Friends for Better Parks',
+        candidateName: 'Joshua Martin',
+      }
+    }
+
+    // A held Continue focuses the field, which scrolls to its cursor, and
+    // jsdom cannot measure that.
+    const stubRangeRects = () => {
+      Object.defineProperty(Range.prototype, 'getClientRects', {
+        configurable: true,
+        value: () => [],
+      })
+      Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => new DOMRect(),
+      })
+    }
+
+    const deleteText = (editor: Editor, text: string) => {
+      const to = endOf(editor, text)
+      act(() => {
+        editor.view.dispatch(editor.state.tr.delete(to - text.length, to))
+      })
+    }
+
+    it('deletes the name on file while another copy still names the candidate', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose(goesByJosh())
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Josh Martin here.',
+        )
+      })
+      deleteText(editor, 'Joshua Martin')
+
+      expect(editor.getText()).not.toContain('Joshua Martin')
+      expect(screen.queryByText(/Your text needs your name/)).toBeNull()
+      await attachImage()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(await screen.findByText('Pick a date')).toBeInTheDocument()
+    })
+
+    it('deletes the only copy of the name, shows the line to add back and holds Continue', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose(goesByJosh())
+      deleteText(editor, 'Joshua Martin')
+
+      expect(editor.getText()).not.toContain('Joshua Martin')
+      expect(
+        await screen.findByText(/Your text needs your name\./),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('this is Joshua Martin, candidate for City Council.', {
+          exact: false,
+        }),
+      ).toBeInTheDocument()
+      await attachImage()
+      stubRangeRects()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(screen.queryByText('Pick a date')).toBeNull()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add your name back' }),
+      )
+      await waitFor(() =>
+        expect(editor.getText()).toContain('this is Joshua Martin'),
+      )
+      expect(screen.queryByText(/Your text needs your name/)).toBeNull()
+    })
+
+    it('deletes the disclaimer, shows it to add back and holds Continue', async () => {
       mockDraftAndImprove()
       const { editor } = await reachCompose()
-      const at = endOf(editor, 'Reply ST')
+      deleteText(editor, 'Paid for by Friends of Jane. ')
+
+      expect(
+        await screen.findByText(/Your text needs its disclaimer\./),
+      ).toBeInTheDocument()
+      expect(editor.getText()).not.toContain('Paid for by')
+      expect(
+        screen.getByText('Paid for by Friends of Jane.'),
+      ).toBeInTheDocument()
+      await attachImage()
+      stubRangeRects()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(screen.queryByText('Pick a date')).toBeNull()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add the disclaimer back' }),
+      )
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(COMPOSED_DRAFT),
+      )
+      expect(screen.queryByText(/Your text needs its disclaimer/)).toBeNull()
+    })
+
+    it('lets the greeting pill be deleted and offers it back', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      let pill = -1
+      editor.state.doc.descendants((node, pos) => {
+        if (pill === -1 && node.type.name === 'token') pill = pos
+      })
       act(() => {
-        editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+        editor.view.dispatch(editor.state.tr.delete(pill, pill + 1))
       })
 
-      expect(await screen.findByRole('status')).toHaveTextContent(
-        'Every text has to offer a way to opt out, but you can write around it.',
-      )
-      expect(editor.getText()).toContain('Reply STOP to opt out.')
+      expect(
+        await screen.findByText(/Your text needs its greeting/),
+      ).toBeInTheDocument()
+      expect(editor.getText()).not.toContain('{first_name}')
     })
 
     it('Try again repeats an Improve that failed', async () => {
@@ -1667,7 +1776,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         expect(
-          screen.queryByText(/Your text needs to say who it's from/),
+          screen.queryByText(/Your text needs your name/),
         ).not.toBeInTheDocument()
       })
 

@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { IconButton, Input } from '@styleguide'
-import { SparklesIcon } from '@styleguide/components/ui/icons'
+import {
+  MicIcon,
+  PaperclipIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
 import ChatHistoryPopover from '../../../chief-of-staff/components/chat/ChatHistoryPopover'
 import {
   ASSISTANT_PLACEHOLDER,
@@ -17,18 +21,25 @@ interface Props {
   onSubmit: (message: string) => void
   /** Reopen a past conversation picked from the clock popover. */
   onOpenConversation: (conversationId: string) => void
+  /** Open a fresh conversation drawer (the mic). */
+  onOpen: () => void
+  /** Open a fresh conversation drawer with this file attached. */
+  onAttachFile: (file: File) => void
 }
 
 // The persistent assistant pill pinned to the bottom of the contacts surface.
 // Mirrors the Chief of Staff FooterChatBar's placement and gradient pill
-// (fixed bottom, offset by the sidebar rail on lg+), but carries a real input
-// so the first message is typed here, and no mic — the epic ships text-only.
+// (fixed bottom, offset by the sidebar rail on lg+) and toolbar, but carries a
+// real input so the first message is typed here.
 export default function AssistantBar({
   chat,
   onSubmit,
   onOpenConversation,
+  onOpen,
+  onAttachFile,
 }: Props): React.JSX.Element {
   const [value, setValue] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   return (
     <div
@@ -60,6 +71,40 @@ export default function AssistantBar({
               data-testid="crm-assistant-input"
               className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
             />
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Attach a file"
+              className="size-10 shrink-0"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <PaperclipIcon className="size-5" aria-hidden />
+            </IconButton>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,image/jpeg,image/png"
+              className="hidden"
+              aria-hidden
+              tabIndex={-1}
+              data-testid="crm-assistant-file-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onAttachFile(file)
+              }}
+            />
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Dictate a message"
+              className="size-10 shrink-0"
+              onClick={onOpen}
+            >
+              <MicIcon className="size-5" aria-hidden />
+            </IconButton>
             <IconButton
               type="submit"
               size="small"

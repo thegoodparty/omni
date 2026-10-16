@@ -15,6 +15,10 @@ export const DoorKnockingAddressPreviewSchema = z
   .object({
     geoPoly: GeoJsonPolygonSchema,
     filters: voterFilterBaseSchema,
+    // The saved list the draft was picked from, when it was. A list's
+    // boundary and sample are frozen member rows the draft cannot carry, and
+    // the create resolves them off this row, so the preview has to as well.
+    voterFileFilterId: z.number().int().positive().optional(),
   })
   .strict()
 

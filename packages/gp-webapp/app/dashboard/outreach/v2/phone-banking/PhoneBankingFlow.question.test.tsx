@@ -8,7 +8,6 @@ import {
   SERVE_PHONE_BANKING_SURFACE,
 } from './PhoneBankingFlow'
 import { gateRef } from '../gate/testing/mockReactiveGate'
-import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 
 vi.mock('../gate/useOutreachGate', async () => {
   const { useMockOutreachGate } =
@@ -19,16 +18,6 @@ vi.mock('../gate/useOutreachGate', async () => {
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
-}))
-
-// The question-asking card is offered only where issue capture is on. On by
-// default so the question-step cases below can pick it.
-const issueCapture = vi.hoisted(() => ({ enabled: true }))
-vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
-  useIssueCaptureFlag: vi.fn(() => ({
-    ready: true,
-    enabled: issueCapture.enabled,
-  })),
 }))
 
 // useOutreachAudience reads the org on mount and useOrganization throws
@@ -50,7 +39,6 @@ const renderFlow = () =>
 
 beforeEach(() => {
   orgMock.slug = 'eo-test-org'
-  issueCapture.enabled = true
   gateRef.set({
     enabled: false,
     requirement: null,
@@ -224,7 +212,8 @@ describe('PhoneBankingFlow hear-from-voters question step', () => {
   })
 })
 
-describe('PhoneBankingFlow question-asking card behind issue capture', () => {
+// Every channel offers the community feedback goal, as texts always have.
+describe('PhoneBankingFlow community feedback card', () => {
   const surfaces = [
     {
       name: 'Win',
@@ -240,73 +229,18 @@ describe('PhoneBankingFlow question-asking card behind issue capture', () => {
     },
   ]
 
-  beforeEach(() => {
-    api.mock('POST /v1/outreach/phone-banking/draft', {
-      status: 200,
-      data: { draft: 'Hi, I am volunteering for Jane.' },
-    })
-  })
-
-  const renderOn = ({ surface }: (typeof surfaces)[number]) =>
+  it.each(surfaces)('offers the card ($name)', async (entry) => {
+    orgMock.slug = entry.slug
     render(
       <PhoneBankingFlow
         source="outreach_page"
         open
         onClose={vi.fn()}
-        surface={surface}
+        surface={entry.surface}
       />,
     )
-
-  it.each(surfaces)(
-    'offers the card only where issue capture is on ($name)',
-    async (entry) => {
-      orgMock.slug = entry.slug
-      const first = renderOn(entry)
-      expect(
-        await screen.findByRole('button', { name: entry.label }),
-      ).toBeInTheDocument()
-      first.unmount()
-
-      issueCapture.enabled = false
-      renderOn(entry)
-      await screen.findByRole('button', { name: /Introduce myself/i })
-      expect(screen.queryByRole('button', { name: entry.label })).toBeNull()
-      // A picker render is not the treatment, so it must not log an exposure.
-      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
-    },
-  )
-
-  // The card is the only thing the flag takes away: an effort already on the
-  // question-asking purpose when the flag goes off still asks and drafts.
-  it.each(surfaces)(
-    'keeps the question step for a purpose picked before the flag went off ($name)',
-    async (entry) => {
-      orgMock.slug = entry.slug
-      const view = renderOn(entry)
-      await userEvent.click(
-        await screen.findByRole('button', { name: entry.label }),
-      )
-      const field = await screen.findByLabelText('The question')
-
-      issueCapture.enabled = false
-      view.rerender(
-        <PhoneBankingFlow
-          source="outreach_page"
-          open
-          onClose={vi.fn()}
-          surface={entry.surface}
-        />,
-      )
-
-      expect(screen.getByLabelText('The question')).toBe(field)
-      await userEvent.type(field, 'Would you take part in a compost pilot?')
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-      await waitFor(() =>
-        expect(screen.queryByLabelText('The question')).toBeNull(),
-      )
-    },
-  )
+    expect(
+      await screen.findByRole('button', { name: entry.label }),
+    ).toBeInTheDocument()
+  })
 })
