@@ -236,6 +236,39 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('electionApiGet retry', () => {
+    it('retries once on a 502 and returns the second response', async () => {
+      mockHttpGet
+        .mockReturnValueOnce(throwError(() => makeAxiosError(502, 'pool')))
+        .mockReturnValueOnce(of({ data: ['10001'], status: 200 }))
+
+      await expect(
+        service.getZipCodesByBrPositionId('br-pos-1'),
+      ).resolves.toBeDefined()
+      expect(mockHttpGet).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry a 404', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() => makeAxiosError(404, 'missing')),
+      )
+
+      await expect(
+        service.getZipCodesByBrPositionId('br-pos-1'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(mockHttpGet).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives up after one retry and surfaces a 502', async () => {
+      mockHttpGet.mockReturnValue(throwError(() => makeAxiosError(500, 'boom')))
+
+      await expect(
+        service.getZipCodesByBrPositionId('br-pos-1'),
+      ).rejects.toMatchObject({ status: 502 })
+      expect(mockHttpGet).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('getPositionByBallotReadyId', () => {
     it('returns position with district when includeDistrict is true', async () => {
       const position = makePosition()
