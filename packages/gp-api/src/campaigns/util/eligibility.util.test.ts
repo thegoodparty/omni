@@ -5,7 +5,11 @@ import {
   isUpcomingElectionDate,
   smsComplianceWindow,
 } from './eligibility.util'
-import { Campaign, ElectedOffice } from '../../generated/prisma'
+import {
+  Campaign,
+  ElectedOffice,
+  TcrComplianceStatus,
+} from '../../generated/prisma'
 
 const office = (overrides: Partial<ElectedOffice>): ElectedOffice =>
   ({ termEndDate: null, ...overrides }) as ElectedOffice
@@ -234,4 +238,30 @@ describe('smsComplianceWindow', () => {
       }).smsCompliance,
     ).toBe('closed')
   })
+
+  it.each([TcrComplianceStatus.approved, TcrComplianceStatus.pending])(
+    'is not_applicable for a %s record with no kickoff stamp (legacy rows)',
+    (status) => {
+      expect(
+        smsComplianceWindow({
+          electionDate,
+          tcrCompliance: { kickoffSentAt: null, status },
+          now: at('2026-10-20'),
+        }).smsCompliance,
+      ).toBe('not_applicable')
+    },
+  )
+
+  it.each([TcrComplianceStatus.submitted, TcrComplianceStatus.rejected])(
+    'stays closed for a %s record with no kickoff',
+    (status) => {
+      expect(
+        smsComplianceWindow({
+          electionDate,
+          tcrCompliance: { kickoffSentAt: null, status },
+          now: at('2026-10-20'),
+        }).smsCompliance,
+      ).toBe('closed')
+    },
+  )
 })

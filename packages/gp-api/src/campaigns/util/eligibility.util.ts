@@ -10,7 +10,11 @@ import {
   parseIsoDateAsUTC,
   toDateOnlyString,
 } from '@/shared/util/date.util'
-import { Campaign, ElectedOffice } from '../../generated/prisma'
+import {
+  Campaign,
+  ElectedOffice,
+  TcrComplianceStatus,
+} from '../../generated/prisma'
 import { deriveIsActive } from '@/electedOffice/util/electedOffice.util'
 
 // The single active-campaign / held-office predicate. EligibilityService and
@@ -42,7 +46,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // A candidate "made the cutoff" only once they filed AND paid, which is when
 // kickoffSentAt is stamped. A compliance record saved without payment does not
 // count, so that candidate gets the date-based window like anyone else.
-// Internal-testing approvals never kick off, so they count as made.
+// Internal-testing approvals never kick off, so they count as made. So do
+// records Peerly/TCR already approved or is reviewing: older records predate
+// kickoffSentAt and carry it null, which locked compliant candidates out
+// once the cutoff passed (ENG-11326).
 export const smsComplianceWindow = ({
   electionDate,
   tcrCompliance,
@@ -52,6 +59,7 @@ export const smsComplianceWindow = ({
   tcrCompliance: {
     kickoffSentAt: Date | null
     internalTestingAt?: Date | null
+    status?: TcrComplianceStatus | null
   } | null
   now: Date
 }): {
@@ -68,7 +76,12 @@ export const smsComplianceWindow = ({
       ) ?? null)
     : null
 
-  if (tcrCompliance?.kickoffSentAt || tcrCompliance?.internalTestingAt) {
+  if (
+    tcrCompliance?.kickoffSentAt ||
+    tcrCompliance?.internalTestingAt ||
+    tcrCompliance?.status === TcrComplianceStatus.approved ||
+    tcrCompliance?.status === TcrComplianceStatus.pending
+  ) {
     return {
       smsCompliance: 'not_applicable',
       smsCutoffDate,

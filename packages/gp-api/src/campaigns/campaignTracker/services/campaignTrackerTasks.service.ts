@@ -528,7 +528,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   private async isSmsClosed(campaign: Campaign): Promise<boolean> {
     const tcrCompliance = await this.client.tcrCompliance.findUnique({
       where: { campaignId: campaign.id },
-      select: { kickoffSentAt: true, internalTestingAt: true },
+      select: { kickoffSentAt: true, internalTestingAt: true, status: true },
     })
     const { smsCompliance } = smsComplianceWindow({
       electionDate: campaign.details?.electionDate,
