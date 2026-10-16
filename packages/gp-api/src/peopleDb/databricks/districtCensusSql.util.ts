@@ -158,3 +158,99 @@ export const mapCensusCompositionRows = (
     }),
   }
 }
+
+// A census tract is the first 11 digits of a block group geoid. Weighting
+// works on tracts: a block group holds too few answers to carry a weight.
+const TRACT_GEOID_LENGTH = 11
+
+// The census reads age in two adult bands (18 to 64, 65 and over), so the
+// voter file's exact age folds into the same two.
+const ageBandSql = (): string =>
+  `CASE WHEN ${col('Age_Int')} >= 65 THEN '65plus'` +
+  ` WHEN ${col('Age_Int')} >= 18 THEN '18to64' END`
+
+// L2's modeled tenure. "Probable" owners count as owners because the census
+// has only owner and renter.
+const tenureSql = (): string =>
+  `CASE WHEN ${col('Homeowner_Probability_Model')}` +
+  ` IN ('Home Owner', 'Probable Home Owner') THEN 'owner'` +
+  ` WHEN ${col('Homeowner_Probability_Model')} = 'Renter' THEN 'renter' END`
+
+const genderSql = (): string =>
+  `CASE WHEN ${col('Gender')} = 'M' THEN 'male'` +
+  ` WHEN ${col('Gender')} = 'F' THEN 'female' END`
+
+// How many of the given people share each age band, gender, tenure and
+// tract: counts per combination, never a person. Unknowns stay NULL.
+export const buildRespondentCellsSql = (
+  district: DbxDistrict,
+  personIds: string[],
+): DbxStatement => {
+  const bag = createBag()
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({ id: { in: personIds } }),
+  })
+  const tract = `substr(${col(BLOCK_GROUP_GEOID_COLUMN)}, 1, ${TRACT_GEOID_LENGTH})`
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tenureSql()} AS tenure, ${tract} AS tract, count(*) AS respondents` +
+    ` FROM ${district.table} v ${where}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
+// Adults per tract, over the block groups the district's people live in.
+// A block group straddling the district line counts whole: the district
+// mart's own split is not published per block group.
+export const buildDistrictTractAdultsSql = (
+  district: DbxDistrict,
+): DbxStatement => {
+  const bag = createBag()
+  const geoid = col(BLOCK_GROUP_GEOID_COLUMN)
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({}),
+  })
+  const sql =
+    `SELECT substr(bg.block_group_geoid, 1, ${TRACT_GEOID_LENGTH}) AS tract,` +
+    ' sum(bg.total_population - bg.population_under_18) AS adults' +
+    ` FROM ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
+    ' WHERE bg.block_group_geoid IN (' +
+    `SELECT DISTINCT ${geoid} FROM ${district.table} v ${where}` +
+    ` AND ${geoid} IS NOT NULL)` +
+    ' GROUP BY 1'
+  return { sql, params: bag.params }
+}
+
+const RespondentCellSchema = z.object({
+  ageBand: z.enum(['18to64', '65plus']).nullable(),
+  gender: z.enum(['male', 'female']).nullable(),
+  tenure: z.enum(['owner', 'renter']).nullable(),
+  tract: z.string().nullable(),
+  count: z.number().int().positive(),
+})
+export type RespondentCell = z.infer<typeof RespondentCellSchema>
+
+export const mapRespondentCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): RespondentCell[] =>
+  rows.map(([ageBand, gender, tenure, tract, respondents]) =>
+    RespondentCellSchema.parse({
+      ageBand,
+      gender,
+      tenure,
+      tract,
+      count: Number(respondents),
+    }),
+  )
+
+export const mapTractAdults = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): Map<string, number> =>
+  new Map(
+    rows.flatMap(([tract, adults]): Array<[string, number]> => {
+      const value = figure(adults)
+      return tract && value !== null && value > 0 ? [[tract, value]] : []
+    }),
+  )

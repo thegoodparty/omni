@@ -71,9 +71,14 @@ import { type AffinityColumn } from '../affinityColumns.const'
 import {
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
+  buildRespondentCellsSql,
   mapCensusCompositionRows,
+  mapRespondentCells,
+  mapTractAdults,
   type CensusCompositionRows,
+  type RespondentCell,
 } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
@@ -509,6 +514,26 @@ export class DatabricksVoterService {
         : Promise.resolve({ columns: [], rows: [] }),
     ])
     return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
+  }
+
+  // What weighting needs: respondents counted by age band, gender, tenure
+  // and tract, and the district's adults per tract.
+  async findWeightingInputs(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<{ cells: RespondentCell[]; tractAdults: Map<string, number> }> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [cellResult, tractResult] = await Promise.all([
+      personIds.length > 0
+        ? this.client.query(buildRespondentCellsSql(district, personIds))
+        : Promise.resolve({ columns: [], rows: [] }),
+      this.client.query(buildDistrictTractAdultsSql(district)),
+    ])
+    return {
+      cells: mapRespondentCells(cellResult.rows),
+      tractAdults: mapTractAdults(tractResult.rows),
+    }
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

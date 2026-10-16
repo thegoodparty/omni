@@ -5,10 +5,14 @@ import {
   BLOCK_GROUP_DEMOGRAPHICS_TABLE,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
+  buildRespondentCellsSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapCensusCompositionRows,
+  mapRespondentCells,
+  mapTractAdults,
 } from './districtCensusSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
 
@@ -170,5 +174,65 @@ describe('mapCensusCompositionRows', () => {
     const mapped = mapCensusCompositionRows([], [['2', ...acsRow(() => '1')]])
     expect(mapped.district).toBeNull()
     expect(mapped.respondentBlockGroups).toHaveLength(2)
+  })
+})
+
+const PERSON_ID = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4'
+
+describe('buildRespondentCellsSql', () => {
+  it('reads counts per age band, gender, tenure and tract, never a person', () => {
+    const { sql } = buildRespondentCellsSql(DISTRICT, [PERSON_ID])
+
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+    expect(sql).toContain('count(*) AS respondents')
+    expect(sql).toContain('GROUP BY 1, 2, 3, 4')
+    expect(sql).toContain(PERSON_ID)
+    expect(sql).toContain("THEN '65plus'")
+    expect(sql).toContain("THEN 'renter'")
+    expect(sql).not.toMatch(/FirstName|LastName|Phone|Address/)
+  })
+})
+
+describe('buildDistrictTractAdultsSql', () => {
+  it('sums adults per tract over the block groups the district lives in', () => {
+    const { sql } = buildDistrictTractAdultsSql(DISTRICT)
+
+    expect(sql).toContain(`FROM ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg`)
+    expect(sql).toContain(
+      'sum(bg.total_population - bg.population_under_18) AS adults',
+    )
+    expect(sql).toContain('substr(bg.block_group_geoid, 1, 11)')
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+  })
+})
+
+describe('mapRespondentCells', () => {
+  it('keeps unknowns as null and counts as numbers', () => {
+    expect(
+      mapRespondentCells([
+        ['65plus', 'female', 'owner', '53017950100', '4'],
+        [null, null, null, null, '2'],
+      ]),
+    ).toEqual([
+      {
+        ageBand: '65plus',
+        gender: 'female',
+        tenure: 'owner',
+        tract: '53017950100',
+        count: 4,
+      },
+      { ageBand: null, gender: null, tenure: null, tract: null, count: 2 },
+    ])
+  })
+})
+
+describe('mapTractAdults', () => {
+  it('drops tracts with no adults or no figure', () => {
+    const tracts = mapTractAdults([
+      ['53017950100', '1200'],
+      ['53017950200', null],
+      ['53017950300', '0'],
+    ])
+    expect([...tracts]).toEqual([['53017950100', 1200]])
   })
 })

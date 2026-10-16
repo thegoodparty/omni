@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common'
 import { StatsDTO } from '../schemas/people.schema'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
-import { type CensusCompositionRows } from '../databricks/districtCensusSql.util'
+import {
+  type CensusCompositionRows,
+  type RespondentCell,
+} from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { PeopleDataset } from './peopleDataset.service'
 
@@ -48,6 +51,20 @@ export class StatsService {
       dataset,
       read: () =>
         this.databricks.findCensusComposition(districtId, dataset, personIds),
+    })
+  }
+
+  async findWeightingInputs(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<{ cells: RespondentCell[]; tractAdults: Map<string, number> }> {
+    return this.readLog.measure({
+      op: 'weighting-inputs',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.findWeightingInputs(districtId, dataset, personIds),
     })
   }
 }
