@@ -401,15 +401,6 @@ var ProductMap = (function () {
     },
     tail: [
       {
-        id: 'constituents',
-        t: 'Know your constituents',
-        state: 'ok',
-        evs: [
-          'Serve Onboarding - Know Your Constituents Viewed',
-          'Serve Onboarding - Know Your Constituents Completed',
-        ],
-      },
-      {
         id: 'pledge',
         t: 'Take the pledge',
         state: 'ok',

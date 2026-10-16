@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // The non-Pro tile behavior depends on `outreach-pro-gating-v2`: off, a
 // non-Pro click redirects to the Pro upgrade wizard; on, the flow opens and
@@ -12,6 +12,19 @@ import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 // suite reads the same on the release train whatever the flag's live dev
 // rollout is (AGENTS.md: "force the flag, don't depend on Amplitude").
 const GATE_V2 = 'outreach-pro-gating-v2'
+
+// The SMS tile is disabled once the general election is inside the texting
+// cutoff (19 days). The shared test candidate's election date is real, so the
+// SMS tests move an isolated candidate's election safely out of the window
+// instead of depending on the calendar.
+const authenticateOutsideSmsCutoff = async (
+  page: Parameters<typeof authenticateTestUser>[0],
+) => {
+  const { client } = await authenticateTestUser(page, { isolated: true })
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+  })
+}
 
 // The Voter Outreach 2.0 hub is the unconditional outreach page: every
 // candidate lands on the hub and every channel tile opens its new flow.
@@ -71,8 +84,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
     page,
   }) => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
-    const { client } = await authenticateTestUser(page, { isolated: true })
-    await openSmsWindow(client)
+    await authenticateTestUser(page)
 
     await page.goto('/dashboard/outreach')
     // The tile ignores clicks while the elected-office query is pending —
@@ -133,8 +145,7 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
     page,
   }) => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
-    const { client } = await authenticateTestUser(page, { isolated: true })
-    await openSmsWindow(client)
+    await authenticateOutsideSmsCutoff(page)
 
     await page.goto('/dashboard/outreach')
     await expect(
@@ -163,8 +174,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   test('phone-banking tile, non-Pro: opens the flow with the Pro banner', async ({
     page,
   }) => {
-    const { client } = await authenticateTestUser(page, { isolated: true })
-    await openSmsWindow(client)
+    await authenticateTestUser(page)
 
     await page.goto('/dashboard/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
@@ -184,8 +194,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   test('Text tile, non-Pro: opens the flow with the two-step banner', async ({
     page,
   }) => {
-    const { client } = await authenticateTestUser(page, { isolated: true })
-    await openSmsWindow(client)
+    await authenticateOutsideSmsCutoff(page)
 
     await page.goto('/dashboard/outreach')
     await expect(

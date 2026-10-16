@@ -24,7 +24,7 @@ model ElectedOffice {
 
   // The furthest serve-onboarding step the holder has reached, written on every
   // "Continue" so a returning user resumes at the exact step they left — even
-  // steps that collect no persisted data (welcome / inOffice / constituents),
+  // steps that collect no persisted data (welcome / inOffice / the district story),
   // which the data-derived resume cannot pinpoint. Null on legacy / never-
   // onboarded rows, where resume falls back to the data-derived step. Set only
   // by the authenticated onboarding flow (guarded against M2M like

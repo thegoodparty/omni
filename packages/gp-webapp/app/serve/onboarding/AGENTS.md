@@ -19,12 +19,11 @@ Branches: `prefill` (office/term came from sales or BallotReady, checked on
 the `confirm` hub) and `net-new` (`office` then `term-dates`).
 
 - Flag off: welcome, inOffice, party, confirm | office + term-dates,
-  constituents, pledge.
-- `serve-citizen-panels` on: the district story replaces `constituents`:
-  `story-represent`, `story-loudest`, `story-sample`, `story-grow`, then
+  pledge.
+- `serve-citizen-panels` on: after the term, the district story
+  (`story-represent`, `story-loudest`, `story-sample`, `story-grow`), then
   `priorities`, then `pledge` (button "Meet your Chief of Staff", lands on the
-  Chief of Staff home). `ConstituentsStep` stays in the file for the flag-off
-  flow so bringing it back is a config change.
+  Chief of Staff home).
 
 Every Continue writes the step id to `ElectedOffice.onboardingStep`. gp-api
 validates it against `SERVE_ONBOARDING_STEPS`
@@ -37,7 +36,8 @@ behind, so the save never holds the motion.
 ## The district story
 
 - **Population** is `districtPopulation` (2020 census) from
-  `GET /v1/onboarding/contacts/stats`, the constituents step's query. Null
+  `GET /v1/onboarding/contacts/stats` (`onboardingDistrictStatsQueryOptions`,
+  shared with the Win flow's demographics step). Null
   drops the number from the copy.
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are

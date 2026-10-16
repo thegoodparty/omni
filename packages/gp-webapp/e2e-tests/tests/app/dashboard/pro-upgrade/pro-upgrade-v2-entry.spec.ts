@@ -1,15 +1,12 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import {
-  acceptCookieBanner,
-  setFlagOverrides,
-} from 'src/helpers/campaignStory.helper'
-import { openSmsWindow } from 'src/helpers/smsWindow.helper'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // Purchase-only (outreach-pro-gating-v2) wizard entry. Nothing here pays, so
 // it runs on every PR preview: a free candidate opens on the guidance
@@ -26,13 +23,16 @@ test.beforeEach(async ({ page }) => {
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
-  await acceptCookieBanner(page)
 })
 
 test.describe('Pro upgrade v2 entry', () => {
   test('opens a free candidate on the guidance overview', async ({ page }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
-    await openSmsWindow(client)
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
@@ -64,7 +64,11 @@ test.describe('Pro upgrade v2 entry', () => {
     page,
   }) => {
     const { client } = await setupProCampaignUser(page)
-    await openSmsWindow(client)
+    // Move the election out of the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
