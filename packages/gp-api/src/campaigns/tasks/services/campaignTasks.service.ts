@@ -278,7 +278,11 @@ export class CampaignTasksService extends createPrismaBase(
         user: true,
         campaignTasks: true,
         tcrCompliance: {
-          select: { kickoffSentAt: true, internalTestingAt: true, status: true },
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            status: true,
+          },
         },
       },
     })
