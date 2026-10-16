@@ -24,14 +24,26 @@ const removed = vi.fn()
 
 vi.mock('maplibre-gl', () => {
   class FakeMap {
+    container: HTMLElement
     constructor(options: Record<string, unknown>) {
       created.push(options)
+      this.container = options.container as HTMLElement
     }
     on(event: string, handler: () => void) {
       handlers.set(event, handler)
     }
+    // How maplibre mounts a compact attribution once the tiles name their
+    // sources: a <details> already expanded.
     addControl() {
-      return undefined
+      const attribution = document.createElement('details')
+      attribution.className =
+        'maplibregl-ctrl maplibregl-ctrl-attrib maplibregl-compact maplibregl-compact-show'
+      attribution.setAttribute('open', '')
+      const button = document.createElement('summary')
+      button.className = 'maplibregl-ctrl-attrib-button'
+      button.setAttribute('aria-label', 'Toggle attribution')
+      attribution.append(button)
+      this.container.append(attribution)
     }
     resize() {
       return undefined
@@ -166,6 +178,20 @@ describe('the district basemap', () => {
     expect(
       screen.getByTestId('district-story-map').querySelector('circle'),
     ).toBe(first)
+  })
+
+  it('keeps the attribution behind its button until it is tapped', async () => {
+    renderMap('all')
+    await waitFor(() => expect(handlers.has('load')).toBe(true))
+    const basemap = screen.getByTestId('district-story-basemap')
+    const attribution = basemap.querySelector('.maplibregl-ctrl-attrib')!
+    expect(attribution).toHaveClass('maplibregl-compact-show')
+    handlers.get('load')!()
+    expect(attribution).toHaveClass('maplibregl-compact')
+    expect(attribution).not.toHaveClass('maplibregl-compact-show')
+    expect(
+      screen.getByRole('button', { name: 'Toggle attribution' }),
+    ).toBeInTheDocument()
   })
 
   it('swallows tile errors', async () => {

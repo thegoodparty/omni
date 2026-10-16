@@ -46,6 +46,13 @@ export const DistrictBasemap = ({
         new maplibregl.AttributionControl({ compact: true }),
         'bottom-right',
       )
+      // A compact attribution opens expanded and collapses only on the first
+      // drag, which a map that cannot be dragged never gets.
+      map.on('load', () => {
+        container
+          .querySelector('.maplibregl-ctrl-attrib')
+          ?.classList.remove('maplibregl-compact-show')
+      })
       if (typeof ResizeObserver === 'undefined') return
       observer = new ResizeObserver(() => {
         if (!map || container.clientWidth <= 0) return
