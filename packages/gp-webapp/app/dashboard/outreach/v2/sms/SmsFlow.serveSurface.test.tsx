@@ -5,7 +5,11 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
-import { checkSmsStandards } from '@goodparty_org/contracts'
+import {
+  checkSmsStandards,
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
+} from '@goodparty_org/contracts'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
@@ -16,6 +20,17 @@ import {
   SMS_GREETING,
   withSampleFirstName,
 } from './smsCompose.util'
+
+const deleteLine = (editor: Editor, line: string) => {
+  let from = -1
+  editor.state.doc.descendants((node, pos) => {
+    const index = node.isText ? (node.text?.indexOf(line) ?? -1) : -1
+    if (from === -1 && index !== -1) from = pos + index
+  })
+  act(() => {
+    editor.view.dispatch(editor.state.tr.delete(from, from + line.length))
+  })
+}
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: vi.fn(),
@@ -354,7 +369,7 @@ describe('SmsFlow (Serve surface)', () => {
   })
 
   // A text to the civic panel alone offers members a way off it, in place of
-  // the JOIN ask: locked like the JOIN line, and never beside it.
+  // the JOIN ask: required like the JOIN line, and never beside it.
   const panelOnlyLists = () =>
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -364,7 +379,7 @@ describe('SmsFlow (Serve surface)', () => {
       ],
     })
 
-  it('offers LEAVE, locked, on a text to panel members alone', async () => {
+  it('offers LEAVE on a text to panel members alone, and offers it back once deleted', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -393,17 +408,23 @@ describe('SmsFlow (Serve surface)', () => {
 
     const box = screen.getByRole('textbox', { name: 'Message body' })
     const editor = (box as HTMLElement & { editor: Editor }).editor
-    let at = -1
-    editor.state.doc.descendants((node, pos) => {
-      const index = node.isText ? (node.text?.indexOf('Reply LEAVE') ?? -1) : -1
-      if (at === -1 && index !== -1) at = pos + index + 'Reply LEAVE'.length
-    })
-    act(() => {
-      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
-    })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'This is how people leave your civic panel and keep getting your texts.',
+    deleteLine(editor, CIVIC_PANEL_LEAVE_LINE)
+    expect(
+      await screen.findByText(
+        /Your text needs the line for leaving your civic panel\./,
+      ),
+    ).toBeInTheDocument()
+    expect(editor.getText()).not.toContain('Reply LEAVE')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add the civic panel line back' }),
     )
+    await waitFor(() =>
+      expect(editor.getText()).toContain(CIVIC_PANEL_LEAVE_LINE),
+    )
+    expect(
+      screen.queryByText(/Your text needs the line for leaving/),
+    ).toBeNull()
   })
 
   it("swaps a card's JOIN ask for LEAVE when its list is the panel alone", async () => {
@@ -519,7 +540,7 @@ describe('SmsFlow (Serve surface)', () => {
 
   // The card already answered the purpose, and a panel text is its ask, so
   // the box is ticked and cannot be unticked.
-  it('opens on the civic panel purpose with the JOIN ask locked on', async () => {
+  it('opens on the civic panel purpose with the JOIN ask ticked for good', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -557,20 +578,13 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
 
-    // Locked on, the line cannot be unchecked, so the reason does not say to.
+    // The line itself is editable: deleting it says what the text needs.
     const box = screen.getByRole('textbox', { name: 'Message body' })
     const editor = (box as HTMLElement & { editor: Editor }).editor
-    let at = -1
-    editor.state.doc.descendants((node, pos) => {
-      const index = node.isText ? (node.text?.indexOf('Reply JOIN') ?? -1) : -1
-      if (at === -1 && index !== -1) at = pos + index + 'Reply JOIN'.length
-    })
-    act(() => {
-      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
-    })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'This is how people join your civic panel, but you can write around it.',
-    )
+    deleteLine(editor, CIVIC_PANEL_JOIN_LINE)
+    expect(
+      await screen.findByText(/Your text needs its civic panel ask\./),
+    ).toBeInTheDocument()
   })
 
   // The Chief of Staff's invite card carries its own words and the build

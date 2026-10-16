@@ -16,12 +16,14 @@ const chatApi = {
 const chat = { chatApi, historyKey: ['test', 'chat-history'] as const }
 
 describe('AssistantBar', () => {
-  it('renders the list-building placeholder and no mic control', () => {
+  it('renders the list-building placeholder', () => {
     render(
       <AssistantBar
         chat={chat}
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     expect(
@@ -29,9 +31,27 @@ describe('AssistantBar', () => {
         "Describe the list you want and I'll make it for you",
       ),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /dictate/i }),
-    ).not.toBeInTheDocument()
+  })
+
+  it('opens the drawer from the mic, and with a file from the paperclip', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    const onAttachFile = vi.fn()
+    render(
+      <AssistantBar
+        chat={chat}
+        onSubmit={vi.fn()}
+        onOpenConversation={vi.fn()}
+        onOpen={onOpen}
+        onAttachFile={onAttachFile}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Dictate a message' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+
+    const file = new File(['hi'], 'notes.pdf', { type: 'application/pdf' })
+    await user.upload(screen.getByTestId('crm-assistant-file-input'), file)
+    expect(onAttachFile).toHaveBeenCalledWith(file)
   })
 
   it('submits the trimmed message and clears the input', async () => {
@@ -42,6 +62,8 @@ describe('AssistantBar', () => {
         chat={chat}
         onSubmit={onSubmit}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     const input = screen.getByTestId('crm-assistant-input')
@@ -57,6 +79,8 @@ describe('AssistantBar', () => {
         chat={chat}
         onSubmit={vi.fn()}
         onOpenConversation={vi.fn()}
+        onOpen={vi.fn()}
+        onAttachFile={vi.fn()}
       />,
     )
     expect(

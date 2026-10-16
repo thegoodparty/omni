@@ -1,5 +1,6 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -972,6 +973,46 @@ describe('PeerlyP2pJobService', () => {
         service.sendTestMessage('test-job-1', '5551234567', 169614),
       ).rejects.toThrow(BadGatewayException)
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+
+    const peerly400 = (message: string) =>
+      new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, null, {
+        data: { Error: message },
+        status: 400,
+        statusText: '',
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+      })
+
+    it('marks a refusal of the typed number an expected 400', async () => {
+      mockHttpService.post.mockRejectedValueOnce(
+        peerly400('Lead already exists in leads table'),
+      )
+
+      await expect(
+        service.sendTestMessage('test-job-1', '5551234567', 169614),
+      ).rejects.toThrow()
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            expectedRejection: true,
+            httpExceptionClass: BadRequestException,
+          }),
+        }),
+      )
+    })
+
+    it('leaves an unrecognized 400 a fault', async () => {
+      mockHttpService.post.mockRejectedValueOnce(
+        peerly400("'test_list_id' is a required parameter"),
+      )
+
+      await expect(
+        service.sendTestMessage('test-job-1', '5551234567', 169614),
+      ).rejects.toThrow()
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({ context: undefined }),
+      )
     })
   })
 })

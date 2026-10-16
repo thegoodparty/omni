@@ -89,8 +89,8 @@ type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 // so a typo there compiles — what catches a registry entry pointing at a file
 // nobody wrote is the directory check in chatCaseLists.test.ts.
 //
-// All five are placeholder lists — see the `note` in each file. That does
-// not stop an agent being wired; the coverage line counts it separately.
+// All five are core-check lists: synthetic inputs with checked cases that
+// test the agent, so `placeholder: false`. See the `note` in each file.
 const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
   chief_of_staff: 'chief_of_staff.json',
   campaign_assistant: 'campaign_assistant.json',
@@ -157,10 +157,8 @@ type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 // compliance_setup is absent on purpose: it is blocked, so a case list would
 // be inputs for a sweep that must not run.
 //
-// All but race_opponent_summary, race_opponent_actions,
-// opportunities_and_challenges and campaign_tracker_tasks are placeholder
-// lists — see the `note` in each file. As above, the coverage line counts a
-// wired one separately.
+// None is a placeholder list: ten are benches and five are core-check lists
+// (synthetic inputs, checked cases). See the `note` in each file.
 const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
   campaign_tracker_tasks: 'campaign_tracker_tasks.json',
   district_issue_pulse: 'district_issue_pulse.json',
