@@ -190,8 +190,8 @@ describe('the district basemap', () => {
     expect(attribution).toHaveClass('maplibregl-compact')
     expect(attribution).not.toHaveClass('maplibregl-compact-show')
     expect(
-      screen.getByRole('button', { name: 'Toggle attribution' }),
-    ).toBeInTheDocument()
+      attribution.querySelector('summary.maplibregl-ctrl-attrib-button'),
+    ).toHaveAttribute('aria-label', 'Toggle attribution')
   })
 
   it('swallows tile errors', async () => {
