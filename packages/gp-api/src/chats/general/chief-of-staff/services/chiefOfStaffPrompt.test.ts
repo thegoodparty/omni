@@ -119,6 +119,48 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
   })
 
+  describe("a priority's results before a good read, behind serve-citizen-panels", () => {
+    const priority = {
+      id: 'pri-1',
+      title: 'Downtown parking',
+      description: 'Not enough spaces near Main.',
+      archivedAt: null,
+    }
+
+    it('knows where each priority read stands and holds results back', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          priorities: [priority],
+          priorityReads: new Map([
+            ['pri-1', { answers: 54, needed: 96, good: false }],
+          ]),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        '- Downtown parking, answers: 54 of 96 needed for a good read, good read: no: Not enough spaces near Main.',
+      )
+      expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
+      expect(prompt).toContain(
+        "Before a good read, do not share that priority's results: no themes, no splits, no quotes",
+      )
+      expect(prompt).toContain('Nudge toward getting more answers instead')
+      expect(prompt).toContain(
+        'If they ask directly what people have said so far, answer honestly in one or two sentences',
+      )
+      expect(prompt).toContain('say it is too early to act on')
+    })
+
+    it('says nothing about a good read with the flag off', () => {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ priorities: [priority] }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).not.toContain('needed for a good read')
+      expect(prompt).not.toContain('BEFORE A GOOD READ')
+    })
+  })
+
   it('frames the assistant as a governance chief of staff', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

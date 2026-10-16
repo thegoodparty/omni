@@ -31,6 +31,49 @@ const build = (
 }
 
 describe('DistrictCensusComposition', () => {
+  describe('population', () => {
+    const district = { districtId: 'd-1', dataset: 'voters' as const }
+    const withPopulation = (
+      findDistrictPopulation: StatsService['findDistrictPopulation'],
+    ) => {
+      const warn = vi.fn()
+      const source = new DistrictCensusComposition(
+        { findDistrictPopulation } as StatsService,
+        { setContext: vi.fn(), warn } as never,
+      )
+      return { source, warn }
+    }
+
+    it('reads a district once it has a figure', async () => {
+      const read = vi.fn().mockResolvedValue(2_000)
+      const { source } = withPopulation(read)
+
+      expect(await source.population(district)).toBe(2_000)
+      expect(await source.population(district)).toBe(2_000)
+      expect(read).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks again for a district with no census row yet', async () => {
+      const read = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(900)
+      const { source } = withPopulation(read)
+
+      expect(await source.population(district)).toBeNull()
+      expect(await source.population(district)).toBe(900)
+    })
+
+    it('reads a warehouse failure as unknown, and retries it', async () => {
+      const read = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('warehouse down'))
+        .mockResolvedValue(900)
+      const { source, warn } = withPopulation(read)
+
+      expect(await source.population(district)).toBeNull()
+      expect(warn).toHaveBeenCalled()
+      expect(await source.population(district)).toBe(900)
+    })
+  })
+
   it('passes the district row and placed people through', async () => {
     const district = counts(100)
     const placed = [counts(5), counts(5)]
