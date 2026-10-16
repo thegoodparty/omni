@@ -599,7 +599,7 @@ describe('PeerlyIdentityService', () => {
 
       // Verify fallback instructions are included
       expect(lastSubmittedData.filing_url_instructions).toBe(
-        "Deliver the PIN using the first contact information that matches the candidate's election filing, in the following order: email, text, phone call, then postal mail. If the filing is not publicly available, contact the election authority.",
+        "Deliver the PIN using the first contact information that matches the candidate's election filing, in the following order: email, text, phone call, then postal mail. If only a mailing address can be verified, please reach out to the election authority for alternatives while the PIN is being mailed. If the filing is not publicly available, contact the election authority.",
       )
 
       // Verify filing phone number and type are included

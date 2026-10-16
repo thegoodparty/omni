@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   AxiosError,
   AxiosHeaders,
@@ -65,6 +65,39 @@ describe('PeerlyPhoneListService', () => {
       mockHttpService as unknown as PeerlyHttpService,
       mockErrorHandling as unknown as PeerlyErrorHandlingService,
     )
+  })
+
+  describe('addContactToPhoneList', () => {
+    it('turns a non-cell number into an expected 400', async () => {
+      const error = createAxiosError({ Error: 'Not a cell number.' }, 403)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: expect.objectContaining({
+            expectedRejection: true,
+            httpExceptionClass: BadRequestException,
+          }),
+        }),
+      )
+    })
+
+    it('keeps any other failure a warning the send will judge', async () => {
+      const error = createAxiosError({ Error: 'Internal error' }, 500)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: { expectedRejection: true },
+        }),
+      )
+    })
   })
 
   describe('checkPhoneListStatus', () => {
