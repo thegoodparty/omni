@@ -104,6 +104,36 @@ describe('the district basemap', () => {
     ).toBe(true)
   })
 
+  // maplibre-gl.css gives the map element `position: relative`, unlayered,
+  // so it beats any Tailwind position utility on that element and an
+  // `absolute inset-0` map collapses to zero height: no tiles, no
+  // attribution. The map has to fill a wrapper that does the positioning.
+  it('gives maplibre an element it can size, inside the positioned frame', async () => {
+    renderMap('all')
+    await waitFor(() => expect(created).toHaveLength(1))
+    const container = created[0]!.container as HTMLElement
+    const basemap = screen.getByTestId('district-story-basemap')
+    expect(basemap).toHaveClass('absolute', 'inset-0')
+    expect(basemap).not.toBe(container)
+    expect(basemap.contains(container)).toBe(true)
+    expect(container).toHaveClass('h-full', 'w-full')
+    expect(container.className).not.toMatch(
+      /\b(absolute|relative|fixed|static|sticky|inset-[^\s]*)\b/,
+    )
+  })
+
+  it('sits under a transparent dot layer, with the muted fill behind it', async () => {
+    renderMap('all')
+    await waitFor(() => expect(created).toHaveLength(1))
+    const frame = screen.getByTestId('district-story-frame')
+    const basemap = screen.getByTestId('district-story-basemap')
+    const dots = screen.getByTestId('district-story-map')
+    expect(frame).toHaveClass('bg-muted')
+    expect([...frame.children]).toEqual([basemap, dots])
+    expect(dots.getAttribute('class')).not.toMatch(/\bbg-/)
+    expect(basemap.className).not.toMatch(/\bbg-/)
+  })
+
   it('is a picture, not a widget', async () => {
     renderMap('all')
     await waitFor(() => expect(created).toHaveLength(1))

@@ -52,6 +52,10 @@ behind, so the save never holds the motion.
   drag, zoom or scroll capture. maplibre is imported inside the effect, the
   dots never wait for it, and no key, no WebGL or a refused tile leaves the
   muted frame. There is no district boundary geometry, so no outline.
+  maplibre's stylesheet sets `position: relative` on its map element and,
+  unlayered, beats Tailwind's `absolute`, so a wrapper is positioned and the
+  map element only fills it (`h-full w-full`). Positioning the map element
+  itself gives it zero height: no tiles, no attribution.
 - **Fallback**: no EO, no position, a 4xx/5xx, under 100 points, or no data
   within 8 seconds draws a stand-in district (its own outline and a City Hall
   marker, no tiles). The

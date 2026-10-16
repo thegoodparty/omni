@@ -63,11 +63,13 @@ export const DistrictBasemap = ({
     }
   }, [camera])
 
+  // maplibre's stylesheet sets `position: relative` on the element it is
+  // given, and as unlayered CSS it beats Tailwind's layered `absolute`. On
+  // that element `inset-0` would leave a zero-height map, so the wrapper is
+  // what gets positioned and the map fills it.
   return (
-    <div
-      ref={containerRef}
-      data-testid="district-story-basemap"
-      className="absolute inset-0"
-    />
+    <div data-testid="district-story-basemap" className="absolute inset-0">
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
   )
 }
