@@ -32,6 +32,10 @@ import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
 import { SMS_GREETING_PREVIEW, withSampleFirstName } from './smsCompose.util'
+import {
+  isFixablePhoneListError,
+  phoneListErrorCopy,
+} from './phoneListErrorCopy'
 
 // A 400 from complete-free-purchase carries a user-fixable message (e.g.
 // Peerly rejecting a banned link in the script) worth showing verbatim.
@@ -102,6 +106,8 @@ interface SmsReviewStepProps {
   // covers) resolved to `failed` — distinct because the fix is different:
   // there's a fresh build to request, not a draft to retry.
   buildFailed?: boolean
+  // gp-api's errorCode for the failed build; see phoneListErrorCopy.
+  buildErrorCode?: string | null
   retryingBuild?: boolean
   onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
@@ -133,6 +139,7 @@ export const SmsReviewStep = ({
   preparing,
   prepareError,
   buildFailed = false,
+  buildErrorCode = null,
   retryingBuild = false,
   onRetryBuild,
   readOnlySummary = false,
@@ -400,17 +407,19 @@ export const SmsReviewStep = ({
       {readOnlySummary ? null : buildFailed ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
-            We couldn&apos;t prepare this audience. Try again.
+            {phoneListErrorCopy(buildErrorCode)}
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onRetryBuild}
-            disabled={retryingBuild}
-            loading={retryingBuild}
-          >
-            Try again
-          </Button>
+          {!isFixablePhoneListError(buildErrorCode) && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onRetryBuild}
+              disabled={retryingBuild}
+              loading={retryingBuild}
+            >
+              Try again
+            </Button>
+          )}
         </Card>
       ) : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">

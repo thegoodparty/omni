@@ -10,6 +10,10 @@ import {
   ContactsService,
 } from '../services/contacts.service'
 
+// Tags the cap and deadline refusals so a client can tell "pick a smaller
+// list" apart from a failure the candidate cannot fix.
+export const AUDIENCE_TOO_LARGE_ERROR_CODE = 'AUDIENCE_TOO_LARGE'
+
 // Resolves a saved filter into an SMS-reachable audience, one page at a time.
 //
 // Lifted out of P2pPhoneListUploadService.buildPhoneList (ENG-10801 and its
@@ -336,11 +340,13 @@ export async function* resolveFilterAudience(
       page === 1 &&
       pagination.totalResults > maxRecipients
     ) {
-      throw new BadRequestException(
-        limitExceededMessage ??
+      throw new BadRequestException({
+        message:
+          limitExceededMessage ??
           `This filter matches over the ${maxRecipients} recipient ` +
             `limit — narrow the filter and try again.`,
-      )
+        errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+      })
     }
 
     // THE DEADLINE, PROJECTED. The resolution reads a page per 1000 matched
@@ -377,12 +383,14 @@ export async function* resolveFilterAudience(
               Math.max(0, timeBudgetMs - elapsedMs) / Math.max(avgPageMs, 1),
             ),
           ) * pageSize
-        throw new BadRequestException(
-          budgetExceededMessage?.({ matchedCount, affordableCount }) ??
+        throw new BadRequestException({
+          message:
+            budgetExceededMessage?.({ matchedCount, affordableCount }) ??
             `This filter matches ${matchedCount} people — more than can be ` +
               `resolved while you wait (about ${affordableCount} right now). ` +
               `Narrow the filter and try again.`,
-        )
+          errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+        })
       }
     }
 
@@ -414,11 +422,13 @@ export async function* resolveFilterAudience(
       // page beyond the limit before throwing would defeat the limit for
       // anything that writes as it reads.
       if (resolvedCount > maxRecipients) {
-        throw new BadRequestException(
-          limitExceededMessage ??
+        throw new BadRequestException({
+          message:
+            limitExceededMessage ??
             `This filter matches over the ${maxRecipients} recipient ` +
               `limit — narrow the filter and try again.`,
-        )
+          errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+        })
       }
 
       yield person

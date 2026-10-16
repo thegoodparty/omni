@@ -143,10 +143,18 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
   // park the row rather than leaving it orphaned at `queued`/`building`
   // forever. `buildError` is a short message, not a stack trace: this is a
   // status a future poller reads, not a log.
-  async markBuildFailed(buildId: string, buildError: string): Promise<void> {
+  async markBuildFailed(
+    buildId: string,
+    buildError: string,
+    buildErrorCode: string | null = null,
+  ): Promise<void> {
     await this.model.update({
       where: { id: buildId },
-      data: { buildStatus: PhoneListBuildStatus.failed, buildError },
+      data: {
+        buildStatus: PhoneListBuildStatus.failed,
+        buildError,
+        buildErrorCode,
+      },
     })
   }
 

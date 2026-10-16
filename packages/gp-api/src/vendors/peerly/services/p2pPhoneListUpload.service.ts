@@ -46,6 +46,10 @@ import { FeaturesService } from '@/features/services/features.service'
 const SEGMENT_PAGE_SIZE = 1000
 const MAX_PHONE_LIST_RECIPIENTS = 100_000
 
+// Set on the build row (buildErrorCode) when no one on the list can be texted,
+// so the webapp can ask for another list rather than offer a retry.
+export const NO_TEXTABLE_CONTACTS_ERROR_CODE = 'NO_TEXTABLE_CONTACTS'
+
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
 type PhoneListRecipient = { personId: string; phone: string }
@@ -685,10 +689,12 @@ export class P2pPhoneListUploadService {
     }
     const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
     if (recipients.length === 0) {
-      const emptyAudienceError = new BadRequestException(
-        'No contacts matched the filter with a valid phone number and ' +
+      const emptyAudienceError = new BadRequestException({
+        message:
+          'No contacts matched the filter with a valid phone number and ' +
           'complete address — narrow the filter or check your contact data.',
-      )
+        errorCode: NO_TEXTABLE_CONTACTS_ERROR_CODE,
+      })
       await this.markBuildFailed(buildId, emptyAudienceError)
       throw emptyAudienceError
     }
@@ -769,8 +775,16 @@ export class P2pPhoneListUploadService {
     error: unknown,
   ): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
+    const response =
+      error instanceof HttpException ? error.getResponse() : undefined
+    const errorCode =
+      typeof response === 'object' &&
+      'errorCode' in response &&
+      typeof response.errorCode === 'string'
+        ? response.errorCode
+        : null
     await this.peerlyPhoneListCapture
-      .markBuildFailed(buildId, message.slice(0, 500))
+      .markBuildFailed(buildId, message.slice(0, 500), errorCode)
       .catch((markError: Error) =>
         this.logger.error(
           { markError, buildId },

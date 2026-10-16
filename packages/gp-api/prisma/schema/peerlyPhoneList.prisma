@@ -31,6 +31,10 @@ model PeerlyPhoneList {
   voterFileFilterId           Int?                       @map("voter_file_filter_id")
   buildStatus                 PhoneListBuildStatus       @default(queued) @map("build_status")
   buildError                  String?                    @map("build_error")
+  // Set when the failure is one the candidate can act on (e.g. the audience
+  // is too large), so the webapp can say what to do. buildError's text can
+  // carry internal detail and is not shown as-is.
+  buildErrorCode              String?                    @map("build_error_code")
   // The validated POST body (voter filter fields + list name), captured at
   // accept time so the async build handler (Voter Outreach 2.0, kill-switch
   // gated) can redo filter resolution + CSV generation without the HTTP

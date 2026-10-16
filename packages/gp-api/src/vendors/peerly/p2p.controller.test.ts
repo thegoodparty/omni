@@ -589,6 +589,7 @@ describe('P2pController', () => {
         id: 'build-1',
         buildStatus: 'failed',
         buildError: 'No contacts matched the filter',
+        buildErrorCode: 'NO_TEXTABLE_CONTACTS',
         token: null,
         excludedOptedOutCount: 0,
         excludedDuplicatePhoneCount: 0,
@@ -603,6 +604,7 @@ describe('P2pController', () => {
       expect(result).toEqual({
         buildStatus: 'failed',
         buildError: 'No contacts matched the filter',
+        buildErrorCode: 'NO_TEXTABLE_CONTACTS',
       })
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(

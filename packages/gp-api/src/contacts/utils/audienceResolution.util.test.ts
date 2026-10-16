@@ -10,6 +10,7 @@ import {
   AudienceResolutionSummary,
   PhoneAudiencePerson,
   resolveFilterAudience,
+  AUDIENCE_TOO_LARGE_ERROR_CODE,
 } from './audienceResolution.util'
 
 const ORGANIZATION = { slug: 'campaign-audience' } as Organization
@@ -280,7 +281,12 @@ describe('resolveFilterAudience', () => {
         emitted.push(next.value)
         next = await audience.next()
       }
-    }).rejects.toThrow(new BadRequestException('narrow it'))
+    }).rejects.toThrow(
+      new BadRequestException({
+        message: 'narrow it',
+        errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+      }),
+    )
 
     expect(emitted).toEqual([])
     expect(findContactsForFilter).toHaveBeenCalledTimes(1)
@@ -334,7 +340,12 @@ describe('resolveFilterAudience', () => {
         emitted.push(next.value)
         next = await audience.next()
       }
-    }).rejects.toThrow(new BadRequestException('too many'))
+    }).rejects.toThrow(
+      new BadRequestException({
+        message: 'too many',
+        errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+      }),
+    )
 
     // The cap is a limit on what the caller receives, not just on what the
     // resolution reports at the end: a caller that writes as it reads must
@@ -536,7 +547,12 @@ describe('resolveFilterAudience', () => {
           },
         ),
       ),
-    ).rejects.toThrow(new BadRequestException('too many'))
+    ).rejects.toThrow(
+      new BadRequestException({
+        message: 'too many',
+        errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+      }),
+    )
   })
 
   it('refuses a filter that cannot be resolved inside the time budget', async () => {
@@ -571,7 +587,12 @@ describe('resolveFilterAudience', () => {
           },
         ),
       ),
-    ).rejects.toThrow(new BadRequestException('82000 is too many, try 57000'))
+    ).rejects.toThrow(
+      new BadRequestException({
+        message: '82000 is too many, try 57000',
+        errorCode: AUDIENCE_TOO_LARGE_ERROR_CODE,
+      }),
+    )
 
     expect(findContactsForFilter).toHaveBeenCalledTimes(2)
     expect(elapsedMs()).toBe(4500)

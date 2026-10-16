@@ -2704,6 +2704,7 @@ describe('SmsFlow', () => {
             ? {
                 buildStatus: 'failed',
                 buildError: 'No contacts matched the filter.',
+                buildErrorCode: null,
               }
             : {
                 buildStatus: 'ready',
@@ -2733,6 +2734,26 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
     })
 
+    it('names a fixable build failure and offers no retry that would fail the same way', async () => {
+      vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+        buildStatus: 'failed',
+        buildError: 'This filter matches over the 100000 phone-list limit',
+        buildErrorCode: 'AUDIENCE_TOO_LARGE',
+      })
+      openFlow()
+      await runToReview()
+
+      expect(
+        await screen.findByText(
+          'This list is too big to text at once. Choose a smaller list.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Try again' }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/phone-list limit/)).not.toBeInTheDocument()
+    })
+
     it('rebuilds automatically on Back from a failed build, so re-entering review is not stuck on the stale failure', async () => {
       vi.mocked(createP2pPhoneList)
         .mockReset()
@@ -2744,6 +2765,7 @@ describe('SmsFlow', () => {
             ? {
                 buildStatus: 'failed',
                 buildError: 'No contacts matched the filter.',
+                buildErrorCode: null,
               }
             : {
                 buildStatus: 'ready',

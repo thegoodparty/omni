@@ -615,6 +615,53 @@ describe('SmsFlow — recommended lists', () => {
     expect(created).toHaveLength(1)
   })
 
+  it('says a list is too big and blocks Continue until another list is picked', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 501, name: 'Undecided persuadables' }],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 19000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 15000,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      message: 'This filter matches 37694 contacts, too many to build',
+      errorCode: 'AUDIENCE_TOO_LARGE',
+    })
+    await openToAudience()
+
+    await userEvent.click(await screen.findByText('View your lists here'))
+    await userEvent.click(await screen.findByText('Undecided persuadables'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue/ }),
+    )
+
+    expect(
+      await screen.findByText(
+        'This list is too big to text at once. Choose a smaller list.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/too many to build/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Try again')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeDisabled()
+  })
+
   it('renders the picker unchanged when there are no recommendations', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,

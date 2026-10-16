@@ -112,6 +112,10 @@ import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
+import {
+  isFixablePhoneListError,
+  phoneListErrorCopy,
+} from './phoneListErrorCopy'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import {
   addGreetingBack,
@@ -684,6 +688,11 @@ export const SmsFlow = ({
   // sharing `phoneListError`'s because by review time there's a phone list
   // build to re-request, not a list create to re-run.
   const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
+  // gp-api's errorCode for the last failed create or build, set with
+  // phoneListError / phoneListBuildFailed (see phoneListErrorCopy).
+  const [phoneListErrorCode, setPhoneListErrorCode] = useState<string | null>(
+    null,
+  )
 
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
@@ -1491,6 +1500,7 @@ export const SmsFlow = ({
       const result = await createP2pPhoneList(created, created.id)
       setPhoneListCreating(false)
       if (!phoneListResultUsable(result)) {
+        setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
         setPhoneListError(true)
         return
       }
@@ -1535,6 +1545,7 @@ export const SmsFlow = ({
     const result = await createP2pPhoneList(created, created.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
+      setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
       setPhoneListError(true)
       return
     }
@@ -1576,6 +1587,7 @@ export const SmsFlow = ({
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
+      setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
       setPhoneListError(true)
       return
     }
@@ -1605,6 +1617,7 @@ export const SmsFlow = ({
       const result = await createP2pPhoneList(selectedList, selectedList.id)
       setPhoneListCreating(false)
       if (!phoneListResultUsable(result)) {
+        setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
         setPhoneListError(true)
         setStepId('audience')
         return
@@ -1659,6 +1672,7 @@ export const SmsFlow = ({
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
+      setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
       setPhoneListError(true)
       return
     }
@@ -1681,6 +1695,7 @@ export const SmsFlow = ({
     const result = await createP2pPhoneList(selectedList, selectedList.id)
     setPhoneListCreating(false)
     if (!phoneListResultUsable(result)) {
+      setPhoneListErrorCode(result.ok ? null : (result.errorCode ?? null))
       setPhoneListBuildFailed(true)
       return
     }
@@ -1967,11 +1982,12 @@ export const SmsFlow = ({
             }
           : stepId === 'audience'
             ? {
-                label: phoneListError
-                  ? 'Try again'
-                  : reachableCount !== null
-                    ? `Continue (${reachableCount.toLocaleString()})`
-                    : 'Continue',
+                label:
+                  phoneListError && !isFixablePhoneListError(phoneListErrorCode)
+                    ? 'Try again'
+                    : reachableCount !== null
+                      ? `Continue (${reachableCount.toLocaleString()})`
+                      : 'Continue',
                 onClick: () => {
                   if (audience.selectedRecommendation) {
                     void handleSelectedRecommendationContinue()
@@ -1981,6 +1997,8 @@ export const SmsFlow = ({
                 },
                 disabled:
                   (!selectedList && !audience.selectedRecommendation) ||
+                  (phoneListError &&
+                    isFixablePhoneListError(phoneListErrorCode)) ||
                   audience.reachableLoading ||
                   reachableCount === null ||
                   reachableCount === 0,
@@ -2209,6 +2227,7 @@ export const SmsFlow = ({
               return true
             }
             if (result.buildStatus === 'failed') {
+              setPhoneListErrorCode(result.buildErrorCode)
               setPhoneListBuildFailed(true)
               setStopPolling(true)
               return true
@@ -2218,6 +2237,7 @@ export const SmsFlow = ({
           }}
           limit={PHONE_LIST_BUILD_POLL_LIMIT}
           onLimitReached={() => {
+            setPhoneListErrorCode(null)
             setPhoneListBuildFailed(true)
             setStopPolling(true)
           }}
@@ -2354,7 +2374,7 @@ export const SmsFlow = ({
           )}
           {phoneListError && (
             <p className="mt-4 text-sm text-destructive">
-              We couldn&apos;t prepare this audience. Try again.
+              {phoneListErrorCopy(phoneListErrorCode)}
             </p>
           )}
         </>
@@ -2399,7 +2419,7 @@ export const SmsFlow = ({
             )}
             {resumed && phoneListError && (
               <p className="mt-4 text-sm text-destructive">
-                We couldn&apos;t prepare this audience. Try again.
+                {phoneListErrorCopy(phoneListErrorCode)}
               </p>
             )}
             {buildMode && draftGate.draftSaveError && (
@@ -2510,6 +2530,7 @@ export const SmsFlow = ({
             }
             prepareError={draftCreateError}
             buildFailed={phoneListBuildFailed}
+            buildErrorCode={phoneListErrorCode}
             retryingBuild={phoneListCreating}
             onRetryBuild={handleRetryPhoneListBuild}
             readOnlySummary={buildMode}
