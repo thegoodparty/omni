@@ -22,9 +22,6 @@ export const SERVE_ONBOARDING_EVENTS = {
   OfficeCompleted: EVENTS.ServeOnboarding.OfficeCompleted,
   ConfirmViewed: EVENTS.ServeOnboarding.ConfirmViewed,
   TermDatesViewed: EVENTS.ServeOnboarding.TermDatesViewed,
-  KnowYourConstituentsViewed: EVENTS.ServeOnboarding.KnowYourConstituentsViewed,
-  KnowYourConstituentsCompleted:
-    EVENTS.ServeOnboarding.KnowYourConstituentsCompleted,
   PledgeViewed: EVENTS.ServeOnboarding.PledgeViewed,
   PledgeCompleted: EVENTS.ServeOnboarding.PledgeCompleted,
 } as const

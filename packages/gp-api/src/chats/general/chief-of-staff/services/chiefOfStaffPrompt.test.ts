@@ -791,8 +791,15 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       `include this line, once, in these exact words: "${guardrailLine('legal_advice', 'chief_of_staff')}"`,
     )
     expect(prompt).toContain(
-      `include this line, once, in these exact words: "${guardrailLine('professional_advice', 'chief_of_staff')}"`,
+      `include this line once, in these exact words: "${guardrailLine('professional_advice', 'chief_of_staff')}"`,
     )
+    expect(prompt).toContain(
+      'safe, risky, or advisable for human health or public health',
+    )
+    expect(prompt).toContain(
+      "relaying an agency's guidance or drafting what the user should tell residents",
+    )
+    expect(prompt).not.toContain('or employment or HR advice')
     expect(prompt).toContain('When both would apply, use the legal line.')
     expect(prompt).toContain(
       'Use the line in place of a caution in your own words, never both.',

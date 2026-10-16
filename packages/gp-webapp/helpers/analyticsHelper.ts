@@ -177,10 +177,6 @@ export const EVENTS = {
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
-    KnowYourConstituentsViewed:
-      'Serve Onboarding - Know Your Constituents Viewed',
-    KnowYourConstituentsCompleted:
-      'Serve Onboarding - Know Your Constituents Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
   },

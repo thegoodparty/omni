@@ -232,12 +232,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    // One census read serves both the panel sizing and the good read.
+    const population =
+      outreachFeedbackEnabled && this.priorityResults
+        ? await this.priorityResults.districtPopulation(ctx.organization)
+        : null
     const panelAnswersNeeded = outreachFeedbackEnabled
-      ? answersNeeded(
-          this.contacts
-            ? await this.contacts.getDistrictPopulation(ctx.organization)
-            : null,
-        )
+      ? answersNeeded(population)
       : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
@@ -250,9 +251,11 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const readStatus =
       outreachFeedbackEnabled && this.priorityResults
         ? (
-            await this.priorityResults.readStatuses(ctx.organizationSlug, [
-              ctx.priorityId,
-            ])
+            await this.priorityResults.readStatuses(
+              ctx.organizationSlug,
+              [ctx.priorityId],
+              population,
+            )
           ).get(ctx.priorityId)
         : undefined
     if (!resolved) {

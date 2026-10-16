@@ -898,11 +898,11 @@ describe('ElectedOfficeController', () => {
 
       const result = await service.client.put(
         `/v1/elected-office/${created.data.id}`,
-        { onboardingStep: 'constituents' },
+        { onboardingStep: 'inOffice' },
       )
 
       expect(result.status).toBe(200)
-      expect(result.data.onboardingStep).toBe('constituents')
+      expect(result.data.onboardingStep).toBe('inOffice')
     })
 
     it.each(['story-represent', 'story-grow', 'priorities'])(

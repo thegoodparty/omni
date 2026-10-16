@@ -111,7 +111,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const population = await this.populationOf(organization)
+    const population = await this.districtPopulation(organization)
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
     const weighting = await this.weightingOf(
@@ -172,10 +172,13 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
   }
 
   // Answers pooled per priority, the same people resultsFor counts, against
-  // the district. The caller has already scoped the ids to the office.
+  // the district. The caller has already scoped the ids to the office. A
+  // caller that already read the population passes it, so a turn reads it
+  // once.
   async readStatuses(
     organizationSlug: string,
     priorityIds: string[],
+    knownPopulation?: number | null,
   ): Promise<Map<string, PriorityReadStatus>> {
     if (priorityIds.length === 0) return new Map()
     const organization = await this.client.organization.findUniqueOrThrow({
@@ -183,7 +186,9 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     })
     const [sends, population] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
-      this.populationOf(organization),
+      knownPopulation !== undefined
+        ? Promise.resolve(knownPopulation)
+        : this.districtPopulation(organization),
     ])
     return new Map(
       await Promise.all(
@@ -259,9 +264,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
 
   // No district, or a census read that fails, is an unknown population:
   // answersNeeded falls back to its uncorrected figure.
-  private async populationOf(
-    organization: Organization,
-  ): Promise<number | null> {
+  async districtPopulation(organization: Organization): Promise<number | null> {
     try {
       const district =
         await this.resolveContacts().resolveEligibleDistrict(organization)

@@ -285,13 +285,13 @@ discounted count**: only the status, the groups and actions.
   thin bar; otherwise a status dot and "Not yet representative. Hear from
   more renters" (or "Getting close. ...", "Getting close. A few more answers
   will do it"), each with Get answers; or a check, "Representative of your
-  district" and See what we heard. The text links to the results page; the
-  button is the one action. The in-scroll title is desktop-only with the
-  flag on.
-- **Desktop**: the rail opens with the status label and dot, the answers
-  still needed with a bar while there are fewer than `needed`, "Hear from
-  more renters and people 65 and over", Get answers, a quiet "What we heard"
-  link, then "Where this stands". Nothing goes above the chat.
+  district" (or "Enough answers") and See what we heard. The text links to
+  the results page; the button is the one action.
+- **Desktop**: a 56px bar across the chat and the rail holds back and the
+  title, so there is no title in the scroll with the flag on. The rail opens
+  with the status label and dot, the answers still needed with a bar while
+  there are fewer than `needed`, "Hear from more renters and people 65 and
+  over", Get answers, a quiet "What we heard" link, then "Where this stands".
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. The agent proposes more answers as a

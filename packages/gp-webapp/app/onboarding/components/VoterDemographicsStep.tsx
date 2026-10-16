@@ -55,21 +55,13 @@ interface VoterDemographicsStepProps {
   office?: string
   showLocalNewsSources?: boolean
   headingsAsSubsections?: boolean
-  // Copy overrides for non-candidate contexts (e.g. the elected-official
-  // "serve" flow, which addresses constituents rather than voters). Each
-  // defaults to the Win/candidate wording so existing call sites are unchanged.
-  demographicsHeading?: string
-  totalLabel?: string
-  ageDistributionDescription?: string
-  topIssuesHeading?: string
-  topIssuesDescription?: string
 }
 
-const DEFAULT_DEMOGRAPHICS_HEADING = 'Voter Demographics'
-const DEFAULT_TOTAL_LABEL = 'Total Voters'
-const DEFAULT_AGE_DISTRIBUTION_DESCRIPTION =
+const DEMOGRAPHICS_HEADING = 'Voter Demographics'
+const TOTAL_LABEL = 'Total Voters'
+const AGE_DISTRIBUTION_DESCRIPTION =
   "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger voters, and prioritizing mail and door-knocks for older ones."
-const DEFAULT_AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED =
+const AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED =
   "We'll help you tailor your outreach mix to each age group, leaning into social for younger voters and prioritizing mail and door-knocks for older ones."
 
 export const VoterDemographicsStep = ({
@@ -81,11 +73,6 @@ export const VoterDemographicsStep = ({
   office,
   showLocalNewsSources = true,
   headingsAsSubsections = false,
-  demographicsHeading = DEFAULT_DEMOGRAPHICS_HEADING,
-  totalLabel = DEFAULT_TOTAL_LABEL,
-  ageDistributionDescription,
-  topIssuesHeading,
-  topIssuesDescription,
 }: VoterDemographicsStepProps): React.JSX.Element => {
   const { smsCompliance } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
@@ -135,7 +122,7 @@ export const VoterDemographicsStep = ({
   return (
     <div className="flex w-full flex-col items-stretch gap-6 text-left">
       <div className="space-y-2">
-        <HeadingTag className={headingClass}>{demographicsHeading}</HeadingTag>
+        <HeadingTag className={headingClass}>{DEMOGRAPHICS_HEADING}</HeadingTag>
         {locationLabel ? (
           <p className="text-sm leading-6 text-muted-foreground">
             A snapshot of who lives, votes, and pays attention in{' '}
@@ -148,7 +135,7 @@ export const VoterDemographicsStep = ({
       </div>
 
       <NumberInsight
-        title={totalLabel}
+        title={TOTAL_LABEL}
         value={chartData.totalConstituents || 0}
         icon={<UsersRound />}
         isLoading={isLoading}
@@ -161,10 +148,9 @@ export const VoterDemographicsStep = ({
         percentage={true}
         title="Age Distribution"
         description={
-          ageDistributionDescription ??
-          (smsClosed
-            ? DEFAULT_AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED
-            : DEFAULT_AGE_DISTRIBUTION_DESCRIPTION)
+          smsClosed
+            ? AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED
+            : AGE_DISTRIBUTION_DESCRIPTION
         }
         data={chartData.ageDistribution}
         isLoading={isLoading}
@@ -226,8 +212,6 @@ export const VoterDemographicsStep = ({
         state={state}
         office={office}
         headingsAsSubsections={headingsAsSubsections}
-        heading={topIssuesHeading}
-        description={topIssuesDescription}
       />
 
       {showLocalNewsSources ? (

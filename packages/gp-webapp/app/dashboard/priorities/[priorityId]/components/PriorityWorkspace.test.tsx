@@ -194,6 +194,19 @@ describe('PriorityWorkspace', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('keeps the title in the conversation with serve-citizen-panels off', async () => {
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    expect(screen.queryByTestId('priority-desktop-bar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('priority-phone-bar')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Fix the Maple Street flooding',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('opens the conversation anchored on the priority and takes the first turn', async () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
@@ -1047,6 +1060,33 @@ describe('PriorityWorkspace', () => {
       expect(
         within(bar).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
+    })
+
+    it('puts the title in a bar above the chat and the rail on desktop', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-desktop-bar')
+      expect(
+        within(bar).getByRole('heading', {
+          level: 1,
+          name: 'Fix the Maple Street flooding',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'Back to priorities' }),
+      ).toHaveAttribute('href', '/dashboard/priorities')
+      const titles = screen.getAllByRole('heading', {
+        name: 'Fix the Maple Street flooding',
+      })
+      expect(titles).toHaveLength(2)
+      for (const heading of titles) {
+        expect(
+          heading.closest(
+            '[data-testid="priority-desktop-bar"], [data-testid="priority-phone-bar"]',
+          ),
+        ).not.toBeNull()
+      }
     })
 
     it('opens where this stands from the bar', async () => {

@@ -71,7 +71,7 @@ const ROLE_CLARIFIERS_BLOCK = `ROLE CLARIFIERS (do not violate)
 const PROFESSIONAL_ADVICE_BLOCK = `PROFESSIONAL AND LEGAL CAUTION (apply before you finish any answer)
 - Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal liability, or telling the user how to file a formal complaint.
 - When your answer says what a law or regulation allows, requires, or prohibits, include this line, once, in these exact words: "${LEGAL_LINE}"
-- When your answer is medical or public-health, financial or tax, or employment or HR advice, include this line, once, in these exact words: "${PROFESSIONAL_LINE}"
+- When your answer says what is safe, risky, or advisable for human health or public health, finances or taxes, or employment, include this line once, in these exact words: "${PROFESSIONAL_LINE}". This applies even when you are relaying an agency's guidance or drafting what the user should tell residents.
 - One line per reply. When both would apply, use the legal line.
 - Use the line in place of a caution in your own words, never both.
 - Only add a line to a substantive answer. Never attach one to a reply that is only a decline or a redirect.`
