@@ -98,10 +98,6 @@ export const DOWNLOAD_COLUMNS = [
   { column: 'Gender', header: 'Gender' },
   { column: 'Age', header: 'Age' },
   { column: 'VotingPerformanceEvenYearGeneral', header: 'Likelihood to vote' },
-  // Placed beside turnout on purpose, against the append-only rule below:
-  // it is read as a companion to "Likelihood to vote", so it shifts every
-  // later column one place to the right.
-  { column: 'Early_Vote_Status', header: 'Early Vote Likelihood' },
   {
     column: 'VotingPerformanceEvenYearPrimary',
     header: 'Primary Likelihood to Vote',
@@ -225,6 +221,7 @@ export const DOWNLOAD_COLUMNS = [
     column: 'PresidentialPrimary_2020',
     header: 'Voted in 2020 Presidential Primary',
   },
+  { column: 'Early_Vote_Status', header: 'Early Vote Likelihood' },
 ] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
 
 export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
