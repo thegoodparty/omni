@@ -367,6 +367,7 @@ describe('ContactsService.getFilterDimensions: party by state', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
   const win = { slug: 'win-campaign' } as Organization
