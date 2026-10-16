@@ -184,6 +184,9 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
       // Staff can book canvassers by hand in Peerly, which stamps nothing on
       // the spine, so past the send time the live job decides. A failed read
       // refuses: deleting a job we could not check may be deleting a live send.
+      // A dateless row counts as past it: the sweep only moves a row to
+      // `in_progress` once Peerly's start day has begun, so a dateless one is
+      // on its send day with no time of ours to compare, possibly hand-booked.
       const pastSendTime =
         spine.date === null || !isBefore(new Date(), spine.date)
       if (cancelableInProgress && spine.projectId && pastSendTime) {
