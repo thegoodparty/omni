@@ -30,7 +30,7 @@ const REPRESENTATION: CivicPanelRepresentation = {
 const PLAN = {
   plan: null,
   next: null,
-  progress: { members: 40, goal: 100 },
+  progress: { members: 40, goal: 240, answersNeeded: 96, expectedAnswers: 16 },
 }
 
 beforeEach(() => {
@@ -100,7 +100,7 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByText(/Once your panel has/)).not.toBeInTheDocument()
   })
 
-  it('links who can be asked now into a new list already filtered to them', () => {
+  it('offers no list of who can be asked now', () => {
     render(
       <CitizensPanelView
         summary={SUMMARY}
@@ -110,28 +110,7 @@ describe('CitizensPanelView', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: 'Make a list of who can be asked now' }),
-    ).toHaveAttribute('href', '/dashboard/contacts?newList=askableNow')
-  })
-
-  it('offers no such list when nobody can be asked now', () => {
-    render(
-      <CitizensPanelView
-        summary={{
-          members: 12,
-          reachedRecently: 12,
-          askableNow: 0,
-          lastOutreachAt: null,
-        }}
-        representation={REPRESENTATION}
-        plan={PLAN}
-      />,
-    )
-
-    expect(
-      screen.queryByRole('link', {
-        name: 'Make a list of who can be asked now',
-      }),
+      screen.queryByRole('link', { name: /who can be asked now/ }),
     ).not.toBeInTheDocument()
   })
 

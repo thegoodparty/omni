@@ -477,13 +477,10 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
-  // The district's census row and the block groups the given people live
-  // in, for comparing the two. Not through `run()`: every caller treats a
-  // failure as "comparison unavailable" and answers 200, so the error-level
-  // log and HTTP translation `run()` adds would be wrong here (see the census
-  // lookup in findStats).
-  // The census lookup findStats runs, without the voter scan beside it.
-  // Throws on a warehouse failure; a district with no census row is null.
+  // The district's census population on its own, without the voter scan
+  // findStats runs: the civic panel sizes its goal from it. Null without a
+  // census row. Throws on a warehouse failure; the caller decides what that
+  // means.
   async findDistrictPopulation(
     districtId: string,
     dataset: PeopleDataset,
@@ -494,6 +491,11 @@ export class DatabricksVoterService {
     return raw == null ? null : Math.round(Number(raw))
   }
 
+  // The district's census row and the block groups the given people live
+  // in, for comparing the two. Not through `run()`: every caller treats a
+  // failure as "comparison unavailable" and answers 200, so the error-level
+  // log and HTTP translation `run()` adds would be wrong here (see the census
+  // lookup in findStats).
   async findCensusComposition(
     districtId: string,
     dataset: PeopleDataset,

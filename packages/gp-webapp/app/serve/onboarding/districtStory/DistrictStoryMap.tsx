@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@styleguide/lib/utils'
+import { DistrictBasemap } from './DistrictBasemap'
 import {
   VIEW_HEIGHT,
   VIEW_WIDTH,
@@ -40,18 +41,33 @@ const lookFor = (
     case 'dim':
       return dot.loud
         ? { scale: 0.95, opacity: 1, fill: 'fill-warning', ring: false }
-        : { scale: 0.55, opacity: 0.8, fill: 'fill-base-border', ring: false }
+        : {
+            scale: 0.55,
+            opacity: 0.55,
+            fill: 'fill-muted-foreground',
+            ring: false,
+          }
     case 'sample':
       return dot.sample
         ? { scale: 1, opacity: 1, fill: 'fill-primary', ring: false }
-        : { scale: 0.45, opacity: 0.5, fill: 'fill-base-border', ring: false }
+        : {
+            scale: 0.45,
+            opacity: 0.35,
+            fill: 'fill-muted-foreground',
+            ring: false,
+          }
     case 'grow':
       if (dot.joinedOrder >= 0 && filled) {
         return { scale: 1, opacity: 1, fill: 'fill-primary', ring: false }
       }
       return dot.sample
         ? { scale: 1, opacity: 1, fill: 'fill-card', ring: true }
-        : { scale: 0.45, opacity: 0.35, fill: 'fill-base-border', ring: false }
+        : {
+            scale: 0.45,
+            opacity: 0.25,
+            fill: 'fill-muted-foreground',
+            ring: false,
+          }
     default:
       return { scale: 0.65, opacity: 0.85, fill: 'fill-primary', ring: false }
   }
@@ -172,10 +188,14 @@ export const DistrictStoryMap = ({
     playIntro && introShown && change.from === null && mode === 'all'
   const hidden = playIntro && !introShown
 
-  return (
+  const svg = (
     <svg
       viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-      className="block h-auto w-full"
+      className={
+        model.camera
+          ? 'pointer-events-none absolute inset-0 h-full w-full'
+          : 'block h-auto w-full'
+      }
       role="img"
       aria-label={
         model.abstract
@@ -267,5 +287,18 @@ export const DistrictStoryMap = ({
         </g>
       )}
     </svg>
+  )
+
+  if (!model.camera) return svg
+  // The frame has the view's shape, so the basemap and the dots share one
+  // box and the dots sit on their streets.
+  return (
+    <div
+      className="relative aspect-[100/93] w-full overflow-hidden bg-muted"
+      data-testid="district-story-frame"
+    >
+      <DistrictBasemap camera={model.camera} />
+      {svg}
+    </div>
   )
 }

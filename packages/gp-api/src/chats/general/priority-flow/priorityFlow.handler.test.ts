@@ -1072,6 +1072,7 @@ describe('PriorityFlowHandler', () => {
       ...baseCtx(),
       outreachFeedbackEnabled: true,
       civicPanelMembers: members,
+      panelAnswersNeeded: 96,
     })
 
     it('offers one card asking the rested panel and as many new residents', () => {
@@ -1083,9 +1084,15 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain(
         'civicPanelMember true, Has Cell Phone and notContactedRecently true',
       )
-      expect(prompt).toContain('replyRate 0.4')
-      expect(prompt).toContain('panelSampleSize set to that panel part')
-      expect(prompt).toContain('sampleSize set to twice it')
+      expect(prompt).toContain('Size the send with size_panel_ask')
+      expect(prompt).toContain('for about 96 answers')
+      expect(prompt).toContain(
+        'panelSampleSize when it returned one (leave it out when it did not)',
+      )
+      expect(prompt).toContain(
+        'size_outreach_sample and HOW MANY PEOPLE TO ASK do not apply to this send',
+      )
+      expect(prompt).toContain('When reachesAnswersNeeded comes back false')
       expect(prompt).toContain('civicPanelAsk true')
       expect(prompt).toContain('never add civicPanelMember to audienceFilters')
       expect(prompt).toContain(
@@ -1145,10 +1152,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('THE CIVIC PANEL COMES FIRST')
       expect(prompt).toContain('nobody on their civic panel yet')
       expect(prompt).toContain('Civic panel: 0 members')
-      expect(prompt).toContain(
-        'If it is 0, the card is the fresh residents alone',
-      )
-      expect(prompt).toContain('civicPanelAsk true and no panelSampleSize')
+      expect(prompt).toContain('Size the send with size_panel_ask')
     })
 
     it('behaves as before with the flag off: no panel, both sides up front', () => {
@@ -1203,11 +1207,13 @@ describe('PriorityFlowHandler', () => {
 
       const on = await handlerWith(true).loadContext('c1', USER_ID)
       expect(on.civicPanelMembers).toBe(42)
+      expect(on.panelAnswersNeeded).toBe(96)
       expect(countCivicPanelMembers).toHaveBeenCalledWith(ORG)
 
       countCivicPanelMembers.mockClear()
       const off = await handlerWith(false).loadContext('c1', USER_ID)
       expect(off.civicPanelMembers).toBeUndefined()
+      expect(off.panelAnswersNeeded).toBeUndefined()
       expect(countCivicPanelMembers).not.toHaveBeenCalled()
     })
 
@@ -1248,7 +1254,7 @@ describe('PriorityFlowHandler', () => {
         await tool.execute({ ...combined, sampleSize: 42 }),
       ).toHaveProperty(
         'error',
-        expect.stringContaining('twice panelSampleSize'),
+        expect.stringContaining('as size_panel_ask returned it'),
       )
       expect(
         await tool.execute({ ...combined, channel: 'phoneBanking' as const }),
@@ -1542,6 +1548,7 @@ describe('PriorityFlowHandler', () => {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
           countSegment: vi.fn(),
+          getDistrictPopulation: vi.fn(() => Promise.resolve(null)),
         } as never,
         {} as never,
         undefined,

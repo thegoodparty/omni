@@ -51,6 +51,9 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // The answers one question needs from this district (answersNeeded), read
+  // per turn behind the same flag. Sizes the panel-first send.
+  panelAnswersNeeded?: number
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
