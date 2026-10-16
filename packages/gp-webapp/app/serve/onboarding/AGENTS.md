@@ -3,14 +3,15 @@
 The elected-official onboarding at `/serve/onboarding`. One stepper, one
 progress bar; the step set and order live in `serveOnboardingConfig.ts`.
 
-| File                                | What                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| `ServeOnboardingFlow.tsx`           | The flow: load, resume, Continue/Back, saves, completion              |
-| `serveOnboardingConfig.ts`          | Step ids, per-branch order, resume rules, all copy                    |
-| `serveOnboardingAnalytics.ts`       | Step events (`Viewed`/`Completed` where a step has them)              |
-| `districtStory/districtDots.ts`     | Pure dot model: real points to ~640 dots, the stand-in map, the picks |
-| `districtStory/DistrictStoryMap.tsx`| The one SVG map and its modes and motion                              |
-| `districtStory/DistrictStoryStep.tsx`| The story steps' data, copy and layout                               |
+| File                                  | What                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| `ServeOnboardingFlow.tsx`             | The flow: load, resume, Continue/Back, saves, completion              |
+| `serveOnboardingConfig.ts`            | Step ids, per-branch order, resume rules, all copy                    |
+| `serveOnboardingAnalytics.ts`         | Step events (`Viewed`/`Completed` where a step has them)              |
+| `districtStory/districtDots.ts`       | Pure dot model: real points to ~640 dots, the stand-in map, the picks |
+| `districtStory/DistrictStoryMap.tsx`  | The one SVG map and its modes and motion                              |
+| `districtStory/DistrictBasemap.tsx`   | The street tiles behind a real district's dots                        |
+| `districtStory/DistrictStoryStep.tsx` | The story steps' data, copy and layout                                |
 
 ## Step order
 
@@ -41,10 +42,19 @@ behind, so the save never holds the motion.
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are
   dropped in the query function. A seeded random pick of ~640 keeps the
-  density, so each dot is about population / dots residents. The outline is
-  the convex hull of the points (there is no boundary geometry).
+  density, so each dot is about population / dots residents. Dots are
+  placed in Web Mercator and fitted to the view, and the camera that fit
+  implies (`basemapZoom`) frames the basemap, so each dot sits on its street.
+- **Basemap** (`DistrictBasemap`): maplibre with Geoapify's light `positron`
+  style and the `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` the contacts and
+  door-knocking maps use, with the same compact attribution. One map instance
+  for all four steps; `interactive: false`, so it is a picture with no
+  drag, zoom or scroll capture. maplibre is imported inside the effect, the
+  dots never wait for it, and no key, no WebGL or a refused tile leaves the
+  muted frame. There is no district boundary geometry, so no outline.
 - **Fallback**: no EO, no position, a 4xx/5xx, under 100 points, or no data
-  within 8 seconds draws a stand-in district (with a City Hall marker). The
+  within 8 seconds draws a stand-in district (its own outline and a City Hall
+  marker, no tiles). The
   map never swaps once drawn, and the step never errors.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
   middle; the sample is sized to `answersNeeded(population)` from contracts
