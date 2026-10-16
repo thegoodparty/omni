@@ -56,6 +56,9 @@ test.describe('Pro upgrade v2 entry', () => {
       await expect(page.getByText(row, { exact: true })).toBeVisible()
     }
 
+    // The cookie banner can mount after the dismissal above, which ran before
+    // the redirect to guidance, and it sits over the footer's Continue.
+    await NavigationHelper.dismissCookieBanner(page)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/status`)
   })
