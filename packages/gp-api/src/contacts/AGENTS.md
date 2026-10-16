@@ -62,6 +62,13 @@ fixes track under ENG-10744.
   Activity conditions likewise: selected outcomes OR within one
   condition, conditions AND across. Empty `actions` = membership in that
   outreach ("everyone it reached").
+- **Party is a registration in some states and an L2 estimate in others.**
+  `src/peopleDb/partySource.ts` is the one place that says which (from L2's
+  own state-by-state account): `getFilterDimensions` re-marks the party
+  dimension `modeled` with a note for a Win org in a state with no party
+  registration, the CSV export's party headers follow the district's state,
+  and the Campaign Manager's constituent-data tools word the column the same
+  way. Add a party label anywhere else and read it from there.
 - **Win vs Serve is the `eo-` org-slug prefix**, nothing else. Serve never
   receives `politicalParty` (server-stripped) and party filters 400. The
   person activity feed strips the same way and for the same reason

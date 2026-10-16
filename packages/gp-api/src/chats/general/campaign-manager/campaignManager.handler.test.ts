@@ -130,6 +130,29 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
       DATA_SOURCE_ROUTING_RULES,
     )
   })
+
+  // The rows are scoped to the district, so the district's state decides
+  // how party is described, not the state typed on the campaign record.
+  it('describes party by the state the district is in', async () => {
+    const tools = buildHandler(fakeProvider).buildTools(
+      ctxWith({ ...ENABLED, state: 'CA', districtState: 'MN' }),
+    )
+    const tool = tools.describe_constituent_data
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected describe_constituent_data to register')
+    }
+    const meta = await tool.execute({})
+    if (typeof meta !== 'object' || meta === null || !('dimensions' in meta)) {
+      throw new Error('expected a dimensions payload')
+    }
+    expect(meta.dimensions).toContainEqual({
+      name: 'Parties_Description',
+      label: 'Party as the vendor assigns it, not a registration',
+    })
+    expect(descriptionOf(tools.query_constituent_data)).toContain(
+      'Minnesota provides no party information in its voter file.',
+    )
+  })
 })
 
 describe('CampaignManagerHandler.loadContext — constituent tool gating', () => {

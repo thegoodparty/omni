@@ -399,6 +399,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
         citizenPanels: ctx.outreachFeedbackEnabled === true,
+        state: ctx.state,
       })
       Object.assign(tools, crmTools)
       // A proposal is sent against a saved list, so it is offered only where
