@@ -37,6 +37,7 @@ const VOTER_SELECT_COLUMNS = [
   'Presence_Of_Children',
   'Veteran_Status',
   'Voter_Status',
+  'Early_Vote_Status',
   'EthnicGroups_EthnicGroup1Desc',
   'Age_Int',
   'VotingPerformanceEvenYearGeneral',
@@ -97,6 +98,10 @@ export const DOWNLOAD_COLUMNS = [
   { column: 'Gender', header: 'Gender' },
   { column: 'Age', header: 'Age' },
   { column: 'VotingPerformanceEvenYearGeneral', header: 'Likelihood to vote' },
+  // Placed beside turnout on purpose, against the append-only rule below:
+  // it is read as a companion to "Likelihood to vote", so it shifts every
+  // later column one place to the right.
+  { column: 'Early_Vote_Status', header: 'Early Vote Likelihood' },
   {
     column: 'VotingPerformanceEvenYearPrimary',
     header: 'Primary Likelihood to Vote',
@@ -249,6 +254,7 @@ export const EXCLUDABLE_VOTER_COLUMNS = [
   'Residence_HHParties_Description',
   'VoterParties_Change_Changed_Party',
   'VotingPerformanceEvenYearGeneral',
+  'Early_Vote_Status',
   'VotingPerformanceEvenYearPrimary',
   'VotingPerformanceEvenYearGeneralAndPrimary',
   'General_2026',
