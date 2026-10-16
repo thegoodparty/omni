@@ -5,7 +5,11 @@ import {
   type AcsCounts,
   type RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import { weighToCensus, weightingTargets } from './censusWeighting.util'
+import {
+  unreachedTracts,
+  weighToCensus,
+  weightingTargets,
+} from './censusWeighting.util'
 
 const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
   Object.fromEntries(
@@ -63,6 +67,34 @@ describe('weightingTargets', () => {
       genderShares: { male: 0.48, female: 0.52 },
     })
     expect(targets.gender?.female).toBeCloseTo(0.52)
+  })
+})
+
+describe('unreachedTracts', () => {
+  it('names tracts answered at half their census share or less', () => {
+    const tracts = new Map([
+      ['a', 500],
+      ['b', 300],
+      ['c', 195],
+      ['tiny', 5],
+    ])
+    expect(
+      unreachedTracts(
+        [
+          cell({ count: 60, tract: 'a' }),
+          cell({ count: 38, tract: 'b' }),
+          cell({ count: 2, tract: 'c' }),
+        ],
+        tracts,
+      ),
+    ).toEqual(['c'])
+  })
+
+  it('names every tract when no answer is placed', () => {
+    expect(unreachedTracts([cell({ count: 5, tract: null })], TRACTS)).toEqual([
+      '53017950100',
+      '53017950200',
+    ])
   })
 })
 

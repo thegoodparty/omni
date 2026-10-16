@@ -9,6 +9,7 @@ import {
   type RakingResult,
   type RakingTargets,
 } from './raking.util'
+import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
 
 // A value with fewer answers than this pools with the other small ones, so
 // no handful of people carries a whole group's weight.
@@ -87,6 +88,39 @@ export const toRakingCells = (cells: RespondentCell[]): RakingCell[] =>
       gender: cell.gender,
     },
   }))
+
+// A tract holding less than this share of the district's adults is too
+// small to send anyone to on its own.
+const MIN_TRACT_SHARE = 0.01
+
+// The tracts outreach has barely reached: their share of the answers is
+// half their share of the district's adults or less, or trails it by the
+// gap that names a group. Measured before weighting, on who answered.
+export const unreachedTracts = (
+  respondents: RespondentCell[],
+  tractAdults: Map<string, number>,
+): string[] => {
+  const census = shares(Object.fromEntries(tractAdults))
+  if (!census) return []
+  const answered = new Map<string, number>()
+  let placed = 0
+  for (const cell of respondents) {
+    if (cell.tract === null || census[cell.tract] === undefined) continue
+    answered.set(cell.tract, (answered.get(cell.tract) ?? 0) + cell.count)
+    placed += cell.count
+  }
+  return Object.entries(census)
+    .filter(([tract, censusShare]) => {
+      if (censusShare < MIN_TRACT_SHARE) return false
+      const share = placed === 0 ? 0 : (answered.get(tract) ?? 0) / placed
+      return (
+        share <= censusShare / 2 ||
+        censusShare - share >= MIN_UNDERREPRESENTED_GAP
+      )
+    })
+    .map(([tract]) => tract)
+    .sort()
+}
 
 // Weights the answers to the district's census mix, pooling small groups
 // first. A respondent living outside every known tract sits out the

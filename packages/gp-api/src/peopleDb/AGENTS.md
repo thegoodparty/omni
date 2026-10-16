@@ -314,30 +314,30 @@ signatures rather than callers reaching into `databricks/` directly.
 
 ## Key files
 
-| Path                                            | Purpose                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------- |
-| `databricks/voterReadLog.service.ts`            | Times each read and emits the `people-db voter read` line           |
-| `databricks/peopleDbx.config.ts`                | `PEOPLE_DATABRICKS_*` resolution; catalog/schema/hostname constants |
-| `databricks/peopleDbxStatement.client.ts`       | Statement Execution API: inline JSON, CSV external links, polling   |
-| `databricks/databricksVoterSql.util.ts`         | Spark SQL builders + the bound-parameter/inlining rules             |
-| `databricks/databricksVoter.service.ts`         | List/person/aggregates/stats/sample/precincts + door-knocking rows  |
-| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                            |
-| `databricks/databricksVoterPack.service.ts`     | Voter pack built from CSV chunks (never the inline path)            |
-| `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services              |
-| `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                       |
-| `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
+| Path                                            | Purpose                                                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `databricks/voterReadLog.service.ts`            | Times each read and emits the `people-db voter read` line                                                  |
+| `databricks/peopleDbx.config.ts`                | `PEOPLE_DATABRICKS_*` resolution; catalog/schema/hostname constants                                        |
+| `databricks/peopleDbxStatement.client.ts`       | Statement Execution API: inline JSON, CSV external links, polling                                          |
+| `databricks/databricksVoterSql.util.ts`         | Spark SQL builders + the bound-parameter/inlining rules                                                    |
+| `databricks/databricksVoter.service.ts`         | List/person/aggregates/stats/sample/precincts + door-knocking rows                                         |
+| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                                                                   |
+| `databricks/databricksVoterPack.service.ts`     | Voter pack built from CSV chunks (never the inline path)                                                   |
+| `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services                                                     |
+| `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                                                              |
+| `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)                                               |
 | `partySource.ts`                                | How L2 fills party per state (registration, primary ballot, modeled); the one source for every party label |
-| `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
-| `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
-| `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition    |
-| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups |
-| `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)          |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
-| `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
-| `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
-| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                     |
-| `schemas/filters.schema.ts`                     | Zod filter input schema                                             |
-| `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                        |
-| `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes              |
-| `utils/transformToPersonOutput.util.ts`         | Display mapping shared by contacts and the door                     |
-| `util/hash.util.ts`                             | `hash32`, the murmur hash behind the random-sample seed             |
+| `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts                                                     |
+| `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                                                                   |
+| `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
+| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups                                        |
+| `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
+| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                                                             |
+| `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
+| `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
+| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |
+| `schemas/filters.schema.ts`                     | Zod filter input schema                                                                                    |
+| `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                                                               |
+| `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes                                                     |
+| `utils/transformToPersonOutput.util.ts`         | Display mapping shared by contacts and the door                                                            |
+| `util/hash.util.ts`                             | `hash32`, the murmur hash behind the random-sample seed                                                    |

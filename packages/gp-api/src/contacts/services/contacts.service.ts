@@ -2204,6 +2204,9 @@ export class ContactsService {
       // Server-side only: people to leave out by id, such as who the civic
       // panel build plan already drew. Passing it always freezes the draw.
       excludePersonIds?: string[]
+      // Server-side only: draw only from these people, such as who a
+      // boundary gp-api drew encloses.
+      withinPersonIds?: string[]
     },
   ): Promise<string[] | null> {
     if (sample.recipientsOfOutreachId !== undefined) {
@@ -2238,10 +2241,17 @@ export class ContactsService {
       )),
       ...(sample.excludePersonIds ?? []),
     ]
-    const notAsked: IdFilterResolution =
+    const notAskedAnywhere: IdFilterResolution =
       excludeIds.length === 0
         ? { kind: 'none' }
         : { kind: 'filter', idFilter: { notIn: [...new Set(excludeIds)] } }
+    const notAsked: IdFilterResolution =
+      sample.withinPersonIds === undefined
+        ? notAskedAnywhere
+        : intersectIdFilterResolutions(notAskedAnywhere, {
+            kind: 'filter',
+            idFilter: { in: sample.withinPersonIds },
+          })
     if (sample.panelSize === undefined) {
       return this.drawWithin(organization, filterInput, notAsked, {
         size: sample.size,

@@ -4,7 +4,7 @@ import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
 import {
   type CensusCompositionRows,
-  type RespondentCell,
+  type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { PeopleDataset } from './peopleDataset.service'
@@ -58,13 +58,33 @@ export class StatsService {
     districtId: string,
     dataset: PeopleDataset,
     personIds: string[],
-  ): Promise<{ cells: RespondentCell[]; tractAdults: Map<string, number> }> {
+  ): Promise<WeightingInputs> {
     return this.readLog.measure({
       op: 'weighting-inputs',
       districtId,
       dataset,
       read: () =>
         this.databricks.findWeightingInputs(districtId, dataset, personIds),
+    })
+  }
+
+  async findTractGridCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+    cellDegrees: number,
+  ): Promise<Array<{ row: number; col: number }>> {
+    return this.readLog.measure({
+      op: 'tract-grid-cells',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.findTractGridCells(
+          districtId,
+          dataset,
+          tracts,
+          cellDegrees,
+        ),
     })
   }
 }

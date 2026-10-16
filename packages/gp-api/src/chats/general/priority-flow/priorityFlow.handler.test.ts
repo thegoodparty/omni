@@ -7,6 +7,7 @@ import {
   PROPOSAL_SENT_MARKER,
   REPORT_BACK_MARKER,
   GET_ANSWERS_MARKER,
+  type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
@@ -633,6 +634,88 @@ describe('PriorityFlowHandler', () => {
     })
     expect(await tool.execute({ ...proposal, sampleSize: 400 })).toMatchObject({
       wholeAudience: expect.stringContaining('312 people'),
+    })
+  })
+
+  describe('a proposal kept to the parts not reached yet', () => {
+    const AREA = {
+      type: 'Polygon' as const,
+      coordinates: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 0],
+        ] as [number, number][],
+      ],
+    }
+    const withArea = (
+      area: typeof AREA | null,
+      inside: number,
+    ): {
+      tool: { execute: (input: never) => Promise<unknown> }
+      polygonPreview: ReturnType<typeof vi.fn>
+    } => {
+      const polygonPreview = vi.fn(() =>
+        Promise.resolve({ count: inside, audienceEmpty: false }),
+      )
+      const handler = new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        { polygonPreview } as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { unreachedAreaFor: vi.fn(() => Promise.resolve(area)) } as never,
+      )
+      const tool = handler.buildTools(baseCtx()).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      return { tool: tool as never, polygonPreview }
+    }
+    const proposal = {
+      audience: 'Renters in the parts we have not reached',
+      count: 120,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      audienceFilters: { homeownerNo: true },
+      areaTarget: 'unreached' as const,
+      deepLinkOnly: false,
+    }
+
+    it('presents when the count is the audience inside the area', async () => {
+      const { tool, polygonPreview } = withArea(AREA, 120)
+      expect(await tool.execute(proposal as never)).toMatchObject({
+        presented: true,
+      })
+      expect(polygonPreview).toHaveBeenCalledWith(
+        { geoPoly: AREA, filters: { homeownerNo: true } },
+        expect.anything(),
+      )
+    })
+
+    it('tells the agent the count inside the area', async () => {
+      const { tool } = withArea(AREA, 45)
+      expect(await tool.execute(proposal as never)).toEqual({
+        error: expect.stringContaining(
+          'that audience is 45 people. Present it again with count 45.',
+        ),
+      })
+    })
+
+    it('refuses when every part has answered', async () => {
+      const { tool } = withArea(null, 0)
+      expect(await tool.execute(proposal as never)).toEqual({
+        error: expect.stringContaining('Every part of the district'),
+      })
     })
   })
 
@@ -1530,7 +1613,13 @@ describe('PriorityFlowHandler', () => {
   })
 
   describe('behind serve-citizen-panels, before a good read', () => {
-    const thin = { answers: 54, needed: 96, good: false }
+    const thin: PriorityReadStatus = {
+      answers: 54,
+      needed: 96,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['renters', 'age65plus'],
+    }
     let readStatuses: ReturnType<typeof vi.fn>
 
     const withReadStatus = (enabled = true) => {
@@ -1580,13 +1669,28 @@ describe('PriorityFlowHandler', () => {
     it('tells the agent where the read stands in <priority>', () => {
       const prompt = withReadStatus().buildSystemPrompt(at(thin))
       expect(prompt).toContain(
-        'Answers: 54 of 96 needed for a good read. Good read: no.',
+        'Answers: 54 of 96 needed for a good read. Representative: Not yet representative. Hear more from: renters and people 65 and over. Good read: no.',
       )
       const good = withReadStatus().buildSystemPrompt(
-        at({ answers: 103, needed: 96, good: true }),
+        at({
+          answers: 103,
+          needed: 96,
+          good: true,
+          status: 'representative',
+          underrepresented: [],
+        }),
       )
       expect(good).toContain(
-        'Answers: 103 of 96 needed for a good read. Good read: yes.',
+        'Answers: 103 of 96 needed for a good read. Representative: Representative. Hear more from: nobody in particular. Good read: yes.',
+      )
+    })
+
+    it('aims outreach at who to hear more from, and never at weights', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain('Then offer outreach aimed at that group.')
+      expect(prompt).toContain('set areaTarget to unreached on the proposal')
+      expect(prompt).toContain(
+        'Never mention weights, weighting, quotas, discounting',
       )
     })
 
@@ -1596,7 +1700,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain(
         'Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said"',
       )
-      expect(prompt).toContain('Nudge toward getting more answers instead')
+      expect(prompt).toContain('Nudge toward a good read instead')
     })
 
     it('answers a direct question honestly and says it is too early', () => {

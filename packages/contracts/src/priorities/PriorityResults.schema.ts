@@ -80,13 +80,73 @@ export const PriorityThemeSchema = z.object({
 })
 export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
 
-// Whether a priority has heard from enough people to read the district:
-// pooled answers across texts, calls and doors against answersNeeded for
-// the district's population. gp-api's priorityReadStatus decides `good`.
+// How closely the people who answered look like the district. An official
+// sees only this label and the groups to hear more from, never a weight.
+export const ReadRepresentativenessSchema = z.enum([
+  'tooEarly',
+  'notYetRepresentative',
+  'gettingClose',
+  'representative',
+])
+export type ReadRepresentativeness = z.infer<
+  typeof ReadRepresentativenessSchema
+>
+
+export const UnderrepresentedGroupSchema = z.enum([
+  'age18to64',
+  'age65plus',
+  'owners',
+  'renters',
+  'unreachedAreas',
+  'men',
+  'women',
+])
+export type UnderrepresentedGroup = z.infer<typeof UnderrepresentedGroupSchema>
+
+// How a group is named in a sentence, in the app and by the agents alike:
+// "Hear from more renters".
+export const UNDERREPRESENTED_GROUP_NAMES: Record<
+  UnderrepresentedGroup,
+  string
+> = {
+  age18to64: 'people 18 to 64',
+  age65plus: 'people 65 and over',
+  owners: 'homeowners',
+  renters: 'renters',
+  unreachedAreas: "people in parts of your district we haven't reached",
+  men: 'men',
+  women: 'women',
+}
+
+// The status's name wherever it shows, in the app and from the agents.
+export const READ_REPRESENTATIVENESS_LABELS: Record<
+  ReadRepresentativeness,
+  string
+> = {
+  tooEarly: 'Too early',
+  notYetRepresentative: 'Not yet representative',
+  gettingClose: 'Getting close',
+  representative: 'Representative',
+}
+
+// Grid squares about 400m on a side at US latitudes: a few blocks, so one
+// square never stands for one household. The results page bins answers on
+// it, and the area of a district not reached yet is drawn from it.
+export const DISTRICT_GRID_CELL_DEGREES = 0.004
+
+// Whether a priority has heard from enough people, and the right mix of
+// people, to read the district: pooled answers across texts, calls and
+// doors against answersNeeded for the district's population, weighted to
+// its census mix. gp-api's priorityReadStatus decides `good`, which is
+// `status === 'representative'`.
 export const PriorityReadStatusSchema = z.object({
   answers: z.number().int().nonnegative(),
   needed: z.number().int().positive(),
   good: z.boolean(),
+  status: ReadRepresentativenessSchema,
+  // The one or two groups heard from least next to the census, most behind
+  // first. Empty when none trails by enough to name.
+  underrepresented: z.array(UnderrepresentedGroupSchema).max(2),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
 

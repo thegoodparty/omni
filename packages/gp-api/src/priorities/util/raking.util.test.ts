@@ -130,6 +130,15 @@ describe('poolSmallValues', () => {
     expect(pooled.targets.area?.other).toBeCloseTo(0.4)
   })
 
+  it('keeps a lone small value under its own name', () => {
+    const cells: RakingCell[] = [{ count: 10, values: { tenure: 'owner' } }]
+    const targets = { tenure: { owner: 0.4, renter: 0.6 } }
+    expect(poolSmallValues(cells, targets, 'tenure', 5, 'other')).toEqual({
+      cells,
+      targets,
+    })
+  })
+
   it('changes nothing when every value is big enough', () => {
     const cells: RakingCell[] = [{ count: 10, values: { area: 'a' } }]
     const targets = { area: { a: 1 } }

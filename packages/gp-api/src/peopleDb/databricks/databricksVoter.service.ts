@@ -74,11 +74,14 @@ import {
   buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
+  buildTractGridCellsSql,
+  mapAcsCounts,
   mapCensusCompositionRows,
+  mapGridCells,
   mapRespondentCells,
   mapTractAdults,
   type CensusCompositionRows,
-  type RespondentCell,
+  type WeightingInputs,
 } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
@@ -522,18 +525,35 @@ export class DatabricksVoterService {
     districtId: string,
     dataset: PeopleDataset,
     personIds: string[],
-  ): Promise<{ cells: RespondentCell[]; tractAdults: Map<string, number> }> {
+  ): Promise<WeightingInputs> {
     const district = await this.resolveDistrict(districtId, dataset)
-    const [cellResult, tractResult] = await Promise.all([
+    const [districtResult, cellResult, tractResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
       personIds.length > 0
         ? this.client.query(buildRespondentCellsSql(district, personIds))
         : Promise.resolve({ columns: [], rows: [] }),
       this.client.query(buildDistrictTractAdultsSql(district)),
     ])
+    const districtRow = districtResult.rows[0]
     return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
       cells: mapRespondentCells(cellResult.rows),
       tractAdults: mapTractAdults(tractResult.rows),
     }
+  }
+
+  async findTractGridCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+    cellDegrees: number,
+  ): Promise<Array<{ row: number; col: number }>> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractGridCellsSql(district, tracts, cellDegrees),
+    )
+    return mapGridCells(result.rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

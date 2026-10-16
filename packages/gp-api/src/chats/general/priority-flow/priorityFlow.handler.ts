@@ -81,6 +81,7 @@ import {
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
+import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
 // Sensitive scope: the priority, its status, constituent counts and past
 // outreach all flow into the model context, so it runs Anthropic-only. The
@@ -304,6 +305,51 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // A widen names sends of the same side. Behind serve-citizen-panels, a side
   // not yet sent may also name the step's other side: the targeted group
   // offered after the panel's read leaves out everyone that send asked.
+  // The model never sees the area, so its count is checked here against the
+  // audience inside it, and it is told the right one to present again with.
+  private async unreachedAreaRefusal(
+    ctx: PriorityFlowContext,
+    input: {
+      channel: ProposalChannel
+      count: number
+      audienceFilters?: Record<string, unknown>
+      sampleSize?: number
+    },
+  ): Promise<string | null> {
+    if (!this.priorityResults || !this.contacts) {
+      return 'Keeping outreach to the parts not reached yet is not available here. Present it without areaTarget.'
+    }
+    if (input.channel === 'social') {
+      return 'A post has no audience to keep to an area. Present it without areaTarget.'
+    }
+    const area = await this.priorityResults.unreachedAreaFor(
+      ctx.organizationSlug,
+      ctx.priorityId,
+    )
+    if (area === null) {
+      return 'Every part of the district has answered on this priority already, so there is no area to keep it to. Present it without areaTarget.'
+    }
+    const filters = voterFilterBaseSchema.safeParse(input.audienceFilters ?? {})
+    if (!filters.success) {
+      return 'Those audienceFilters could not be counted inside the area. Count the audience again with count_contacts and present that filter.'
+    }
+    const { count } = await this.contacts.polygonPreview(
+      { geoPoly: area, filters: filters.data },
+      ctx.organization,
+    )
+    if (count === 0) {
+      return 'Nobody that audience matches lives in the parts not reached yet. Loosen the filter, or present it without areaTarget.'
+    }
+    if (count === input.count) return null
+    return (
+      `Inside the parts of the district this priority has not reached, that audience is ${count} people. ` +
+      `Present it again with count ${count}` +
+      (input.sampleSize === undefined
+        ? '.'
+        : ', and size the sample for that audience with size_outreach_sample first.')
+    )
+  }
+
   private async proposalRefusal(
     ctx: PriorityFlowContext,
     input: {
@@ -410,6 +456,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           }
           const panelPart = checkPanelPart(input)
           if (panelPart !== null) return { error: panelPart }
+          if (input.areaTarget === 'unreached') {
+            const area = await this.unreachedAreaRefusal(ctx, input)
+            if (area !== null) return { error: area }
+          }
           const refusal =
             input.stepId === undefined && input.side === undefined
               ? null

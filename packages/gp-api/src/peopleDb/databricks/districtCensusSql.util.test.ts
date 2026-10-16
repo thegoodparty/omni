@@ -8,9 +8,11 @@ import {
   buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
+  buildTractGridCellsSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapCensusCompositionRows,
+  mapGridCells,
   mapRespondentCells,
   mapTractAdults,
 } from './districtCensusSql.util'
@@ -116,12 +118,15 @@ describe('buildRespondentBlockGroupsSql', () => {
       'SELECT v.`Census_Block_Group_Geoid` AS block_group_geoid,' +
         ' count(*) AS respondents',
     )
+    expect(sql).toContain(
+      'r.age_band, r.gender, r.tenure, substr(r.block_group_geoid, 1, 11) AS tract',
+    )
     expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
     expect(sql).toContain('v.`State` = :p0')
     expect(sql).toContain('v.`Water_District` = :p1')
     expect(sql).toContain(`v.\`id\` IN ('${ID_A}', '${ID_B}')`)
     expect(sql).toContain('AND v.`Census_Block_Group_Geoid` IS NOT NULL')
-    expect(sql).toContain('GROUP BY v.`Census_Block_Group_Geoid`')
+    expect(sql).toContain('GROUP BY 1, 3, 4, 5')
     expect(sql).toContain(
       `JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
         ' ON bg.block_group_geoid = r.block_group_geoid',
@@ -168,6 +173,27 @@ describe('mapCensusCompositionRows', () => {
     expect(mapped.district?.populationUnder18).toBeNull()
     expect(mapped.district?.totalPopulation).toBe(10)
     expect(mapped.respondentBlockGroups[0]?.population65Plus).toBeNull()
+  })
+
+  it('reads each row profile after its census figures, in step with the people', () => {
+    const mapped = mapCensusCompositionRows(
+      [],
+      [['2', ...acsRow(() => '1'), '65plus', null, 'renter', '53017950100']],
+    )
+    expect(mapped.respondentProfiles).toEqual([
+      {
+        ageBand: '65plus',
+        gender: null,
+        tenure: 'renter',
+        tract: '53017950100',
+      },
+      {
+        ageBand: '65plus',
+        gender: null,
+        tenure: 'renter',
+        tract: '53017950100',
+      },
+    ])
   })
 
   it('maps a missing district row to null', () => {
@@ -223,6 +249,37 @@ describe('mapRespondentCells', () => {
       },
       { ageBand: null, gender: null, tenure: null, tract: null, count: 2 },
     ])
+  })
+})
+
+describe('buildTractGridCellsSql', () => {
+  it('reads grid squares for the tracts, binding each tract', () => {
+    const { sql, params } = buildTractGridCellsSql(
+      DISTRICT,
+      ['53017950100', '53017950200'],
+      0.004,
+    )
+    expect(sql).toContain('SELECT DISTINCT floor(')
+    expect(sql).toContain('/ 0.004) AS grid_row')
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+    expect(params.map((p) => p.value)).toEqual([
+      'WA',
+      'EAST WENATCHEE WATER',
+      '53017950100',
+      '53017950200',
+    ])
+    expect(sql).not.toMatch(/FirstName|LastName|Phone|Address_Line/)
+  })
+})
+
+describe('mapGridCells', () => {
+  it('drops rows without both indexes', () => {
+    expect(
+      mapGridCells([
+        ['9000', '-20000'],
+        [null, '1'],
+      ]),
+    ).toEqual([{ row: 9000, col: -20000 }])
   })
 })
 
