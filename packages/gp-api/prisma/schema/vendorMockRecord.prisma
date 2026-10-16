@@ -1,0 +1,28 @@
+enum VendorMockVendor {
+  peerly
+  callhub
+  geoapify
+  vercel
+  route53
+}
+
+model VendorMockRecord {
+  id         String           @id @default(uuid(7))
+  vendor     VendorMockVendor
+  // 'routing_request' for geoapify in M1; extended by later milestones
+  kind       String
+  // the id the mock handed back to gp-api; for geoapify, a UUID per call
+  externalId String           @map("external_id")
+  // resolved at write time so specs can query by our id
+  campaignId Int?             @map("campaign_id")
+  // vendor-shaped body plus a 'status' field
+  state      Json
+  // last N request bodies, for spec assertions
+  requests   Json             @default("[]")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  @@unique([vendor, kind, externalId])
+  @@index([campaignId])
+  @@map("vendor_mock_record")
+}
