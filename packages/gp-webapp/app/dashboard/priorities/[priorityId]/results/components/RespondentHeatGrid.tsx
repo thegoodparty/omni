@@ -59,6 +59,14 @@ export const RespondentHeatGrid = ({
       new maplibregl.AttributionControl({ compact: true }),
       'bottom-right',
     )
+    // A compact attribution opens expanded and collapses only on the first
+    // drag, and this map is often only looked at.
+    map.on('load', () => {
+      map
+        .getContainer()
+        .querySelector('.maplibregl-ctrl-attrib')
+        ?.classList.remove('maplibregl-compact-show')
+    })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }))
     const overlay = new MapboxOverlay({ interleaved: false, layers: [] })
     map.addControl(overlay)

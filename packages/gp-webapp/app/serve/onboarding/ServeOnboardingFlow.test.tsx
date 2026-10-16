@@ -388,6 +388,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       '3ActBring it to your vote',
       '4CommunicateTell them what you did',
     ])
+    // One column at every width, so the loop reads 1 to 4 top to bottom
+    // rather than left to right and wrapping.
+    expect(screen.getByRole('list').className).not.toMatch(/grid-cols/)
+    expect(screen.getByRole('list')).toHaveClass('flex-col')
     expect(
       screen.getByText('Then listen again. Each round, your panel grows.'),
     ).toBeInTheDocument()

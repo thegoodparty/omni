@@ -3,11 +3,20 @@ import {
   ConflictException,
   HttpStatus,
 } from '@nestjs/common'
+import {
+  AxiosError,
+  AxiosHeaders,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios'
 import { addDays, format, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { PeerlyHttpService } from '@/vendors/peerly/services/peerlyHttp.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyPhoneListService } from '@/vendors/peerly/services/peerlyPhoneList.service'
 import { PeerlyTestListService } from '@/vendors/peerly/services/peerlyTestList.service'
+import { PhoneListState } from '@/vendors/peerly/peerly.types'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 const service = useTestService()
@@ -93,6 +102,44 @@ const seedOutreach = (
     },
   })
 
+// The bodies Peerly returned in prod for these refusals (ENG-11262).
+const peerlyError = (status: number, message: string) => {
+  const config = { headers: new AxiosHeaders() } as InternalAxiosRequestConfig
+  return new AxiosError('Request failed', 'ERR_BAD_REQUEST', config, null, {
+    data: { Error: message },
+    status,
+    statusText: '',
+    headers: {},
+    config,
+  })
+}
+
+// Drives the real test-list and send code against a Peerly that refuses
+// only the call whose path ends with `failingPath`.
+const usePeerlyStub = (failingPath: string, error: AxiosError) => {
+  vi.mocked(service.app.get(PeerlyP2pJobService).sendTestMessage).mockRestore()
+  vi.mocked(
+    service.app.get(PeerlyTestListService).resolveTestListId,
+  ).mockRestore()
+  vi.spyOn(
+    service.app.get(PeerlyPhoneListService),
+    'listPhoneLists',
+  ).mockResolvedValue([
+    {
+      list_id: 169614,
+      list_name: 'GoodParty test list identity-1',
+      list_state: PhoneListState.ACTIVE,
+      suppress_cell_phones: 6,
+    },
+  ])
+  return vi
+    .spyOn(service.app.get(PeerlyHttpService), 'post')
+    .mockImplementation(async (path: string) => {
+      if (path.endsWith(failingPath)) throw error
+      return { data: {} } as AxiosResponse
+    })
+}
+
 describe('POST /v1/outreach/admin/sms/:id/test', () => {
   it('creates the test job and sends to the normalized phone', async () => {
     const row = await seedOutreach()
@@ -115,6 +162,60 @@ describe('POST /v1/outreach/admin/sms/:id/test', () => {
       '5551234567',
       169614,
     )
+  })
+
+  it('400s a number Peerly says is not a cell, without sending', async () => {
+    const row = await seedOutreach()
+    const post = usePeerlyStub(
+      '/addcontact',
+      peerlyError(HttpStatus.FORBIDDEN, 'Not a cell number.'),
+    )
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toContain('not one')
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    "test_contact_phone '5551234567' not in test_list_id '169614'.",
+    'Lead already exists in leads table',
+  ])('400s a send Peerly refuses with "%s"', async (message) => {
+    const row = await seedOutreach()
+    usePeerlyStub(
+      '/send_test_message',
+      peerlyError(HttpStatus.BAD_REQUEST, message),
+    )
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toContain('Try a different number')
+  })
+
+  it('keeps a 400 caused by our own request a 502', async () => {
+    const row = await seedOutreach()
+    usePeerlyStub(
+      '/send_test_message',
+      peerlyError(
+        HttpStatus.BAD_REQUEST,
+        "'test_list_id' is a required parameter",
+      ),
+    )
+
+    const res = await service.client.post(
+      `/v1/outreach/admin/sms/${row.id}/test`,
+      { phone: '5551234567' },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
   it('reuses an existing test job on a repeat send', async () => {

@@ -45,6 +45,7 @@ const ORDINANCE_NEW_HREF = '/dashboard/ordinances/new'
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [initialConversationId, setInitialConversationId] = useState<
     string | null
   >(null)
@@ -72,24 +73,32 @@ export default function DashboardContent(): React.JSX.Element {
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
 
   const openNewChat = () => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
+  const openWithFile = (file: File) => {
+    openNewChat()
+    setPendingFile(file)
+  }
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(id)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
+    setPendingFile(undefined)
     setOpenerKey(key)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const discussCard = (message: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(message)
     setOpenerKey(null)
     setInitialConversationId(null)
@@ -157,19 +166,23 @@ export default function DashboardContent(): React.JSX.Element {
         firstName={firstName}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
-        showAttachIcon
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
         onOpenChange={(next) => {
           setChatOpen(next)
           // A later plain reopen (the footer bar) must never resend it.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={initialConversationId}
         opener={opener}
         openerKey={openerKey}
         pendingKickoff={pendingKickoff}
+        pendingFile={pendingFile}
         defaultIntro={pendingKickoff ? NO_INTRO : intro}
         suggestions={suggestions}
         showSuggestionsAfterKickoff={explaining}

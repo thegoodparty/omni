@@ -2213,6 +2213,59 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 })
 
+describe('<ChiefOfStaffChatBody> file picked from a chat bar', () => {
+  const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+  })
+
+  it('uploads it once the conversation is ready, and only once', async () => {
+    const view = render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    view.rerender(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores it on a scope without attachment support', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        scope="ordinance_flow"
+        pendingFile={file}
+      />,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."

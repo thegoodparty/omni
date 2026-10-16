@@ -1786,6 +1786,7 @@ export type APIEndpoints = {
     Request: {
       geoPoly: GeoJsonPolygon
       filters: Record<string, unknown>
+      voterFileFilterId?: number
     }
     Response: DoorKnockingAddressPreviewResponse
   }
