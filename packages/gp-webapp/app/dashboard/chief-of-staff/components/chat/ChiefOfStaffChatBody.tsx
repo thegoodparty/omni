@@ -167,6 +167,12 @@ interface Props {
    */
   pendingMessage?: string
   /**
+   * One-shot file to attach on open: the user picked it from a chat bar's
+   * paperclip before this surface was open. Ignored where the scope takes no
+   * attachments.
+   */
+  pendingFile?: File
+  /**
    * Fires once per VISIBLE message the user sends — the composer, a quick
    * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
    * sentinels, which the user never typed. The contacts entry point counts
@@ -333,6 +339,7 @@ function ChiefOfStaffChatThread({
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   pendingMessage,
+  pendingFile,
   onMessageSent,
   composerRef,
   disclaimer,
@@ -881,6 +888,39 @@ function ChiefOfStaffChatThread({
       analyticsLabel,
     ],
   )
+
+  // The paperclip on a chat bar picks the file before this body exists, so it
+  // arrives as a prop. Waits out a load or create so it lands on the resolved
+  // conversation, and latches on the File so a re-render cannot upload twice.
+  const attachedPendingRef = useRef<File | undefined>(undefined)
+  useEffect(() => {
+    if (!pendingFile) {
+      attachedPendingRef.current = undefined
+      return
+    }
+    if (!active || !attachmentsEnabled) return
+    if (attachedPendingRef.current === pendingFile) return
+    if (loading || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    attachedPendingRef.current = pendingFile
+    if (isSupportedAttachmentFile(pendingFile)) {
+      void handleAttachFile(pendingFile)
+    } else {
+      toast.error(
+        `Can't attach ${pendingFile.name}. Use a PDF, DOCX, TXT, JPEG, or PNG.`,
+      )
+    }
+  }, [
+    active,
+    attachmentsEnabled,
+    pendingFile,
+    loading,
+    conversationId,
+    conversationIdOverride,
+    handleAttachFile,
+  ])
 
   const handleAttachLink = useCallback(
     async (url: string): Promise<void> => {

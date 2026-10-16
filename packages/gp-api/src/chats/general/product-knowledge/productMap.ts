@@ -345,8 +345,8 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Hold the things you are trying to get done this term, and work one of them forward with help.',
     inside: [
-      'Add a priority writes down what you want to get done and why it matters',
-      'An issue from Community Issues can be pulled in as a priority',
+      'Add a priority writes down what you want to get done and why it matters, then opens that priority’s conversation',
+      'An issue from Community Issues can be pulled in as a priority with Make this a priority here, or Add to my priorities on the issue. Either one opens that priority’s conversation',
       'Issues picked during sign-up, from the campaign or the community, start here as priorities. The sign-up step that asks for them is being rolled out account by account',
       'Each row shows the step it is on and the next thing to do about it',
       'Opening a priority works it forward one step at a time',

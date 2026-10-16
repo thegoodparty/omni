@@ -52,6 +52,8 @@ interface Props {
    * bar). Don't pass it together with `pendingKickoff`.
    */
   pendingMessage?: string
+  /** One-shot file to attach on open, picked from a chat bar's paperclip. */
+  pendingFile?: File
   /** Fires once per visible message the user sends. */
   onMessageSent?: () => void
   /** Ref to the body's composer input, so a suggestion can focus it. */
@@ -104,6 +106,7 @@ export default function ChiefOfStaffChatSurface({
   composerPlaceholder,
   pendingKickoff,
   pendingMessage,
+  pendingFile,
   onMessageSent,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
@@ -197,6 +200,9 @@ export default function ChiefOfStaffChatSurface({
           // the caller's original request a second time, into a thread the
           // viewer merely navigated to.
           pendingMessage={selectedId ? undefined : pendingMessage}
+          // Not gated like `pendingMessage`: a bar that resumes a past
+          // conversation attaches the file to it, the way its paperclip would.
+          pendingFile={pendingFile}
           onMessageSent={onMessageSent}
           composerRef={composerRef}
           disclaimer={disclaimer}
