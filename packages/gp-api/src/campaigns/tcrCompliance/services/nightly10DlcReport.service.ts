@@ -901,12 +901,12 @@ export class Nightly10DlcReportService extends createPrismaBase(
     }
   }
 
-  // The campaign's assigned success person is its HubSpot company owner —
-  // the same live, best-effort read the SMS console's queue makes (one read
-  // per company). getCrmCompanyOwnerName never rejects — every HubSpot
-  // failure inside it logs, alerts, and resolves '' — so an empty name is
-  // the only unassigned signal to normalize. Admin-snapshot only: the
-  // nightly Slack report never pays this CRM cost.
+  // The campaign's assigned success person is its HubSpot company owner,
+  // read live and best-effort, one read per company (the SMS console's
+  // queue batches the same lookup). getCrmCompanyOwnerName never rejects
+  // — every HubSpot failure inside it logs, alerts, and resolves '' — so
+  // an empty name is the only unassigned signal to normalize.
+  // Admin-snapshot only: the nightly Slack report never pays this CRM cost.
   private async assignedPasByCampaign(
     campaigns: Campaign[],
   ): Promise<Map<number, string | null>> {
