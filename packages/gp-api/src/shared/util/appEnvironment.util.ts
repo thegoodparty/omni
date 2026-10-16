@@ -83,3 +83,41 @@ function isEnvironment(env: AppEnv) {
 // NODE_ENV is string | undefined — cannot constrain to AppEnv union without runtime check
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 export const CURRENT_ENVIRONMENT = CURRENT_ENV as AppEnv
+
+// The API's own origin, used by vendorBaseUrl to route calls to in-process
+// mocks. Only ever needed when VENDOR_MODE=mock (local/test), so localhost
+// is the correct default.
+const SELF_BASE_URL = `http://${process.env.HOST ?? 'localhost'}:${process.env.PORT ?? '3000'}`
+
+export type MockedVendor =
+  | 'geoapify'
+  | 'callhub'
+  | 'peerly'
+  | 'vercel'
+  | 'route53'
+
+// Pure so it can be unit-tested without module-reset gymnastics.
+export function resolveVendorMode(
+  otelServiceEnvironment: string | undefined,
+  vendorModeEnv: string | undefined,
+): 'live' | 'mock' {
+  if (otelServiceEnvironment === 'prod') return 'live'
+  if (vendorModeEnv === 'live') return 'live'
+  if (vendorModeEnv === 'mock') return 'mock'
+  if (otelServiceEnvironment === 'dev') return 'live'
+  return 'mock'
+}
+
+export const VENDOR_MODE = resolveVendorMode(
+  OTEL_SERVICE_ENVIRONMENT,
+  process.env.VENDOR_MODE,
+)
+
+if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
+  throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
+}
+
+export const vendorBaseUrl = (vendor: MockedVendor, liveUrl: string): string =>
+  VENDOR_MODE === 'mock'
+    ? `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}`
+    : liveUrl
