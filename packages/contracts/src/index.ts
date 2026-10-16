@@ -1716,6 +1716,21 @@ export {
 } from './testFixtures/testFixtures.schema'
 
 export {
+  VendorMockRecordSummarySchema,
+  type VendorMockRecordSummary,
+  MockActionSchema,
+  type MockAction,
+  MockActionResponseSchema,
+  type MockActionResponse,
+  MockRecordsQuerySchema,
+  type MockRecordsQuery,
+  MockRecordsResponseSchema,
+  type MockRecordsResponse,
+  RunJobResponseSchema,
+  type RunJobResponse,
+} from './testFixtures/vendorMocks'
+
+export {
   DEV_ENV_PACKAGE_VALUES,
   DevEnvPackageSchema,
   type DevEnvPackage,
