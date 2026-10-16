@@ -53,6 +53,20 @@ export const PRO_COPY: Record<
   },
 }
 
+// The sms pitch once texting has closed for the race: Pro can no longer
+// unlock texting, so it sells the channels that still reach voters.
+export const PRO_COPY_SMS_CLOSED: {
+  headline: string
+  bullets: [string, string, string]
+} = {
+  headline: 'Unlock voter data, robocalls and door knocking',
+  bullets: [
+    '$10 per month, cancel anytime',
+    'Voter data to find the voters who matter most',
+    'Robocalls, phone banking and door knocking',
+  ],
+}
+
 // The collapsible verification card inside ProPitchPanel (design:
 // proPitchPanel). Texting is the only channel the carriers gate, so this is
 // the only channel that shows it.

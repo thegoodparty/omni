@@ -1,6 +1,6 @@
 # app/dashboard/constituent-outreach/
 
-Serve outreach hub — the "Constituent Outreach" tab for elected officials
+Serve outreach hub — the "Outreach" tab for elected officials
 (epic ENG-10970). This directory is deliberately thin: a serve-gated shell
 that mounts the SAME Voter Outreach 2.0 machinery the Win hub uses
 (`app/dashboard/outreach/v2/`), parametrized for the Serve surface instead of
@@ -107,7 +107,7 @@ generation services, the spine scoping — are in
   the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
   district's cell phones (`hasCellPhone`, the one filter, which is also what
   the builder needs before Continue enables), saved as a random draw of
-  contracts' `PANEL_SEED_SAMPLE_SIZE` (3,334), so a smaller district is
+  contracts' `PANEL_SEED_SAMPLE_SIZE` (8,000, sized for the uncorrected panel goal of 240 members, since the page has no district population), so a smaller district is
   texted whole. With the panels flag off the same link
   opens a plain text flow; with the SMS flag off it opens nothing. Both are
   spent on close, so the tile opens a plain flow afterwards.

@@ -298,12 +298,12 @@ describe('WhatWeHeardPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('links a Serve official back to Constituent Outreach', async () => {
+  it('links a Serve official back to Outreach', async () => {
     mockReport(report())
     renderPage(true)
 
     const back = await screen.findByRole('link', {
-      name: 'Back to Constituent Outreach',
+      name: 'Back to Outreach',
     })
     expect(back).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })

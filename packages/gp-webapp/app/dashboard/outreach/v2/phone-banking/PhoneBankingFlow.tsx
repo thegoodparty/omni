@@ -17,6 +17,7 @@ import {
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
+  BUILD_CITIZENS_PANEL_PURPOSE,
   COMMUNITY_INPUT_PURPOSE,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
@@ -77,6 +78,7 @@ import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { outreachLandingStep } from '../landingStep'
 
 type StepId =
@@ -388,8 +390,12 @@ export const PhoneBankingFlow = ({
   // filter is here, not in the surface's vocabulary, so an effort already on
   // that purpose keeps its labels and its question step when the flag goes off.
   const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  // The civic panel invite is offered behind the panel's flag, as on texts.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
   const offeredPurposes = surface.purposes.filter(
-    ({ id }) => issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE,
+    ({ id }) =>
+      (issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE) &&
+      (citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE),
   )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's
@@ -633,12 +639,16 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
-      // A caller that handed over the script as well as the list (a chat
-      // card's proposal) lands on the script, but only once the list really
-      // resolved: a script with no audience behind it would strand the
-      // official on a step whose Continue cannot pass.
+      // A caller that handed over the script, or a purpose to draft one for
+      // (a civic panel plan's call step), as well as the list lands on the
+      // script, but only once the list really resolved: a script with no
+      // audience behind it would strand the official on a step whose
+      // Continue cannot pass. An event invite stays on its details step.
       const landing = outreachLandingStep({
-        purposeSettled: false,
+        purposeSettled:
+          !initialScript &&
+          initialPurpose !== undefined &&
+          !isEventInvite(initialPurpose),
         audienceSettled: true,
         messageSettled: Boolean(initialScript),
       })
@@ -651,6 +661,7 @@ export const PhoneBankingFlow = ({
     audienceListsFetching,
     selectAudienceList,
     initialScript,
+    initialPurpose,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead

@@ -16,6 +16,14 @@ import { ContactStatusService } from '@/contactInteraction/services/contactStatu
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
 
 const service = useTestService()
 
@@ -192,21 +200,44 @@ describe('GET /v1/contacts/civic-panel', () => {
 })
 
 describe('GET /v1/contacts/civic-panel/representation', () => {
-  const stubPoints = () =>
-    vi
-      .spyOn(service.app.get(ContactsService), 'pointsForPeople')
-      .mockImplementation(async (ids) => ({
-        points: ids.map((id, index) => ({
-          id,
-          lat: 35.59 + index * 0.0101234,
-          lng: -82.55 - index * 0.0101234,
-        })),
-        truncated: false,
-      }))
+  const blockGroup = Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, 100]),
+  ) as AcsCounts
+
+  // The warehouse stands behind the census source and the district behind
+  // ContactsService; both are stubbed so the route's own logic runs.
+  const stubCensus = (placed: (ids: string[]) => number | null) => {
+    const district = vi
+      .spyOn(service.app.get(ContactsService), 'resolveEligibleDistrict')
+      .mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
+    const compose = vi
+      .spyOn(
+        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+        'compose',
+      )
+      .mockImplementation(async ({ personIds }) => {
+        const n = placed(personIds)
+        return n === null
+          ? { available: false }
+          : {
+              available: true,
+              district: blockGroup,
+              respondentBlockGroups: Array.from(
+                { length: n },
+                () => blockGroup,
+              ),
+            }
+      })
+    onTestFinished(() => {
+      district.mockRestore()
+      compose.mockRestore()
+    })
+    return compose
+  }
 
   it('compares the members with the district', async () => {
     const slug = await seedOrg('eo')
-    const points = stubPoints()
+    const compose = stubCensus((ids) => ids.length)
     const members = Array.from({ length: 12 }, () => randomUUID())
     for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
     const left = randomUUID()
@@ -216,41 +247,46 @@ describe('GET /v1/contacts/civic-panel/representation', () => {
     const res = await representation(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(points.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(members))
-    expect(points.mock.calls[0]?.[0]).not.toContain(left)
-    expect(res.data.representation).toMatchObject({
-      source: 'sample',
-      respondentCount: 12,
-    })
+    const asked = compose.mock.calls[0]?.[0]
+    expect(asked).toMatchObject({ districtId: 'd-1', dataset: 'voters' })
+    expect(asked?.personIds).toEqual(expect.arrayContaining(members))
+    expect(asked?.personIds).not.toContain(left)
+    expect(res.data.representation?.respondentCount).toBe(12)
     expect(res.data.representation?.groups.length).toBeGreaterThan(0)
   })
 
-  it('draws a truncated map read from the members it returned', async () => {
+  it('counts only the members placed in a block group', async () => {
     const slug = await seedOrg('eo')
-    const members = Array.from({ length: 15 }, () => randomUUID())
-    for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
-    const points = vi
-      .spyOn(service.app.get(ContactsService), 'pointsForPeople')
-      .mockImplementation(async (ids) => ({
-        points: ids.slice(0, 11).map((id, index) => ({
-          id,
-          lat: 35.59 + index * 0.0101234,
-          lng: -82.55 - index * 0.0101234,
-        })),
-        truncated: true,
-      }))
-    onTestFinished(() => points.mockRestore())
+    stubCensus(() => 11)
+    for (let i = 0; i < 15; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
 
     const res = await representation(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.representation?.respondentCount).toBe(11)
-    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
+  })
+
+  it('shows unavailable census as a comparison with no rows, not an error', async () => {
+    const slug = await seedOrg('eo')
+    stubCensus(() => null)
+    for (let i = 0; i < 12; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const res = await representation(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.representation).toEqual({
+      respondentCount: 12,
+      groups: [],
+    })
   })
 
   it('withholds the comparison below the minimum number of members', async () => {
     const slug = await seedOrg('eo')
-    const points = stubPoints()
+    const compose = stubCensus((ids) => ids.length)
     for (let i = 0; i < 3; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
     }
@@ -259,7 +295,7 @@ describe('GET /v1/contacts/civic-panel/representation', () => {
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.representation).toBeNull()
-    expect(points).not.toHaveBeenCalled()
+    expect(compose).not.toHaveBeenCalled()
   })
 
   it('404s with serve-citizen-panels off', async () => {

@@ -122,6 +122,10 @@ export class DoorKnockingPreviewService {
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      affinityColumn: await this.contacts.affinityColumnFor(
+        organization,
+        resolved.filters,
+      ),
       excludePersonIds,
     })
 

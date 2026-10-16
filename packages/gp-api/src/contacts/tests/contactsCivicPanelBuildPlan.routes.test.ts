@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { format, subDays, addDays } from 'date-fns'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type {
   CivicPanelBuildPlanResponse,
   PrepareCivicPanelBuildStepResponse,
@@ -18,6 +18,7 @@ import { ContactStatusService } from '@/contactInteraction/services/contactStatu
 import { FeaturesService } from '@/features/services/features.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
+import { StatsService } from '@/peopleDb/services/stats.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 
 const service = useTestService()
@@ -189,6 +190,19 @@ const sendText = (
     },
   })
 
+// Asheville's census population: 96 answers, a goal of 240 members.
+const CITY = 105_154
+
+// The district's census population, as the warehouse would read it.
+const stubPopulation = (population: number | null) =>
+  vi
+    .spyOn(service.app.get(StatsService), 'findDistrictPopulation')
+    .mockResolvedValue(population)
+
+beforeEach(() => {
+  stubPopulation(CITY)
+})
+
 const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }
 // Nobody to call or visit, so every wave is one text.
 const TEXT_ONLY = { cell: 58_000, phone: 0, door: 0 }
@@ -204,14 +218,19 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     const res = await createPlan(slug, 1)
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.progress).toEqual({ members: 10, goal: 100 })
+    expect(res.data.progress).toEqual({
+      members: 10,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 4,
+    })
     expect(
       res.data.plan?.steps.map(({ channel, targetSize, status }) => ({
         channel,
         targetSize,
         status,
       })),
-    ).toEqual([{ channel: 'text', targetSize: 3_000, status: 'not_started' }])
+    ).toEqual([{ channel: 'text', targetSize: 7_667, status: 'not_started' }])
     expect(res.data.next).toMatchObject({
       channel: 'text',
       line: 'Invite residents to your civic panel by text',
@@ -232,7 +251,7 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
         targetSize,
       })),
     ).toEqual([
-      { channel: 'text', position: 1, targetSize: 3_150 },
+      { channel: 'text', position: 1, targetSize: 7_817 },
       { channel: 'phone_banking', position: 1, targetSize: 30 },
       { channel: 'door_knocking', position: 1, targetSize: 40 },
     ])
@@ -327,8 +346,101 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
     expect(res.data).toEqual({
       plan: null,
       next: null,
-      progress: { members: 0, goal: 100 },
+      progress: {
+        members: 0,
+        goal: 240,
+        answersNeeded: 96,
+        expectedAnswers: 0,
+      },
     })
+  })
+
+  it('sizes the goal to a small town', async () => {
+    stubPopulation(2_000)
+    const slug = await seedOffice()
+    for (let i = 0; i < 61; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const res = await readPlan(slug)
+
+    expect(res.data.progress).toEqual({
+      members: 61,
+      goal: 230,
+      answersNeeded: 92,
+      expectedAnswers: 24,
+    })
+  })
+
+  it('sizes the goal without a census population as 96 answers', async () => {
+    stubPopulation(null)
+    const slug = await seedOffice()
+
+    const res = await readPlan(slug)
+
+    expect(res.data.progress).toMatchObject({ goal: 240, answersNeeded: 96 })
+  })
+
+  it('sizes the goal without the warehouse as 96 answers', async () => {
+    vi.spyOn(
+      service.app.get(StatsService),
+      'findDistrictPopulation',
+    ).mockRejectedValue(new Error('warehouse down'))
+    const slug = await seedOffice()
+
+    const res = await readPlan(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.progress).toMatchObject({ goal: 240, answersNeeded: 96 })
+  })
+
+  it('brings a plan made toward 100 members up to the district goal', async () => {
+    stubPools(TEXT_ONLY)
+    const slug = await seedOffice()
+    const office = await service.prisma.electedOffice.findUniqueOrThrow({
+      where: { organizationSlug: slug },
+    })
+    const legacy = await service.prisma.civicPanelBuildPlan.create({
+      data: {
+        electedOfficeId: office.id,
+        organizationSlug: slug,
+        goalMembers: 100,
+        hoursPerWeek: 1,
+        steps: { create: { wave: 1, channel: 'text', targetSize: 3_334 } },
+      },
+    })
+
+    const res = await readPlan(slug)
+
+    expect(res.data.plan).toMatchObject({ status: 'active', goalMembers: 240 })
+    expect(res.data.progress).toMatchObject({ goal: 240, answersNeeded: 96 })
+    const stored = await service.prisma.civicPanelBuildPlan.findUniqueOrThrow({
+      where: { id: legacy.id },
+    })
+    expect(stored.goalMembers).toBe(240)
+  })
+
+  it('lowers a goal to the district, never below the members it has', async () => {
+    stubPools(TEXT_ONLY)
+    stubPopulation(2_000)
+    const slug = await seedOffice()
+    const office = await service.prisma.electedOffice.findUniqueOrThrow({
+      where: { organizationSlug: slug },
+    })
+    await service.prisma.civicPanelBuildPlan.create({
+      data: {
+        electedOfficeId: office.id,
+        organizationSlug: slug,
+        goalMembers: 240,
+        hoursPerWeek: 1,
+        steps: { create: { wave: 1, channel: 'text', targetSize: 3_334 } },
+      },
+    })
+
+    const lowered = await readPlan(slug)
+
+    expect(lowered.data.plan?.goalMembers).toBe(230)
+    expect(lowered.data.plan?.status).toBe('active')
   })
 })
 
@@ -386,8 +498,8 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     expect(res.data).toMatchObject({
       channel: 'text',
       purpose: 'build_citizens_panel',
-      // One member already: the gap is 99.
-      size: 3_300,
+      // One member already: the gap is 239.
+      size: 7_967,
       area: null,
     })
     const [request] = draw.mock.calls[0] ?? []
@@ -403,7 +515,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
       hasCellPhone: true,
       civicPanelNeverInvited: true,
       notContactedRecently: true,
-      sampleSize: 3_300,
+      sampleSize: 7_967,
     })
   })
 
@@ -434,7 +546,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
 
     expect(calls.data).toMatchObject({
       channel: 'phone_banking',
-      purpose: 'introduce_myself',
+      purpose: 'build_citizens_panel',
       size: 30,
     })
     // Landlines first, so the first call draw asks for landlines.
@@ -442,7 +554,10 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     expect(filterKeys(callDraw)).toContain('hasLandline')
     const textIds = await sampleIds(text.data.voterFileFilterId)
     expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
-    expect(doors.data.channel).toBe('door_knocking')
+    expect(doors.data).toMatchObject({
+      channel: 'door_knocking',
+      purpose: 'build_citizens_panel',
+    })
     expect(doors.data.size).toBe(80)
     expect(doors.data.area?.type).toBe('Polygon')
     const all = [
@@ -564,7 +679,7 @@ describe('step status and waves', () => {
         name: 'Civic panel calls',
         script: 'Hello',
         sheetCount: 1,
-        purpose: 'introduce_myself',
+        purpose: 'build_citizens_panel',
       },
     })
 
@@ -583,7 +698,16 @@ describe('step status and waves', () => {
       })),
     })
 
-    expect(stepOf(await readPlan(slug), 'phone_banking').status).toBe('done')
+    const [joiner] = await sampleIds(list.voterFileFilterId)
+    if (!joiner) throw new Error('no one drawn')
+    await setPanel(slug, joiner, CivicPanelStatus.member)
+
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      status: 'done',
+      reached: 30,
+      joined: 1,
+      markedDone: null,
+    })
   })
 
   it('reads doors as done once the walk is marked done', async () => {
@@ -654,22 +778,23 @@ describe('step status and waves', () => {
         status,
       })),
     ).toEqual([
-      { wave: 1, channel: 'text', targetSize: 3_334, status: 'done' },
-      { wave: 2, channel: 'text', targetSize: 2_000, status: 'not_started' },
+      { wave: 1, channel: 'text', targetSize: 8_000, status: 'done' },
+      { wave: 2, channel: 'text', targetSize: 6_667, status: 'not_started' },
     ])
 
     const second = await prepare(slug, stepOf(again, 'text', 2).id)
     const wave1 = await sampleIds(list.voterFileFilterId)
     const wave2Draw = draw.mock.calls.at(-1)?.[0] as FilterArg
     expect(notInIds(wave2Draw)).toEqual(expect.arrayContaining(wave1))
-    expect(second.data.size).toBe(2_000)
+    expect(second.data.size).toBe(6_667)
   })
 
   it('closes the plan once the panel reaches its goal', async () => {
+    stubPopulation(2_000)
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
     await createPlan(slug, 1)
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 230; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
     }
 
@@ -677,7 +802,29 @@ describe('step status and waves', () => {
 
     expect(res.data.plan?.status).toBe('completed')
     expect(res.data.next).toBeNull()
-    expect(res.data.progress).toEqual({ members: 100, goal: 100 })
+    expect(res.data.progress).toEqual({
+      members: 230,
+      goal: 230,
+      answersNeeded: 92,
+      expectedAnswers: 92,
+    })
+  })
+
+  it('closes a plan whose district goal came down past its members', async () => {
+    stubPools(TEXT_ONLY)
+    const slug = await seedOffice()
+    await createPlan(slug, 1)
+    for (let i = 0; i < 235; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+    stubPopulation(2_000)
+
+    const res = await readPlan(slug)
+
+    expect(res.data.plan).toMatchObject({
+      status: 'completed',
+      goalMembers: 235,
+    })
   })
 })
 
@@ -694,6 +841,70 @@ const skip = (slug: string, stepId: string) =>
     {},
     { headers: headers(slug), validateStatus: () => true },
   )
+
+const mark = (slug: string, stepId: string, done: boolean) =>
+  service.client.post<CivicPanelBuildPlanResponse>(
+    `/v1/contacts/civic-panel/plan/steps/${stepId}/mark`,
+    { done },
+    { headers: headers(slug), validateStatus: () => true },
+  )
+
+describe('POST /v1/contacts/civic-panel/plan/steps/:id/mark', () => {
+  it('ticks a call step done by hand, and unticks it', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+    const calls = stepOf(plan, 'phone_banking')
+
+    const ticked = await mark(slug, calls.id, true)
+
+    expect(ticked.status).toBe(HttpStatus.OK)
+    expect(stepOf(ticked, 'phone_banking')).toMatchObject({
+      status: 'done',
+      markedDone: true,
+    })
+
+    const unticked = await mark(slug, calls.id, false)
+
+    expect(stepOf(unticked, 'phone_banking')).toMatchObject({
+      status: 'not_started',
+      markedDone: false,
+    })
+  })
+
+  it('409s for a step that was skipped', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+    const calls = stepOf(plan, 'phone_banking')
+    await skip(slug, calls.id)
+
+    const res = await mark(slug, calls.id, true)
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
+
+  it('400s for a text, which is done once it is sent', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+
+    const res = await mark(slug, stepOf(plan, 'text').id, true)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('404s for another office’s step', async () => {
+    const theirs = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(theirs, 1)
+    const mine = await seedOffice()
+
+    const res = await mark(mine, stepOf(plan, 'phone_banking').id, true)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
 
 describe('PATCH /v1/contacts/civic-panel/plan', () => {
   it('keeps the current wave and sizes the next one from the new hours', async () => {

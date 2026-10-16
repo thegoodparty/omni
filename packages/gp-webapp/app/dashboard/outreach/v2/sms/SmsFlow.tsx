@@ -886,15 +886,17 @@ export const SmsFlow = ({
     draftRequestRef.current += 1
     // A resumed draft answered purpose, audience and compose when it was
     // built, so it opens on the one thing still missing.
+    // An event invite still asks its details first, even with the audience
+    // settled: the draft is written from them.
     setStepId(
       resumeDraft
         ? 'schedule'
-        : landing === 'message'
-          ? 'compose'
-          : landing === 'purpose'
-            ? 'purpose'
-            : !initialScript && isEventInvite(carriedPurpose)
-              ? 'details'
+        : landing === 'purpose'
+          ? 'purpose'
+          : !initialScript && isEventInvite(carriedPurpose)
+            ? 'details'
+            : landing === 'message'
+              ? 'compose'
               : 'audience',
     )
     // A card that names its purpose as well as its words (the Chief of

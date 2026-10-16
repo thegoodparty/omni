@@ -99,6 +99,7 @@ import { CountContactsDTO } from '../schemas/countContacts.schema'
 import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
 import { FilterPointsContactsDTO } from '../schemas/filterPointsContacts.schema'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
+import { partyProvenanceForState } from '@/peopleDb/partySource'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
@@ -109,6 +110,8 @@ import {
 import { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 import type { SampleContacts } from '../schemas/sampleContacts.schema'
 import defaultSegmentToFiltersMap from '../segmentsToFiltersMap.const'
+import { IndependentAffinityColumnService } from './independentAffinityColumn.service'
+import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
 import {
   CONTACTS_MADE_BUCKET_FIELDS,
   convertVoterFileFilterToFilters,
@@ -339,6 +342,7 @@ export class ContactsService {
     private readonly peopleDataset: PeopleDatasetService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
+    private readonly independentAffinityColumn: IndependentAffinityColumnService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -355,18 +359,26 @@ export class ContactsService {
   // The civic panel dimensions follow the user's serve-citizen-panels
   // flag, the same flag that shows them in the list builder, so an agent never
   // names a filter the official cannot see.
+  // The catalog marks party as observed, which holds only where the state
+  // registers voters by party; elsewhere the mark and a note follow L2's
+  // account of how it assigned the value (peopleDb/partySource.ts).
   getFilterDimensions(
     organization: Organization,
-    options: { citizenPanels: boolean },
+    options: { citizenPanels: boolean; state?: string | null },
   ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
       : 'serve'
+    const party = partyProvenanceForState(options.state)
     return FILTER_DIMENSIONS.filter(
       (dimension) =>
         dimension.modes !== excludedMode &&
         (options.citizenPanels ||
           !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
+    ).map((dimension) =>
+      dimension.key === 'party' && party && party.provenance !== 'observed'
+        ? { ...dimension, provenance: party.provenance, note: party.sentence }
+        : dimension,
     )
   }
 
@@ -1014,6 +1026,22 @@ export class ContactsService {
     return { districtId: null }
   }
 
+  // The column the independentAffinity filter reads for this org's campaign.
+  // Resolved only when one of the filter sets uses it, so a campaign enters
+  // the experiment the first time it touches the filter, not on any voter
+  // read. Public for the services that build voter reads outside this one.
+  async affinityColumnFor(
+    org: Organization,
+    ...filterSets: (FilterObject | undefined)[]
+  ): Promise<AffinityColumn | undefined> {
+    const usesAffinity = filterSets.some(
+      (filters) => filters?.independentAffinity !== undefined,
+    )
+    return usesAffinity
+      ? this.independentAffinityColumn.resolve(org)
+      : undefined
+  }
+
   // Which people table this org reads. Batch callers fanning out over many
   // reads for one org (phone lookups, paged audiences) resolve it once here
   // and pass it back in, the same way they do resolveProAccess, so the flag
@@ -1127,7 +1155,7 @@ export class ContactsService {
       )
     }
 
-    const fetchPeople = (
+    const fetchPeople = async (
       districtParams: { districtId: string; dataset: PeopleDataset },
       filters: FilterObject,
       idOverrides: IdOverrides | undefined,
@@ -1143,6 +1171,7 @@ export class ContactsService {
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(organization, filters),
           search: peopleSearch,
           groupByHousehold,
         }),
@@ -1273,6 +1302,7 @@ export class ContactsService {
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(organization, filters),
           search,
           groupByHousehold: false,
         }),
@@ -1329,6 +1359,7 @@ export class ContactsService {
             filters,
             idOverrides,
             contactsMadeIdOverrides,
+            affinityColumn: await this.affinityColumnFor(organization, filters),
             search: search || undefined,
             groupByHousehold: false,
           }),
@@ -1382,12 +1413,16 @@ export class ContactsService {
         // parts is one person, so the pill the holder reads while dragging
         // is the count they get when the boundary is saved.
         const inside = new Set<string>()
+        const affinityColumn = await this.affinityColumnFor(
+          organization,
+          resolved.filters,
+        )
         for (const part of shapePolygons(geoPoly)) {
           const { people } = await this.evaluateWithinBbox(
             districtId,
             dataset,
             polygonBbox(part),
-            resolved,
+            { ...resolved, affinityColumn },
           )
           for (const person of people) {
             if (pointInPolygon(person.lng, person.lat, part))
@@ -1448,6 +1483,10 @@ export class ContactsService {
               filters: resolved.filters,
               idOverrides: resolved.idOverrides,
               contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+              affinityColumn: await this.affinityColumnFor(
+                organization,
+                resolved.filters,
+              ),
               maxPeople: MAP_POINTS_MAX,
             }),
             dataset,
@@ -1561,6 +1600,7 @@ export class ContactsService {
       filters: FilterObject
       idOverrides?: IdOverrides
       contactsMadeIdOverrides?: IdOverrides
+      affinityColumn?: AffinityColumn
     },
   ): Promise<DoorKnockingEvaluateResponse> {
     try {
@@ -1571,6 +1611,7 @@ export class ContactsService {
           filters: resolved.filters,
           idOverrides: resolved.idOverrides,
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          affinityColumn: resolved.affinityColumn,
           maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
         }),
         dataset,
@@ -1631,7 +1672,7 @@ export class ContactsService {
       return { count: 0 }
     }
 
-    const fetchOverlapCount = ({
+    const fetchOverlapCount = async ({
       districtId,
       dataset,
     }: {
@@ -1644,6 +1685,11 @@ export class ContactsService {
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(
+            organization,
+            filters,
+            ...savedFilterSets,
+          ),
           search,
           savedFilterSets,
         }),
@@ -1862,7 +1908,7 @@ export class ContactsService {
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
 
-    const fetchPeoplePage = (districtParams: {
+    const fetchPeoplePage = async (districtParams: {
       districtId: string
       dataset: PeopleDataset
     }): Promise<PeopleListResponse> =>
@@ -1874,6 +1920,7 @@ export class ContactsService {
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(organization, filters),
           search,
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
@@ -2069,7 +2116,7 @@ export class ContactsService {
   > {
     const aggregates = await this.withOrgDistrictResolution(
       organization,
-      ({ districtId, dataset }) =>
+      async ({ districtId, dataset }) =>
         this.voterQueryService.getListDetailAggregates(
           AggregatesDTO.create({
             districtId,
@@ -2077,6 +2124,10 @@ export class ContactsService {
             search,
             idOverrides,
             contactsMadeIdOverrides,
+            affinityColumn: await this.affinityColumnFor(
+              organization,
+              baseFilters,
+            ),
           }),
           dataset,
         ),
@@ -2279,6 +2330,7 @@ export class ContactsService {
           filters,
           idOverrides,
           contactsMadeIdOverrides,
+          affinityColumn: await this.affinityColumnFor(organization, filters),
           search,
         }
         const { pagination } = await this.voterQueryService.findPeople(
@@ -2765,6 +2817,7 @@ export class ContactsService {
         ? this.emptyDownload(res)
         : this.streamPeopleDownload(
             params,
+            organization,
             filters,
             idOverrides,
             contactsMadeIdOverrides,
@@ -2801,6 +2854,7 @@ export class ContactsService {
         ? this.emptyDownload(res)
         : this.streamPeopleDownload(
             params,
+            organization,
             filters,
             idOverrides,
             contactsMadeIdOverrides,
@@ -2811,8 +2865,9 @@ export class ContactsService {
     )
   }
 
-  private streamPeopleDownload(
+  private async streamPeopleDownload(
     { districtId, dataset }: { districtId: string; dataset: PeopleDataset },
+    organization: Organization,
     filters: FilterObject,
     idOverrides: IdOverrides | undefined,
     contactsMadeIdOverrides: IdOverrides | undefined,
@@ -2829,6 +2884,7 @@ export class ContactsService {
         filters,
         idOverrides,
         contactsMadeIdOverrides,
+        affinityColumn: await this.affinityColumnFor(organization, filters),
         groupByHousehold,
         excludeColumns,
       }),
@@ -2867,6 +2923,7 @@ export class ContactsService {
             resultsPerPage: 1,
             page: 1,
             filters,
+            affinityColumn: await this.affinityColumnFor(organization, filters),
             groupByHousehold,
           }),
           dataset,
@@ -2890,6 +2947,7 @@ export class ContactsService {
     return this.withOrgDistrictResolution(organization, (params) =>
       this.streamPeopleDownload(
         params,
+        organization,
         filters,
         // Legacy voter-file download (task-flow / outreach audience CSV):
         // demographic booleans only, no Voter Likelihood/contacts-made
@@ -2944,6 +3002,28 @@ export class ContactsService {
       ({ districtId, dataset }) =>
         this.fetchStatsByDistrictId(districtId, dataset),
     )
+  }
+
+  // The district's census population, for sizing the civic panel to the
+  // answers a question needs. Null when there is no census row, no district,
+  // or the read fails: the sizing then uses the uncorrected figure, which
+  // only ever asks for a few more answers than a small district needs.
+  async getDistrictPopulation(
+    organization: Organization,
+  ): Promise<number | null> {
+    try {
+      return await this.withOrgDistrictResolution(
+        organization,
+        ({ districtId, dataset }) =>
+          this.peopleStatsService.findDistrictPopulation(districtId, dataset),
+      )
+    } catch (err) {
+      this.logger.warn(
+        { err, organizationSlug: organization.slug },
+        'district population read failed; panel sized without it',
+      )
+      return null
+    }
   }
 
   async resolveDistrictIdFromPosition(

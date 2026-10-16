@@ -36,6 +36,8 @@ export const RESULTS_COPY = {
     'Compares the neighborhoods people answered from with your whole district.',
   representationEmpty: (minimum: number) =>
     `Hear from at least ${minimum} people to compare them with your district.`,
+  representationUnavailable:
+    'Census figures for your district are not available yet. Email support@goodparty.org so we can look into it.',
   overBy: (points: number) => `${points} points over`,
   underBy: (points: number) => `${points} points under`,
   even: 'About even',

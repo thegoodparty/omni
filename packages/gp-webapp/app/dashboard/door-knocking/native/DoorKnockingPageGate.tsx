@@ -21,6 +21,8 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
+import type { PolygonRing } from './VoterMapCanvas'
+import type { ServeDoorKnockingPurpose } from './createFlow/serveDoorKnockingPurposes'
 import { Campaign } from 'helpers/types'
 
 interface DoorKnockingPageGateProps {
@@ -45,6 +47,9 @@ interface DoorKnockingPageGateProps {
   proposalLink?: ProposalLink
   // `?source=` — where that `?create=1` link was pressed.
   createSource?: OutreachFlowSource
+  // `?purpose=` / `?area=` — a civic panel plan's door step.
+  initialPurpose?: ServeDoorKnockingPurpose
+  prefillArea?: PolygonRing
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -111,6 +116,8 @@ export default function DoorKnockingPageGate({
   trackerTaskId,
   proposalLink,
   createSource,
+  initialPurpose,
+  prefillArea,
 }: DoorKnockingPageGateProps) {
   // Exposure belongs to the membership surfaces, not this page.
   const { enabled: gatedInFlow } = useOutreachProGatingV2Flag(false)
@@ -164,6 +171,8 @@ export default function DoorKnockingPageGate({
       trackerTaskId={trackerTaskId}
       {...(proposalLink && { proposalLink })}
       createSource={createSource}
+      initialPurpose={initialPurpose}
+      prefillArea={prefillArea}
     />
   )
 }

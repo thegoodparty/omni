@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   OUTREACH_PURPOSE_VALUES,
@@ -17,9 +18,12 @@ export type PhoneBankingPurpose = z.infer<typeof PhoneBankingPurposeSchema>
 
 // Serve's purpose vocabulary is shared the same way the Win one above is
 // (OutreachPurpose.schema.ts) — constituent framing, no election mechanics,
-// so it does not adopt early_voting / election_day_turnout. Door knocking
-// reads the same list.
-export const SERVE_PHONE_BANKING_PURPOSE_VALUES = SERVE_OUTREACH_PURPOSE_VALUES
+// so it does not adopt early_voting / election_day_turnout — plus the civic
+// panel invite, which a call can ask. Door knocking reads the same list.
+export const SERVE_PHONE_BANKING_PURPOSE_VALUES = [
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  ...SERVE_OUTREACH_PURPOSE_VALUES,
+] as const
 export const ServePhoneBankingPurposeSchema = z.enum(
   SERVE_PHONE_BANKING_PURPOSE_VALUES,
 )

@@ -35,6 +35,7 @@ import {
   type SavedDedupeFilter,
 } from '../recommendedListsDedupe.util'
 import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
+import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
 
 export type Recommendation = {
   variant: RecommendedListVariant
@@ -70,6 +71,7 @@ const isSized = (outcome: SizeOutcome): outcome is SizedDraft =>
 type ResolvedScope = {
   filters: FilterData
   idOverrides?: IdOverrides
+  affinityColumn?: AffinityColumn
 }
 
 // Campaign.details is Prisma JSON, so its shadow type can't be trusted at
@@ -403,6 +405,10 @@ export class RecommendedListsService {
       const scope: ResolvedScope = {
         filters: filtersSchema.parse(resolved.filters),
         idOverrides: resolved.idOverrides,
+        affinityColumn: await this.contacts.affinityColumnFor(
+          organization,
+          resolved.filters,
+        ),
       }
 
       if (channel === 'doorKnocking') {
@@ -413,6 +419,7 @@ export class RecommendedListsService {
           district,
           scope.filters,
           scope.idOverrides,
+          scope.affinityColumn,
         )
         if (
           !qualifies(
@@ -441,6 +448,7 @@ export class RecommendedListsService {
         district,
         scope.filters,
         scope.idOverrides,
+        scope.affinityColumn,
       )
       return qualifies(
         count,

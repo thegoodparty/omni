@@ -61,6 +61,20 @@ export const isCivicPanelBuildCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
 
+export const CIVIC_PANEL_STEP_CARD_PREFIX = 'panel-step:'
+
+// A card for one ready step of the panel's plan, once the build card is done.
+// Keyed by the step, so a skipped card stays skipped while that step is next
+// and the step after it gets a card of its own.
+export const civicPanelStepCardSourceId = (stepId: string): string =>
+  `${CIVIC_PANEL_STEP_CARD_PREFIX}${stepId}`
+
+export const isCivicPanelStepCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
+
 // Where the build card's Build my panel goes: the panel page, which asks the
 // hours question or shows the plan already made.
 export const CIVIC_PANEL_BUILD_CARD_HREF = CIVIC_PANEL_PAGE_HREF

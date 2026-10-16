@@ -219,6 +219,7 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -338,5 +339,91 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
       'modeled',
     )
+  })
+})
+
+// Party is a registration only where the state reports one; elsewhere L2
+// assigns it from primary ballots or models it (peopleDb/partySource.ts),
+// and the catalog's static "observed" mark would have the model report an
+// estimate as a fact on the file.
+describe('ContactsService.getFilterDimensions: party by state', () => {
+  const buildService = () =>
+    new ContactsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      createMockLogger() as unknown as PinoLogger,
+    )
+  const win = { slug: 'win-campaign' } as Organization
+  const party = (state: string | null | undefined) =>
+    buildService()
+      .getFilterDimensions(win, { citizenPanels: true, state })
+      .find((d) => d.key === 'party')
+
+  it('marks party observed, with no note, where the state registers by party', () => {
+    expect(party('CA')?.provenance).toBe('observed')
+    expect(party('CA')?.note).toBeUndefined()
+  })
+
+  it('keeps the catalog entry as it is when no state is known', () => {
+    expect(party(null)?.provenance).toBe('observed')
+    expect(party(undefined)?.note).toBeUndefined()
+  })
+
+  it("marks party modeled, with the vendor's account as the note, elsewhere", () => {
+    const minnesota = party('MN')
+    expect(minnesota?.provenance).toBe('modeled')
+    expect(minnesota?.note).toBe(
+      'Minnesota provides no party information in its voter file. The ' +
+        "voter file vendor models every voter's party from commercial " +
+        'data, with a limited amount of partisan-contribution and ' +
+        'office-holding records.',
+    )
+    expect(party('TX')?.provenance).toBe('modeled')
+    expect(party('TX')?.note).toMatch(/^Texas voters do not register by party/)
+  })
+
+  it('changes nothing else about the Win catalog', () => {
+    const plain = buildService().getFilterDimensions(win, {
+      citizenPanels: true,
+    })
+    const modeled = buildService().getFilterDimensions(win, {
+      citizenPanels: true,
+      state: 'MN',
+    })
+    expect(modeled.map((d) => d.key)).toEqual(plain.map((d) => d.key))
+    expect(modeled.filter((d) => d.key !== 'party')).toEqual(
+      plain.filter((d) => d.key !== 'party'),
+    )
+    expect(modeled.find((d) => d.key === 'party')).toEqual({
+      ...plain.find((d) => d.key === 'party'),
+      provenance: 'modeled',
+      note: expect.any(String),
+    })
+  })
+
+  it('still strips party for an eo- organization whatever the state', () => {
+    const keys = buildService()
+      .getFilterDimensions({ slug: 'eo-city-council' } as Organization, {
+        citizenPanels: true,
+        state: 'MN',
+      })
+      .map((d) => d.key)
+    expect(keys).not.toContain('party')
   })
 })

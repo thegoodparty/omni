@@ -410,6 +410,47 @@ describe('buildVoterFiltersSql', () => {
     expect(noBag.params).toEqual([])
   })
 
+  it("reads the campaign's experiment column when one is given", () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        'Indep_Openness_DOnly_Inc',
+      ),
+    ).toBe('v.`Indep_Openness_DOnly_Inc` = TRUE')
+  })
+
+  it('scopes to the experiment column on voters but never on constituents', () => {
+    const filters = parseFilters({ independentAffinity: { eq: 'Yes' } })
+    const scope = (dataset: DbxDistrict['dataset']) =>
+      buildScopeSql(createBag(), {
+        district: { ...CONGRESSIONAL, dataset },
+        filters,
+        affinityColumn: 'Indep_Openness_Haystaq',
+      })
+    expect(scope('voters')).toContain('v.`Indep_Openness_Haystaq` = TRUE')
+    // The experiment columns exist only on the voter table.
+    expect(scope('constituents')).toContain(
+      'v.`Voter_Independent_Affinity` = TRUE',
+    )
+    expect(scope('constituents')).not.toContain('Indep_Openness')
+  })
+
+  it('refuses an affinity column outside the allowlist', () => {
+    expect(() =>
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        // @ts-expect-error -- an identifier that is not an affinity column
+        'Voter_Status; DROP TABLE x',
+      ),
+    ).toThrow()
+  })
+
   it('emits no independentAffinity clause when both values are selected', () => {
     expect(
       buildVoterFiltersSql(

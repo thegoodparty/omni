@@ -75,6 +75,7 @@ export const FILTER_DIMENSION_PROVENANCE_RULES = `DIMENSION PROVENANCE (every di
   - Whenever you report a count, share, ranking, or "largest group" built from a modeled dimension, say it is modeled or estimated IN THE SAME SENTENCE as the number ("an estimated 1,200 ...", "modeled data puts the largest group at ..."). A caveat trailing after the claim does not count. This constrains how you FRAME the result — it does not license explaining which field, column, or model produced it.
   - The count itself is an exact count of matching RECORDS. What is uncertain is the ATTRIBUTE and the COVERAGE: on a modeled dimension with no negative value, a positive count is a FLOOR on how many people have the trait, never a total — most such dimensions are mostly null.
   - "Unknown" is a real, reportable segment on most dimensions and is often large. State its size rather than dropping it, and never fold it into another value.
+  - A dimension that carries a \`note\` says there where its mark comes from.
   - A dimension with NO provenance field has not been classified yet, not confirmed as a plain fact. Treat it exactly like "modeled": hedge any claim built from it rather than stating it as fact.`
 
 export interface FilterDimensionValue {
@@ -91,6 +92,10 @@ interface FilterDimensionBase {
   label: string
   modes: FilterDimensionMode
   provenance?: FilterDimensionProvenance
+  // One sentence beside the mark for a dimension whose provenance depends
+  // on the organization's state; set by ContactsService.getFilterDimensions,
+  // never in the static catalog.
+  note?: string
 }
 
 // boolean-group: each value key is a voterFilterBaseSchema boolean field set
@@ -215,6 +220,10 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     })),
   },
   {
+    // Observed where the state registers voters by party. In the states
+    // where L2 assigns it from primary ballots or models it,
+    // ContactsService.getFilterDimensions re-marks it modeled and adds the
+    // note (peopleDb/partySource.ts).
     key: 'party',
     label: 'Political Party',
     kind: 'boolean-group',

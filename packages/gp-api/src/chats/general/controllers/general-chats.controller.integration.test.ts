@@ -13,6 +13,7 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { LlmService, LlmStreamResult } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 
 const service = useTestService()
@@ -65,6 +66,24 @@ const buildStream =
   })
 
 const COS_SCOPE = ChatScope.chief_of_staff
+
+const pricedTurn = (
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): LlmStreamResult => ({
+  textStream: (async function* () {
+    yield 'A priced reply.'
+  })(),
+  finalText: Promise.resolve('A priced reply.'),
+  toolCalls: Promise.resolve([]),
+  usage: Promise.resolve({
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+  }),
+  model,
+})
 
 describe('GeneralChatsController (integration)', () => {
   let fixtures: Fixtures
@@ -564,6 +583,210 @@ describe('GeneralChatsController (integration)', () => {
         headers,
       )
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
+  describe('GET /v1/chats/:id usage', () => {
+    let llm: LlmService
+
+    beforeEach(() => {
+      vi.mocked(chatStream.stream).mockRestore()
+      llm = service.app.get(LlmService)
+    })
+
+    const createConversation = async (
+      scope: ChatScope,
+      requestHeaders: { headers: Record<string, string> },
+    ): Promise<string> => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope },
+        requestHeaders,
+      )
+      return created.data.conversationId as string
+    }
+
+    const send = async (
+      conversationId: string,
+      scope: ChatScope,
+      requestHeaders: { headers: Record<string, string> },
+    ): Promise<string> => {
+      const res = await service.client.post(
+        `/v1/chats/${conversationId}/messages?scope=${scope}`,
+        { content: 'How much did this cost?' },
+        requestHeaders,
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+      return String(res.data)
+    }
+
+    const getUsage = async (
+      conversationId: string,
+      scope: ChatScope,
+      requestHeaders: { headers: Record<string, string> },
+    ) => {
+      const res = await service.client.get(
+        `/v1/chats/${conversationId}?scope=${scope}`,
+        requestHeaders,
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+      return res.data.usage as {
+        complete: boolean
+        byModel: Array<{
+          model: string
+          inputTokens: number
+          outputTokens: number
+        }>
+      }
+    }
+
+    it('reports an empty, complete usage before any assistant turn', async () => {
+      const conversationId = await createConversation(COS_SCOPE, headers)
+
+      expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
+        complete: true,
+        byModel: [],
+      })
+    })
+
+    it('records a turn before its done frame and returns it on GET', async () => {
+      vi.spyOn(llm, 'streamChatCompletion').mockResolvedValue(
+        pricedTurn('claude-sonnet-4-6', 1200, 340),
+      )
+      const conversationId = await createConversation(COS_SCOPE, headers)
+
+      const body = await send(conversationId, COS_SCOPE, headers)
+      expect(body).toContain('"type":"done"')
+
+      const assistant = await service.prisma.chatMessage.findFirst({
+        where: { conversationId, role: ChatMessageRole.assistant },
+      })
+      expect(assistant).toMatchObject({
+        model: 'claude-sonnet-4-6',
+        inputTokens: 1200,
+        outputTokens: 340,
+      })
+      expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
+        complete: true,
+        byModel: [
+          {
+            model: 'claude-sonnet-4-6',
+            inputTokens: 1200,
+            outputTokens: 340,
+          },
+        ],
+      })
+    })
+
+    it('sums turns by the model that answered', async () => {
+      vi.spyOn(llm, 'streamChatCompletion')
+        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1000, 200))
+        .mockResolvedValueOnce(pricedTurn('claude-sonnet-4-6', 1500, 300))
+        .mockResolvedValueOnce(pricedTurn('claude-opus-4-7', 900, 100))
+      const conversationId = await createConversation(COS_SCOPE, headers)
+
+      await send(conversationId, COS_SCOPE, headers)
+      await send(conversationId, COS_SCOPE, headers)
+      await send(conversationId, COS_SCOPE, headers)
+
+      expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
+        complete: true,
+        byModel: [
+          {
+            model: 'claude-sonnet-4-6',
+            inputTokens: 2500,
+            outputTokens: 500,
+          },
+          { model: 'claude-opus-4-7', inputTokens: 900, outputTokens: 100 },
+        ],
+      })
+    })
+
+    it('is incomplete when an assistant message has no recorded usage', async () => {
+      vi.spyOn(llm, 'streamChatCompletion').mockResolvedValue(
+        pricedTurn('claude-sonnet-4-6', 1200, 340),
+      )
+      const conversationId = await createConversation(COS_SCOPE, headers)
+      await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.assistant,
+        content: 'A reply whose usage write failed.',
+      })
+
+      await send(conversationId, COS_SCOPE, headers)
+
+      expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
+        complete: false,
+        byModel: [
+          {
+            model: 'claude-sonnet-4-6',
+            inputTokens: 1200,
+            outputTokens: 340,
+          },
+        ],
+      })
+    })
+
+    it('leaves an aborted turn unpriced, so the conversation is incomplete', async () => {
+      vi.spyOn(llm, 'streamChatCompletion').mockResolvedValue({
+        ...pricedTurn('claude-sonnet-4-6', 1200, 340),
+        textStream: (async function* () {
+          yield 'Partial'
+          throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+        })(),
+      })
+      const conversationId = await createConversation(COS_SCOPE, headers)
+
+      await send(conversationId, COS_SCOPE, headers)
+
+      const assistant = await service.prisma.chatMessage.findFirst({
+        where: { conversationId, role: ChatMessageRole.assistant },
+      })
+      expect(assistant?.content).toBe('Partial')
+      expect(assistant?.inputTokens).toBeNull()
+      expect(await getUsage(conversationId, COS_SCOPE, headers)).toEqual({
+        complete: false,
+        byModel: [],
+      })
+    })
+
+    it('counts the Campaign Manager greeting as recorded, so one priced turn is complete', async () => {
+      vi.spyOn(llm, 'streamChatCompletion').mockResolvedValue(
+        pricedTurn('claude-sonnet-4-6', 1200, 340),
+      )
+      const { slug } = await createOrgAndCampaign(service.user.id)
+      const camHeaders = { headers: { 'X-Organization-Slug': slug } }
+      const conversationId = await createConversation(
+        ChatScope.campaign_assistant,
+        camHeaders,
+      )
+      const greeting = await service.prisma.chatMessage.findFirst({
+        where: { conversationId, role: ChatMessageRole.assistant },
+      })
+      expect(greeting).toMatchObject({
+        model: null,
+        inputTokens: 0,
+        outputTokens: 0,
+      })
+
+      await send(conversationId, ChatScope.campaign_assistant, camHeaders)
+
+      expect(
+        await getUsage(
+          conversationId,
+          ChatScope.campaign_assistant,
+          camHeaders,
+        ),
+      ).toEqual({
+        complete: true,
+        byModel: [
+          {
+            model: 'claude-sonnet-4-6',
+            inputTokens: 1200,
+            outputTokens: 340,
+          },
+        ],
+      })
     })
   })
 

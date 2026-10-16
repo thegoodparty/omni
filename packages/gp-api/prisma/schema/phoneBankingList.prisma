@@ -14,6 +14,8 @@ enum PhoneBankingPurpose {
   explain_decision
   community_input
   share_resource
+  // Serve-only: the civic panel invite, the same slug as the Serve text's.
+  build_citizens_panel
 }
 
 model PhoneBankingList {

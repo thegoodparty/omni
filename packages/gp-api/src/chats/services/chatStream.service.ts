@@ -268,9 +268,13 @@ const roleToOpenAiRole = (
 // had forgotten.
 const CARD_NOTE_PREFIX = '[Card you showed:'
 
+// The Chief of Staff's weekly time question is a fixed question the app
+// draws, so its note is what tells the model it asked.
+const QUESTION_TOOLS = ['ask_clarify_question', 'ask_panel_weekly_time']
+
 const isCardTool = (toolName: string | null): boolean =>
   toolName !== null &&
-  (toolName.startsWith('present_') || toolName === 'ask_clarify_question')
+  (toolName.startsWith('present_') || QUESTION_TOOLS.includes(toolName))
 
 const replayAssistantContent = (m: ChatMessageWithSegments): string =>
   m.segments.some(
@@ -1035,6 +1039,23 @@ export class ChatStreamService {
                 )
               })
           }
+        }
+      }
+      // Written before the done frame so a client that reads the conversation
+      // right after done sees this turn priced.
+      if (cleanFinish && persistedId !== undefined) {
+        try {
+          const usage = await result.usage
+          await this.store.recordAssistantUsage(persistedId, {
+            model: result.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          })
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to write assistant message usage',
+          )
         }
       }
       // Meter usage only on a clean finish; a partial/aborted turn's usage is

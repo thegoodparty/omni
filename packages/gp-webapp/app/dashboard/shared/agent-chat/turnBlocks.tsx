@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import type { ChatMessageSegment } from './chatClient'
 import { InlineSegments } from './chatUI'
-import { CLARIFY_TOOL } from './clarifyWidget'
+import { isQuestionTool } from './clarifyWidget'
 import { segmentsToLive, type LiveSegment } from './streaming'
 import type { WidgetInstance, WidgetRegistry } from './widgetRegistry'
 
@@ -61,7 +61,7 @@ export const withoutTrailingQuestion = (text: string): string => {
 // A hidden clarify call left in the inline run (a surface that renders the
 // widget outside the blocks) sits after the text it should be checked against.
 const isClarifyCall = (s: LiveSegment): boolean =>
-  s.kind === 'tool' && s.toolName === CLARIFY_TOOL
+  s.kind === 'tool' && isQuestionTool(s.toolName)
 
 const dropTrailingQuestionFrom = <Ctx,>(
   block: TurnBlock<Ctx>,
@@ -91,7 +91,7 @@ const dropQuestionsAboveClarify = <Ctx,>(
 ): TurnBlock<Ctx>[] =>
   blocks.flatMap((block, i): TurnBlock<Ctx>[] => {
     const next = blocks[i + 1]
-    return next?.kind === 'widget' && next.instance.toolName === CLARIFY_TOOL
+    return next?.kind === 'widget' && isQuestionTool(next.instance.toolName)
       ? dropTrailingQuestionFrom(block)
       : [block]
   })
