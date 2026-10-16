@@ -33,7 +33,7 @@ describe('DistrictStoryMap', () => {
     renderMap('dim')
     const looks = dots()
     expect(count(looks, 'fill-warning')).toBe(12)
-    expect(count(looks, 'fill-base-border')).toBe(model.dots.length - 12)
+    expect(count(looks, 'fill-muted-foreground')).toBe(model.dots.length - 12)
     expect(screen.getAllByTestId('district-story-halo')).toHaveLength(12)
   })
 

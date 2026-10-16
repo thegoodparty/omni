@@ -431,9 +431,9 @@ export const SERVE_STORY_COPY = {
   },
   sample: {
     title: (answers: number): ServeStoryTitle => ({
-      lead: 'About',
+      lead: 'With about',
       accent: `${answers} answers`,
-      tail: 'is all it takes to get a good read',
+      tail: ", you'll know where your community stands",
     }),
     description:
       'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
@@ -443,14 +443,15 @@ export const SERVE_STORY_COPY = {
   },
   grow: {
     title: "We'll help you build and grow the list of people you hear from",
-    description: 'Each time you ask, residents can join your civic panel.',
+    description:
+      'Listen to the people first. Then prioritize, act, and tell them what you did.',
     loop: [
-      { title: 'Ask', desc: 'Text, call or knock' },
+      { title: 'Listen', desc: 'Text, call or knock' },
       { title: 'Prioritize', desc: 'See what matters most' },
       { title: 'Act', desc: 'Bring it to your vote' },
       { title: 'Communicate', desc: 'Tell them what you did' },
     ],
-    again: 'Then ask again. Each round, your panel grows.',
+    again: 'Then listen again. Each round, your panel grows.',
   },
 }
 
