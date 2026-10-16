@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import {
+  answersNeeded,
   BUILD_CITIZENS_PANEL_PURPOSE,
-  PANEL_SEED_TARGET_MEMBERS,
+  panelExpectedAnswers,
+  panelGoalMembers,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   type CivicPanelBuildPlanResponse,
@@ -27,7 +29,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
   areaAround,
@@ -54,13 +56,13 @@ const LIST_NAMES: Record<CivicPanelBuildChannel, string> = {
   door_knocking: 'Civic panel doors',
 }
 
-// The purpose the standard flow opens on. A text asks with the locked JOIN
-// line; a Serve call or door closes with the join question whatever its
-// purpose.
+// The purpose the standard flow opens on: every channel's civic panel
+// invite. A text asks with the locked JOIN line; a call or a door with the
+// join question the official records.
 const FLOW_PURPOSES: Record<CivicPanelBuildChannel, string> = {
   text: BUILD_CITIZENS_PANEL_PURPOSE,
-  phone_banking: 'introduce_myself',
-  door_knocking: 'introduce_myself',
+  phone_banking: BUILD_CITIZENS_PANEL_PURPOSE,
+  door_knocking: BUILD_CITIZENS_PANEL_PURPOSE,
 }
 
 const STEP_SELECT = {
@@ -77,6 +79,8 @@ const STEP_SELECT = {
   completedAt: true,
   expectedRepliesBy: true,
   skippedAt: true,
+  markedDone: true,
+  markedAt: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -110,8 +114,23 @@ const LINK_KEYS = [
   'expectedRepliesBy',
 ] as const
 
+// A step as its list reads, with the official's own tick or untick over
+// it: ticked, it is done when it was ticked (or when its list finished);
+// unticked, it is not done whatever its list says.
+const withMark = <
+  T extends Pick<StepRow, 'completedAt' | 'markedDone' | 'markedAt'>,
+>(
+  step: T,
+): T => {
+  if (step.markedDone === true) {
+    return { ...step, completedAt: step.completedAt ?? step.markedAt }
+  }
+  if (step.markedDone === false) return { ...step, completedAt: null }
+  return step
+}
+
 // Serve's plan to build the civic panel across texts, calls and doors, in
-// waves. The official answers one question (hours this month); every size
+// waves. The official answers one question (hours each week); every size
 // and every status follows from it and from what has actually been sent,
 // called and knocked. See the contacts AGENTS.md, "Building the panel across
 // channels".
@@ -137,7 +156,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This office already has a panel plan')
     }
     const members = await this.memberCount(organization)
-    const gap = PANEL_SEED_TARGET_MEMBERS - members
+    const goalMembers = panelGoalMembers(
+      await this.contactsService.getDistrictPopulation(organization),
+    )
+    const gap = goalMembers - members
     if (gap <= 0) {
       throw new ConflictException(
         'Your civic panel has already reached its goal',
@@ -170,7 +192,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
-            goalMembers: PANEL_SEED_TARGET_MEMBERS,
+            goalMembers,
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
@@ -242,30 +264,101 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return this.read(organization)
   }
 
-  // The plan as it stands. Reading it is what moves it: step links and
-  // dates are refreshed from the sends, call lists and walks, the plan
-  // closes once the panel reaches its goal, and the next wave is made once
-  // the current one is due.
+  // The official ticks a call or door step done, or unticks it, over what
+  // its list says. A text checks itself once it is sent.
+  async mark(
+    organization: Organization,
+    stepId: string,
+    done: boolean,
+  ): Promise<CivicPanelBuildPlanResponse> {
+    const office = await this.officeFor(organization)
+    const step = await this.client.civicPanelBuildStep.findFirst({
+      where: { id: stepId, plan: { electedOfficeId: office.id } },
+      select: {
+        id: true,
+        channel: true,
+        skippedAt: true,
+        startedAt: true,
+        plan: { select: { status: true } },
+      },
+    })
+    if (!step) throw new NotFoundException('Step not found')
+    if (step.plan.status !== CivicPanelBuildPlanStatus.active) {
+      throw new ConflictException('This step is no longer part of the plan')
+    }
+    if (step.channel === CivicPanelBuildChannel.text) {
+      throw new BadRequestException('A text step is done once it is sent')
+    }
+    // A skip only holds while nothing was started from the step, the same
+    // as its status reads.
+    if (step.skippedAt && !step.startedAt) {
+      throw new ConflictException('This step was skipped')
+    }
+    await this.client.civicPanelBuildStep.update({
+      where: { id: step.id },
+      data: { markedDone: done, markedAt: new Date() },
+    })
+    return this.read(organization)
+  }
+
+  // The plan as it stands. Reading it is what moves it: an active plan's
+  // goal is brought to the district's (see goalFor), step links and dates
+  // are refreshed from the sends, call lists and walks, the plan closes once
+  // the panel reaches its goal, and the next wave is made once the current
+  // one is due.
   async read(organization: Organization): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
-    const members = await this.memberCount(organization)
+    const memberIds = await this.memberIds(organization)
+    const members = memberIds.size
+    const population =
+      await this.contactsService.getDistrictPopulation(organization)
+    const needed = answersNeeded(population)
+    const districtGoal = panelGoalMembers(population)
     const active = await this.findActive(office.id)
-    if (active) await this.advance(organization, office, active, members)
+    if (active) {
+      const goalMembers = this.goalFor(
+        active.goalMembers,
+        districtGoal,
+        members,
+      )
+      if (goalMembers !== active.goalMembers) {
+        await this.model.updateMany({
+          where: { id: active.id, status: CivicPanelBuildPlanStatus.active },
+          data: { goalMembers },
+        })
+      }
+      await this.advance(
+        organization,
+        office,
+        { ...active, goalMembers },
+        members,
+      )
+    }
     const plan = await this.model.findFirst({
       where: { electedOfficeId: office.id },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
-    const progress = { members, goal: PANEL_SEED_TARGET_MEMBERS }
-    if (!plan) return { plan: null, next: null, progress }
+    const progressToward = (goal: number) => ({
+      members,
+      goal,
+      answersNeeded: needed,
+      expectedAnswers: panelExpectedAnswers(members),
+    })
+    if (!plan)
+      return { plan: null, next: null, progress: progressToward(districtGoal) }
     const now = new Date()
     const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
-    const steps = plan.steps
-      .map((step) => ({
-        ...step,
-        status: stepStatus(step, step.wave < currentWave, now),
-      }))
-      .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
+    const steps = await Promise.all(
+      plan.steps
+        .map(withMark)
+        .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
+        .map(async (step) => ({
+          ...step,
+          status: stepStatus(step, step.wave < currentWave, now),
+          ...(await this.reachOf(organization, step, memberIds)),
+        })),
+    )
     return {
       plan: {
         id: plan.id,
@@ -281,7 +374,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         plan.status === CivicPanelBuildPlanStatus.active
           ? nextStep(steps.filter((s) => s.wave === currentWave))
           : null,
-      progress: { members, goal: plan.goalMembers },
+      progress: progressToward(
+        plan.status === CivicPanelBuildPlanStatus.active
+          ? plan.goalMembers
+          : districtGoal,
+      ),
     }
   }
 
@@ -413,6 +510,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const currentWave = Math.max(...synced.map((s) => s.wave))
     const wave = synced
       .filter((s) => s.wave === currentWave)
+      .map(withMark)
       .map((s) => ({ ...s, status: stepStatus(s, false, now) }))
     if (!waveIsDue(wave, now)) return
     // Sized before the lock: the counts are people-db reads, too slow to
@@ -738,12 +836,70 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   }
 
   private async memberCount(organization: Organization): Promise<number> {
+    return (await this.memberIds(organization)).size
+  }
+
+  private async memberIds(organization: Organization): Promise<Set<string>> {
     const members = await this.contactStatusService.personIdsByFieldValue(
       organization.slug,
       ContactStatusField.civic_panel,
       [CivicPanelStatus.member],
     )
-    return members.length
+    return new Set(members)
+  }
+
+  // Who a step reached and who it brought in: the residents called or
+  // knocked (a text has no count of its own here), and the residents its
+  // list drew who are on the panel now.
+  private async reachOf(
+    organization: Organization,
+    step: StepRow,
+    memberIds: Set<string>,
+  ): Promise<{ reached: number | null; joined: number | null }> {
+    if (step.voterFileFilterId === null) return { reached: null, joined: null }
+    const drawn = await this.samplePersonIds(step.voterFileFilterId)
+    const joined = drawn.filter((id) => memberIds.has(id)).length
+    if (step.channel === CivicPanelBuildChannel.phone_banking) {
+      if (step.phoneBankingListId === null) return { reached: null, joined }
+      const called = await this.client.contactInteractionPhoneBanking.groupBy({
+        by: ['personId'],
+        where: {
+          organizationSlug: organization.slug,
+          phoneBankingListId: step.phoneBankingListId,
+        },
+      })
+      return { reached: called.length, joined }
+    }
+    if (step.channel === CivicPanelBuildChannel.door_knocking) {
+      const turfs = await this.client.doorKnockingTurf.findMany({
+        where: { voterFileFilterId: step.voterFileFilterId, deletedAt: null },
+        select: { outreach: { select: { id: true } } },
+      })
+      const envelopes = turfs.flatMap((t) =>
+        t.outreach ? [t.outreach.id] : [],
+      )
+      if (envelopes.length === 0) return { reached: null, joined }
+      const knocked = await this.client.contactInteractionDoorKnock.groupBy({
+        by: ['personId'],
+        where: { outreachId: { in: envelopes } },
+      })
+      return { reached: knocked.length, joined }
+    }
+    return { reached: null, joined }
+  }
+
+  // An active plan's goal follows the district's, so plans made before the
+  // goal was sized in answers (100 members) and plans whose census figure
+  // moved read the same as a new one. It may come down, but never below the
+  // members the panel already has: the plan then completes rather than
+  // reading as past its goal.
+  private goalFor(
+    planGoal: number,
+    districtGoal: number,
+    members: number,
+  ): number {
+    if (districtGoal >= planGoal) return districtGoal
+    return Math.max(districtGoal, members)
   }
 
   private findActive(electedOfficeId: string): Promise<PlanRow | null> {

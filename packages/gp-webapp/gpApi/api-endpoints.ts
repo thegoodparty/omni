@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -125,12 +124,14 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
   CivicPanelRepresentation,
   CivicPanelBuildPlanResponse,
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInput,
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1332,6 +1333,12 @@ export type APIEndpoints = {
     Response: PriorityResults
   }
 
+  // 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/read-status': {
+    Request: {}
+    Response: PriorityReadStatus
+  }
+
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
   // normal "not sent yet" answer.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
@@ -1587,6 +1594,10 @@ export type APIEndpoints = {
     Request: {}
     Response: CivicPanelBuildPlanResponse
   }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
+    Request: MarkCivicPanelBuildStepInput
+    Response: CivicPanelBuildPlanResponse
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
@@ -1825,17 +1836,6 @@ export type APIEndpoints = {
   'POST /v1/constituent-feedback/audio-upload-url': {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
-  }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
   }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.

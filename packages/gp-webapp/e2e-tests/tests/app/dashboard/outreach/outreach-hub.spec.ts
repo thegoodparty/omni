@@ -3,6 +3,7 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
+import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // The non-Pro tile behavior depends on `outreach-pro-gating-v2`: off, a
 // non-Pro click redirects to the Pro upgrade wizard; on, the flow opens and
@@ -70,7 +71,8 @@ test.describe('outreach hub — default-on channel tiles', () => {
     page,
   }) => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await page.goto('/dashboard/outreach')
     // The tile ignores clicks while the elected-office query is pending —
@@ -131,7 +133,8 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
     page,
   }) => {
     await setFlagOverrides(page, { [GATE_V2]: 'off' })
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await page.goto('/dashboard/outreach')
     await expect(
@@ -160,7 +163,8 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   test('phone-banking tile, non-Pro: opens the flow with the Pro banner', async ({
     page,
   }) => {
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await page.goto('/dashboard/outreach')
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
@@ -180,7 +184,8 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
   test('Text tile, non-Pro: opens the flow with the two-step banner', async ({
     page,
   }) => {
-    await authenticateTestUser(page)
+    const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await page.goto('/dashboard/outreach')
     await expect(

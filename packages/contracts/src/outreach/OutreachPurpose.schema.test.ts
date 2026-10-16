@@ -37,20 +37,24 @@ describe('outreach purpose vocabulary', () => {
   })
 
   it('is one shared list across every serve channel', () => {
-    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).toEqual(
-      SERVE_OUTREACH_PURPOSE_VALUES,
-    )
+    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).toEqual([
+      BUILD_CITIZENS_PANEL_PURPOSE,
+      ...SERVE_OUTREACH_PURPOSE_VALUES,
+    ])
   })
 
-  // Seeding a civic panel is a random draw of the district's cell
-  // phones, so only a text can do it.
-  it('offers building a civic panel on Serve SMS alone', () => {
+  // A text, a call and a door can each ask someone to join; a post has
+  // nobody to say yes, and Win has no panel.
+  it('offers the civic panel invite on Serve texts, calls and doors', () => {
     expect(SERVE_SMS_PURPOSE_VALUES).toEqual([
       BUILD_CITIZENS_PANEL_PURPOSE,
       REPORT_BACK_PURPOSE,
       ...SERVE_OUTREACH_PURPOSE_VALUES,
     ])
-    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).not.toContain(
+    expect(SERVE_PHONE_BANKING_PURPOSE_VALUES).toContain(
+      BUILD_CITIZENS_PANEL_PURPOSE,
+    )
+    expect(SERVE_OUTREACH_PURPOSE_VALUES).not.toContain(
       BUILD_CITIZENS_PANEL_PURPOSE,
     )
     expect(OUTREACH_PURPOSE_VALUES).not.toContain(BUILD_CITIZENS_PANEL_PURPOSE)

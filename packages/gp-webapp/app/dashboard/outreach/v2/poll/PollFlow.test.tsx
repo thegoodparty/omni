@@ -233,6 +233,63 @@ describe('PollFlow', () => {
     })
   })
 
+  it('previews the greeting with a name, titles the step as a question, and suggests for the audience', async () => {
+    openFlow()
+    await pickTopic('Public safety')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    await screen.findByDisplayValue(/How safe/)
+
+    expect(
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(/^Hi Sam, this is Jane Doe/)).toBeInTheDocument()
+    expect(screen.queryByText(/first_name/)).toBeNull()
+    expect(
+      screen.getByText('Suggested for Random sample of constituents'),
+    ).toBeInTheDocument()
+    for (const tone of ['Neutral', 'Warm', 'Direct', 'Friendly']) {
+      expect(
+        screen.getByRole('radio', { name: tone }).querySelector('svg'),
+      ).not.toBeNull()
+    }
+  })
+
+  it('suggests nothing for a question the official writes themselves', async () => {
+    openFlow()
+    await pickTopic('Write my own')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    await screen.findByText('Your question')
+
+    expect(screen.queryByText(/^Suggested for/)).toBeNull()
+  })
+
+  it('asks a question on the review step and keeps campaign out of the poll copy', async () => {
+    openFlow()
+    await pickTopic('Public safety')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
+    )
+    await throughQuestion()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 3,
+        name: 'Ready to send your poll?',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Review your poll details and schedule your send.'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Schedule poll' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/campaign/i)).toBeNull()
+  })
+
   it('sends biasOverridden when the official continues past a bias flag, with a sample audience', async () => {
     openFlow()
     await pickTopic('Public safety')

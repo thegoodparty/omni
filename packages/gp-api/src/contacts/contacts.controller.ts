@@ -25,6 +25,8 @@ import {
   CivicPanelBuildPlanResponseSchema,
   CreateCivicPanelBuildPlanInputSchema,
   UpdateCivicPanelBuildPlanInputSchema,
+  MarkCivicPanelBuildStepInputSchema,
+  type MarkCivicPanelBuildStepInput,
   type UpdateCivicPanelBuildPlanInput,
   type CreateCivicPanelBuildPlanInput,
   PrepareCivicPanelBuildStepResponseSchema,
@@ -227,6 +229,20 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.civicPanelBuildPlan.skip(organization, id)
+  }
+
+  @Post('civic-panel/plan/steps/:id/mark')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(CivicPanelBuildPlanResponseSchema)
+  async markCivicPanelBuildStep(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(MarkCivicPanelBuildStepInputSchema))
+    body: MarkCivicPanelBuildStepInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.civicPanelBuildPlan.mark(organization, id, body.done)
   }
 
   @Post('civic-panel/plan/steps/:id/prepare')

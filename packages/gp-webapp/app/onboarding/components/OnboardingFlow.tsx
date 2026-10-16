@@ -13,6 +13,7 @@ import {
 
 const ONBOARDING_STEP_COMPLETE = 'onboarding-complete'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { clientRequest } from 'gpApi/typed-request'
@@ -150,6 +151,16 @@ const signupGoalOptions: ReadonlyArray<RadioCardOption<SignupGoal>> = [
   },
 ]
 
+const signupGoalOptionsSmsClosed: ReadonlyArray<RadioCardOption<SignupGoal>> =
+  signupGoalOptions.map((option) =>
+    option.value === 'voter-outreach'
+      ? {
+          ...option,
+          description: 'Door-knocking, robocalls and phone banking.',
+        }
+      : option,
+  )
+
 // The Segment property is the selected option's own title, so the event reads
 // the same as the screen did. Derived from the options rather than a second
 // copy of the strings, which would drift the moment one is reworded.
@@ -280,6 +291,8 @@ const StepBody = ({
   storyDraft,
   onStoryDictationActiveChange,
 }: StepBodyProps): React.JSX.Element | null => {
+  const { smsCompliance } = useSmsCompliance()
+
   if (activeStep.id === 'welcome') {
     return (
       <div className="space-y-8">
@@ -428,7 +441,11 @@ const StepBody = ({
         name="signup-goal"
         value={answers.signupGoal}
         onChange={(value) => updateAnswers({ signupGoal: value })}
-        options={signupGoalOptions}
+        options={
+          smsCompliance === 'closed'
+            ? signupGoalOptionsSmsClosed
+            : signupGoalOptions
+        }
       />
     )
   }

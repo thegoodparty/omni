@@ -155,7 +155,7 @@ export default function PhoneBankingCallerPage({
     surface?.exitHref ??
     (isServe ? '/dashboard/constituent-outreach' : '/dashboard/outreach')
   const hubLabel =
-    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
+    surface?.exitLabel ?? (isServe ? 'Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
   // Removal-mid-session is an expected flow for a volunteer (a manager can
   // unassign them at any point) — gp-api 404s the now-unassigned list, and

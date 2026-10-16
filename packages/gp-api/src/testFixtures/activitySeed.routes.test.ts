@@ -15,6 +15,7 @@ import {
   createWinOrg,
 } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
@@ -74,9 +75,14 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const sample = vi
       .spyOn(service.app.get(ContactsService), 'sampleContacts')
       .mockResolvedValue(PEOPLE)
+    // A completed run asks the model to match its issues to themes.
+    const llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
     onTestFinished(() => {
       engine.mockRestore()
       sample.mockRestore()
+      llm.mockRestore()
     })
   })
 

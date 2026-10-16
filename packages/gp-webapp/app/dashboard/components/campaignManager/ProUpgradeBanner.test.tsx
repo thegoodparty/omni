@@ -16,9 +16,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 
 const mockTrackEvent = vi.mocked(trackEvent)
 
-const renderBanner = (isPro: boolean | null) =>
+const renderBanner = (
+  isPro: boolean | null,
+  smsCompliance: Campaign['smsCompliance'] = 'open',
+) =>
   render(
-    <CampaignContext.Provider value={[{ isPro } as Campaign]}>
+    <CampaignContext.Provider value={[{ isPro, smsCompliance } as Campaign]}>
       <ProUpgradeBanner />
     </CampaignContext.Provider>,
   )
@@ -58,5 +61,16 @@ describe('ProUpgradeBanner', () => {
 
     expect(container).toBeEmptyDOMElement()
     expect(mockTrackEvent).not.toHaveBeenCalled()
+  })
+
+  it('sells robocalls and door knocking instead of texting once texting has closed', () => {
+    renderBanner(false, 'closed')
+
+    expect(
+      screen.getByText(
+        'Get a dedicated advisor, quality voter data, and robocall and door knocking tools to help you reach every voter that matters.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/texting/)).toBeNull()
   })
 })

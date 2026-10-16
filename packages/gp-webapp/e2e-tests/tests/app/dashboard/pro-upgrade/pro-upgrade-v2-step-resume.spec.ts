@@ -9,7 +9,11 @@ import {
   seedEinAndFiled,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import {
+  acceptCookieBanner,
+  setFlagOverrides,
+} from 'src/helpers/campaignStory.helper'
+import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // Purchase-only (outreach-pro-gating-v2) resume. The derivation is flat — a
 // candidate who is not Pro always re-enters on the guidance overview — so
@@ -35,6 +39,7 @@ test.beforeEach(async ({ page }) => {
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await acceptCookieBanner(page)
 })
 
 const walkToEin = async (page: Page): Promise<void> => {
@@ -56,6 +61,7 @@ test.describe('Pro upgrade v2 resume', () => {
     page,
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
+    await openSmsWindow(client)
 
     await walkToEin(page)
     await page.getByPlaceholder('12-3456789').fill(SEED_VALID_EIN)
@@ -84,6 +90,7 @@ test.describe('Pro upgrade v2 resume', () => {
     const { user, client } = await authenticateTestUser(page, {
       isolated: true,
     })
+    await openSmsWindow(client)
     // The filing a free candidate submitted on an earlier visit, through the
     // endpoint the form posts to, before leaving at payment.
     await seedEinAndFiled(client)

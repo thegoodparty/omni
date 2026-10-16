@@ -6,7 +6,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 
-// serve-outreach reached 100% and was removed: the Constituent Outreach tab
+// serve-outreach reached 100% and was removed: the Outreach tab
 // and its hub are now gated on elected-office existence alone — the nav item
 // on `isElectedOffice`, the route on the server-side `serveAccess()` call.
 // These run with ZERO flag overrides, which is the point: while the flag was
@@ -15,7 +15,7 @@ import {
 // the access regression guard — removing the client-side FeatureFlagGuard
 // leaves `serveAccess()` as the only thing keeping a Win candidate off the
 // route.
-test.describe('Constituent Outreach hub — no flag overrides', () => {
+test.describe('Outreach hub — no flag overrides', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })

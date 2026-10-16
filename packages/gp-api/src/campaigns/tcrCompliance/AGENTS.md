@@ -860,7 +860,10 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   it would repeat every 10 minutes per record. `internal-testing-approval` is exempt.
   The window rides on `GET campaigns/mine`, `PUT campaigns/mine` (the Pro wizard
   writes that response into its campaign cache) and both compliance-state routes;
-  the webapp reads it and never does its own date math.
+  the webapp reads it and never does its own date math. The Campaign Manager also reads
+  it (`campaignManager.handler.ts` `loadContext`): when closed, its prompt drops texting
+  and `present_outreach_proposal` / `size_outreach_sample` refuse text. The campaign
+  tracker swaps open text sends for robocalls (see `campaignTracker/AGENTS.md`).
 - **Non-prod short-circuit:** `submitCampaignVerifyToken` / Peerly approval are
   short-circuited when `OTEL_SERVICE_ENVIRONMENT !== 'prod'`, and `submit-cv-pin` accepts
   a bypass token — so testers can walk the flow without a real Peerly PIN. Status

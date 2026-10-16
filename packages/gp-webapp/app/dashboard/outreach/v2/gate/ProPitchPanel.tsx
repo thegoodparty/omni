@@ -7,17 +7,30 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@styleguide'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
   CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   DoorOpenIcon,
   HeadsetIcon,
+  InfoIcon,
   MessageSquareIcon,
   PhoneIcon,
   ShieldCheckIcon,
+  UsersIcon,
 } from '@styleguide/components/ui/icons'
-import { PITCH_PANEL_COPY, PRO_COPY, type GateChannel } from './gateCopy'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  PITCH_PANEL_COPY,
+  PRO_COPY,
+  PRO_COPY_SMS_CLOSED,
+  type GateChannel,
+} from './gateCopy'
 
 const CHANNEL_ICON: Record<
   GateChannel,
@@ -80,14 +93,27 @@ export const ProPitchPanel = ({
   verifyDefaultOpen = false,
 }: ProPitchPanelProps): React.JSX.Element | null => {
   const [verifyOpen, setVerifyOpen] = useState(verifyDefaultOpen)
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const sellsClosedSms = channel === 'sms' && smsClosed
   const tint = CHANNEL_TINT[channel]
-  const ChannelIcon = CHANNEL_ICON[channel]
-  const showVerify = channel === 'sms'
+  const ChannelIcon = sellsClosedSms ? UsersIcon : CHANNEL_ICON[channel]
+  const pitch = sellsClosedSms ? PRO_COPY_SMS_CLOSED : PRO_COPY[channel]
+  const showVerify = channel === 'sms' && !smsClosed
 
   if (hideValue && !showVerify) return null
 
   return (
     <div className="flex w-full flex-col gap-4 text-left">
+      {!hideValue && smsClosed && (
+        <Alert variant="info" icon={<InfoIcon />}>
+          <AlertTitle>
+            {SMS_CUTOFF_COPY.closedReason(
+              smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+            )}
+          </AlertTitle>
+        </Alert>
+      )}
       {!hideValue && (
         <div className={`overflow-hidden rounded-xl border ${tint.border}`}>
           <div
@@ -98,10 +124,10 @@ export const ProPitchPanel = ({
             >
               <ChannelIcon className="size-5 text-foreground" aria-hidden />
             </span>
-            <p className="font-semibold">{PRO_COPY[channel].headline}</p>
+            <p className="font-semibold">{pitch.headline}</p>
           </div>
           <div className="flex flex-col gap-3.5 px-5 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6">
-            {PRO_COPY[channel].bullets.map((bullet) => (
+            {pitch.bullets.map((bullet) => (
               <div key={bullet} className="flex items-center gap-3">
                 <span
                   className={`flex size-7 shrink-0 items-center justify-center rounded-full ${tint.check}`}

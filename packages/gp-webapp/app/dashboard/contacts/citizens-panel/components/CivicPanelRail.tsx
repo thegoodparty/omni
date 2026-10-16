@@ -1,19 +1,7 @@
 import { useState } from 'react'
-import Link from 'next/link'
-import type {
-  CivicPanelBuildNext,
-  CivicPanelBuildPlanResponse,
-} from '@goodparty_org/contracts'
-import {
-  Button,
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Separator,
-} from '@styleguide'
+import type { CivicPanelBuildPlanResponse } from '@goodparty_org/contracts'
+import { Button, Card } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { numberFormatter } from 'helpers/numberHelper'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import {
   parseWeeklyTime,
@@ -38,14 +26,19 @@ const WeeklyTimeEditor = ({
 
   if (!editing) {
     return (
-      <div className="flex items-center justify-between gap-2 px-4 py-3">
-        <p className="text-sm text-foreground">
-          {COPY.hoursPerWeek(hoursPerWeek)}
-        </p>
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5 sm:py-4">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-sm text-muted-foreground">{COPY.yourTime}</p>
+          <p className="text-base font-semibold text-foreground">
+            {COPY.hoursPerWeek(hoursPerWeek)}
+          </p>
+        </div>
         <Button
           type="button"
           variant="ghost"
           size="small"
+          className="text-link"
+          aria-label={COPY.changeHoursLabel}
           onClick={() => {
             setValue(weeklyTimeOf(hoursPerWeek))
             setFieldError(null)
@@ -116,56 +109,17 @@ const WeeklyTimeEditor = ({
 }
 
 /**
- * The panel page's rail, the priority page's "Where this stands" for the
- * panel: how many members of the goal, the one thing to do next, and the
- * weekly time the plan is sized from.
+ * The panel page's right column, below the plan on a phone: the weekly time
+ * the plan is sized from, and Change.
  */
 export const CivicPanelRail = ({
-  progress,
-  next,
   hoursPerWeek,
   onPlan,
 }: {
-  progress: { members: number; goal: number }
-  next: CivicPanelBuildNext | null
-  // Null without an active plan, which has no time to change.
-  hoursPerWeek: number | null
+  hoursPerWeek: number
   onPlan: (plan: CivicPanelBuildPlanResponse) => void
 }) => (
   <Card className="gap-0 py-0" data-testid="civic-panel-rail">
-    <CardHeader className="gap-1 px-4 pt-4 pb-3">
-      <CardTitle className="text-sm">{COPY.railTitle}</CardTitle>
-      <CardDescription className="text-xs">
-        {COPY.progress(
-          numberFormatter(progress.members),
-          numberFormatter(progress.goal),
-        )}
-      </CardDescription>
-    </CardHeader>
-    {next ? (
-      <>
-        <Separator />
-        <div className="px-4 py-3">
-          <p className="text-xs text-muted-foreground">{COPY.next}</p>
-          {next.href ? (
-            <Link
-              href={next.href}
-              scroll={false}
-              className="text-sm text-link no-underline hover:underline"
-            >
-              {next.line}
-            </Link>
-          ) : (
-            <p className="text-sm text-foreground">{next.line}</p>
-          )}
-        </div>
-      </>
-    ) : null}
-    {hoursPerWeek !== null ? (
-      <>
-        <Separator />
-        <WeeklyTimeEditor hoursPerWeek={hoursPerWeek} onPlan={onPlan} />
-      </>
-    ) : null}
+    <WeeklyTimeEditor hoursPerWeek={hoursPerWeek} onPlan={onPlan} />
   </Card>
 )

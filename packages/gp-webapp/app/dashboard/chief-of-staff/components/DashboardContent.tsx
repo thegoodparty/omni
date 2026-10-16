@@ -6,7 +6,6 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_PAGE_HREF,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
@@ -105,16 +104,12 @@ export default function DashboardContent(): React.JSX.Element {
   )
   const intro = useMemo(() => buildChiefOfStaffIntro(firstName), [firstName])
 
-  // The panel is built on its own page, which asks the hours question or
-  // shows the plan already made.
-  const openPanelPage = () => router.push(CIVIC_PANEL_PAGE_HREF)
-
   // The intro ends on a question, answered by these cards. The priorities
   // card asks its own question and a kickoff answers something already, so
   // neither gets them; the panel explainer gets its one next step instead.
   const explaining = pendingKickoff === EXPLAIN_CIVIC_PANEL_MESSAGE
   const explainStep = explaining
-    ? civicPanelExplainNextStep(panelMembers, openPanelPage)
+    ? civicPanelExplainNextStep(panelMembers)
     : undefined
   const suggestions = explaining
     ? explainStep
@@ -125,7 +120,6 @@ export default function DashboardContent(): React.JSX.Element {
       : buildChiefOfStaffNextSteps({
           panelsEnabled: panelsReady && panelsEnabled,
           panelMembers,
-          onBuildPanel: openPanelPage,
           onDraftOrdinance: () => router.push(ORDINANCE_NEW_HREF),
         })
 

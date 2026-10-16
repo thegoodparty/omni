@@ -152,7 +152,7 @@ export const WHAT_WE_HEARD_COPY = {
     wantsHeading: 'Wants',
     issues: 'Issues',
     back: 'Back to what we heard',
-    backToOutreach: 'Back to Constituent Outreach',
+    backToOutreach: 'Back to Outreach',
     backLabel: 'Back',
     details: 'Details',
     whatPeopleWant: 'What people want',

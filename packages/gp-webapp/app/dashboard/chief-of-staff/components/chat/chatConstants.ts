@@ -1,3 +1,4 @@
+import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
@@ -55,18 +56,17 @@ export const NEXT_STEP_MESSAGES = {
 /**
  * The cards under the Chief of Staff's intro, one per thing it can start from
  * this chat. The civic panel card is there only with serve-citizen-panels on:
- * an office with members asks its panel, any other opens the panel page to
- * build one. `panelMembers` is undefined until the panel summary loads.
+ * an office with members asks its panel, any other builds one here, on the
+ * same plan as the panel page. `panelMembers` is undefined until the panel
+ * summary loads.
  */
 export const buildChiefOfStaffNextSteps = ({
   panelsEnabled,
   panelMembers,
-  onBuildPanel,
   onDraftOrdinance,
 }: {
   panelsEnabled: boolean
   panelMembers?: number
-  onBuildPanel: () => void
   onDraftOrdinance: () => void
 }): ChatSuggestion[] => [
   {
@@ -97,7 +97,7 @@ export const buildChiefOfStaffNextSteps = ({
               description:
                 'Hear from residents before you decide, not only the ' +
                 'loudest voices.',
-              onSelect: onBuildPanel,
+              kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
             },
       ]
     : []),
@@ -117,12 +117,11 @@ export const buildChiefOfStaffNextSteps = ({
 /**
  * The step under the answer to What's a civic panel?, matching how the reply
  * ends. The question comes from the build card, which is only up while no
- * invite has gone out, so the panel's members decide it: none opens the
- * panel page to build one, some asks it. No card until the summary loads.
+ * invite has gone out, so the panel's members decide it: none builds one in
+ * this chat, some asks it. No card until the summary loads.
  */
 export const civicPanelExplainNextStep = (
   panelMembers: number | undefined,
-  onBuildPanel: () => void,
 ): ChatSuggestion | undefined => {
   if (panelMembers === undefined) return undefined
   return panelMembers > 0
@@ -130,7 +129,7 @@ export const civicPanelExplainNextStep = (
         label: 'Ask your panel about a priority',
         message: NEXT_STEP_MESSAGES.askPanel,
       }
-    : { label: 'Build my panel', onSelect: onBuildPanel }
+    : { label: 'Build my panel', kickoff: BUILD_CITIZENS_PANEL_MESSAGE }
 }
 
 /**
@@ -157,6 +156,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
+  save_panel_weekly_time: 'Making your panel plan',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

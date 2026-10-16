@@ -233,7 +233,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
   })
 })
 
-describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
+describe('getDashboardMenuItems — Outreach nav gating', () => {
   it('shows the item for an elected office', () => {
     const items = links({
       isElectedOffice: true,

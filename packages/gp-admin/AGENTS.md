@@ -21,6 +21,10 @@ npm run test:e2e         # playwright test (needs Clerk test-user env vars — s
 
 `gp-admin` depends on `@goodparty_org/sdk`, which is an in-tree workspace package — build it (`npm run build -w packages/gp-sdk`) when the SDK source changes.
 
+## 10DLC widget on the user page
+
+`users/[id]/components/CvPinStatus.tsx` shows the Pro campaign's 10DLC stage and its SMS texting window (`smsCompliance`, `smsCutoffDate`, `generalElectionDate` from the admin compliance-state response). gp-api computes the window (`smsComplianceWindow` in `eligibility.util.ts`); never redo the date math here. A wrong cutoff is fixed by editing the campaign's election date.
+
 ## Observability
 
 Errors report to Sentry (client + server via `src/instrumentation*.ts`) once

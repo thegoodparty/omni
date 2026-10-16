@@ -61,7 +61,8 @@ export type CivicPanelBuildChannel = z.infer<
   typeof CivicPanelBuildChannelSchema
 >
 
-// active: being worked. completed: the panel reached its goal. exhausted:
+// active: being worked. completed: the panel reached its goal, the members
+// it takes to answer one question (panelGoalMembers in PanelAnswers). exhausted:
 // nobody reachable is left to ask. One active plan per office.
 export const CIVIC_PANEL_BUILD_PLAN_STATUSES = [
   'active',
@@ -117,8 +118,22 @@ export type UpdateCivicPanelBuildPlanInput = z.infer<
   typeof UpdateCivicPanelBuildPlanInputSchema
 >
 
+// POST /v1/contacts/civic-panel/plan/steps/:id/mark: the official ticks a
+// call or door step done, or unticks it, over what its list says. A text
+// checks itself once it is sent.
+export const MarkCivicPanelBuildStepInputSchema = z.object({
+  done: z.boolean(),
+})
+export type MarkCivicPanelBuildStepInput = z.infer<
+  typeof MarkCivicPanelBuildStepInputSchema
+>
+
 // targetSize is residents to text, residents to call, or households to
-// knock, by channel.
+// knock, by channel. `markedDone` is the official's own tick (true) or
+// untick (false), null while the step reads off its list. `reached` is the
+// residents called or knocked (null for a text or before anything was
+// logged), `joined` the residents the step drew who are on the panel now
+// (null before its list is drawn).
 export const CivicPanelBuildStepSchema = z.object({
   id: z.string(),
   wave: z.number().int(),
@@ -133,6 +148,9 @@ export const CivicPanelBuildStepSchema = z.object({
   startedAt: zDate().nullable(),
   completedAt: zDate().nullable(),
   expectedRepliesBy: zDate().nullable(),
+  markedDone: z.boolean().nullable(),
+  reached: z.number().int().nullable(),
+  joined: z.number().int().nullable(),
 })
 export type CivicPanelBuildStep = z.infer<typeof CivicPanelBuildStepSchema>
 
@@ -160,15 +178,26 @@ export const CivicPanelBuildPlanSchema = z.object({
 })
 export type CivicPanelBuildPlan = z.infer<typeof CivicPanelBuildPlanSchema>
 
+// Where the panel stands, in answers to one question. `answersNeeded` is
+// the district's (answersNeeded in PanelAnswers), `expectedAnswers` what the
+// members are expected to give it, and `goal` the members it takes to give
+// all of them.
+export const CivicPanelBuildProgressSchema = z.object({
+  members: z.number().int(),
+  goal: z.number().int(),
+  answersNeeded: z.number().int(),
+  expectedAnswers: z.number().int(),
+})
+export type CivicPanelBuildProgress = z.infer<
+  typeof CivicPanelBuildProgressSchema
+>
+
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the
 // official has made one; progress is always the panel as it stands.
 export const CivicPanelBuildPlanResponseSchema = z.object({
   plan: CivicPanelBuildPlanSchema.nullable(),
   next: CivicPanelBuildNextSchema.nullable(),
-  progress: z.object({
-    members: z.number().int(),
-    goal: z.number().int(),
-  }),
+  progress: CivicPanelBuildProgressSchema,
 })
 export type CivicPanelBuildPlanResponse = z.infer<
   typeof CivicPanelBuildPlanResponseSchema

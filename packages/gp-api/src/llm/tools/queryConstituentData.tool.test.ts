@@ -624,6 +624,39 @@ describe('tool description — partisan guidance follows the scope', () => {
     expect(tool.description).toContain('Parties_Description')
     expect(tool.description).not.toContain('hard legal line')
   })
+
+  // Parties_Description is a registration only where the state reports one
+  // (peopleDb/partySource.ts); the scope carries L2's account otherwise.
+  it('calls party a registration only when the scope carries no party note', () => {
+    const winScope: ConstituentDataScope = {
+      ...scope,
+      forbiddenColumns: new Set(['email', 'voter_id']),
+      partisanQueriesAllowed: true,
+    }
+    const registered = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...winScope, partyNote: null },
+    })
+    expect(registered.description).toContain(
+      'Party registration (Parties_Description)',
+    )
+    expect(registered.description).not.toContain('not a registration here')
+
+    const note =
+      'Minnesota provides no party information in its voter file. L2 ' +
+      "models every voter's party from commercial data."
+    const modeled = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...winScope, partyNote: note },
+    })
+    expect(modeled.description).toContain('  - Party (Parties_Description)')
+    expect(modeled.description).not.toContain('Party registration')
+    expect(modeled.description).toContain(
+      `  - Parties_Description is not a registration here. ${note} Report ` +
+        'party counts and shares as assigned or modeled, never as ' +
+        'registrations.',
+    )
+  })
 })
 
 describe('tool description — data source routing', () => {
