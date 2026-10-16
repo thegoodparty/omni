@@ -73,6 +73,11 @@ import {
 
 // Mirrors outreachMaterialization.service.ts's paging shape (its
 // SEGMENT_PAGE_SIZE is the sibling constant).
+// Thrown when an interactive resolution projects past its time budget. A
+// distinct type so a caller that has a background path (the p2p phone-list
+// build) can hand the work off instead of showing the person a refusal.
+export class ResolutionBudgetExceededException extends BadRequestException {}
+
 export const AUDIENCE_PAGE_SIZE = 1000
 export const MAX_AUDIENCE_RECIPIENTS = 100_000
 
@@ -377,7 +382,7 @@ export async function* resolveFilterAudience(
               Math.max(0, timeBudgetMs - elapsedMs) / Math.max(avgPageMs, 1),
             ),
           ) * pageSize
-        throw new BadRequestException(
+        throw new ResolutionBudgetExceededException(
           budgetExceededMessage?.({ matchedCount, affordableCount }) ??
             `This filter matches ${matchedCount} people — more than can be ` +
               `resolved while you wait (about ${affordableCount} right now). ` +
