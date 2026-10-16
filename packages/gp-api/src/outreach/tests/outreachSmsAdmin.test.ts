@@ -264,7 +264,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const ownerName = vi.fn().mockResolvedValue('Casey Success')
       vi.spyOn(
         service.app.get(CrmCampaignsService),
-        'getCrmCompanyOwnerName',
+        'getCrmCompanyOwnerNameOrThrow',
       ).mockImplementation(ownerName)
       await seedOutreach()
 
@@ -283,7 +283,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
       vi.spyOn(
         service.app.get(CrmCampaignsService),
-        'getCrmCompanyOwnerName',
+        'getCrmCompanyOwnerNameOrThrow',
       ).mockRejectedValue(new Error('hubspot down'))
       await seedOutreach()
 
