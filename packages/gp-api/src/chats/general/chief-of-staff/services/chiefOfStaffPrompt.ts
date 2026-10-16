@@ -10,7 +10,7 @@ import {
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_SEED_ASSUMED_JOIN_RATE,
-  PANEL_SEED_TARGET_MEMBERS,
+  panelExpectedAnswers,
   PRIORITY_STEP_LABELS,
   SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
@@ -296,7 +296,7 @@ const civicPanelBuildBlock = (
         ]
       : [
           '  - Count everyone in the district with a cell phone: `count_contacts` with { hasCellPhone: true } and nothing else. Then call `size_panel_invite` with that count. Quote only the numbers those two return.',
-          `  - Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${PANEL_SEED_TARGET_MEMBERS} members; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; picked at random, so it is not only the people who already reach out; it costs about the cost it returned, quoted exactly as written. Never call it free. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
+          `  - Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${people(panel.goalMembers)} members, enough to hear back from about ${people(panelExpectedAnswers(panel.goalMembers))} of them on any question; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; picked at random, so it is not only the people who already reach out; it costs about the cost it returned, quoted exactly as written. Never call it free. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
           '  - Never say "sample", "sample size", "opt-in rate", "join rate", "seed" or "conversion". Say "a random group of".',
           "  - Draft the invite in the official's own voice, first person: who they are, what the panel is (residents their office texts about once a month to hear what they think before they decide), and why it matters to them. Under 4 sentences. Never write the line asking people to reply JOIN, how to join, or a sign-up step: the text adds that line and locks it. Never promise topics, how many texts, or what they will do with the answers.",
           `  - Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Civic panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
@@ -306,9 +306,9 @@ const civicPanelBuildBlock = (
     panel.members > 0
       ? [
           `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
-          ...(panel.members < PANEL_SEED_TARGET_MEMBERS
+          ...(panel.members < panel.goalMembers
             ? [
-                `- To keep growing it toward about ${PANEL_SEED_TARGET_MEMBERS} members, point them to their panel page in one line, linked as ${pageLink(panel.hasPlan ? 'See your panel plan' : 'Build your civic panel')}.`,
+                `- To keep growing it toward about ${people(panel.goalMembers)} members, point them to their panel page in one line, linked as ${pageLink(panel.hasPlan ? 'See your panel plan' : 'Build your civic panel')}.`,
               ]
             : []),
         ]

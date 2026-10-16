@@ -76,6 +76,9 @@ export interface CivicPanelBuildState {
   // The office has a plan building the panel across texts, calls and doors,
   // on the panel page.
   hasPlan: boolean
+  // The members it takes to answer one question in their district
+  // (panelGoalMembers).
+  goalMembers: number
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -171,6 +174,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
   async civicPanelBuildState(
     organizationSlug: string,
     textingEnabled: boolean,
+    goalMembers: number,
   ): Promise<CivicPanelBuildState> {
     const [members, invite, plan] = await Promise.all([
       this.client.contactCurrentStatus.count({
@@ -203,6 +207,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       inviteSent: invite !== null,
       textingEnabled,
       hasPlan: plan !== null,
+      goalMembers,
     }
   }
 }

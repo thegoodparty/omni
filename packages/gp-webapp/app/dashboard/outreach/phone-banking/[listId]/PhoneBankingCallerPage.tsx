@@ -153,7 +153,7 @@ export default function PhoneBankingCallerPage({
     surface?.exitHref ??
     (isServe ? '/dashboard/constituent-outreach' : '/dashboard/outreach')
   const hubLabel =
-    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
+    surface?.exitLabel ?? (isServe ? 'Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
   // The list payload carries no envelope, so the surfaces that open this
   // page with one in hand (the outreach drawer, the create flow) pass it on

@@ -131,6 +131,7 @@ import type {
   CivicPanelBuildPlanResponse,
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInput,
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1585,6 +1586,10 @@ export type APIEndpoints = {
   }
   'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
     Request: {}
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
+    Request: MarkCivicPanelBuildStepInput
     Response: CivicPanelBuildPlanResponse
   }
   'GET /v1/contacts/:id': {

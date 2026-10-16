@@ -10,8 +10,12 @@ import {
   CITIZENS_PANEL_PATH,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
-import { civicPanelSummaryQueryOptions } from '../civicPanelSummary.query'
+import {
+  civicPanelPlanQueryOptions,
+  civicPanelSummaryQueryOptions,
+} from '../civicPanelSummary.query'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
+import { CivicPanelProgress } from './CivicPanelProgress'
 
 export const CitizensPanelSection = () => {
   const { isWinContext, isWinContextReady } = useContactsTable()
@@ -21,6 +25,11 @@ export const CitizensPanelSection = () => {
 
   const query = useQuery({
     ...civicPanelSummaryQueryOptions(orgSlug),
+    enabled: show && Boolean(orgSlug),
+  })
+  // Its own read, so a plan that cannot be read only drops the bar.
+  const plan = useQuery({
+    ...civicPanelPlanQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
 
@@ -57,6 +66,7 @@ export const CitizensPanelSection = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{COPY.caption}</p>
       </div>
+      {plan.data ? <CivicPanelProgress progress={plan.data.progress} /> : null}
       {body}
     </section>
   )

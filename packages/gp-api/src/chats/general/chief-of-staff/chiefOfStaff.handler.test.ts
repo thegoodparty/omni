@@ -101,13 +101,15 @@ describe('ChiefOfStaffHandler', () => {
           constituentToolEnabled: false,
         }),
       ),
-      civicPanelBuildState: vi.fn((_slug: string, textingEnabled: boolean) =>
-        Promise.resolve({
-          members: 0,
-          inviteSent: false,
-          textingEnabled,
-          hasPlan: false,
-        }),
+      civicPanelBuildState: vi.fn(
+        (_slug: string, textingEnabled: boolean, goalMembers: number) =>
+          Promise.resolve({
+            members: 0,
+            inviteSent: false,
+            textingEnabled,
+            hasPlan: false,
+            goalMembers,
+          }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
@@ -684,6 +686,7 @@ describe('ChiefOfStaffHandler', () => {
         {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
+          getDistrictPopulation: vi.fn(() => Promise.resolve(105_154)),
         } as unknown as ContactsService,
         {
           findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
@@ -703,8 +706,13 @@ describe('ChiefOfStaffHandler', () => {
       hasPlan?: boolean
     }) => {
       context.civicPanelBuildState = vi.fn(
-        (_slug: string, textingEnabled: boolean) =>
-          Promise.resolve({ hasPlan: false, ...state, textingEnabled }),
+        (_slug: string, textingEnabled: boolean, goalMembers: number) =>
+          Promise.resolve({
+            hasPlan: false,
+            ...state,
+            textingEnabled,
+            goalMembers,
+          }),
       )
     }
 
@@ -730,7 +738,7 @@ describe('ChiefOfStaffHandler', () => {
         'panel so I hear from all of you before I decide.',
       purpose: 'build_citizens_panel' as const,
       civicPanelAsk: true,
-      sampleSize: 3334,
+      sampleSize: 8000,
       deepLinkOnly: false,
     }
 
@@ -779,7 +787,9 @@ describe('ChiefOfStaffHandler', () => {
           `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
       )
       expect(prompt).toContain('`count_contacts` with { hasCellPhone: true }')
-      expect(prompt).toContain('about 100 members')
+      expect(prompt).toContain(
+        'about 240 members, enough to hear back from about 96 of them',
+      )
       expect(prompt).toContain('about 3 in 100 people reply JOIN')
       expect(prompt).toContain('a random group of sendTo residents')
       expect(prompt).toContain(
@@ -836,7 +846,7 @@ describe('ChiefOfStaffHandler', () => {
         await tool.execute({ ...invite, sampleSize: 2767 }),
       ).toHaveProperty(
         'error',
-        expect.stringContaining('Set sampleSize to 3334'),
+        expect.stringContaining('Set sampleSize to 8000'),
       )
       expect(
         await tool.execute({
