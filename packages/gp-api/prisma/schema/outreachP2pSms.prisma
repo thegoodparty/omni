@@ -63,5 +63,16 @@ model OutreachP2pSms {
   peerlyPhoneListId       String?           @map("peerly_phone_list_id")
   settleState             P2pSmsSettleState @default(pending_payment) @map("settle_state")
 
+  // A Stripe promotion code the candidate applied at checkout. Stripe takes the
+  // discount off the hold itself, so authorizedAmountInCents is already net of
+  // it; this records what came off, read from the completed session, so capture
+  // can take it off the final count too and the send cap can add it back.
+  promotionCodeId         String?           @map("promotion_code_id")
+  promoDiscountInCents    Int?              @map("promo_discount_in_cents")
+  // The code covered the whole checkout: Stripe completed the session with no
+  // PaymentIntent, so there is no hold. authorizationIntentId stays null and
+  // capture records the send captured at $0 without calling Stripe.
+  promoCoversTotal        Boolean           @default(false) @map("promo_covers_total")
+
   @@map("outreach_p2p_sms")
 }

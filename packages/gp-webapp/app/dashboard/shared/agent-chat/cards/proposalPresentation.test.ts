@@ -9,6 +9,17 @@ import {
 const KEY = '3f2c1a90-1111-4222-8333-444455556666'
 
 describe('proposalListSample', () => {
+  // A report back is everyone one send reached, frozen, whatever its count.
+  it('freezes a report back to the people the send reached', () => {
+    expect(
+      proposalListSample({
+        proposalKey: KEY,
+        count: 236,
+        reportBackForOutreachId: 77,
+      }),
+    ).toEqual({ size: 236, seedKey: KEY, recipientsOfOutreachId: 77 })
+  })
+
   it('draws the list as the sample, keyed on the proposal', () => {
     expect(
       proposalListSample({
@@ -35,6 +46,27 @@ describe('proposalListSample', () => {
     expect(
       proposalListSample({ proposalKey: KEY, count: 300, sampleSize: 300 }),
     ).toBeUndefined()
+  })
+
+  it('draws the panel and the new residents as one frozen sample', () => {
+    expect(
+      proposalListSample({
+        proposalKey: KEY,
+        count: 18_400,
+        sampleSize: 84,
+        panelSampleSize: 42,
+      }),
+    ).toEqual({ size: 84, panelSize: 42, seedKey: KEY })
+    // Even when the send covers the whole audience, a live list would hold
+    // neither part at its size.
+    expect(
+      proposalListSample({
+        proposalKey: KEY,
+        count: 60,
+        sampleSize: 60,
+        panelSampleSize: 30,
+      }),
+    ).toEqual({ size: 60, panelSize: 30, seedKey: KEY })
   })
 
   it('draws a widen even with no sample to size it, so the asked stay out', () => {

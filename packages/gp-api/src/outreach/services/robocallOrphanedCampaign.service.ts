@@ -7,6 +7,7 @@ export type OrphanReason =
   | 'reauth_restage'
   | 'staging_lost_commit'
   | 'send_failed'
+  | 'cancel'
 
 // Records + reads the queue of PAUSED CallHub campaigns abandoned before they
 // could dial, so the cleanup sweep can ABORT them. Recording is best-effort at

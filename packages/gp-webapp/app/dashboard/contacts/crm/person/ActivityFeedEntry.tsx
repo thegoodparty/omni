@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Badge } from '@styleguide'
-import type {
-  DoorKnockOutcome,
-  FollowUpAnswer,
-  PhoneBankCallOutcome,
-  SupportAnswer,
-  WillVoteAnswer,
+import {
+  CIVIC_PANEL_STATUS_LABELS,
+  type ContactStatusSource,
+  type DoorKnockOutcome,
+  type FollowUpAnswer,
+  type PhoneBankCallOutcome,
+  type SupportAnswer,
+  type WillVoteAnswer,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import type {
@@ -78,6 +80,14 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   do_not_knock: 'Do Not Knock',
   not_a_voter: 'Not A Voter',
   follow_up: 'Follow-up',
+  civic_panel: 'Civic panel',
+}
+
+// Who made a change nobody on the team made: the channel it came in on.
+const SOURCE_SUBJECTS: Partial<Record<ContactStatusSource, string>> = {
+  sms: 'A text reply',
+  door_knock: 'A door knock',
+  phone_banking: 'A call',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
@@ -144,6 +154,11 @@ export const TextActivityRow: React.FC<{
       {activity.data.respondedAt ? (
         <p>Responded {formatDateTime(activity.data.respondedAt)}</p>
       ) : null}
+      {(activity.data.replies ?? []).map((reply, index) => (
+        <p key={index} className="text-foreground">
+          “{reply}”
+        </p>
+      ))}
       {activity.data.optedOutAt ? (
         <p>Opted out {formatDateTime(activity.data.optedOutAt)}</p>
       ) : null}
@@ -263,22 +278,30 @@ export const StatusChangeActivityRow: React.FC<{
 }> = ({ activity }) => {
   const [user] = useUser()
   const isViewer = user != null && user.id === activity.data.actorUserId
-  const actor = isViewer ? 'You' : (activity.data.actorName ?? 'Someone')
+  const actor = isViewer
+    ? 'You'
+    : (activity.data.actorName ??
+      SOURCE_SUBJECTS[activity.data.source] ??
+      'Someone')
   const fieldLabel = STATUS_CHANGE_FIELD_LABELS[activity.data.field]
   const valueClause =
     activity.data.fromLabel === null
       ? `to '${activity.data.toLabel}'`
       : `from '${activity.data.fromLabel}' to '${activity.data.toLabel}'`
   const verb = activity.data.fromLabel === null ? 'set' : 'changed'
+  const sentence =
+    activity.data.field === 'civic_panel' && activity.data.source === 'sms'
+      ? activity.data.toLabel === CIVIC_PANEL_STATUS_LABELS.member
+        ? 'Joined by replying JOIN to a text'
+        : 'Left by replying LEAVE or STOP to a text'
+      : `${actor} ${verb} ${fieldLabel} ${valueClause}`
 
   return (
     <div className="flex flex-col gap-1 mb-3">
       <p className="text-sm font-semibold text-foreground">
         {fieldLabel} updated
       </p>
-      <p className="text-sm font-normal text-muted-foreground">
-        {actor} {verb} {fieldLabel} {valueClause}
-      </p>
+      <p className="text-sm font-normal text-muted-foreground">{sentence}</p>
       <p className="text-sm font-normal text-muted-foreground">
         {formatDateTime(activity.date)}
       </p>

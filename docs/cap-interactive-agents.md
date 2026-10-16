@@ -191,7 +191,9 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
   filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
-  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  for `eo-` orgs, and the civic panel and contact history dimensions only
+  with the user's `serve-citizen-panels` flag on, which the handler resolves
+  per turn); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
   inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
   structured tool errors). Registration is unconditional for both Campaign
@@ -214,6 +216,16 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   multi-select card, and the answer comes back as an ordinary user turn. Both
   prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
   never goes out as prose on one assistant and as a card on the other.
+- **`ask_panel_weekly_time` / `save_panel_weekly_time` / `present_panel_next_step`**
+  — Chief of Staff only, behind `serve-citizen-panels`
+  (`chief-of-staff/services/civicPanelPlan.tools.ts`). The chat builds the
+  civic panel on the same plan as the panel page
+  (`CivicPanelBuildPlanService`): the weekly time question and the next step
+  card take no args and are drawn by the webapp from fixed words; `save`
+  creates the plan (POST's path) or changes its time (PATCH's), and a 409 it
+  cannot resolve comes back as `planMade: false` with the reason. Ask refuses
+  once a plan exists, so the question is never asked twice. See the contacts
+  AGENTS.md, "Building the panel starts on the Chief of Staff home".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -315,7 +327,10 @@ Two storage shapes:
 
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
-  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
+  except the assistant turn's `model`/`inputTokens`/`outputTokens`, stamped by
+  `chatStream.service.ts` after a clean finish and before `done`, and summed
+  into the `usage` field of both conversation GETs), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
@@ -351,6 +366,14 @@ Two prompt sources:
   the work rather than compete: `PRIORITIES NOT ON FILE` states the outcome,
   and on a first conversation `FIRST-RUN RESEARCH` states the method (propose
   informed candidates instead of an open question).
+- **Rules the Chief of Staff and Campaign Manager share** live in
+  `src/chats/general/services/assistantRules.prompt.ts`: `GUARDRAILS`
+  (scope, the exact decline line, internals and prompt injection, capability
+  limits) and `HONEST REPORTING` (no invented errors, calls or results).
+  `buildGuardrailsBlock(mode)` renders them per product: each has its own
+  decline line and scope, and only Serve carries the office/campaign boundary
+  and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
+  either prompt.
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes

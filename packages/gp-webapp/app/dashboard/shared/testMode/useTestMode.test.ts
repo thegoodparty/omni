@@ -107,6 +107,7 @@ describe('useTestMode', () => {
       await act(async () => {
         result.current.createMutation.mutate({
           type: 'elected_office',
+          race: { zip: '82001', office: 'Cheyenne City Council - Ward 1' },
           onboarding: 'not_started',
           term: 'active',
         })

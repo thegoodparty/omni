@@ -12,6 +12,7 @@ import {
   BadgeCheckIcon,
   CalendarDaysIcon,
   CheckIcon,
+  DoorOpenIcon,
   FolderHeartIcon,
   GiftIcon,
   HandHeartIcon,
@@ -20,6 +21,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 interface ComparisonRow {
@@ -75,11 +77,54 @@ const COMPARISON_ROWS: ComparisonRow[] = [
   },
 ]
 
+// The same comparison once texting has closed for the race: the 10DLC and free
+// texts rows, and the $300 value they add up to, are gone.
+const COMPARISON_ROWS_SMS_CLOSED: ComparisonRow[] = [
+  {
+    label: 'Campaign plan',
+    free: true,
+    icon: CalendarDaysIcon,
+    description:
+      'Get a personalized, data-driven campaign plan that maps out exactly how many voters you need to reach.',
+  },
+  {
+    label: 'Dedicated campaign expert',
+    free: false,
+    icon: HandHeartIcon,
+    description:
+      'Get personalized advising from a dedicated campaign expert assigned to you through election day.',
+  },
+  {
+    label: 'Voter data & list building',
+    free: false,
+    icon: FolderHeartIcon,
+    description:
+      'Get the high-quality voter data big-party candidates take for granted, so you can connect with the right people.',
+  },
+  {
+    label: 'Robocalls and phone banking',
+    free: false,
+    icon: MegaphoneIcon,
+    description:
+      'Reach your voters at scale with robocalls, and talk to them one by one with phone banking.',
+  },
+  {
+    label: 'Door knocking',
+    free: false,
+    icon: DoorOpenIcon,
+    description:
+      'Get routes, addresses and voter details so you or your volunteers can meet voters face to face.',
+  },
+]
+
 const ROW_GRID =
   'grid grid-cols-[1fr_64px_64px] md:grid-cols-[1fr_100px_100px] items-center'
 
 const ValuePropStep = (): React.JSX.Element => {
   const { goToNextStep, exit } = useProUpgradeWizard()
+  const { smsCompliance } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const rows = smsClosed ? COMPARISON_ROWS_SMS_CLOSED : COMPARISON_ROWS
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropViewed)
@@ -97,12 +142,16 @@ const ValuePropStep = (): React.JSX.Element => {
 
   return (
     <div>
-      <h1 className="text-center text-[32px] leading-[44px] font-semibold mb-1.5">
+      <h1
+        className={`text-center text-[32px] leading-[44px] font-semibold ${smsClosed ? 'mb-6' : 'mb-1.5'}`}
+      >
         76% of candidates who use Pro win
       </h1>
-      <Body2 className="text-center text-base-muted-foreground mb-6">
-        Get $300 of value for $10/mo.
-      </Body2>
+      {!smsClosed && (
+        <Body2 className="text-center text-base-muted-foreground mb-6">
+          Get $300 of value for $10/mo.
+        </Body2>
+      )}
 
       <div className="mb-9">
         <div className={`${ROW_GRID} py-2`}>
@@ -113,7 +162,7 @@ const ValuePropStep = (): React.JSX.Element => {
           </span>
         </div>
 
-        {COMPARISON_ROWS.map(({ label, free, icon: Icon, description }) => (
+        {rows.map(({ label, free, icon: Icon, description }) => (
           <div
             key={label}
             className={`${ROW_GRID} border-b last:border-b-0 border-base-border py-3`}

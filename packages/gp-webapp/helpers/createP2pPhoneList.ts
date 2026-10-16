@@ -6,7 +6,7 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 export type PhoneListInput = VoterFileFilters & { name?: string }
 
 export interface PhoneListResponse {
-  // Null when an async build (gp-api behind WIN_SMS_HOLD_BILLING) accepts the
+  // Null when an async build (gp-api behind the win_sms_hold_billing flag) accepts the
   // request before it reaches Peerly — the hold then bills/links off
   // `buildId` instead. Non-null on the synchronous path, unchanged.
   token: string | null

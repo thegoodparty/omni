@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, ProBadge } from '@styleguide'
+import { Button, ProBadge, Spinner } from '@styleguide'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   CheckCircleIcon,
   CheckIcon,
   ClipboardListIcon,
+  InfoIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
@@ -16,6 +18,19 @@ import {
   fetchCampaign,
 } from '@shared/hooks/CampaignProvider'
 import Confetti from 'app/dashboard/questions/components/Confetti'
+import {
+  TCR_COMPLIANCE_QUERY_KEY,
+  getTcrCompliance,
+  getTcrComplianceStatusCompletions,
+} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  PIN_NOTICE_BODY,
+  PIN_NOTICE_TITLE,
+  SMS_CUTOFF_COPY,
+  SUBMITTED_BODY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfettiField } from './ConfettiField'
 import { ProReceiptCard } from './ProReceiptCard'
@@ -29,8 +44,7 @@ const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 30000
 
 // What the purchase-only flow (outreach-pro-gating-v2) unlocks the moment Pro
-// activates; filing details and the profile are collected afterwards, in
-// campaign verification.
+// activates; texting still waits on the carriers clearing the campaign.
 const UNLOCKED_ROWS = [
   'Individual voter records for your race',
   'Downloads and targeted lists',
@@ -87,18 +101,54 @@ const SuccessStep = (): React.JSX.Element => {
       !pollExpired && !query.state.data?.isPro ? POLL_INTERVAL_MS : false,
   })
 
+  // The standalone page has no launch channel, and it reads the same as the
+  // texting entry point: both end on verification.
+  const verificationNext = channel === 'sms' || channel === null
+
+  // gp-api's word is final once the window has closed: whatever the filing
+  // says, texting will not open for this race, so a banner replaces the
+  // verification row in either flag state.
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsCutoff = verificationNext && smsCompliance === 'closed'
+
+  // Whether this campaign's filing is already in: the wizard collects it
+  // before payment now, but an already-Pro candidate who never submitted is
+  // routed here too, and still has verification ahead of them.
+  const { data: tcrCompliance, isPending: tcrPending } = useQuery({
+    queryKey: TCR_COMPLIANCE_QUERY_KEY,
+    queryFn: getTcrCompliance,
+    enabled: purchaseOnly && verificationNext && !smsCutoff,
+  })
+  const filingSubmitted =
+    verificationNext &&
+    !smsCutoff &&
+    getTcrComplianceStatusCompletions(tcrCompliance).filingComplete
+
   const handleContinue = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.SuccessContinue)
+    // The route shell's `complete` is campaign verification, which a
+    // submitted filing has nothing left to do in. Inside an outreach flow
+    // `complete` hands back to the gate, which moves on to its own notice.
+    if (purchaseOnly && filingSubmitted && channel === null) {
+      exit()
+      return
+    }
     complete()
   }
 
-  if (purchaseOnly) {
-    // The standalone page has no launch channel, and it hands off to campaign
-    // verification, so it reads the same as the texting entry point.
-    const nextStep =
-      channel === 'sms' || channel === null
-        ? null
-        : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
+  if (purchaseOnly || smsCutoff) {
+    // A disabled query stays pending, so only the verification launches wait.
+    if (verificationNext && !smsCutoff && tcrPending) {
+      return (
+        <div className="flex flex-1 items-center justify-center py-16">
+          <Spinner />
+        </div>
+      )
+    }
+
+    const nextStep = verificationNext
+      ? null
+      : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
 
     // Design: the "paid" screen — confetti through the column, the PRO badge
     // in its circle, the unlocked / still-to-do card, and a footer of Finish
@@ -115,7 +165,11 @@ const SuccessStep = (): React.JSX.Element => {
             <p className="text-[15px] leading-relaxed text-base-muted-foreground">
               {nextStep
                 ? `Payment successful. Your next step is to ${nextStep.noun}.`
-                : VERIFICATION_BODY}
+                : smsCutoff
+                  ? SMS_CUTOFF_COPY.successClosedBody
+                  : filingSubmitted
+                    ? SUBMITTED_BODY
+                    : VERIFICATION_BODY}
             </p>
           </div>
         </div>
@@ -144,53 +198,95 @@ const SuccessStep = (): React.JSX.Element => {
               </ul>
             </div>
           </div>
-          <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
-            {nextStep ? (
-              <ClipboardListIcon
-                className="mt-0.5 size-[18px] shrink-0 text-primary"
-                aria-hidden
-              />
-            ) : (
-              <ShieldCheckIcon
-                className="mt-0.5 size-[18px] shrink-0 text-primary"
-                aria-hidden
-              />
-            )}
-            <div className="flex min-w-0 flex-col gap-2">
-              <p className="font-semibold">
-                {nextStep
-                  ? `Still to do: ${nextStep.noun}`
-                  : 'Still to do: verification'}
-              </p>
-              <p className="text-sm text-base-muted-foreground">
-                {nextStep
-                  ? nextStep.body
-                  : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
-              </p>
+          {!smsCutoff && (
+            <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
+              {nextStep ? (
+                <ClipboardListIcon
+                  className="mt-0.5 size-[18px] shrink-0 text-primary"
+                  aria-hidden
+                />
+              ) : (
+                <ShieldCheckIcon
+                  className="mt-0.5 size-[18px] shrink-0 text-primary"
+                  aria-hidden
+                />
+              )}
+              <div className="flex min-w-0 flex-col gap-2">
+                <p className="font-semibold">
+                  {nextStep
+                    ? `Still to do: ${nextStep.noun}`
+                    : filingSubmitted
+                      ? PIN_NOTICE_TITLE
+                      : 'Still to do: verification'}
+                </p>
+                <p className="text-sm text-base-muted-foreground">
+                  {nextStep
+                    ? nextStep.body
+                    : filingSubmitted
+                      ? PIN_NOTICE_BODY
+                      : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+
+        {smsCutoff && (
+          <Alert variant="info" icon={<InfoIcon />}>
+            <AlertTitle>
+              {SMS_CUTOFF_COPY.closedReason(
+                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+              )}
+            </AlertTitle>
+          </Alert>
+        )}
 
         <ProReceiptCard enabled={Boolean(data?.isPro)} />
 
-        <StepFooter>
-          <Button
-            variant="ghost"
-            size="large"
-            className="w-full sm:w-auto"
-            onClick={exit}
-          >
-            Finish later
-          </Button>
-          <Button
-            size="large"
-            className="w-full sm:w-auto sm:min-w-[360px]"
-            onClick={handleContinue}
-            disabled={!data?.isPro && !pollExpired}
-          >
-            {nextStep ? 'Continue' : 'Start verification'}
-          </Button>
-        </StepFooter>
+        {smsCutoff ? (
+          <StepFooter align="center">
+            <Button
+              size="large"
+              className="w-full sm:w-auto sm:min-w-[360px]"
+              onClick={handleContinue}
+              disabled={!data?.isPro && !pollExpired}
+            >
+              {SMS_CUTOFF_COPY.goToDashboard}
+            </Button>
+          </StepFooter>
+        ) : !nextStep && filingSubmitted ? (
+          // Nothing is left to do here, so the one action is the way on
+          // (design: the pending screen's single centered button).
+          <StepFooter align="center">
+            <Button
+              size="large"
+              className="w-full sm:w-auto sm:min-w-[360px]"
+              onClick={handleContinue}
+              disabled={!data?.isPro && !pollExpired}
+            >
+              {channel === null ? 'Done' : 'Continue'}
+            </Button>
+          </StepFooter>
+        ) : (
+          <StepFooter>
+            <Button
+              variant="ghost"
+              size="large"
+              className="w-full sm:w-auto"
+              onClick={exit}
+            >
+              Finish later
+            </Button>
+            <Button
+              size="large"
+              className="w-full sm:w-auto sm:min-w-[360px]"
+              onClick={handleContinue}
+              disabled={!data?.isPro && !pollExpired}
+            >
+              {nextStep ? 'Continue' : 'Start verification'}
+            </Button>
+          </StepFooter>
+        )}
       </div>
     )
   }

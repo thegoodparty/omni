@@ -156,6 +156,21 @@ describe('buildSystemPrompt', () => {
   it('asks for the legal or professional line on advice-shaped answers, one per reply', () => {
     const out = buildSystemPrompt(baseArgs)
     expect(out).toContain('PROFESSIONAL AND LEGAL CAUTION')
+    expect(out).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('legal_advice', 'briefing_chat')}"`,
+    )
+    expect(out).toContain(
+      `include this line once, in these exact words: "${guardrailLine('professional_advice', 'briefing_chat')}"`,
+    )
+    expect(out).not.toContain('end it with this line')
+    expect(out).not.toContain('or employment or HR advice')
+    expect(out).toContain(
+      'safe, risky, or advisable for human health or public health',
+    )
+    expect(out).toContain(
+      "relaying an agency's guidance or drafting what the user should tell residents",
+    )
+    expect(out).toContain('in place of a caution in your own words, never both')
     expect(out).toContain(guardrailLine('legal_advice', 'briefing_chat'))
     expect(out).toContain(guardrailLine('professional_advice', 'briefing_chat'))
     expect(out).toContain('When both would apply, use the legal line')

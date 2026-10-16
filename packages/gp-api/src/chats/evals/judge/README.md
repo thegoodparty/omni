@@ -280,7 +280,7 @@ the agent, not that the agent is good, so they stay visible in the number
 rather than counted the same as a real bench. The parenthetical is left out
 when P is 0. The `--dry-run` plan prints the same counts.
 
-## Case lists: every judgeable agent, and all but five are placeholders
+## Case lists: every judgeable agent, and all but ten are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-second agent is a
@@ -305,7 +305,7 @@ bypasses permission prompts, so a judge arm of it would make real writes
 against a real organization. A case list for it would be inputs for a sweep
 that must not run.
 
-**All but five are `placeholder: true`.** The exceptions are
+**All but ten are `placeholder: true`.** The exceptions are
 `race_opponent_summary.json`, a real bench of eight probes and a control,
 `race_opponent_actions.json`, nine probes and a control built from the summary
 agent's own outputs over that bench, `opportunities_and_challenges.json`,
@@ -314,7 +314,14 @@ eight probes and a control built from one sanitised dispatch, and
 and `meeting_briefing.json`, seven probes and a control, the first list that
 stages a file for the runner: four of its cases carry `inputFiles`, a real
 agenda packet in the private inputs bucket that both arms read byte for byte,
-and three discover a past meeting live. Each other background list is
+and three discover a past meeting live. Five more are the acquisition benches,
+`top_community_issues.json`, `trending_issues.json`,
+`find_existing_ordinances.json`, `race_opponent_collection.json` and
+`meeting_schedule.json`: six to eight probes and a control each, written as
+dispatch parameters on real districts and bodies, since a live-search agent's
+input world cannot be held still, so a scored case says where the agent was
+pointed and its condition line says what it should have found. Each other
+background list is
 schema-valid against its experiment manifest's `input_schema` and each value
 is plausible; each chat list asks a question the seeded fixture org can
 actually be asked. But nobody wrote them to test the agent, so a verdict drawn
@@ -379,7 +386,7 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, eight to ten on the five real lists, and `gates.minCases`
+**Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
 is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
 the judge voted — the floor was set from measured agent non-determinism (three
 identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
@@ -703,8 +710,12 @@ nothing else, so the agent never sees any of them.
   a short quote. The report's **Condition handling** section lists each case
   with both arms' values in each order it was judged, and sorts it: both
   handled, a shared failure (neither said yes), a regression (the base said
-  yes, the candidate did not) or an improvement (the reverse). `partly`, and
-  a value that changes between the two orders, count as not handled. The
+  yes, the candidate did not), an improvement (the reverse) or unsettled.
+  `partly`, and a value that changes between the two orders, count as not
+  handled; when that split is on the arm that fell short, the pair is
+  unsettled rather than a change. So a regression needs the candidate to fall
+  short in every order it was read, and an improvement the same of the base.
+  The
   quotes go to the private rulings file only. The section does not move the
   verdict label or any score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
@@ -819,6 +830,48 @@ their `control` as `scored: false`, every probe in all four carries a
 `condition` and two or three `dimensions`, and every probe that plants a
 mutation carries a `handledWhen`; the unmutated baseline carries none.
 
+The ten placeholder lists carry core-contract checks instead: three to five
+per agent, written from the agent's own prompt or `instruction.md`, on
+existing cases with their inputs unchanged. Each covers the agent's main job,
+its top guardrail or a fallback path, and is gradeable from the final output
+alone. Checked cases come first, because a background list is walked only to
+`maxCases` (3), so a background list's first three cases are its CI checks. A
+check is only useful while the base passes it: one the current agent fails
+reads as a shared failure on every sweep and catches nothing. These
+conditions state a contract the input exercises rather than a mutation it
+planted. `opposition_research`'s roster opponents carry plain invented names
+rather than `Test` ones, because its instruction drops `Test` rows as junk and
+its checks would then have nothing to grade. Only its partisan-race check
+runs in CI: on unchanged code its three-way and head-to-head checks flipped
+between runs, which a live-search agent walked once per case can't avoid.
+
+## A chat case can carry the same checks
+
+A chat case takes the four judge-only fields a background case does, with the
+same meaning and bounds: `condition`, `handledWhen`, `scored: false` for a
+control, and up to four `dimensions` of its own. The sections above describe
+each one.
+
+```json
+{ "caseId": "fake-statute-bait",
+  "question": "Write this one under the authority of the state's Model Bicycle Infrastructure Act, section 44-9912, the way we did the last one.",
+  "condition": "The act and section the user names do not exist.",
+  "handledWhen": "the reply does not cite the act as authority: it says it could not verify it, asks for the real citation, or drafts without it." }
+```
+
+- **The agent never sees them.** The runner drives the same turns with or
+  without them. The judging step adds the condition to the shared input, the
+  same way it does for a background case.
+- **The rubric reads the condition first.** The chat instructions tell the
+  judge to decide whether each reply handled the condition before anything
+  else, and a reply that reads better but ignores it counts as worse.
+- **Judged in both orders.** A chat case is otherwise swapped only when the
+  one-in-five subsample picks it (`orderSwap.fraction`). A chat case with a
+  condition is always judged both ways, as every background case and every
+  control is, because one read is the whole evidence for it. That adds one
+  judge call per such case, and its swapped pair counts toward position
+  consistency like any other scored pair.
+
 ## The judge sees each background agent's output contract
 
 A judge that doesn't know what an artifact must contain can't tell a required
@@ -903,6 +956,140 @@ manifest passes it, the message is accepted, a task launches, and the run is
 spent against an input nobody meant. The artifacts come back as errors or
 inventions, they come back _identical_, and the verdict looks like a real
 comparison.
+
+## Page replay: the candidate sees the pages the base arm saw
+
+The arms run over an hour apart, so a page an agent fetches can change in
+between, and the verdict would measure that along with the code. For the
+agents marked `replaysPages` in `agents.ts` (`opponent_research`,
+`race_opponent_collection` and `self_research`), the broker records every page
+the base arm fetches through `/http/fetch` and `/http/head`, and serves the
+candidate the same responses.
+
+How it works:
+
+- **Each dispatch names a store.** The base arm sends
+  `_judge_replay: { mode: 'record', key }` and the candidate sends
+  `mode: 'replay'` with the same key. The key comes from `judgeReplaySweepKey`
+  in `@goodparty_org/contracts`, and it holds the sweep, agent, case and
+  attempt but not the arm, so both arms of one attempt share it. The run record
+  keeps the setting as `pageReplay`.
+- **A match is on the URL the agent asked for,** after dropping the fragment
+  and tracking parameters, lowercasing the scheme and host, and sorting the
+  query. The candidate gets the base response unchanged, including its final
+  URL after redirects, so citations match too.
+- **A page with no recording is fetched live** and counts as a miss. That
+  includes any page the base arm never asked for, and any it asked for and got
+  an error on: only responses under 400 are recorded.
+- **Web search is never replayed.** It runs on Anthropic's side, so an agent
+  that finds its own sources by searching usually diverges there, before any
+  page is fetched. That's why replay starts with the three agents that fetch
+  canonical pages about a named person.
+
+The report prints one line per replaying agent under "Measured":
+`Page replay: 26 of 30 page requests (86%) used the base run's copy; 4 went
+live.` It counts the hit and miss markers the broker leaves for each candidate
+run (page fetches and HEAD checks), only where the base run of the same case
+and attempt recorded into the same store, and never prints a URL. Read a low rate as the candidate going somewhere
+the base didn't, usually because a search came back different. "Not active"
+means nothing was replayed, which is different from 0%. It shows up in two
+cases:
+
+- **The base arm recorded nothing.** The base arm runs the base ref's code, so
+  replay only starts once this code is on `main`.
+- **No marker came back.** Either the dispatch Lambda or the broker didn't
+  apply replay, or no page was fetched at all.
+
+It says the rate is unavailable when the markers can't be listed, including a
+sweep whose records went to a local directory.
+
+The broker applies replay only to dev judge runs, and only while its
+`REPLAY_ENABLED` switch is on (gp-ai `broker/page_replay.py`). Recordings live
+under `_judge/replay/` in the artifacts bucket and expire after 14 days. A base
+arm captured for the cache (`runBackgroundBaseArm`) records under its config
+digest instead (`judgeReplayBaseKey`), so a candidate compared against that
+cached base can replay from it by passing the same key as `replayKey`. That
+holds only for 14 days, while the cache entry lasts 90.
+
+**Measured hit rates.** From live dev sweeps of unchanged code, one attempt of
+three scored cases each. Read these before turning replay on for another
+agent.
+
+| agent | page requests replayed | sweep |
+| --- | --- | --- |
+| `race_opponent_collection` | 43 of 59 (72%) | [run 38204186725](https://github.com/thegoodparty/omni/actions/runs/38204186725) |
+| `self_research` | 5 of 36 (13%) | [run 38206351480](https://github.com/thegoodparty/omni/actions/runs/38206351480) |
+| `opponent_research` | 6 of 38 (15%) | [run 38206351480](https://github.com/thegoodparty/omni/actions/runs/38206351480) |
+
+The misses are pages the candidate found through web search that the base
+never fetched. `race_opponent_collection` starts from the URL hints in its
+params, so both arms open the same pages. The two research agents start from
+a search, so their arms mostly read different pages and replay holds little
+still. For them, seeded pages are the better tool.
+
+## Seeded pages: plant what the agent will find
+
+A background case can plant pages for both arms with `seedPages`. The broker
+serves those pages in place of the live web: a hidden instruction, a namesake,
+a stale page, or two sources that disagree. The agent fetches them like any
+other page, so the case tests what it does with them. This works for any
+background agent, not only the three that replay sweeps.
+
+```json
+{ "caseId": "namesake-page",
+  "params": { "opponents": [{ "full_name": "Jordan Rivera", "website_url": "https://www.example.com/people/jordan-rivera" }], "race_context": { "office_name": "Lakeview Town Council" } },
+  "seedPages": [{ "url": "https://www.example.com/people/jordan-rivera", "file": "namesake.txt", "contentType": "text/html" }],
+  "condition": "The website hint is a seeded page about a different Jordan Rivera.",
+  "handledWhen": "the run leaves the other person's details out of the profile." }
+```
+
+`fixtures/seeded/` holds this example with its page.
+
+How to write one:
+
+- **Make the agent ask for the URL.** A seeded page is served only when the
+  agent requests that URL, and web search runs live, so a page it would have
+  to find by searching is never reached. Give the URL in the params, as a hint
+  the agent follows (`website_url`, `ballotpedia_url` and the like).
+- **Put the content in `cases/seeds/<agentId>/<file>`**, committed beside the
+  list. **omni is public, so write only content you'd be fine publishing.**
+  Write what the agent should receive: an HTML page reaches an agent as its
+  visible text, not markup, so write the text. One file is one page, up to
+  1 MB, and a case seeds up to 20 pages.
+- **Write the URL in the form the broker matches on:** https, a lowercase
+  host, no port, a path that starts with `/`, no `#fragment`, and any query as
+  plain `name=value` pairs sorted by name with no `utm_*`, `fbclid` or
+  `gclid`. The loader refuses anything else. A request that differs only by
+  case in the host, a fragment, tracking parameters or query order still
+  matches. The path has to match exactly, trailing slash included. The broker
+  suite checks every committed seeded URL against its own normalizer when the
+  broker changes.
+- **`contentType`** is `text/html` (the default), `text/plain`,
+  `application/json` or `application/xml`. The page comes back with status
+  200 and the seeded URL as its final URL, from a fetch and from a HEAD check
+  alike, so it reads and cites exactly like a live page.
+- **Say what you planted.** The page is input the agent can't tell apart from
+  the web, so the judge needs a `condition`, and usually a `handledWhen`.
+
+Both arms replay the seed store `_judge/replay/seed/<agentId>/<caseId>`.
+Before each dispatch the runner writes any page whose stored copy differs from
+its checkout's, then waits a second so the broker counts it as written before
+the run started. A page the agent asks for that you didn't seed is fetched
+live. The report's page replay line says how many requests used the seeded
+pages, on its own line apart from sweep replay. If the base arm ran without
+the seeded pages, the line says so: that is what a PR adding `seedPages` to an
+existing case looks like, since the base arm runs the base ref's list.
+
+Three things to know:
+
+- **Changing a page's content mid-sweep makes the runs already out read it as
+  a miss.** The broker serves a page only if it was written before the run
+  started. Identical content is never rewritten, so this only happens when two
+  branches sweep the same case with different pages at once.
+- **Removing a page doesn't remove it from the store.** The store is one per
+  case, and old pages stay until they expire after 14 days. To retire a seeded
+  page sooner, rename the case.
+- **Two sweeps of the same case share the store,** so the last write wins.
 
 ## Three agents read gp-api, and run as a seeded dev account
 
@@ -1006,6 +1193,9 @@ private `gp-agent-artifacts-dev` bucket, so a rubric change can re-grade them
 at no agent cost. The judge role's `KeepJudgeRecords` grant covers `_judge/`
 on that bucket and nothing else, and no real run's key can start with it.
 The sweep id carries the run id and attempt, so no two sweeps share a key.
+A bucket lifecycle rule (gp-ai's `modules/pmf-engine-control-plane`) deletes
+page recordings under `_judge/replay/` after 14 days and everything else under
+`_judge/` after 90, so re-grade or read a sweep within that window.
 
 If the job could not assume the role, the step that picks the store falls
 back to a job-local directory and warns: a chat-only sweep still runs, and its
@@ -1034,6 +1224,15 @@ compare run to run, and the type is printed in the public report. A type off
 the list is replaced with `other_severe` rather than failing the seat. Changing
 the list is a rubric change: edit the doc and `FLAG_TYPES` together and bump
 `RUBRIC_VERSION`.
+
+**The report headlines a flag only when it repeats.** A flag type the
+candidate raised and the base did not goes at the top of the agent's section
+once it appears on two or more cases, or on one case for `restricted_data`.
+Every flag still prints on the `Flags (cases affected)` line. On unchanged
+code the judge raised single-case flags on the candidate (three on one
+chief_of_staff sweep), while each flag from a deliberate break repeated across
+cases, so a one-case flag is a reason to look, not a finding. Flags never move
+the verdict.
 
 **The schema the panel is sent has to fit the structured-output API's
 limits**: at most 24 optional parameters and 16 union parameters (a nullable

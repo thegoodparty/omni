@@ -1,6 +1,10 @@
 import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import {
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FIELD,
+  CIVIC_PANEL_JOINED_BY_FIELD,
+  CONTACT_HISTORY_FIELD,
+  DAY_RANGE_FILTER_KEYS,
   RECOMMENDED_LIST_FILTER_FIELDS,
   RECOMMENDED_LIST_FILTER_OPTION_KEYS,
 } from './recommendedListFilters.config'
@@ -9,9 +13,10 @@ import type { SupportStatusRollup } from './contacts-types'
 // Single source of truth for the voter-file filter → backend field mapping
 // (ENG-10708): every surface that builds a filter payload imports these maps
 // rather than restating them, so two surfaces can never send diverging
-// payloads for the same selection.
+// payloads for the same selection. Every key is a pill (boolean) except the
+// day ranges (DAY_RANGE_FILTER_KEYS), which hold a YYYY-MM-DD string.
 export interface VoterFileFilters {
-  [key: string]: boolean
+  [key: string]: boolean | string
 }
 
 export interface VoterFileBackendFilters extends Record<string, unknown> {
@@ -60,6 +65,9 @@ const ALL_FILTER_FIELDS = [
   ...filterSections.flatMap((section) => section.fields),
   ...RECOMMENDED_LIST_FILTER_FIELDS,
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FIELD,
+  CIVIC_PANEL_JOINED_BY_FIELD,
+  CONTACT_HISTORY_FIELD,
 ]
 const PARTY_FIELD = ALL_FILTER_FIELDS.find(
   (field) => field.key === 'political_party',
@@ -120,6 +128,12 @@ export const transformVoterFileFiltersForBackend = (
   result.incomeRanges = incomeRanges
   result.incomeUnknown = !!filters.incomeUnknown
 
+  // Null rather than omitted, so an edit clears a cleared day.
+  for (const key of DAY_RANGE_FILTER_KEYS) {
+    const day = filters[key]
+    result[key] = typeof day === 'string' && day ? day : null
+  }
+
   return result
 }
 
@@ -153,6 +167,11 @@ export const segmentToVoterFileFilters = (
     if (incomeRanges.includes(range)) filters[key] = true
   }
   if (segment.incomeUnknown === true) filters.incomeUnknown = true
+
+  for (const key of DAY_RANGE_FILTER_KEYS) {
+    const day = segment[key]
+    if (typeof day === 'string' && day) filters[key] = day.slice(0, 10)
+  }
 
   return filters
 }

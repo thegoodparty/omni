@@ -19,6 +19,8 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   // Unavailable, not none: the fixture has a race and an election date, so
   // "no race linked" would contradict the ballot tool the evals register. The
   // one sentence this adds is the same for every case built on the fixture.
@@ -41,6 +43,9 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   isPro: null,
   story: null,
   plan: null,
+  // Not live: a fictional candidate has nothing published, and the evals
+  // built on this fixture never ask for the address.
+  publicProfile: { status: 'not-live' },
 }
 
 // BallotReady returning a full filing record for the race.

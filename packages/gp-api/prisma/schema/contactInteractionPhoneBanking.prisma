@@ -37,6 +37,12 @@ model ContactInteractionPhoneBanking {
   // call. Same column the door-knock model carries, for the same question.
   // Null on every Win row and on anything logged before Serve calls asked it.
   followUp           FollowUpAnswer?      @map("follow_up")
+  // Serve's closing question on an answered call, the twin of the door-knock
+  // column: what this call heard, not the standing `civic_panel` status.
+  joinCivicPanel     FollowUpAnswer?      @map("join_civic_panel")
+  // Asked instead on a list of panel members only: did they want to stay on
+  // it. A no takes them off the panel; join_civic_panel stays null.
+  stayOnCivicPanel   FollowUpAnswer?      @map("stay_on_civic_panel")
   note               String?
   manual             Boolean              @default(false)
   // ENG-10946: the caller who logged this row. Null on rows written before

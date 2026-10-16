@@ -18,9 +18,15 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
+import { guardrailLine } from '../services/guardrailLines'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import type { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -48,9 +54,16 @@ const buildBriefings = (): ChiefOfStaffBriefingsService =>
     })),
   }) as unknown as ChiefOfStaffBriefingsService
 
-const TEST_TABLES = [
-  { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
-]
+const TEST_TABLES = {
+  voters: [
+    { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
+  ],
+  constituents: [
+    { table: 'constituent_aggregates_all', dimensions: ['age_band', 'gender'] },
+  ],
+}
+
+const NO_TABLES = { voters: [], constituents: [] }
 
 describe('ChiefOfStaffHandler', () => {
   let context: ChiefOfStaffContextService
@@ -89,6 +102,14 @@ describe('ChiefOfStaffHandler', () => {
           constituentToolEnabled: false,
         }),
       ),
+      civicPanelBuildState: vi.fn(() =>
+        Promise.resolve({
+          members: 0,
+          inviteSent: false,
+          hasPlan: false,
+          goalMembers: 240,
+        }),
+      ),
     } as unknown as ChiefOfStaffContextService
   })
 
@@ -108,7 +129,12 @@ describe('ChiefOfStaffHandler', () => {
     }) as unknown as DistrictResolverService
 
   it('is a sensitive, Anthropic-only scope', () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     expect(handler.scope).toBe(ChatScope.chief_of_staff)
     expect(handler.isSensitive).toBe(true)
     expect(handler.models).toEqual([...CHIEF_OF_STAFF_MODELS])
@@ -116,7 +142,12 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
     // web_search is always present now (Anthropic native, gated at the LLM
@@ -133,13 +164,23 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('includes web_search (Anthropic native, no provider needed)', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
   })
 
   it('builds a governance system prompt grounded in the context', async () => {
-    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
+    const handler = new ChiefOfStaffHandler(
+      context,
+      buildBriefings(),
+      port,
+      NO_TABLES,
+    )
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('Chief of Staff')
@@ -182,7 +223,7 @@ describe('ChiefOfStaffHandler', () => {
       context,
       buildBriefings(),
       port,
-      [],
+      NO_TABLES,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
     )
@@ -251,7 +292,7 @@ describe('ChiefOfStaffHandler', () => {
         contextWithAnchor,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
@@ -294,7 +335,7 @@ describe('ChiefOfStaffHandler', () => {
         contextWithAnchor,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
@@ -309,7 +350,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         communityPort,
@@ -325,7 +366,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
@@ -356,7 +397,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -404,7 +445,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -450,7 +491,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -617,13 +658,274 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
+  describe('building the civic panel', () => {
+    const buildPanelHandler = (flags: { panels: boolean }) => {
+      const features = {
+        isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
+          Promise.resolve(
+            feature === 'serve-citizen-panels' ? flags.panels : false,
+          ),
+        ),
+      }
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+          getDistrictPopulation: vi.fn(() => Promise.resolve(105_154)),
+        } as unknown as ContactsService,
+        {
+          findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+        } as unknown as VoterFileFilterService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        features as never,
+        undefined,
+        undefined,
+        {} as CivicPanelBuildPlanService,
+      )
+      return { handler, features }
+    }
+
+    const withPanel = (state: {
+      members: number
+      inviteSent: boolean
+      hasPlan?: boolean
+    }) => {
+      context.civicPanelBuildState = vi.fn(() =>
+        Promise.resolve({ hasPlan: false, goalMembers: 240, ...state }),
+      )
+    }
+
+    const promptFor = async () => {
+      const { handler } = buildPanelHandler({ panels: true })
+      return handler.buildSystemPrompt(await handler.loadContext('c1', USER_ID))
+    }
+
+    const PLAN_TOOLS = [
+      'ask_panel_weekly_time',
+      'save_panel_weekly_time',
+      'present_panel_next_step',
+    ]
+
+    it('registers the plan tools, and no single invite text', async () => {
+      const { handler } = buildPanelHandler({ panels: true })
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).toEqual(expect.arrayContaining(PLAN_TOOLS))
+      expect(Object.keys(tools)).not.toContain('size_panel_invite')
+      expect(
+        Object.keys(
+          (
+            tools.present_outreach_proposal as unknown as {
+              inputSchema: { shape: object }
+            }
+          ).inputSchema.shape,
+        ),
+      ).toEqual(
+        Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
+      )
+    })
+
+    it('explains, then asks the weekly time question and makes the plan from the answer', async () => {
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        "CIVIC PANEL (apply when the user's message is exactly " +
+          `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
+      )
+      expect(prompt).toContain('- Explain what a civic panel is')
+      expect(prompt).toContain(
+        'call `ask_panel_weekly_time` with nothing after it',
+      )
+      expect(prompt).toContain(
+        'never write the question or the answers yourself',
+      )
+      expect(prompt).toContain(
+        'call `save_panel_weekly_time` with the hours: 4 for "4 or more ' +
+          'hours a week"',
+      )
+      expect(prompt).toContain(
+        'When it returns saved "created", call `present_panel_next_step`',
+      )
+      expect(prompt).toContain(
+        'Never propose a text, a list or any other outreach to build the ' +
+          'panel',
+      )
+      expect(prompt).not.toContain('size_panel_invite')
+      expect(prompt).not.toContain('civicPanelAsk true')
+    })
+
+    it('says what to do when no plan can be made, pointing at the panel page', async () => {
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'When it returns planMade false, no plan could be made.',
+      )
+      expect(prompt).toContain(
+        'link their panel page as [See your civic panel](/dashboard/contacts/citizens-panel)',
+      )
+    })
+
+    it('shows the plan an office already has and never asks again', async () => {
+      withPanel({ members: 3, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'They already have a plan to build it. Never ask the weekly time ' +
+          'question again. Call `present_panel_next_step`',
+      )
+      expect(prompt).not.toContain(
+        'call `ask_panel_weekly_time` with nothing after it',
+      )
+      expect(prompt).toContain('"I can give 2 hours now"')
+      expect(prompt).toContain('When it returns saved "updated"')
+    })
+
+    it('grows a panel with members but no plan through the same question', async () => {
+      withPanel({ members: 42, inviteSent: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'They already have 42 people on their civic panel',
+      )
+      expect(prompt).toContain(
+        'call `ask_panel_weekly_time` with nothing after it',
+      )
+      expect(prompt).not.toContain('- Explain what a civic panel is')
+    })
+
+    it('asks nothing of a panel at its goal', async () => {
+      withPanel({ members: 240, inviteSent: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'Their civic panel already has 240 people, its goal.',
+      )
+      expect(prompt).not.toContain(
+        'call `ask_panel_weekly_time` with nothing after it',
+      )
+    })
+
+    it('says the invite is out, then plans the calls and doors', async () => {
+      withPanel({ members: 0, inviteSent: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain('Their panel invite already went out')
+      expect(prompt).toContain(
+        'call `ask_panel_weekly_time` with nothing after it',
+      )
+    })
+
+    it('links the panel page when the plan tools are not there', async () => {
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          isFeatureEnabled: vi.fn(() => Promise.resolve(true)),
+        } as never,
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'ask_panel_weekly_time',
+      )
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'link it as [Build your civic panel](/dashboard/contacts/citizens-panel)',
+      )
+    })
+
+    // Two lines a build reply produced: "not just the people who already
+    // reach out" (banned word) and "the panel ends up looking like
+    // Asheville" (a representativeness claim the panel brief forbids).
+    it('bans "just" and any claim that the panel looks like the community', async () => {
+      const prompt = await promptFor()
+      const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
+      expect(civicPanel).toContain('Never use the word "just".')
+      expect(civicPanel).toContain(
+        'Never say or imply the panel will look like, match, mirror or ' +
+          'represent the district, the city or the community.',
+      )
+      expect(civicPanel).not.toContain('looks like the district')
+      const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))
+      expect(explained).toContain('Never use the word "just".')
+    })
+
+    describe("What's a civic panel?", () => {
+      it('explains the panel and asks before building anything', async () => {
+        const prompt = await promptFor()
+        expect(prompt).toContain(
+          "CIVIC PANEL EXPLAINED (apply when the user's message is exactly " +
+            `"${EXPLAIN_CIVIC_PANEL_MESSAGE}"`,
+        )
+        expect(prompt).toContain('They asked what it is, not to build one.')
+        expect(prompt).toContain('do they want to build theirs?')
+        expect(prompt).toContain(
+          'The app shows a Build my panel button under your reply that ' +
+            'starts it here',
+        )
+        expect(prompt).toContain(
+          'Skip this when you already explained the panel earlier in this ' +
+            'conversation',
+        )
+        expect(prompt).toContain(
+          'never count the district, size an invite, draft a text or ' +
+            'present a card',
+        )
+        expect(prompt).toContain(
+          'Never call it representative, a poll, a survey panel, a focus ' +
+            'group or proprietary.',
+        )
+      })
+
+      it('offers no build to an office that already has members', async () => {
+        withPanel({ members: 42, inviteSent: true })
+        const prompt = await promptFor()
+        expect(prompt).toContain(
+          'they already have 42 people on their civic panel',
+        )
+        expect(prompt).not.toContain('do they want to build theirs?')
+      })
+
+      it('offers no build once the invite is out', async () => {
+        withPanel({ members: 0, inviteSent: true })
+        const prompt = await promptFor()
+        expect(prompt).toContain('their panel invite already went out')
+        expect(prompt).not.toContain('do they want to build theirs?')
+      })
+    })
+
+    it('is unchanged with serve-citizen-panels off', async () => {
+      const { handler } = buildPanelHandler({ panels: false })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(ctx.civicPanel).toBeUndefined()
+      expect(context.civicPanelBuildState).not.toHaveBeenCalled()
+      for (const name of PLAN_TOOLS) {
+        expect(Object.keys(tools)).not.toContain(name)
+      }
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
+    })
+  })
+
   describe('shared cards and past outreach', () => {
     const buildPastOutreachHandler = (outreach?: PriorityFlowOutreachService) =>
       new ChiefOfStaffHandler(
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -651,6 +953,53 @@ describe('ChiefOfStaffHandler', () => {
       expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
     })
 
+    it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
+      const outreach = {
+        forOffice: vi.fn(() => Promise.resolve([])),
+      } as unknown as PriorityFlowOutreachService
+      const build = (enabled: boolean) => {
+        const features = {
+          isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+        }
+        const handler = new ChiefOfStaffHandler(
+          context,
+          buildBriefings(),
+          port,
+          NO_TABLES,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          outreach,
+          undefined,
+          undefined,
+          features as never,
+        )
+        return { handler, features }
+      }
+
+      const on = build(true)
+      const onCtx = await on.handler.loadContext('c1', USER_ID)
+      expect(on.features.isFeatureEnabled).toHaveBeenCalledWith({
+        user: USER_ID,
+        feature: 'serve-citizen-panels',
+      })
+      expect(Object.keys(on.handler.buildTools(onCtx))).toContain(
+        'read_outreach_feedback',
+      )
+
+      const off = build(false)
+      const offCtx = await off.handler.loadContext('c1', USER_ID)
+      expect(Object.keys(off.handler.buildTools(offCtx))).not.toContain(
+        'read_outreach_feedback',
+      )
+      expect(off.handler.buildSystemPrompt(offCtx)).not.toContain(
+        'read_outreach_feedback',
+      )
+    })
+
     it('omits the past-outreach tools without the service', async () => {
       const handler = buildPastOutreachHandler(undefined)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
@@ -671,7 +1020,7 @@ describe('ChiefOfStaffHandler', () => {
         context,
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
         undefined,
         undefined,
         undefined,
@@ -721,7 +1070,7 @@ describe('ChiefOfStaffHandler', () => {
         buildCtx(),
         buildBriefings(),
         port,
-        [],
+        NO_TABLES,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
@@ -750,54 +1099,94 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe('finalizeAssistantText (professional-advice backstop)', () => {
-    it('appends the disclaimer to an eval-style legal-advice answer', () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        [],
+  describe('finalizeAssistantText (guardrail backstops)', () => {
+    const LEGAL = guardrailLine('legal_advice', 'chief_of_staff')
+    const SMALL = guardrailLine('small_count', 'chief_of_staff')
+    const HANDOFF = guardrailLine('handoff_draft', 'chief_of_staff')
+    const noTools = { toolEvents: [] }
+    const returned = (name: string, result: unknown) => ({
+      toolEvents: [
+        {
+          toolCallId: `call-${name}`,
+          name,
+          args: {},
+          status: 'returned' as const,
+          result,
+        },
+      ],
+    })
+    const handler = () =>
+      new ChiefOfStaffHandler(context, buildBriefings(), port, NO_TABLES)
+    // The CoS eval failure that shipped with no caution: a statute citation,
+    // a colleague's criminal exposure, and a complaint-filing path.
+    const legalAnswer =
+      'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
+      'voted anyway could face criminal liability, and a resident can ' +
+      'file a complaint with the county prosecutor.'
+
+    it('ends an uncautioned legal reading with the legal line', () => {
+      expect(handler().finalizeAssistantText(legalAnswer, noTools)).toBe(
+        `\n\n${LEGAL}`,
       )
-      // The CoS eval failure that shipped with no disclaimer: a statute
-      // citation, a colleague's criminal exposure, and a complaint-filing
-      // path. Nothing appended a disclaimer before this change; the backstop
-      // does now.
-      const answer =
-        'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
-        'voted anyway could face criminal liability, and a resident can ' +
-        'file a complaint with the county prosecutor.'
-      const appended = handler.finalizeAssistantText(answer)
-      expect(appended?.startsWith('\n\n')).toBe(true)
-      expect(appended).toContain('qualified professional')
     })
 
     it('leaves an ordinary office answer untouched', () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        [],
-      )
       expect(
-        handler.finalizeAssistantText(
+        handler().finalizeAssistantText(
           'Turnout in your district was about 65% last cycle.',
+          noTools,
         ),
       ).toBeNull()
     })
 
-    it("does not double the model's own disclaimer", () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        [],
-      )
+    it('reads a bare section number in a summary as no legal signal', () => {
       expect(
-        handler.finalizeAssistantText(
-          'RCW 42.30 applies. This is not a substitute for professional ' +
-            'advice; check with your city attorney.',
+        handler().finalizeAssistantText(
+          'Item 4 amends § 3.2 of the fee schedule; staff recommend approval.',
+          noTools,
         ),
       ).toBeNull()
+    })
+
+    it("adds no second caution to the model's own", () => {
+      expect(
+        handler().finalizeAssistantText(
+          'RCW 42.30 applies. This is not a substitute for professional ' +
+            'advice; check with your city attorney.',
+          noTools,
+        ),
+      ).toBeNull()
+    })
+
+    it('adds the small-count line when a data result reports suppressed rows', () => {
+      expect(
+        handler().finalizeAssistantText(
+          'Residents under 30 lean toward the levy.',
+          returned('query_constituent_data', { rows: [], rowsSuppressed: 2 }),
+        ),
+      ).toBe(`\n\n${SMALL}`)
+    })
+
+    it('adds the handoff line when compose_handoff returned', () => {
+      expect(
+        handler().finalizeAssistantText(
+          'The drawer is open with your post.',
+          returned('compose_handoff', { ok: true }),
+        ),
+      ).toBe(`\n\n${HANDOFF}`)
+    })
+
+    it('stacks legal, then small count, then handoff', () => {
+      const turn = {
+        toolEvents: [
+          ...returned('query_constituent_data', { rows: [], rowsSuppressed: 1 })
+            .toolEvents,
+          ...returned('compose_handoff', { ok: true }).toolEvents,
+        ],
+      }
+      expect(handler().finalizeAssistantText(legalAnswer, turn)).toBe(
+        `\n\n${LEGAL}\n\n${SMALL}\n\n${HANDOFF}`,
+      )
     })
   })
 })

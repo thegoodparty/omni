@@ -7,7 +7,12 @@ import { hoursToMilliseconds } from 'date-fns'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
-import { CaseListError, type CaseJudging, type CaseList } from './cases'
+import {
+  CaseListError,
+  parseCaseList,
+  type CaseJudging,
+  type CaseList,
+} from './cases'
 import type { ContractRead } from './outputContract'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
@@ -1313,7 +1318,9 @@ describe('judgeSweep asks a case its own dimensions', () => {
     expect(result.report.refusals).toEqual([
       {
         agentId: 'meeting_briefing',
-        reason: 'meeting_briefing.json: not valid JSON',
+        reason: expect.stringMatching(
+          /could not read the agent's case list.*not valid JSON/,
+        ),
       },
     ])
   })
@@ -1900,5 +1907,311 @@ describe('what a sweep actually spent', () => {
     )
     expect(result.report.actualCost).toBeUndefined()
     expect(result.markdown).not.toContain('Actual cost')
+  })
+})
+
+describe('the page replay line', () => {
+  const KEY = '_judge/replay/sweep/swp/chief_of_staff/case-0-1'
+  const replaying = (baseRecords: boolean): RunRecord[] =>
+    pair('case-0', ['base answer', 'candidate answer']).map((record) =>
+      record.arm === 'candidate'
+        ? { ...record, pageReplay: { mode: 'replay', key: KEY } }
+        : baseRecords
+          ? { ...record, pageReplay: { mode: 'record', key: KEY } }
+          : record,
+    )
+  const counting = (
+    store: RecordStore,
+    replayOutcomes: RecordStore['replayOutcomes'],
+  ): RecordStore => ({ ...store, replayOutcomes })
+
+  it('reports how many candidate fetches the base run served', async () => {
+    const asked: string[] = []
+    const store = counting(await seeded(replaying(true)), async (_, runId) => {
+      asked.push(runId)
+      return { hits: 3, misses: 1 }
+    })
+
+    const result = await run(store)
+
+    expect(asked).toEqual([`${BASE.sweepId}:case-0:candidate:1`])
+    expect(result.markdown).toContain(
+      "Page replay: 3 of 4 page requests (75%) used the base run's copy; " +
+        '1 went live.',
+    )
+  })
+
+  it('says the counts came from the seeded pages on a seeded case', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-0'
+    const records = pair('case-0', ['base answer', 'candidate answer']).map(
+      (record) => ({
+        ...record,
+        pageReplay: { mode: 'replay' as const, key: SEED },
+      }),
+    )
+    const store = counting(await seeded(records), async () => ({
+      hits: 2,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'Page replay: 2 of 2 page requests (100%) used the seeded pages',
+    )
+  })
+
+  it('says when the base arm ran without the seeded pages', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-0'
+    const records = pair('case-0', ['base answer', 'candidate answer']).map(
+      (record) =>
+        record.arm === 'candidate'
+          ? { ...record, pageReplay: { mode: 'replay' as const, key: SEED } }
+          : record,
+    )
+    const store = counting(await seeded(records), async () => ({
+      hits: 1,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'The base arm ran without the seeded pages',
+    )
+  })
+
+  it('keeps seeded and replayed counts on separate lines', async () => {
+    const SEED = '_judge/replay/seed/chief_of_staff/case-1'
+    const records = [
+      ...replaying(true),
+      ...pair('case-1', ['base one', 'candidate one']).map((record) => ({
+        ...record,
+        pageReplay: { mode: 'replay' as const, key: SEED },
+      })),
+    ]
+    const store = counting(await seeded(records), async (replay) =>
+      replay.key === SEED ? { hits: 1, misses: 0 } : { hits: 0, misses: 2 },
+    )
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      "0 of 2 page requests (0%) used the base run's copy",
+    )
+    expect(result.markdown).toContain(
+      '1 of 1 page requests (100%) used the seeded pages',
+    )
+  })
+
+  it('says replay was not active when the base arm recorded nothing', async () => {
+    const replayOutcomes = vi.fn(async () => ({ hits: 0, misses: 4 }))
+    const store = counting(await seeded(replaying(false)), replayOutcomes)
+
+    const result = await run(store)
+
+    expect(result.markdown).toContain(
+      'Page replay: not active. The base arm recorded nothing',
+    )
+    expect(replayOutcomes).not.toHaveBeenCalled()
+  })
+
+  it('counts nothing when the base recorded into another store', async () => {
+    const replayOutcomes = vi.fn(async () => ({ hits: 0, misses: 4 }))
+    const records = replaying(true).map((record) =>
+      record.arm === 'base'
+        ? {
+            ...record,
+            pageReplay: { mode: 'record' as const, key: `${KEY}0` },
+          }
+        : record,
+    )
+    const store = counting(await seeded(records), replayOutcomes)
+
+    const result = await run(store)
+
+    expect(result.report.pageReplay).toEqual([
+      { agentId: 'chief_of_staff', state: 'inactive', why: 'keyMismatch' },
+    ])
+    expect(replayOutcomes).not.toHaveBeenCalled()
+  })
+
+  it('says replay was not active, never 0%, when no marker came back', async () => {
+    const store = counting(await seeded(replaying(true)), async () => ({
+      hits: 0,
+      misses: 0,
+    }))
+
+    const result = await run(store)
+
+    expect(result.report.pageReplay).toEqual([
+      { agentId: 'chief_of_staff', state: 'inactive', why: 'noMarkers' },
+    ])
+    expect(result.markdown).not.toContain('Page replay: 0 of')
+  })
+
+  it('says the rate is unavailable when the store cannot see markers', async () => {
+    const result = await run(await seeded(replaying(true)))
+
+    expect(result.markdown).toContain('Page replay: hit rate unavailable')
+  })
+
+  it('keeps the verdict when listing the markers fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const store = counting(await seeded(replaying(true)), async () => {
+      throw new Error('AccessDenied')
+    })
+
+    const result = await run(store)
+
+    expect(result.exitCode).toBe(0)
+    expect(result.report.agents).toHaveLength(1)
+    expect(result.report.pageReplay?.[0]?.state).toBe('unreadable')
+  })
+
+  it('prints nothing for an agent whose candidate did not replay', async () => {
+    const result = await run(await seeded(cases(1)))
+
+    expect(result.report.pageReplay).toBeUndefined()
+    expect(result.markdown).not.toContain('Page replay')
+  })
+})
+
+describe('a chat case with a check', () => {
+  const CONDITION = 'The act the user names does not exist.'
+  const HANDLED = 'the reply does not cite the act as authority.'
+  const chatCases = (extra: object): CaseList =>
+    parseCaseList(
+      'chief_of_staff.json',
+      JSON.stringify({
+        agentId: 'chief_of_staff',
+        shape: 'chat',
+        cases: [
+          { caseId: 'case-0', question: 'q' },
+          { caseId: 'case-1', question: 'q', ...extra },
+        ],
+      }),
+      { agentId: 'chief_of_staff', shape: 'chat' },
+    )
+  const recordingCanned = (prompts: string[]): JsonJudgeModel => {
+    const canned = cannedJudge(DEFAULT_JUDGE_CONFIG)
+    return {
+      jsonCompletion: async (options) => {
+        prompts.push(options.messages.map((m) => String(m.content)).join('\n'))
+        return canned.jsonCompletion(options)
+      },
+    }
+  }
+  const sweep = async (
+    llm: JsonJudgeModel,
+    extra: object,
+  ): Promise<SweepResult> =>
+    judgeSweep(
+      {
+        store: await seeded(cases(2)),
+        llm,
+        registry: REGISTRY,
+        loadCases: () => chatCases(extra),
+      },
+      env,
+    )
+  const promptsFor = (prompts: string[], caseNumber: number): string[] =>
+    prompts.filter((p) => p.includes(`base answer ${caseNumber}`))
+
+  it('shows the judge the condition on its own case', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
+
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`Condition: ${CONDITION}`),
+      ),
+    ).toBe(true)
+    expect(
+      promptsFor(prompts, 0).some((p) => p.includes(`Condition: ${CONDITION}`)),
+    ).toBe(false)
+  })
+
+  it('shows the judge the handling sentence after the condition', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {
+      condition: CONDITION,
+      handledWhen: HANDLED,
+    })
+
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(
+          `Condition: ${CONDITION}\n` +
+            `For this case, a run handles the condition when: ${HANDLED}`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  // case-1 sits outside the one-in-five swap subsample, so without its
+  // condition it would be judged in one order only.
+  it('judges a case with a condition in both orders', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
+
+    expect(promptsFor(prompts, 1)).toHaveLength(2)
+  })
+
+  it('judges a plain chat case outside the subsample once', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {})
+
+    expect(promptsFor(prompts, 1)).toHaveLength(1)
+  })
+
+  it("asks the judge a chat case's own question", async () => {
+    const prompts: string[] = []
+    const question = 'Does the reply cite only real law?'
+    const result = await sweep(recordingCanned(prompts), {
+      dimensions: [{ name: 'citation_honesty', question }],
+    })
+
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`- citation_honesty: ${question}`),
+      ),
+    ).toBe(true)
+    const score = result.report.agents[0]
+    expect(score?.exclusions.ungraded).toBe(0)
+    expect(score?.caseDimensions?.map((d) => [d.name, d.caseIds])).toEqual([
+      ['citation_honesty', ['case-1']],
+    ])
+  })
+
+  it('reports how each arm handled the condition', async () => {
+    const result = await sweep(
+      {
+        jsonCompletion: async ({ schema }) => ({
+          object: schema.parse(
+            toWireVerdict({
+              ...verdict('X'),
+              handled: {
+                X: 'yes',
+                Y: 'no',
+                evidence: [
+                  { loc: 'X.final', quote: 'q' },
+                  { loc: 'Y.final', quote: 'q' },
+                ],
+              },
+            }),
+          ),
+          tokens: 10,
+          model: 'claude-sonnet-4-6',
+        }),
+      },
+      { condition: CONDITION, handledWhen: HANDLED },
+    )
+
+    const handling = result.report.agents[0]?.handling?.cases ?? []
+    expect(handling.map((h) => h.caseId)).toEqual(['case-1'])
+    expect(result.markdown).toContain('Condition handling:')
   })
 })

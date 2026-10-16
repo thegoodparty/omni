@@ -10,7 +10,7 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization } from '../../../generated/prisma'
+import { Campaign, Organization, User } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -37,7 +37,8 @@ import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-import { isWinSmsHoldBillingEnabled } from '@/shared/util/winSmsHold.util'
+import { WIN_SMS_HOLD_BILLING_FLAG } from '@/shared/util/winSmsHold.util'
+import { FeaturesService } from '@/features/services/features.service'
 
 // Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
 // export — each contacts-pipeline consumer keeps its own copy (see that
@@ -57,12 +58,6 @@ type P2pPhoneListFilterInput = Omit<
   z.infer<typeof p2pPhoneListRequestSchema>,
   'name'
 >
-
-// Voter Outreach 2.0's async build (S3b) ships behind the SAME kill switch as
-// Win p2p SMS hold-billing: the async build was the whole reason hold-billing
-// exists (pay-before-ready needs a build that can still be running when
-// checkout happens), so the two ship and roll back together as one flag.
-const isAsyncBuildEnabled = (): boolean => isWinSmsHoldBillingEnabled()
 
 // A `building` row whose updatedAt is older than this is assumed abandoned
 // (the handler crashed, was OOM-killed, or lost its SQS message before
@@ -138,18 +133,29 @@ export class P2pPhoneListUploadService {
     // capture provider is resolved through that cycle.
     @Inject(forwardRef(() => OutreachP2pSmsCaptureService))
     private readonly p2pSmsCapture: OutreachP2pSmsCaptureService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
   }
 
   async uploadPhoneList(
+    user: User,
     campaign: Campaign,
     request: P2pPhoneListRequestSchema,
   ): Promise<{ token: string | null; listName: string; buildId: string }> {
     const { name: listName, ...filterInput } = request
 
-    if (isAsyncBuildEnabled()) {
+    // ENTRY: the requesting user always resolves here (an authenticated
+    // upload request), so the async build — the whole reason hold-billing
+    // exists (pay-before-ready needs a build that can still be running when
+    // checkout happens) — is gated on the SAME managed flag, evaluated once,
+    // right here.
+    const asyncBuildEnabled = await this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_HOLD_BILLING_FLAG,
+    })
+    if (asyncBuildEnabled) {
       // Nothing is validated beyond the request's own shape (already done by
       // the controller's ZodValidationPipe) before the row exists — TCR
       // compliance, organization, filter resolution, opt-out scrub, CSV
@@ -793,6 +799,7 @@ export class P2pPhoneListUploadService {
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       excludePersonIds,
       pageSize: SEGMENT_PAGE_SIZE,
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,

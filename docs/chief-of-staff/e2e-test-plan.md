@@ -11,8 +11,8 @@ Backend (gp-api):
 
 - `/v1/chats` with `scope=chief_of_staff` (create, SSE message stream, get,
   list, delete)
-- `/v1/dashboard/cards` (list by bucket, dismiss)
-- `/v1/dashboard/onboarding-cards` (list, skip)
+- `/v1/dashboard/cards` (list by bucket, dismiss, complete)
+- `/v1/dashboard/onboarding-cards` (list, skip, complete)
 - `/v1/priorities` (list, create, update, delete)
 
 Frontend (gp-webapp):
@@ -103,9 +103,10 @@ reconciliation (re-run drops de-featured items). Keep as is.
 When we went to build these, most of the planned coverage was already present
 and thorough — we did not duplicate it:
 
-- `dashboardCards.controller.test.ts` — all four buckets
-  (active/skipped/missed/this_week), `PUT :id/dismiss`, office scoping, expiry.
-- `onboardingCards.controller.test.ts` — onboarding list + skip.
+- `dashboardCards.controller.test.ts` — every bucket
+  (active/done/skipped/missed/this_week), `PUT :id/dismiss`, `PUT :id/complete`,
+  office scoping, expiry.
+- `onboardingCards.controller.test.ts` — onboarding list, skip and complete.
 - `priorities.controller.test.ts` — create/list/update/archive + missing-header 404.
 - `general-chats.controller.integration.test.ts` — CoS chat create / history /
   replay / soft-delete / SSE / anchor, with the LLM stream mocked.
@@ -217,7 +218,7 @@ material, and watch tool-use reliability if we do.
       skipped onboarding card (the Skipped bucket includes skipped onboarding
       cards, so no briefing is needed).
 - [ ] UI coverage of a real **briefing task card** loading + skipping is NOT
-      possible for a fresh test office (no briefing -> empty TaskList). The
+      possible for a fresh test office (no briefing -> only the get-started cards in the TaskStack). The
       onboarding-card test covers the full card-render -> skip -> archive loop
       in the UI; the briefing-card lifecycle is only proven at the API layer
       (`cardsFromBriefing.test.ts`). To cover briefing cards in the UI you need

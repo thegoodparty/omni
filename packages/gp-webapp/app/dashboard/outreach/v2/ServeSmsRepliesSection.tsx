@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import {
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
@@ -33,6 +34,7 @@ const SERVE_SMS_REPLIES_COPY = {
   phoneLabel: 'Phone',
   locationLabel: 'Location',
   receivedLabel: 'Received',
+  openRecord: 'Open their record',
   // The label says what ONE press will do, not how many responses exist. The
   // server caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT, so on a large send
   // a press loads that many and no more — "Show all 2,500 responses" was a
@@ -129,6 +131,12 @@ const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
             label={SERVE_SMS_REPLIES_COPY.receivedLabel}
             value={receivedLabel(reply.receivedAt)}
           />
+          <Link
+            href={`/dashboard/contacts/${encodeURIComponent(reply.personId)}`}
+            className="col-span-2 text-sm font-medium text-info underline"
+          >
+            {SERVE_SMS_REPLIES_COPY.openRecord}
+          </Link>
         </div>
       )}
     </li>

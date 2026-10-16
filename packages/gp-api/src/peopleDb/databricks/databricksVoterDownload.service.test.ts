@@ -17,6 +17,8 @@ const DISTRICT: DbxDistrict = {
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
 }
 
 type Sink = {
@@ -111,7 +113,7 @@ describe('DatabricksVoterDownloadService', () => {
     fetchMock.mockResolvedValue(chunkResponse('Voter ID\nLAL1\n'))
     const sink = createSink()
 
-    await service.streamPeopleCsv(dto, sink.reply)
+    await service.streamPeopleCsv(dto, 'voters', sink.reply)
     await sink.finished
 
     expect(sink.headers['Content-Type']).toBe('text/csv')
@@ -129,7 +131,7 @@ describe('DatabricksVoterDownloadService', () => {
     fetchMock.mockResolvedValue(chunkResponse('Voter ID\nLAL1\n'))
     const sink = createSink()
 
-    await service.streamPeopleCsv(dto, sink.reply)
+    await service.streamPeopleCsv(dto, 'voters', sink.reply)
     await sink.finished
 
     expect(gunzipSync(sink.body()).toString('utf8')).toBe('Voter ID\nLAL1\n')
@@ -151,7 +153,7 @@ describe('DatabricksVoterDownloadService', () => {
       .mockResolvedValueOnce(chunkResponse('LAL2\n'))
     const sink = createSink()
 
-    await service.streamPeopleCsv(dto, sink.reply)
+    await service.streamPeopleCsv(dto, 'voters', sink.reply)
     await sink.finished
 
     expect(gunzipSync(sink.body()).toString('utf8')).toBe(
@@ -187,7 +189,7 @@ describe('DatabricksVoterDownloadService', () => {
       .mockResolvedValueOnce(chunkResponse('LAL2\n'))
     const sink = createSink()
 
-    const streaming = service.streamPeopleCsv(dto, sink.reply)
+    const streaming = service.streamPeopleCsv(dto, 'voters', sink.reply)
     await vi.waitFor(() => expect(fetchCsvChunk).toHaveBeenCalled())
     releaseFirst?.()
     await streaming
@@ -205,7 +207,7 @@ describe('DatabricksVoterDownloadService', () => {
     fetchMock.mockResolvedValue(chunkResponse('Voter ID\n'))
     const sink = createSink()
 
-    await service.streamPeopleCsv(dto, sink.reply, {
+    await service.streamPeopleCsv(dto, 'voters', sink.reply, {
       filename: 'contacts.csv',
       extraHeaders: { 'X-Trace': 'abc' },
     })
@@ -223,9 +225,9 @@ describe('DatabricksVoterDownloadService', () => {
     startCsvExport.mockRejectedValue(new Error('INSUFFICIENT_PERMISSIONS'))
     const sink = createSink()
 
-    await expect(service.streamPeopleCsv(dto, sink.reply)).rejects.toThrow(
-      InternalServerErrorException,
-    )
+    await expect(
+      service.streamPeopleCsv(dto, 'voters', sink.reply),
+    ).rejects.toThrow(InternalServerErrorException)
     expect(sink.headers).toEqual({})
   })
 
@@ -236,7 +238,7 @@ describe('DatabricksVoterDownloadService', () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403 })
     const sink = createSink()
 
-    await service.streamPeopleCsv(dto, sink.reply)
+    await service.streamPeopleCsv(dto, 'voters', sink.reply)
 
     // The socket is destroyed rather than ended, so a truncated download can't
     // be mistaken for a complete one.

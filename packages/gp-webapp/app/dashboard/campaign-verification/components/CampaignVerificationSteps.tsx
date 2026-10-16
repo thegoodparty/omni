@@ -8,25 +8,22 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
 import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { VerificationIntro } from './VerificationIntro'
 import { hasVerificationDraft } from '../verificationDraft'
+import {
+  DETAILS_SAVED_TITLE,
+  FILING_CONTACT_CAPTION,
+  FILING_CONTACT_TITLE,
+  FILING_DETAILS_CAPTION,
+  FILING_DETAILS_TITLE,
+  PIN_NOTICE_BODY,
+  PIN_NOTICE_TITLE,
+  SUBMITTED_BODY,
+  SUBMITTED_TITLE,
+} from '../verificationCopy'
 
 export type VerificationStep = 'intro' | 'form' | 'submitted'
-
-// The design's filing-details/contact-information headings, only shown when
-// this component renders the filing form — the legacy standalone
-// election-filing page keeps its current (heading-less) look by not passing
-// them to ElectionFilingForm.
-const FILING_DETAILS_TITLE = 'What are your campaign filing details?'
-const FILING_DETAILS_CAPTION =
-  'If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages.'
-const FILING_CONTACT_TITLE = 'What is your campaign filing contact information?'
-const FILING_CONTACT_CAPTION =
-  'Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign.'
-
-const PIN_NOTICE_TITLE = 'A PIN is on its way'
-const PIN_NOTICE_BODY =
-  'After your campaign is verified, a PIN will be sent to the email, phone, or address that matches your election filing, usually 1 to 2 weeks. Entering the PIN unlocks texting.'
 
 interface CampaignVerificationStepsProps {
   // Lets a caller resume on a step other than the intro (e.g. a page wrapper
@@ -54,6 +51,9 @@ const CampaignVerificationSteps = ({
   completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
+  // Past the cutoff gp-api still saves the filing but never starts
+  // verification, so the confirmation promises neither.
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   // `null` until mounted when the caller gives no step: the draft lives in
   // localStorage, which the server render cannot read, so choosing during
   // render would hydrate the intro over a client that wants the form.
@@ -130,19 +130,23 @@ const CampaignVerificationSteps = ({
             </span>
             <div className="flex max-w-[440px] flex-col items-center gap-2">
               <h1 className="text-2xl font-semibold">
-                Submitted for verification
+                {smsClosed ? DETAILS_SAVED_TITLE : SUBMITTED_TITLE}
               </h1>
-              <p className="text-[15px] leading-relaxed text-base-muted-foreground">
-                Your campaign has been submitted for verification.
-              </p>
+              {!smsClosed && (
+                <p className="text-[15px] leading-relaxed text-base-muted-foreground">
+                  {SUBMITTED_BODY}
+                </p>
+              )}
             </div>
           </div>
-          <div className="relative mt-4 flex flex-col gap-1.5 rounded-xl border border-base-border bg-card p-4">
-            <p className="text-sm font-semibold">{PIN_NOTICE_TITLE}</p>
-            <p className="text-[13px] leading-relaxed text-base-muted-foreground">
-              {PIN_NOTICE_BODY}
-            </p>
-          </div>
+          {!smsClosed && (
+            <div className="relative mt-4 flex flex-col gap-1.5 rounded-xl border border-base-border bg-card p-4">
+              <p className="text-sm font-semibold">{PIN_NOTICE_TITLE}</p>
+              <p className="text-[13px] leading-relaxed text-base-muted-foreground">
+                {PIN_NOTICE_BODY}
+              </p>
+            </div>
+          )}
           <StepFooter align="center">
             <Button
               size="large"

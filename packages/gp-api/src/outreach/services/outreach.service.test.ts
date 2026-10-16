@@ -13,7 +13,7 @@ import {
   OutreachType,
   User,
 } from '../../generated/prisma'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
@@ -36,6 +36,7 @@ import { OutreachRobocallCancelService } from './outreachRobocallCancel.service'
 import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachService } from './outreach.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 const mockOutreachCreate = vi.fn()
@@ -57,6 +58,9 @@ const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
 const mockMaterializeOutreach = vi.fn()
 const mockAnalyticsTrack = vi.fn()
+// Defaults OFF (pre-feature behavior); the pay-before-build describe below
+// flips it to true for its one ENTRY test.
+const mockIsFeatureEnabled = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -138,6 +142,8 @@ describe('OutreachService', () => {
     mockAnalyticsTrack.mockResolvedValue(undefined)
     mockMaterializeOutreach.mockReset()
     mockMaterializeOutreach.mockResolvedValue(undefined)
+    mockIsFeatureEnabled.mockReset()
+    mockIsFeatureEnabled.mockResolvedValue(false)
 
     const mockPrismaService = {
       outreach: {
@@ -157,6 +163,10 @@ describe('OutreachService', () => {
       // cancelOutreach probes for a hold-model satellite before the shared body;
       // no satellite here, so these tests stay on the immediate-charge path.
       outreachP2pSms: { findUnique: vi.fn().mockResolvedValue(null) },
+      // A p2p create's phoneListId names a list this campaign uploaded.
+      peerlyPhoneList: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'list-1' }),
+      },
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -221,6 +231,10 @@ describe('OutreachService', () => {
         {
           provide: OutreachP2pSmsCancelService,
           useValue: { cancel: vi.fn() },
+        },
+        {
+          provide: FeaturesService,
+          useValue: { isFeatureEnabled: mockIsFeatureEnabled },
         },
         OutreachService,
       ],
@@ -332,106 +346,92 @@ describe('OutreachService', () => {
       )
     })
 
-    it('defers finalize (no claim, no Peerly submit) for a linked pre-build p2p draft under the hold flag', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      try {
-        // A paid draft (satellite linked to its building list) whose build has
-        // not finished: no numeric phoneListId yet. The build-ready edge
-        // finalizes it later instead.
-        mockOutreachFindFirst.mockResolvedValue({
-          phoneListId: null,
-          outreachType: OutreachType.p2p,
-          p2pSms: { peerlyPhoneListId: 'ppl-uuid-1' },
-        })
+    it('defers finalize (no claim, no Peerly submit) for a linked pre-build p2p draft (satellite-gated)', async () => {
+      // A paid draft (satellite linked to its building list) whose build has
+      // not finished: no numeric phoneListId yet. The build-ready edge
+      // finalizes it later instead. This is satellite-driven, not flag-gated —
+      // no flag stub is needed to exercise it.
+      mockOutreachFindFirst.mockResolvedValue({
+        phoneListId: null,
+        outreachType: OutreachType.p2p,
+        p2pSms: { peerlyPhoneListId: 'ppl-uuid-1' },
+      })
 
-        const finalized = await service.finalizeOutreachPurchase(99, 1)
+      const finalized = await service.finalizeOutreachPurchase(99, 1)
 
-        // The defer returns false before claiming (pending_payment -> pending)
-        // and before any Peerly submission, so the draft is never transitioned.
-        expect(finalized).toBe(false)
-        expect(mockOutreachUpdateMany).not.toHaveBeenCalled()
-        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
-        expect(mockMaterializeOutreach).not.toHaveBeenCalled()
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      // The defer returns false before claiming (pending_payment -> pending)
+      // and before any Peerly submission, so the draft is never transitioned.
+      expect(finalized).toBe(false)
+      expect(mockOutreachUpdateMany).not.toHaveBeenCalled()
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      expect(mockMaterializeOutreach).not.toHaveBeenCalled()
     })
 
     it('does NOT defer a pre-build p2p draft with no satellite link (the hold-less free path)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      try {
-        // phoneListId null but NO satellite link: the build-ready edge finds
-        // work through the link, so a link-less draft must not defer (it would
-        // strand forever). It proceeds to the claim instead.
-        mockOutreachFindFirst.mockResolvedValueOnce({
-          phoneListId: null,
-          outreachType: OutreachType.p2p,
-          p2pSms: null,
-        })
-        // Claim lost, then observed already-finalized, so finalize returns
-        // without the slow in-flight poll — enough to prove it did NOT defer.
-        mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
-        mockOutreachFindFirst.mockResolvedValue({ projectId: 'job-x' })
+      // phoneListId null but NO satellite link: the build-ready edge finds
+      // work through the link, so a link-less draft must not defer (it would
+      // strand forever). It proceeds to the claim instead.
+      mockOutreachFindFirst.mockResolvedValueOnce({
+        phoneListId: null,
+        outreachType: OutreachType.p2p,
+        p2pSms: null,
+      })
+      // Claim lost, then observed already-finalized, so finalize returns
+      // without the slow in-flight poll — enough to prove it did NOT defer.
+      mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+      mockOutreachFindFirst.mockResolvedValue({ projectId: 'job-x' })
 
-        const finalized = await service.finalizeOutreachPurchase(55, 1)
+      const finalized = await service.finalizeOutreachPurchase(55, 1)
 
-        expect(finalized).toBe(false)
-        // It attempted the claim (did not defer).
-        expect(mockOutreachUpdateMany).toHaveBeenCalled()
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      expect(finalized).toBe(false)
+      // It attempted the claim (did not defer).
+      expect(mockOutreachUpdateMany).toHaveBeenCalled()
     })
 
-    it('finalizes as usual under the flag once the build is ready (phoneListId present)', async () => {
-      vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
-      try {
-        const draft = {
-          id: 77,
-          campaignId: 1,
-          outreachType: OutreachType.p2p,
-          status: OutreachStatus.pending,
-          imageUrl: 'https://assets.goodparty.org/outreach/img.png',
-          phoneListId: 100,
-          script: 'hello voter',
-          identityId: 'ident-1',
-          title: 'P2P Title',
-          name: null,
-          didState: null,
-          didNpaSubset: null,
-          date: new Date('2025-02-01T12:00:00.000Z'),
-          audienceRequest: null,
-          campaignPlanDueDate: null,
-          textCount: null,
-          billableTextCount: null,
-          voterFileFilterId: 7,
-          voterFileFilter: null,
-          campaign: { ...mockCampaign, user: mockUser },
-        }
-        // The defer peek sees a stamped phoneListId, so finalize proceeds.
-        mockOutreachFindFirst.mockResolvedValue({
-          phoneListId: 100,
-          outreachType: OutreachType.p2p,
-        })
-        mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
-        mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
-        mockGetFileBytes.mockResolvedValue({
-          bytes: Buffer.from('img'),
-          contentType: 'image/png',
-        })
-        mockPeerlyCreateJob.mockResolvedValue('job-770')
-        mockOutreachUpdate.mockResolvedValue({})
-
-        await service.finalizeOutreachPurchase(77, 1)
-
-        expect(mockPeerlyCreateJob).toHaveBeenCalled()
-        expect(mockMaterializeOutreach).toHaveBeenCalledWith(
-          draft.campaign,
-          expect.objectContaining({ id: 77, projectId: 'job-770' }),
-        )
-      } finally {
-        vi.unstubAllEnvs()
+    it('finalizes as usual once the build is ready (phoneListId present)', async () => {
+      const draft = {
+        id: 77,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
       }
+      // The defer peek sees a stamped phoneListId, so finalize proceeds.
+      mockOutreachFindFirst.mockResolvedValue({
+        phoneListId: 100,
+        outreachType: OutreachType.p2p,
+      })
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-770')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(77, 1)
+
+      expect(mockPeerlyCreateJob).toHaveBeenCalled()
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        draft.campaign,
+        expect.objectContaining({ id: 77, projectId: 'job-770' }),
+      )
     })
 
     it('materializes on finalize even when the campaign has no user', async () => {
@@ -785,13 +785,9 @@ describe('OutreachService', () => {
       expect(result).toEqual(created)
     })
 
-    describe('Win SMS hold pay-before-build (WIN_SMS_HOLD_BILLING)', () => {
-      afterEach(() => {
-        vi.unstubAllEnvs()
-      })
-
+    describe('Win SMS hold pay-before-build (win_sms_hold_billing)', () => {
       it('flag ON: writes a P2P draft with no phoneListId (the list is still building)', async () => {
-        vi.stubEnv('WIN_SMS_HOLD_BILLING', 'true')
+        mockIsFeatureEnabled.mockResolvedValue(true)
         mockTcrFindFirstOrThrow.mockResolvedValue({
           peerlyIdentityId: 'identity-123',
         })
@@ -818,9 +814,14 @@ describe('OutreachService', () => {
             }),
           }),
         )
+        // ENTRY: evaluated for the REQUEST user, against the managed flag key.
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith({
+          user: mockUser,
+          feature: 'win_sms_hold_billing',
+        })
       })
 
-      it('flag OFF: still requires phoneListId for a P2P create', async () => {
+      it('flag OFF (default mock): still requires phoneListId for a P2P create', async () => {
         const { phoneListId: _omit, ...preBuildDto } = p2pCreateDto
 
         await expect(

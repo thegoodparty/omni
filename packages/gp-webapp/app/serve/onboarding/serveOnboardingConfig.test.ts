@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeServeResumeStep,
+  getServeBranchSteps,
+  getServeProgress,
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
+  SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
+  SERVE_WELCOME_VALUE_PROPS,
   shouldSeedInOfficeOnResume,
 } from './serveOnboardingConfig'
 
@@ -275,5 +279,105 @@ describe('resolveServeBranch', () => {
         selfReported: true,
       }),
     ).toBe('net-new')
+  })
+})
+
+describe('the district story behind serve-citizen-panels', () => {
+  const done = { hasParty: true, hasOffice: true, hasDates: true }
+  const story = [
+    'story-represent',
+    'story-loudest',
+    'story-sample',
+    'story-grow',
+  ]
+
+  it('replaces constituents with the story, then priorities and pledge', () => {
+    expect(getServeBranchSteps('net-new', true)).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'office',
+      'term-dates',
+      ...story,
+      'priorities',
+      'pledge',
+    ])
+    expect(getServeBranchSteps('prefill', true)).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'confirm',
+      ...story,
+      'priorities',
+      'pledge',
+    ])
+    expect(getServeProgress('prefill', 'pledge', true).total).toBe(10)
+    expect(getServeProgress('net-new', 'story-sample', true)).toEqual({
+      current: 8,
+      total: 11,
+    })
+  })
+
+  it('keeps constituents and no story or priorities when off', () => {
+    expect(getServeBranchSteps('prefill').slice(-2)).toEqual([
+      'constituents',
+      'pledge',
+    ])
+    for (const step of [...story, 'priorities']) {
+      expect(getServeBranchSteps('net-new')).not.toContain(step)
+    }
+  })
+
+  it('resumes on a story or priorities checkpoint only when on', () => {
+    expect(resolveServeResumeStep('net-new', 'story-sample', done, true)).toBe(
+      'story-sample',
+    )
+    expect(resolveServeResumeStep('prefill', 'priorities', done, true)).toBe(
+      'priorities',
+    )
+    expect(resolveServeResumeStep('net-new', 'story-sample', done)).toBe(
+      'constituents',
+    )
+    expect(resolveServeResumeStep('net-new', 'priorities', done)).toBe(
+      'constituents',
+    )
+  })
+
+  it('sends a constituents checkpoint to the start of the story when on', () => {
+    expect(resolveServeResumeStep('net-new', 'constituents', done, true)).toBe(
+      'story-represent',
+    )
+    expect(resolveServeResumeStep('prefill', null, done, true)).toBe(
+      'story-represent',
+    )
+  })
+
+  it('never lets a story checkpoint skip a missing term', () => {
+    expect(
+      resolveServeResumeStep(
+        'net-new',
+        'story-grow',
+        { ...done, hasDates: false },
+        true,
+      ),
+    ).toBe('term-dates')
+  })
+})
+
+describe('the welcome tiles behind serve-citizen-panels', () => {
+  it('fills the 2x2 grid like the flag-off tiles', () => {
+    expect(SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS).toHaveLength(4)
+    expect(SERVE_WELCOME_VALUE_PROPS).toHaveLength(4)
+  })
+
+  it('ends with meeting briefings', () => {
+    expect(
+      SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS.map(({ title }) => title),
+    ).toEqual([
+      'Ask residents before you vote',
+      'Know what your community is talking about',
+      'Follow through on the issues you were elected to solve',
+      'Walk into every meeting prepared',
+    ])
   })
 })

@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DashboardCardType } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { FeaturesService } from '@/features/services/features.service'
 import { addDays, endOfDay, startOfWeek, subDays } from 'date-fns'
 
 const service = useTestService()
+
+// With serve-citizen-panels off the list is exactly the cards seeded here;
+// the panel cards it adds are dashboardCardsCivicPanel.test.ts.
+beforeEach(() => {
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(false)
+})
 
 const orgHeader = (slug: string) => ({
   headers: { 'x-organization-slug': slug },
@@ -42,6 +52,7 @@ const seedCard = async (
   overrides: {
     dueDate: Date
     dismissedAt?: Date | null
+    completedAt?: Date | null
     type?: DashboardCardType
   },
 ) => {
@@ -58,6 +69,7 @@ const seedCard = async (
       sourceExternalId: `briefing-${cardSeq}`,
       sourceItemId: `item-${cardSeq}`,
       dismissedAt: overrides.dismissedAt ?? null,
+      completedAt: overrides.completedAt ?? null,
     },
   })
 }
@@ -75,6 +87,10 @@ describe('GET /v1/dashboard/cards', () => {
       dueDate: addDays(now, 3),
       dismissedAt: now,
     }) // dismissed
+    await seedCard(eo.id, {
+      dueDate: addDays(now, 4),
+      completedAt: now,
+    }) // done
 
     const res = await service.client.get(
       '/v1/dashboard/cards',
@@ -139,6 +155,7 @@ describe('GET /v1/dashboard/cards', () => {
     const now = new Date()
     const missed = await seedCard(eo.id, { dueDate: subDays(now, 2) })
     await seedCard(eo.id, { dueDate: subDays(now, 2), dismissedAt: now }) // dismissed
+    await seedCard(eo.id, { dueDate: subDays(now, 2), completedAt: now }) // done
     await seedCard(eo.id, { dueDate: addDays(now, 2) }) // future
 
     const res = await service.client.get(
@@ -146,6 +163,32 @@ describe('GET /v1/dashboard/cards', () => {
       orgHeader(orgSlug),
     )
     expect(res.data.cards.map((c: { id: string }) => c.id)).toEqual([missed.id])
+  })
+
+  it('done returns completed cards, past or upcoming', async () => {
+    const orgSlug = 'eo-cards-done'
+    const eo = await seedElectedOffice(orgSlug)
+    const now = new Date()
+    const donePast = await seedCard(eo.id, {
+      dueDate: subDays(now, 2),
+      completedAt: now,
+    })
+    const doneUpcoming = await seedCard(eo.id, {
+      dueDate: addDays(now, 2),
+      completedAt: now,
+    })
+    await seedCard(eo.id, { dueDate: addDays(now, 2) }) // open
+    await seedCard(eo.id, { dueDate: addDays(now, 2), dismissedAt: now }) // skipped
+
+    const res = await service.client.get(
+      '/v1/dashboard/cards?bucket=done',
+      orgHeader(orgSlug),
+    )
+    expect(res.data.cards.map((c: { id: string }) => c.id)).toEqual([
+      donePast.id,
+      doneUpcoming.id,
+    ])
+    expect(res.data.cards[0].completedAt).not.toBeNull()
   })
 
   it('this_week returns the current-week set regardless of state', async () => {
@@ -221,5 +264,66 @@ describe('PUT /v1/dashboard/cards/:id/dismiss', () => {
       where: { id: card.id },
     })
     expect(after.dismissedAt).toBeNull()
+  })
+})
+
+describe('PUT /v1/dashboard/cards/:id/complete', () => {
+  it('sets completedAt and returns 204', async () => {
+    const orgSlug = 'eo-complete'
+    const eo = await seedElectedOffice(orgSlug)
+    const card = await seedCard(eo.id, { dueDate: addDays(new Date(), 3) })
+
+    const res = await service.client.put(
+      `/v1/dashboard/cards/${card.id}/complete`,
+      undefined,
+      orgHeader(orgSlug),
+    )
+    expect(res.status).toBe(204)
+
+    const after = await service.prisma.dashboardCard.findUniqueOrThrow({
+      where: { id: card.id },
+    })
+    expect(after.completedAt).not.toBeNull()
+    expect(after.dismissedAt).toBeNull()
+  })
+
+  it('does not complete a skipped card', async () => {
+    const orgSlug = 'eo-complete-skipped'
+    const eo = await seedElectedOffice(orgSlug)
+    const card = await seedCard(eo.id, {
+      dueDate: addDays(new Date(), 3),
+      dismissedAt: new Date(),
+    })
+
+    await service.client.put(
+      `/v1/dashboard/cards/${card.id}/complete`,
+      undefined,
+      orgHeader(orgSlug),
+    )
+
+    const after = await service.prisma.dashboardCard.findUniqueOrThrow({
+      where: { id: card.id },
+    })
+    expect(after.completedAt).toBeNull()
+  })
+
+  it('does not complete a card belonging to another office', async () => {
+    const orgSlug = 'eo-complete-scope-a'
+    const otherSlug = 'eo-complete-scope-b'
+    await seedElectedOffice(orgSlug)
+    const other = await seedElectedOffice(otherSlug, { distinctOwner: true })
+    const card = await seedCard(other.id, { dueDate: addDays(new Date(), 3) })
+
+    const res = await service.client.put(
+      `/v1/dashboard/cards/${card.id}/complete`,
+      undefined,
+      orgHeader(orgSlug),
+    )
+    expect(res.status).toBe(204)
+
+    const after = await service.prisma.dashboardCard.findUniqueOrThrow({
+      where: { id: card.id },
+    })
+    expect(after.completedAt).toBeNull()
   })
 })

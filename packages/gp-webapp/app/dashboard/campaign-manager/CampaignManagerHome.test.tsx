@@ -530,6 +530,14 @@ describe('CampaignManagerHome story auto-launch', () => {
 })
 
 describe('CampaignManagerHome headline', () => {
+  // doorsTask is dated Oct 9, so a clock past its week reads it as done and
+  // heads the card with a caught-up line instead.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
   it('heads the card with a line for its kind of task', async () => {
     mockTasks = [doorsTask]
     renderHome()

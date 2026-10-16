@@ -36,6 +36,8 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
 }
 
 const rankedPrecincts = (count: number) =>
@@ -52,7 +54,7 @@ const isSupporterUniverse = (filter: VoterFilterBase) =>
   filter.supportStatus?.length === 1 && filter.supportStatus[0] === 'supporter'
 
 describe('RecommendedListsService.recommend', () => {
-  let resolveEligibleDistrictId: ReturnType<typeof vi.fn>
+  let resolveEligibleDistrict: ReturnType<typeof vi.fn>
   let resolveSavedFilterForQuery: ReturnType<typeof vi.fn>
   let bucketForCampaign: ReturnType<typeof vi.fn>
   let findByOrganizationSlug: ReturnType<typeof vi.fn>
@@ -63,7 +65,9 @@ describe('RecommendedListsService.recommend', () => {
   let service: RecommendedListsService
 
   beforeEach(() => {
-    resolveEligibleDistrictId = vi.fn().mockResolvedValue(DISTRICT_ID)
+    resolveEligibleDistrict = vi
+      .fn()
+      .mockResolvedValue({ districtId: DISTRICT_ID, dataset: 'voters' })
     // The real conversion, so the FilterData each count receives is the
     // one the variant's own universe produces and a test can key on it.
     resolveSavedFilterForQuery = vi.fn(
@@ -88,7 +92,11 @@ describe('RecommendedListsService.recommend', () => {
     })
 
     service = new RecommendedListsService(
-      { resolveEligibleDistrictId, resolveSavedFilterForQuery } as never,
+      {
+        resolveEligibleDistrict,
+        resolveSavedFilterForQuery,
+        affinityColumnFor: vi.fn().mockResolvedValue(undefined),
+      } as never,
       { bucketForCampaign } as never,
       { findByOrganizationSlug } as never,
       {
@@ -99,6 +107,17 @@ describe('RecommendedListsService.recommend', () => {
       { getRaceContext } as never,
       createMockLogger(),
     )
+  })
+
+  it('resolves the district against the people table the org reads', async () => {
+    resolveEligibleDistrict.mockResolvedValue({
+      districtId: DISTRICT_ID,
+      dataset: 'constituents',
+    })
+
+    await service.recommend(organization, campaign, 'sms', 'introduce')
+
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
   })
 
   it('omits ideology variants when the campaign has no bucket', async () => {
@@ -540,7 +559,9 @@ describe('RecommendedListsService.recommend', () => {
         inFlight -= 1
         return value
       }
-      resolveEligibleDistrictId.mockImplementation(() => track(DISTRICT_ID))
+      resolveEligibleDistrict.mockImplementation(() =>
+        track({ districtId: DISTRICT_ID, dataset: 'voters' }),
+      )
       getRaceContext.mockImplementation(() =>
         track({
           winNumberEffective: VOTES_NEEDED,
@@ -762,7 +783,7 @@ describe('RecommendedListsService.recommend', () => {
     const results = await service.recommend(organization, campaign, 'sms', null)
 
     expect(results).toEqual([])
-    expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+    expect(resolveEligibleDistrict).not.toHaveBeenCalled()
     expect(getRaceContext).not.toHaveBeenCalled()
   })
 
@@ -771,7 +792,7 @@ describe('RecommendedListsService.recommend', () => {
       service.recommend(electedOffice, campaign, 'sms', 'introduce'),
     ).rejects.toBeInstanceOf(BadRequestException)
 
-    expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+    expect(resolveEligibleDistrict).not.toHaveBeenCalled()
   })
 
   it('names the intent each recommendation belongs to', async () => {
@@ -1023,7 +1044,8 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(rankPrecincts).toHaveBeenCalledTimes(1)
-      expect(rankPrecincts.mock.calls[0]).toHaveLength(3)
+      // district, filters, idOverrides, affinityColumn: no widening argument.
+      expect(rankPrecincts.mock.calls[0]).toHaveLength(4)
       expect(countForFilter).not.toHaveBeenCalled()
       expect(first?.count).toBe(100)
       expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])

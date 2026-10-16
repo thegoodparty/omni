@@ -17,6 +17,10 @@ const PEOPLE_PATH = /\/people\/([^/?#]+)/
 // election-api caps `ids` at 500 per request; stay well under it so the query
 // string never approaches a URL-length limit either.
 const IDENTITY_BATCH_SIZE = 100
+// Bounds each identity read. The Campaign Manager races this call against
+// its own 3 s timer per turn, so a longer socket would only outlive the
+// caller that gave up on it.
+const IDENTITY_TIMEOUT_MS = 3_000
 
 interface ElectionApiOfficeHolder {
   officeTitle: string | null
@@ -169,13 +173,17 @@ export class PersonLookupService {
 
   /**
    * Batch-resolves personIds to the name and public URL of their page, for the
-   * admin takedown log. The removal table stores nothing but the civics UUID,
-   * which is unreadable to the operator reviewing what has been taken down —
-   * they need to see whose page it is and be able to open it.
+   * admin takedown log and for the Campaign Manager's prompt. The removal
+   * table stores nothing but the civics UUID, which is unreadable to the
+   * operator reviewing what has been taken down — they need to see whose page
+   * it is and be able to open it. The Campaign Manager hands the URL to the
+   * candidate once a day per person (PublicProfileAddressService caches it).
    *
    * Best-effort: election-api being unreachable degrades a row to its personId
    * rather than failing the whole list, which is the operator's only view of
-   * active takedowns.
+   * active takedowns, and leaves the Campaign Manager without an address for
+   * that turn. Each call is bounded so a hung socket cannot outlive the
+   * caller's own timer.
    */
   async resolveIdentities(
     personIds: string[],
@@ -206,6 +214,7 @@ export class PersonLookupService {
                 ids: batch.join(','),
                 columns: 'id,slug,fullName,firstName,lastName',
               },
+              timeout: IDENTITY_TIMEOUT_MS,
             },
           ),
         )
@@ -226,12 +235,14 @@ export class PersonLookupService {
     return identities
   }
 
-  // Mirrors the public route the marketing site serves:
-  // /people/<base-slug>-<first 8 hex of the person id>. The suffix is what
-  // actually resolves the page (slugs are not unique), so both halves matter.
+  // Mirrors the public route the marketing site serves: /people/<slug>,
+  // verbatim. election-api mints the slug with the 8-hex id suffix already
+  // on it (see Person.slug in packages/election-api/prisma/schema/person.prisma),
+  // so nothing is appended here. Appending the suffix again, as this once
+  // did, produced a URL the site only resolved by redirect.
   private profileUrl(person: ElectionApiPerson): string | null {
     if (!person.slug) return null
-    return `${WEBAPP_ROOT}/people/${person.slug}-${person.id.slice(0, 8)}`
+    return `${WEBAPP_ROOT}/people/${person.slug}`
   }
 
   private extractSlug(query: string): string | null {

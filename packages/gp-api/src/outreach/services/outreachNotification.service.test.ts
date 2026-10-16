@@ -715,5 +715,23 @@ describe('OutreachNotificationService', () => {
       expect(text).toContain('jared-alper1')
       expect(text).toContain('#83708')
     })
+
+    it('notifyRobocallCanceled names the candidate when not an admin', async () => {
+      await service.notifyRobocallCanceled('jane-doe', 84877, false)
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      const text = JSON.stringify(message)
+      expect(text).toContain('canceled')
+      expect(text).toContain('by candidate')
+      expect(text).toContain('jane-doe')
+      expect(text).toContain('#84877')
+    })
+
+    it('notifyRobocallCanceled names staff when an admin cancels', async () => {
+      await service.notifyRobocallCanceled('jane-doe', 84877, true)
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(JSON.stringify(message)).toContain('by staff')
+    })
   })
 })

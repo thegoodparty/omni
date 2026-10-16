@@ -1,4 +1,9 @@
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
+import { addDays, format, parseISO, subDays } from 'date-fns'
+import {
+  ChatMessageRole,
+  ChatScope,
+  OfficeLevel,
+} from '../../../generated/prisma'
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
@@ -68,6 +73,83 @@ describe('CampaignManagerHandler.loadContext (integration)', () => {
     expect(handler.buildSystemPrompt(ctx)).toContain(
       'Election date on record: Tuesday, November 3, 2099',
     )
+  })
+})
+
+describe('CampaignManagerHandler.loadContext SMS cutoff (integration)', () => {
+  const electionIn = (days: number): string =>
+    format(addDays(new Date(), days), 'yyyy-MM-dd')
+
+  const conversationFor = async (electionDate: string) => {
+    const userId = service.user.id
+    const slug = `cam-${userId}-${Math.random().toString(36).slice(2, 10)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: userId },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { organizationSlug: slug, slug, userId, details: { electionDate } },
+    })
+    const conversation = await service.prisma.chatConversation.create({
+      data: {
+        ownerUserId: userId,
+        organizationSlug: slug,
+        scope: ChatScope.campaign_assistant,
+      },
+    })
+    return { campaign, conversationId: conversation.id, userId }
+  }
+
+  it('closes texting inside the window and tells the prompt', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const electionDate = electionIn(10)
+    const { conversationId, userId } = await conversationFor(electionDate)
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('closed')
+    expect(ctx.smsCutoffDate).toBe(
+      format(subDays(parseISO(electionDate), 19), 'yyyy-MM-dd'),
+    )
+    expect(handler.buildSystemPrompt(ctx)).toContain(
+      'TEXTING IS CLOSED FOR THIS RACE',
+    )
+  })
+
+  it('keeps texting open for a campaign that filed and paid in time', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { campaign, conversationId, userId } = await conversationFor(
+      electionIn(10),
+    )
+    await service.prisma.tcrCompliance.create({
+      data: {
+        campaignId: campaign.id,
+        ein: '12-3456789',
+        postalAddress: '1 Main St, Springfield, IL 62701',
+        committeeName: 'Friends of Renee',
+        websiteDomain: 'reneediaz.com',
+        filingUrl: 'https://example.com/filing',
+        phone: '5555550100',
+        email: 'renee@example.com',
+        officeLevel: OfficeLevel.local,
+        kickoffSentAt: new Date(),
+      },
+    })
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('not_applicable')
+    expect(handler.buildSystemPrompt(ctx)).not.toContain(
+      'TEXTING IS CLOSED FOR THIS RACE',
+    )
+  })
+
+  it('leaves texting open well before the cutoff', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { conversationId, userId } = await conversationFor(electionIn(90))
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('open')
   })
 })
 

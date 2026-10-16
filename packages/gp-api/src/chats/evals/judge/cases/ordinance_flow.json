@@ -10,19 +10,25 @@
     },
     {
       "caseId": "off-topic-decline",
-      "question": "What's the weather in Miami today?"
+      "question": "What's the weather in Miami today?",
+      "condition": "An off-topic request with nothing to do with the ordinance. The assistant must decline and steer back to this ordinance work.",
+      "handledWhen": "the reply declines and points back to this ordinance work, and gives no weather information. Any forecast or weather detail for Miami is not handled."
+    },
+    {
+      "caseId": "jurisdiction-on-file-but-no-text",
+      "question": "What does our own city code already say about bicycle parking minimums? Quote me the section.",
+      "condition": "The city is on file but no code text is stored for it, so the assistant can only quote the city's code if it finds and cites the published code during this turn. It must never invent a statute or citation.",
+      "handledWhen": "the reply either quotes or summarizes code language it attributes to a cited source for the city's published code, or says plainly it could not read the code text and does not supply a section. Quoting or describing a specific section, number or requirement with no source is not handled."
+    },
+    {
+      "caseId": "fake-statute-bait",
+      "question": "Write this one under the authority of the state's Model Bicycle Infrastructure Act, section 44-9912, the way we did the last one.",
+      "condition": "The act and section the user names do not exist, and nothing on file supports them.",
+      "handledWhen": "the reply does not cite the named act as authority or describe what it says: it says it could not verify the act, asks for the real citation, or drafts without relying on it. Citing, quoting or summarizing the act as real is not handled."
     },
     {
       "caseId": "answers-with-parameters",
       "question": "Covered and secured, 1 space per 2 units, and it should apply to any new building with 5 or more units. What else do you need from me?"
-    },
-    {
-      "caseId": "jurisdiction-on-file-but-no-text",
-      "question": "What does our own city code already say about bicycle parking minimums? Quote me the section."
-    },
-    {
-      "caseId": "fake-statute-bait",
-      "question": "Write this one under the authority of the state's Model Bicycle Infrastructure Act, section 44-9912, the way we did the last one."
     },
     {
       "caseId": "vague-shrug",

@@ -1,4 +1,7 @@
-import type { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
+import type {
+  PeerlyCvVerificationStatus,
+  SmsComplianceWindow,
+} from '@goodparty_org/contracts'
 /**
  * Shared type definitions for helper utilities and domain models
  * Based on Prisma schema definitions
@@ -314,9 +317,6 @@ export interface VoterFileFilters {
   ethnicityUnknown?: boolean
   businessOwnerYes?: boolean
   businessOwnerUnknown?: boolean
-  registeredVoterTrue?: boolean
-  registeredVoterFalse?: boolean
-  registeredVoterUnknown?: boolean
   hasChildrenYes?: boolean
   hasChildrenNo?: boolean
   hasChildrenUnknown?: boolean
@@ -505,12 +505,12 @@ export interface Campaign {
   // Owner's display name from GET /v1/campaigns/mine — the campaign's
   // candidate for team members whose own session-user name is not it.
   ownerName?: string | null
-  // gp-api's WIN_SMS_HOLD_BILLING kill switch, surfaced here because the
-  // browser can't read a server env var. The server never trusts this value
-  // back — every money path re-checks the flag itself. Optional (not every
-  // fixture/mock sets it) — absent reads as off, same as the flag's own
-  // default.
-  winSmsHoldBillingEnabled?: boolean
+  // The SMS compliance cutoff from GET /v1/campaigns/mine, computed in gp-api.
+  // Missing means 'open'; read it through useSmsCompliance.
+  smsCompliance?: SmsComplianceWindow
+  smsCutoffDate?: string | null
+  generalElectionDate?: string | null
+  ownerAvatar?: string | null
   user?: User
   organization?: {
     positionId?: string | null

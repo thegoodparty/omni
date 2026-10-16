@@ -1,13 +1,22 @@
-import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  NotFoundException,
+  Post,
+  UseInterceptors,
+} from '@nestjs/common'
 import {
   PhoneBankingScriptDraftResponse,
   PhoneBankingScriptDraftResponseSchema,
   ServePhoneBankingScriptDraftRequest,
   ServePhoneBankingScriptDraftRequestSchema,
+  BUILD_CITIZENS_PANEL_PURPOSE,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { FeaturesService } from '@/features/services/features.service'
+import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -38,6 +47,7 @@ export class OutreachServePhoneBankingController {
     private readonly generationService: OutreachPhoneBankingGenerationService,
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachServePhoneBankingController.name)
@@ -92,6 +102,16 @@ export class OutreachServePhoneBankingController {
     @Body(new ZodValidationPipe(ServePhoneBankingScriptDraftRequestSchema))
     input: ServePhoneBankingScriptDraftRequest,
   ): Promise<PhoneBankingScriptDraftResponse> {
+    // The civic panel invite is behind the panel's flag, as on Serve SMS.
+    if (
+      input.purpose === BUILD_CITIZENS_PANEL_PURPOSE &&
+      !(await this.features.isFeatureEnabled({
+        user,
+        feature: SERVE_CITIZEN_PANELS_FLAG,
+      }))
+    ) {
+      throw new NotFoundException()
+    }
     const { office, context } = await this.buildServeContext(electedOffice)
     return {
       draft: await this.generationService.generateDraft(

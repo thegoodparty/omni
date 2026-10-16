@@ -10,6 +10,7 @@ import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
+import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 
 const service = useTestService()
 
@@ -230,6 +231,75 @@ describe('ElectedOfficeController', () => {
       const ids = (result.data as { id: string }[]).map((o) => o.id)
       expect(ids).toEqual([mineEarlier.id, mineLater.id])
       expect(ids).not.toContain(theirs.id)
+    })
+
+    it('says which offices have issues they ran on to offer in onboarding', async () => {
+      const issuesSlug = `campaign-issues-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: issuesSlug, ownerId: service.user.id },
+      })
+      const withIssues = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: issuesSlug,
+          organizationSlug: issuesSlug,
+          details: {
+            customIssues: [{ title: 'Parks', position: 'More green space' }],
+          },
+        },
+      })
+      const unseeded = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      const seeded = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: seeded.id,
+          title: 'Roads',
+          description: 'Fix potholes',
+          source: 'win_import',
+        },
+      })
+      const allRemoved = await createOfficeForUser(service.user.id, {
+        campaignId: withIssues.id,
+        termStartDate: new Date('2022-01-01T00:00:00.000Z'),
+      })
+      await service.prisma.priority.create({
+        data: {
+          electedOfficeId: allRemoved.id,
+          title: 'Parks',
+          description: 'More green space',
+          source: 'win_import',
+          archivedAt: new Date(),
+        },
+      })
+      const emptyCampaign = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2023-01-01T00:00:00.000Z'),
+      })
+      const noCampaign = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2024-01-01T00:00:00.000Z'),
+      })
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(
+        (result.data as { id: string; hasWinIssues: boolean }[]).map((o) => [
+          o.id,
+          o.hasWinIssues,
+        ]),
+      ).toEqual([
+        [unseeded.id, true],
+        [seeded.id, true],
+        [allRemoved.id, false],
+        [emptyCampaign.id, false],
+        [noCampaign.id, false],
+      ])
     })
 
     it('returns an empty array when the user holds no offices', async () => {
@@ -780,6 +850,28 @@ describe('ElectedOfficeController', () => {
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
     })
 
+    it('sends the seat snapshot to HubSpot on the completing PUT', async () => {
+      const created = await createElectedOffice({
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}`,
+        { onboardingCompletedAt: '2026-02-01T00:00:00.000Z' },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id, {
+        sendSeatFields: true,
+      })
+    })
+
     it('persists the selfReported marker via a partial PUT (defaults to false)', async () => {
       // The net-new serve onboarding flow stamps this on the party-step PUT to
       // mark the office as the user's own pick (vs a sales/BR prefill).
@@ -812,6 +904,22 @@ describe('ElectedOfficeController', () => {
       expect(result.status).toBe(200)
       expect(result.data.onboardingStep).toBe('constituents')
     })
+
+    it.each(['story-represent', 'story-grow', 'priorities'])(
+      'persists the %s checkpoint the citizen panels flow writes',
+      async (onboardingStep) => {
+        const created = await createElectedOffice()
+        expect(created.status).toBe(200)
+
+        const result = await service.client.put(
+          `/v1/elected-office/${created.data.id}`,
+          { onboardingStep },
+        )
+
+        expect(result.status).toBe(200)
+        expect(result.data.onboardingStep).toBe(onboardingStep)
+      },
+    )
 
     it('rejects an unknown onboardingStep value', async () => {
       // The column is validated against the known step set, so a typo or stale
@@ -1068,6 +1176,33 @@ describe('ElectedOfficeController', () => {
         where: { slug: `eo-${created.data.id}` },
       })
       expect(organization?.overrideDistrictId).toBe('resolved-district')
+    })
+
+    it('syncs the office to HubSpot after the district changes', async () => {
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      vi.spyOn(
+        service.app.get(OrganizationsService),
+        'resolveOverrideDistrictId',
+      ).mockResolvedValue('resolved-district')
+      vi.spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      ).mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+      const sync = vi.spyOn(
+        service.app.get(CrmOfficeHolderService),
+        'syncElectedOffice',
+      )
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}/district`,
+        { state: 'CA', L2DistrictType: 'CITY', L2DistrictName: 'OAKLAND' },
+        { headers: { Authorization: 'Bearer mt_test' } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(sync).toHaveBeenCalledWith(created.data.id)
     })
   })
 })

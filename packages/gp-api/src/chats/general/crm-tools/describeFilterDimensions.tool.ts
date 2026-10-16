@@ -6,7 +6,8 @@ import {
   FILTER_DIMENSION_PROVENANCE_RULES,
   type FilterDimension,
 } from '@/contacts/filterDimensions.catalog'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
+import { dataSourceRoutingRules } from '@/llm/tools/dataSourceRouting'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
 // Strict so "takes no input" in the description stays true in code: any
 // smuggled key (e.g. another org's slug) is rejected, not silently ignored.
@@ -52,6 +53,11 @@ export const buildDescribeFilterDimensionsTool = (deps: {
   contacts: Pick<ContactsService, 'getFilterDimensions'>
   organization: Organization
   filterConsumers: readonly FilterConsumerToolName[]
+  peopleDataset: PeopleDataset
+  // The user's serve-citizen-panels flag, resolved per turn by the handler.
+  citizenPanels: boolean
+  // The campaign's or office's state, which decides how party is marked.
+  state: string | null | undefined
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     'List every contact-filter dimension available to this organization: ' +
@@ -62,9 +68,12 @@ export const buildDescribeFilterDimensionsTool = (deps: {
     '\n\n' +
     FILTER_DIMENSION_PROVENANCE_RULES +
     '\n\n' +
-    DATA_SOURCE_ROUTING_RULES,
+    dataSourceRoutingRules(deps.peopleDataset),
   inputSchema: describeFilterDimensionsInputSchema,
   execute: (): DescribeFilterDimensionsOutput => ({
-    dimensions: deps.contacts.getFilterDimensions(deps.organization),
+    dimensions: deps.contacts.getFilterDimensions(deps.organization, {
+      citizenPanels: deps.citizenPanels,
+      state: deps.state,
+    }),
   }),
 })

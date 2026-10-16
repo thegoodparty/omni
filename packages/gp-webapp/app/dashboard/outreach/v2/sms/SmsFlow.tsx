@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { CITIZENS_PANEL_PATH } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -19,10 +21,15 @@ import type {
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
+  findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+  isCivicPanelOnlyList,
   deriveSmsProtectedParts,
   mergeTagToken,
   PRICE_PER_TEXT,
+  REPORT_BACK_PURPOSE,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -47,13 +54,13 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { useWinSmsHoldFlag } from 'app/shared/experiments/winSmsHoldFlag'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_TYPES,
   FREE_TEXTS_OFFER,
 } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
-import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -71,6 +78,7 @@ import {
   type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { outreachLandingStep } from '../landingStep'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
@@ -78,6 +86,12 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
@@ -98,9 +112,17 @@ import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import {
+  addGreetingBack,
+  addIdentificationBack,
+  addOptOutBack,
+  addPaidForByBack,
   composeScript,
   composeServeScript,
+  paidForByLine,
+  withCivicPanelJoin,
+  withCivicPanelLines,
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
@@ -110,6 +132,7 @@ import {
   type SmsFlowPurpose,
   unfilledBrackets,
   upgradeScriptFooter,
+  profilePhotoFile,
 } from './smsCompose.util'
 import {
   createServeSms,
@@ -125,11 +148,13 @@ type StepId =
   | 'schedule'
   | 'compose'
   | 'review'
+// The message before the date, on every entry (docs/decisions/
+// 2026-10-14-outreach-flow-order-and-deep-links.md).
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',
-  'schedule',
   'compose',
+  'schedule',
   'review',
 ]
 
@@ -319,6 +344,9 @@ interface SmsFlowProps {
   // AI-drafts, so the seeded words are what they edit rather than something
   // a draft immediately overwrites.
   initialScript?: string
+  // Opens past the purpose picker on this purpose, as a card that already
+  // answered it (the Chief of Staff's civic panel card).
+  initialPurpose?: SmsFlowPurpose
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
@@ -332,6 +360,14 @@ interface SmsFlowProps {
   // paid one reads as sent and cannot be paid twice) and, on a priority, the
   // paid send puts its check out.
   proposalLink?: ProposalLink
+  // Serve: open with the civic panel ask on, as a chat card asked for.
+  initialAsksToJoinCivicPanel?: boolean
+  // The caller saved and picked the list (preselectedListId), as a chat card
+  // does, so with a seeded message the flow lands on the message.
+  audienceSettled?: boolean
+  // Serve: the earlier text a report back card answers. Rides on the create,
+  // which marks the send as a report back rather than a new ask.
+  reportBackForOutreachId?: number
   // Win's create was refused while carrying the card's key, which is how a
   // card sent from another tab or an earlier session answers (409). The
   // card's surface decides whether that means it already went out.
@@ -375,6 +411,16 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
+// The first civic panel text ends on what it set in motion, and goes back
+// to the panel it is building rather than to the outreach page.
+const SERVE_PANEL_SEED_SUCCESS_COPY = {
+  title: 'Your panel invite is scheduled',
+  reach: (count: string, when: string) =>
+    `It goes to ${count} residents${when}.`,
+  next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
+  action: 'See your civic panel',
+}
+
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
@@ -383,6 +429,7 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
+  seedsPanel = false,
   onDone,
 }: {
   contactCount: number
@@ -392,6 +439,8 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
+  // A build_citizens_panel send, which gets its own copy and next step.
+  seedsPanel?: boolean
   onDone: () => void
 }) => {
   const receiptQuery = useQuery({
@@ -414,18 +463,35 @@ export const SuccessScreen = ({
           <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-semibold text-foreground">
-          {paid ? 'Payment successful!' : 'Scheduled!'}
-        </h2>
-        <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-          recipients
-          {sendAt
-            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
-            : ' soon.'}
-        </p>
-      </div>
+      {seedsPanel ? (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.title}
+          </h2>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.reach(
+              contactCount.toLocaleString(),
+              sendAt ? ` on ${sendDateLabel(sendAt, timeZone)}` : '',
+            )}
+          </p>
+          <p className="text-muted-foreground">
+            {SERVE_PANEL_SEED_SUCCESS_COPY.next}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">
+            {paid ? 'Payment successful!' : 'Scheduled!'}
+          </h2>
+          <p className="text-muted-foreground">
+            Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+            recipients
+            {sendAt
+              ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
+              : ' soon.'}
+          </p>
+        </div>
+      )}
       {receipt && (
         <Card className="gap-0 p-0 text-left">
           <div className="flex items-center justify-between px-4 py-4">
@@ -485,9 +551,17 @@ export const SuccessScreen = ({
           Download receipt
         </Button>
       )}
-      <Button size="large" className="w-full" onClick={onDone}>
-        Done
-      </Button>
+      {seedsPanel ? (
+        <Button asChild size="large" className="w-full">
+          <Link href={CITIZENS_PANEL_PATH} onClick={onDone}>
+            {SERVE_PANEL_SEED_SUCCESS_COPY.action}
+          </Link>
+        </Button>
+      ) : (
+        <Button size="large" className="w-full" onClick={onDone}>
+          Done
+        </Button>
+      )}
     </div>
   )
 }
@@ -506,8 +580,12 @@ export const SmsFlow = ({
   initialEvent,
   source,
   initialScript,
+  initialPurpose,
   proposedAudience,
   proposalLink,
+  initialAsksToJoinCivicPanel = false,
+  audienceSettled = false,
+  reportBackForOutreachId,
   onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -519,6 +597,7 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  const { smsCutoffDate } = useSmsCompliance()
   const lockedAtOpen = useLockedAtOpen(open, gate)
   // gp-api reads the picked wall-clock window in the campaign state's zone
   // (Peerly `requested_timezone`), so the step captions that zone rather
@@ -544,6 +623,39 @@ export const SmsFlow = ({
   // Locks are found in this, not in what is being typed, so a name the
   // candidate is halfway through typing never locks under their cursor.
   const [lockSource, setLockSource] = useState('')
+  // Serve only, behind serve-citizen-panels: whether this text asks people to
+  // reply JOIN for the official's civic panel. Every message the flow
+  // composes carries the line while it is on, and the toggle adds or removes
+  // it from the current one.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(
+    surface.isServe,
+  )
+  const [asksToJoinCivicPanel, setAsksToJoinCivicPanelState] = useState(false)
+  // The seed is signed in an effect that can run in the same commit as the
+  // open that set this, while state still reads the last session's value; it
+  // reads the ref so a card's ask is not dropped on the way in.
+  const asksToJoinCivicPanelRef = useRef(false)
+  const setAsksToJoinCivicPanel = (asks: boolean) => {
+    asksToJoinCivicPanelRef.current = asks
+    setAsksToJoinCivicPanelState(asks)
+  }
+  // A text that builds the panel is its ask, so the ask cannot be unticked.
+  const civicPanelAskLocked =
+    surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  // A report back goes to the people already asked, so it never asks them
+  // to join the panel.
+  const isReportBack = surface.isServe && purpose === REPORT_BACK_PURPOSE
+  const asksToJoin =
+    surface.isServe &&
+    !isReportBack &&
+    (asksToJoinCivicPanel || civicPanelAskLocked)
+  // A report back's audience is one earlier send, which only its card can
+  // name, so the picker never offers it.
+  const purposes = (
+    citizenPanelsEnabled
+      ? surface.purposes
+      : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
+  ).filter(({ id }) => id !== REPORT_BACK_PURPOSE)
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -580,8 +692,14 @@ export const SmsFlow = ({
   const [customTime, setCustomTime] = useState('10:00')
 
   const [image, setImage] = useState<File | null>(null)
+  // Bumped by the open reset, which clears the image, so the profile photo
+  // prefill below runs again for each fresh open.
+  const [imageResetCount, setImageResetCount] = useState(0)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  // Presses of the message step's Continue while something was missing. The
+  // step shows what is missing only after the first, and moves to it on each.
+  const [composeContinueAttempts, setComposeContinueAttempts] = useState(0)
 
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
   const [draftCreateError, setDraftCreateError] = useState(false)
@@ -649,6 +767,22 @@ export const SmsFlow = ({
     : gate.requirement === 'pro'
       ? PRO_BUILD_STEP_ORDER
       : VERIFY_BUILD_STEP_ORDER
+  // A seeded message opens past the purpose picker on `custom`: the words
+  // are already chosen, so asking what the candidate wants to do and then
+  // drafting over them would throw the seed away. A carried-in
+  // recommendation opens past it too, on the purpose its intent maps onto:
+  // the candidate answered that question by picking the card.
+  const carriedPurpose =
+    initialPurpose ??
+    (preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null)
+  const landing = outreachLandingStep({
+    purposeSettled: carriedPurpose !== null,
+    audienceSettled: audienceSettled && preselectedListId !== undefined,
+    messageSettled: Boolean(initialScript),
+  })
+  const opensOnMessage = landing === 'message' && !resumeDraft
   const stepOrder: StepId[] = isEventInvite(purpose)
     ? baseStepOrder.flatMap((id) =>
         id === 'purpose' ? ['purpose', 'details'] : [id],
@@ -685,14 +819,28 @@ export const SmsFlow = ({
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
   const reachableCount = audience.reachableCount
+  // A text to civic panel members alone offers them a way off the panel in
+  // place of the JOIN ask: the locked LEAVE line. Read off the picked list's
+  // own criteria, the rule gp-api checks the create against.
+  const offersCivicPanelLeave =
+    surface.isServe &&
+    citizenPanelsEnabled &&
+    selectedList !== null &&
+    isCivicPanelOnlyList(selectedList)
+  const panelLines = {
+    join: asksToJoin && !offersCivicPanelLeave,
+    leave: offersCivicPanelLeave,
+  }
+  const composeMessage = (body: string, committee: string | null) =>
+    withCivicPanelLines(surface.composeMessage(body, committee), panelLines)
 
   // Win p2p SMS hold billing: the pay step can render on the pre-pay estimate
-  // before the phone-list build is ready, gated by gp-api's single
-  // WIN_SMS_HOLD_BILLING switch, surfaced on the campaign bootstrap payload
-  // (the browser can't read a server env var). isWinSms narrows it to the Win
-  // surface — SmsFlow is shared with Serve, which is not in this rollout.
-  const holdBillingActive =
-    isWinSms && Boolean(campaign?.winSmsHoldBillingEnabled)
+  // before the phone-list build is ready (gp-api runs the matching rollout
+  // behind the managed Amplitude flag `win_sms_hold_billing`, evaluated
+  // per-user at entry). Read with exposure tracking only on the Win surface —
+  // SmsFlow is shared with Serve, which is not in this experiment.
+  const { enabled: winSmsHoldEnabled } = useWinSmsHoldFlag(isWinSms)
+  const holdBillingActive = isWinSms && winSmsHoldEnabled
   // Mirrors the review step's isFree: a send the free-texts offer fully covers
   // reads/takes the free path. Pay-before-ready is a paid flow only — a free
   // pre-build send places no hold and gp-api refuses it (it must wait for the
@@ -701,17 +849,20 @@ export const SmsFlow = ({
     Boolean(campaign?.hasFreeTextsOffer) &&
     (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
   // A list create succeeded enough to proceed. The sync path returns a token;
-  // an async build (gp-api behind WIN_SMS_HOLD_BILLING) returns a null token
-  // with only the buildId, which is NOT a failure under the hold flag —
-  // the checkout then bills/links the hold off the buildId instead. Without the
-  // flag a null token is still unusable (the sync path requires it), so the
-  // flow is byte-identical when the flag is off.
+  // an async build (gp-api behind the `win_sms_hold_billing` flag) returns a
+  // null token with only the buildId, which is NOT a failure — the checkout
+  // then bills/links the hold off the buildId instead. Trust the SERVER's own
+  // response here, never this client's `holdBillingActive` belief: gp-api and
+  // the browser evaluate the SAME managed flag independently (one via
+  // FeaturesService per-request, the other via the Amplitude JS SDK on its own
+  // async schedule), so a null token can legitimately arrive before this
+  // client's own flag read has resolved. A null token is self-describing proof
+  // the server ran the async path regardless of why; gating acceptance on a
+  // local flag belief that can lag or disagree would reject a perfectly good
+  // response as a false "could not prepare this audience" error.
   const phoneListResultUsable = (
     result: PhoneListResult,
-  ): result is { ok: true } & PhoneListResponse =>
-    result.ok &&
-    !!result.buildId &&
-    (result.token !== null || holdBillingActive)
+  ): result is { ok: true } & PhoneListResponse => result.ok && !!result.buildId
 
   // A build-ready list always has its numeric phoneListId; before that, only a
   // paid hold-billing send may pay (on the estimate), and only once the list
@@ -733,38 +884,43 @@ export const SmsFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    // A seeded message opens past the purpose picker on `custom`: the words
-    // are already chosen, so asking what the candidate wants to do and then
-    // drafting over them would throw the seed away. A carried-in
-    // recommendation opens past it too, on the purpose its intent maps onto:
-    // the candidate answered that question by picking the card.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
     // A resumed draft answered purpose, audience and compose when it was
     // built, so it opens on the one thing still missing.
+    // An event invite still asks its details first, even with the audience
+    // settled: the draft is written from them.
     setStepId(
       resumeDraft
         ? 'schedule'
-        : initialScript
-          ? 'audience'
-          : carriedPurpose
-            ? isEventInvite(carriedPurpose)
-              ? 'details'
-              : 'audience'
-            : 'purpose',
+        : landing === 'purpose'
+          ? 'purpose'
+          : !initialScript && isEventInvite(carriedPurpose)
+            ? 'details'
+            : landing === 'message'
+              ? 'compose'
+              : 'audience',
     )
-    setPurpose(initialScript ? 'custom' : carriedPurpose)
+    // A card that names its purpose as well as its words (the Chief of
+    // Staff's panel invite, a report back) keeps that purpose, so the flow
+    // treats the send as the purpose's own: a report back never gets the
+    // panel ask, and a panel invite always does.
+    setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
+    const asks =
+      surface.isServe &&
+      carriedPurpose !== REPORT_BACK_PURPOSE &&
+      (initialAsksToJoinCivicPanel ||
+        carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE)
     const seeded = initialScript
-      ? surface.composeMessage(initialScript, null)
+      ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
     setMessage(seeded)
     setLockSource(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
+    asksToJoinCivicPanelRef.current = asks
+    setAsksToJoinCivicPanelState(asks)
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -781,7 +937,9 @@ export const SmsFlow = ({
     setTimeSlot('10')
     setCustomTime('10:00')
     setImage(null)
+    setImageResetCount((count) => count + 1)
     setImageError(null)
+    setComposeContinueAttempts(0)
     setDraftOutreachId(null)
     setDraftCreateError(false)
     setScheduled(false)
@@ -793,10 +951,44 @@ export const SmsFlow = ({
     resetAudience,
     resetEventDetails,
     initialScript,
+    initialPurpose,
+    initialAsksToJoinCivicPanel,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
+    landing,
+    carriedPurpose,
   ])
+
+  // A fresh text starts with the sender's profile photo attached. Win reads
+  // the campaign owner's, since a Campaign Manager composing is not the
+  // candidate; Serve's sender is the session user. A resume keeps its saved
+  // image, and a photo the candidate removed or replaced is never put back.
+  const profilePhotoUrl = surface.isServe
+    ? (user?.avatar ?? null)
+    : (campaign?.ownerAvatar ?? null)
+  const profilePhotoAppliedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (
+      !open ||
+      resumeDraft ||
+      !profilePhotoUrl ||
+      profilePhotoAppliedRef.current === imageResetCount
+    ) {
+      return
+    }
+    profilePhotoAppliedRef.current = imageResetCount
+    let settled = false
+    void profilePhotoFile(profilePhotoUrl).then((file) => {
+      if (settled) return
+      settled = true
+      if (file) setImage((current) => current ?? file)
+    })
+    return () => {
+      if (!settled) profilePhotoAppliedRef.current = null
+      settled = true
+    }
+  }, [open, resumeDraft, profilePhotoUrl, imageResetCount])
 
   // Object URL lifecycle for the image preview.
   useEffect(() => {
@@ -819,10 +1011,9 @@ export const SmsFlow = ({
     (campaign == null
       ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
       : '')
-  const candidateFirstName = candidateFullName.split(' ')[0] ?? ''
   // Serve's office comes from the org's position name, not from a campaign
   // row it does not have; the hook owns that derivation.
-  const serveIntroFor = useServeSmsIdentification(candidateFirstName)
+  const serveIntroFor = useServeSmsIdentification(candidateFullName)
   // Win's office prefers positionName (the org's elections-DB position,
   // already on campaigns/mine) over details.normalizedOffice, which is empty
   // for org-era onboardings and read "candidate for local office" — the same
@@ -834,7 +1025,7 @@ export const SmsFlow = ({
       ? serveIntroFor(t)
       : identificationIntro(
           t,
-          candidateFirstName,
+          candidateFullName,
           campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
   const identificationNames = [
@@ -845,7 +1036,7 @@ export const SmsFlow = ({
   // this, so the compose step never opens on a candidate_name failure.
   const identificationFor = (t: SocialTone) => ({
     intro: introFor(t),
-    firstName: candidateFirstName,
+    senderName: candidateFullName,
     candidateNames: identificationNames,
   })
   const withIdentification = (text: string, t: SocialTone): string =>
@@ -864,9 +1055,15 @@ export const SmsFlow = ({
     // Repaired as a body, then composed: the identification follows the
     // greeting. Composed without a committee; the footer effect below adds
     // the line the message should name.
-    const repaired = surface.composeMessage(
-      withIdentification(seed, 'warm'),
-      null,
+    const repaired = withCivicPanelLines(
+      surface.composeMessage(withIdentification(seed, 'warm'), null),
+      {
+        join:
+          surface.isServe &&
+          asksToJoinCivicPanelRef.current &&
+          !offersCivicPanelLeave,
+        leave: offersCivicPanelLeave,
+      },
     )
     setMessage(repaired)
     setLockSource(repaired)
@@ -901,6 +1098,21 @@ export const SmsFlow = ({
     setMessage(next)
     setLockSource(next)
   }
+  // The list can settle after the message was composed (a card's list
+  // resolving after its seed) or change under it (back to the audience step
+  // for another list), so the civic panel line follows the list.
+  const panelLeaveStale =
+    open &&
+    surface.isServe &&
+    message !== '' &&
+    (offersCivicPanelLeave
+      ? findCivicPanelLeaveLine(message) === null ||
+        findCivicPanelJoinLine(message) !== null
+      : findCivicPanelLeaveLine(message) !== null)
+  useEffect(() => {
+    if (panelLeaveStale) loadMessage(withCivicPanelLines(message, panelLines))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the message and the list disagree, not per keystroke
+  }, [panelLeaveStale])
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
@@ -912,7 +1124,7 @@ export const SmsFlow = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, footerCommittee])
   // The message with nothing written between its locked parts.
-  const emptyMessage = surface.composeMessage('', footerCommittee)
+  const emptyMessage = composeMessage('', footerCommittee)
   const hasWrittenBody =
     message.replace(/\s+/g, '') !== '' &&
     message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
@@ -950,7 +1162,7 @@ export const SmsFlow = ({
   // gate), so the send floor is the hard 48-hour scheduling window.
   const earliestSend = useMemo(
     () => Date.now() + 48 * 60 * 60 * 1000,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
+
     // each open, like the fresh-state reset
     [open],
   )
@@ -1012,6 +1224,8 @@ export const SmsFlow = ({
     audience,
     tracker,
     ...(proposalLink && !resumeDraft && { proposalLink }),
+    ...(reportBackForOutreachId !== undefined &&
+      !resumeDraft && { reportBackForOutreachId }),
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -1042,15 +1256,25 @@ export const SmsFlow = ({
   // wrote them, because gp-api masks them. One that does not (a gp-api from
   // before masking, mid-deploy) has them composed back around its body, so a
   // polish can never send without the disclaimer or opt-out.
+  // The regions come from the message without its civic panel line: with
+  // one, the second paragraph is the JOIN line, not the footer, and taking
+  // it as the footer sent the ask twice and dropped the opt-out. The line
+  // the message should carry goes back above the opt-out afterwards.
   const keepSystemRegions = (reply: string): string => {
     const [greeting = '', footer = ''] = surface
       .composeMessage('', footerCommittee)
       .split('\n\n')
-    return restoreSmsSystemRegions(reply, {
-      greeting,
-      footer,
-      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
-    })
+    return withCivicPanelLines(
+      restoreSmsSystemRegions(reply, {
+        greeting,
+        footer,
+        token: mergeTagToken(
+          'first_name',
+          surface.isServe ? 'serve' : 'peerly',
+        ),
+      }),
+      panelLines,
+    )
   }
 
   const requestDraft = (
@@ -1093,7 +1317,7 @@ export const SmsFlow = ({
           // an intro in front of the greeting.
           const full =
             currentDraft === undefined
-              ? surface.composeMessage(
+              ? composeMessage(
                   openWithSmsIdentification(
                     generated,
                     identificationFor(nextTone),
@@ -1115,7 +1339,7 @@ export const SmsFlow = ({
         onError: () => {
           if (requestId !== draftRequestRef.current) return
           if (priorMessage.trim().length > 0) return
-          loadMessage(surface.composeMessage('', footerCommittee))
+          loadMessage(composeMessage('', footerCommittee))
         },
       },
     )
@@ -1123,11 +1347,16 @@ export const SmsFlow = ({
 
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
+    // Kept ticked on the way to another purpose, so the box still matches
+    // the message.
+    if (surface.isServe && selected === BUILD_CITIZENS_PANEL_PURPOSE) {
+      setAsksToJoinCivicPanel(true)
+    }
     setTone('warm')
     setUndoText(null)
     // A custom message starts as its locked parts, written between.
     const start =
-      selected === 'custom' ? surface.composeMessage('', footerCommittee) : ''
+      selected === 'custom' ? composeMessage('', footerCommittee) : ''
     loadMessage(start)
     setOwnWords(selected === 'custom')
     setToneDrafts({})
@@ -1208,6 +1437,27 @@ export const SmsFlow = ({
     requestDraft(purpose, tone, message, ownWords, message)
   }
 
+  // A required line the official deleted, put back where the flow writes it.
+  const handleAddRequiredBack = (rule: SmsStandardsRule) => {
+    const [greeting = ''] = surface.composeMessage('', null).split('\n\n')
+    const next =
+      rule === 'opt_out_line'
+        ? addOptOutBack(message)
+        : rule === 'first_name_token'
+          ? addGreetingBack(message, greeting)
+          : rule === 'candidate_name'
+            ? addIdentificationBack(message, {
+                greeting,
+                intro: introFor(tone),
+              })
+            : rule === 'paid_for_by' && footerCommittee
+              ? addPaidForByBack(message, footerCommittee)
+              : message
+    if (next === message) return
+    handleMessageChange(next)
+    setLockSource(next)
+  }
+
   const handleUndo = () => {
     if (undoText === null) return
     draftRequestRef.current += 1
@@ -1219,7 +1469,7 @@ export const SmsFlow = ({
 
   // Name-step continue: create the list through the shared audience hook
   // (same endpoint the CRM wizard uses; the hook selects it and refreshes
-  // both list caches), derive its phone list, and land on the schedule step —
+  // both list caches), derive its phone list, and land on the compose step —
   // the prototype's build-and-keep-going path.
   const handleCreateListContinue = async () => {
     if (surface.isServe) return serveSend.createListContinue()
@@ -1246,7 +1496,7 @@ export const SmsFlow = ({
       }
       setPhoneListToken(result.token)
       setPhoneListBuildId(result.buildId)
-      setStepId('schedule')
+      setStepId('compose')
     } catch {
       setPhoneListCreating(false)
       // audience.createListError renders the inline message below.
@@ -1254,7 +1504,7 @@ export const SmsFlow = ({
   }
 
   // Recommendation flow: create the saved filter, derive its phone list,
-  // and advance to schedule in one atomic gesture. Reached from the naming
+  // and advance to compose in one atomic gesture. Reached from the naming
   // drawer (a tapped card, the candidate's own name) and from the shell's
   // Continue over a selected card (the recommendation's own title). Only
   // the create may throw. Past it the list exists under that name and is
@@ -1273,7 +1523,7 @@ export const SmsFlow = ({
       return
     }
     // Same reset as onSelect: a token left over from a previously picked
-    // list would let a retry skip straight to schedule with the wrong
+    // list would let a retry skip straight to compose with the wrong
     // audience.
     setPhoneListToken(null)
     setPhoneListBuildId(null)
@@ -1290,7 +1540,7 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId('schedule')
+    setStepId('compose')
   }
 
   const handleSelectedRecommendationContinue = async () => {
@@ -1317,7 +1567,7 @@ export const SmsFlow = ({
       return
     }
     if (phoneListToken) {
-      setStepId('schedule')
+      setStepId('compose')
       return
     }
     setPhoneListCreating(true)
@@ -1331,8 +1581,39 @@ export const SmsFlow = ({
     }
     setPhoneListToken(result.token)
     setPhoneListBuildId(result.buildId)
-    setStepId('schedule')
+    setStepId('compose')
   }
+
+  // A flow that lands on the message opens past the audience step, so on Win
+  // it derives the phone list there the way that step's Continue would have,
+  // once per open. A failure goes back to the audience step, where the error
+  // and its retry live.
+  const cardPhoneListStartedRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      cardPhoneListStartedRef.current = false
+      return
+    }
+    if (!opensOnMessage || surface.isServe || buildMode) return
+    if (cardPhoneListStartedRef.current || !selectedList) return
+    if (selectedList.id !== preselectedListId) return
+    cardPhoneListStartedRef.current = true
+    void (async () => {
+      setPhoneListCreating(true)
+      setPhoneListError(false)
+      setPhoneListBuildFailed(false)
+      const result = await createP2pPhoneList(selectedList, selectedList.id)
+      setPhoneListCreating(false)
+      if (!phoneListResultUsable(result)) {
+        setPhoneListError(true)
+        setStepId('audience')
+        return
+      }
+      setPhoneListToken(result.token)
+      setPhoneListBuildId(result.buildId)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open, when the card's list resolves
+  }, [open, opensOnMessage, buildMode, selectedList, preselectedListId])
 
   // A resumed row's image lives on the server, so there is no local File to
   // build an object URL from.
@@ -1630,7 +1911,7 @@ export const SmsFlow = ({
       // same failure card from before the edit instead of giving the edited
       // campaign its own shot. Re-request it the same way the review step's
       // own retry does, rather than only clearing the flags: nothing else
-      // triggers a build between compose and review, so clearing without
+      // triggers a build between the audience step and review, so clearing without
       // rebuilding would strand review on a permanent "preparing" spinner. A
       // build still in flight or one that already succeeded is untouched —
       // the audience didn't change, so a completed phoneList survives
@@ -1738,7 +2019,7 @@ export const SmsFlow = ({
                         void handleResumeScheduleContinue()
                         return
                       }
-                      setStepId('compose')
+                      setStepId('review')
                     },
                     disabled:
                       name.trim().length === 0 ||
@@ -1754,19 +2035,25 @@ export const SmsFlow = ({
                 : stepId === 'compose'
                   ? {
                       label: 'Continue',
-                      onClick: () =>
-                        setStepId(buildMode ? 'schedule' : 'review'),
-                      disabled:
-                        !hasWrittenBody ||
-                        !standards.passed ||
-                        bracketsToFill.length > 0 ||
-                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                        // Win only: Peerly rejects an imageless text/p2p send.
-                        // Serve is fulfilled by the shared delivery layer, whose
-                        // create takes imageUrl as optional, so an official can
-                        // send text alone.
-                        (!surface.isServe && image === null) ||
-                        draftMutation.isPending,
+                      // Stays pressable while something is missing: a press
+                      // shows what (design rule 4) instead of a dead button.
+                      onClick: () => {
+                        const ready =
+                          hasWrittenBody &&
+                          standards.passed &&
+                          bracketsToFill.length === 0 &&
+                          composedLength <= SMS_COMPOSED_MAX_LENGTH &&
+                          // Both surfaces send MMS: the image lifts the text
+                          // past single-SMS segment limits, and Peerly
+                          // rejects an imageless Win text/p2p send.
+                          image !== null
+                        if (!ready) {
+                          setComposeContinueAttempts((n) => n + 1)
+                          return
+                        }
+                        setStepId('schedule')
+                      },
+                      disabled: draftMutation.isPending,
                     }
                   : // Build mode's review has nothing to pay for: the CTA saves
                     // the draft and hands the flow to the gate, named for
@@ -1792,6 +2079,33 @@ export const SmsFlow = ({
           disabled: eventDetails.event === null,
         }
       : baseCta
+
+  // gp-api has closed texting for this race, so nothing built here could
+  // send: the notice stands in for the whole flow, before build mode, a
+  // resumed draft or the gate. A send that already settled keeps its
+  // success screen.
+  if (gate.requirement === 'closed' && !scheduled) {
+    return (
+      <OutreachFlowShell
+        open={open}
+        onClose={onClose}
+        title={SMS_CUTOFF_COPY.closedReason(
+          smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+        )}
+        currentStep={0}
+        totalSteps={0}
+        cta={null}
+        dirty={false}
+      >
+        <SmsCutoffNotice
+          variant="screen"
+          surface="sms_flow"
+          onBack={onClose}
+          onPick={onClose}
+        />
+      </OutreachFlowShell>
+    )
+  }
 
   return (
     <OutreachFlowShell
@@ -1926,6 +2240,7 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
+          seedsPanel={civicPanelAskLocked}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -1948,7 +2263,7 @@ export const SmsFlow = ({
         <SmsPurposeStep
           selected={purpose}
           onSelect={handleSelectPurpose}
-          purposes={surface.purposes}
+          purposes={purposes}
           introBody={surface.purposeIntroBody}
         />
       ) : stepId === 'details' ? (
@@ -2102,6 +2417,10 @@ export const SmsFlow = ({
           standardsFailures={standards.failures}
           unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
+          paidForByText={
+            footerCommittee ? paidForByLine(footerCommittee) : null
+          }
+          onAddRequiredBack={handleAddRequiredBack}
           message={message}
           onMessageChange={handleMessageChange}
           protectedParts={protectedParts}
@@ -2118,6 +2437,22 @@ export const SmsFlow = ({
           onImageChange={setImage}
           imageError={imageError}
           onImageError={setImageError}
+          continueAttempts={composeContinueAttempts}
+          civicPanelAsk={
+            surface.isServe &&
+            citizenPanelsEnabled &&
+            !isReportBack &&
+            !offersCivicPanelLeave
+              ? {
+                  checked: asksToJoin,
+                  locked: civicPanelAskLocked,
+                  onChange: (checked) => {
+                    setAsksToJoinCivicPanel(checked)
+                    loadMessage(withCivicPanelJoin(message, checked))
+                  },
+                }
+              : undefined
+          }
         />
       ) : (
         <CheckoutSessionProvider
@@ -2126,25 +2461,20 @@ export const SmsFlow = ({
             surface.isServe ? PURCHASE_TYPES.SERVE_TEXT : PURCHASE_TYPES.TEXT
           }
           purchaseMetaData={{
-            // Pay-before-ready: the estimate stands in for leads_loaded (gp-api
-            // re-derives the billed amount from the phone-list token, so this is
-            // only a non-zero hint that passes the contactCount guard).
+            // Pay-before-ready: the estimate stands in for leads_loaded. gp-api
+            // re-derives the billed amount from the draft's phone list, so
+            // this is only a hint.
             contactCount:
               phoneList?.leadsLoaded ??
               (payBeforeReady ? (reachableCount ?? 0) : 0),
-            pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
             outreachType: surface.isServe
               ? OUTREACH_TYPES.text
               : OUTREACH_TYPES.p2p,
             campaignId: campaign?.id,
             outreachId: draftOutreachId ?? undefined,
-            phoneListToken: phoneListToken ?? undefined,
-            // Async build (slice G): with no token the hold bills/links off the
-            // build id. Sent only when the token is absent, so the sync path's
-            // checkout metadata is unchanged.
-            ...(phoneListToken
-              ? {}
-              : { phoneListBuildId: phoneListBuildId ?? undefined }),
+            // gp-api prices the draft's own list; the build id is read only
+            // for a draft paid before its build finished.
+            phoneListBuildId: phoneListBuildId ?? undefined,
           }}
         >
           <SmsReviewStep
@@ -2163,7 +2493,6 @@ export const SmsFlow = ({
             }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
-            phoneListToken={phoneListToken}
             phoneListBuildId={phoneListBuildId}
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
             excludedDuplicatePhoneCount={

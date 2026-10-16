@@ -313,7 +313,7 @@ export class PersonProfilesController {
   }
 
   // Carries the ops note and the actor, so it stays behind the same admin guard
-  // as the writes — the unauthenticated /unlisted feed is personId-only for
+  // as the writes — the service-readable /unlisted feed is personId-only for
   // precisely this reason.
   @Get('removals')
   @UseGuards(AdminOrM2MGuard)

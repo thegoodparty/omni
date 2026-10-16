@@ -821,6 +821,33 @@ describe('OutreachHistoryTable — draft rows', () => {
     expect(screen.getAllByText('Pro needed')).toHaveLength(2)
   })
 
+  it('explains a Texting closed draft on hover', async () => {
+    const user = userEvent.setup()
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'pro',
+          texting: 'closed',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    const [desktopLabel] = screen.getAllByText('Texting closed')
+    await user.hover(desktopLabel!)
+
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+  })
+
   // The hub passes no membership with the flag off, and with it off no draft
   // row reaches this table at all — so the five labels naming a draft's next
   // step have nothing to filter and must not be offered.

@@ -365,18 +365,25 @@ purchase since the `paid` gate landed (2026-06-11) sat deferred forever. Since
 2026-09-22 one-time sessions no longer offer `us_bank_account` at all, so this
 path is a safety net for sessions minted before then, not a product feature.
 
-A Win SMS hold-billing checkout (behind `WIN_SMS_HOLD_BILLING`) also completes
-`unpaid` — the manual-capture hold authorizes funds without capturing them —
-but unlike ACH it is ready to fulfill NOW. `completeCheckoutSession` re-reads
-the live PaymentIntent and, when it is `requires_capture` (a Win TEXT session
-under the flag), fulfills instead of deferring; capture is a later slice. The
-check is flag-gated and narrowed to `purchaseType === TEXT`, so every other
-`unpaid` session still defers and the path is inert when the flag is off.
+A Win SMS hold-billing checkout (behind the managed Amplitude flag
+`win_sms_hold_billing`) also completes `unpaid` — the manual-capture hold
+authorizes funds without capturing them — but unlike ACH it is ready to
+fulfill NOW. `completeCheckoutSession` re-reads the live PaymentIntent and
+checks its `capture_method` directly — NEVER a flag read, so a flag flip
+between session-creation and this webhook can never make an already-placed
+hold fall through to the ACH deferral below and strand it. When the PI is
+`capture_method: 'manual'` and `requires_capture`, it fulfills instead of
+deferring; capture is a later slice. Every other `unpaid` session (no PI, or
+an automatic-capture one) still defers. Hold checkouts take promotion codes
+like every other checkout: Stripe takes the code off the hold, and
+`outreachP2pSmsHold.service.ts` records the discount (or, for a code that
+covered everything, a send with no hold) — see `outreach/AGENTS.md`.
 
-A promotion code that covers the whole order completes checkout with
-`payment_status: no_payment_required` and no PaymentIntent. Stripe's own
-fulfillment rule is "unless `unpaid`", so `completeCheckoutSession` runs the
-handler right away. The `postPurchaseCompletedAt` marker needs a
+A promotion code that covers the whole order completes checkout with no
+PaymentIntent and `payment_status: paid` (what Stripe test mode returned
+2026-10-14 on API version 2026-02-25.clover; older docs say
+`no_payment_required`). Stripe's own fulfillment rule is "unless `unpaid`", so
+`completeCheckoutSession` runs the handler right away. The `postPurchaseCompletedAt` marker needs a
 PaymentIntent, so for these sessions the handlers' own claims (the
 TEXT/SERVE_TEXT `pending_payment → pending` CAS, the poll create's reconcile)
 are the only guard against the client-vs-webhook race. Before 2026-10-06 the
@@ -400,6 +407,13 @@ checked out twice, and its post-purchase step is the same
 `pending_payment → pending` CAS claim the TEXT path uses, followed by an
 `outreachTextSend` queue message rather than a Peerly submission. Full
 invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
+
+A paid `outreachType: poll` row goes through the same handler but is held, not
+sent: the CAS claim moves it to `pending` and posts one "New poll awaiting
+review" Slack notice (only the claim winner, so a webhook redelivery posts
+nothing), and the claim's `outreachType` is read off the row. No
+`outreachTextSend` is enqueued; the admin approval does that. A lost claim on
+a `pending` poll returns without re-enqueuing.
 
 ## Gotchas
 

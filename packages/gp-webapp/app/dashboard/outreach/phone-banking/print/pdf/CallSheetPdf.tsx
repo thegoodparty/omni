@@ -29,6 +29,7 @@ const COLUMN = {
   wrongNumber: 46,
   refused: 46,
   support: 92,
+  civicPanel: 64,
 } as const
 
 const OUTCOME_WIDTH =
@@ -38,9 +39,16 @@ const OUTCOME_WIDTH =
   COLUMN.wrongNumber +
   COLUMN.refused
 
-const NOTES_WIDTH =
+// Serve's civic panel column comes out of Notes, the only column with room
+// to give, so every other column keeps one width on both surfaces.
+const notesWidth = (asksCivicPanel: boolean): number =>
   CONTENT_WIDTH -
-  (COLUMN.seq + COLUMN.name + COLUMN.phone + OUTCOME_WIDTH + COLUMN.support)
+  (COLUMN.seq +
+    COLUMN.name +
+    COLUMN.phone +
+    OUTCOME_WIDTH +
+    COLUMN.support +
+    (asksCivicPanel ? COLUMN.civicPanel : 0))
 
 const GRID = '#5c5c5c'
 const MUTED = '#4a4a4a'
@@ -207,10 +215,10 @@ const OutcomeCells = ({ outcome }: { outcome: CallSheetAnswer }) => {
 
 const AnswerLine = ({
   answer,
-  isServe,
+  ticks,
 }: {
   answer: CallSheetAnswer
-  isServe: boolean
+  ticks: Array<[string, string]>
 }) => {
   if (answer.kind === 'skip') return <Text style={styles.logged}>—</Text>
   if (answer.kind === 'logged') {
@@ -218,7 +226,7 @@ const AnswerLine = ({
   }
   return (
     <View style={styles.ticks}>
-      {answerTicks(isServe).map(([key, label]) => (
+      {ticks.map(([key, label]) => (
         <Fragment key={key}>
           <View style={styles.tickBox} />
           <Text style={styles.tickLabel}>{label}</Text>
@@ -228,7 +236,15 @@ const AnswerLine = ({
   )
 }
 
-const CallRow = ({ row, isServe }: { row: CallSheetRow; isServe: boolean }) => (
+const CallRow = ({
+  row,
+  isServe,
+  asksCivicPanel,
+}: {
+  row: CallSheetRow
+  isServe: boolean
+  asksCivicPanel: boolean
+}) => (
   <View style={styles.row} wrap={false}>
     <View style={[styles.cell, { width: COLUMN.seq }]}>
       <Text style={styles.seqText}>{row.seq}</Text>
@@ -246,10 +262,33 @@ const CallRow = ({ row, isServe }: { row: CallSheetRow; isServe: boolean }) => (
     <OutcomeCells outcome={row.outcome} />
     <View style={[styles.cell, { width: COLUMN.support }]}>
       {row.persons.map((person) => (
-        <AnswerLine key={person.key} answer={person.answer} isServe={isServe} />
+        <AnswerLine
+          key={person.key}
+          answer={person.answer}
+          ticks={answerTicks(isServe)}
+        />
       ))}
     </View>
-    <View style={[styles.cell, styles.lastCell, { width: NOTES_WIDTH }]}>
+    {asksCivicPanel && (
+      <View style={[styles.cell, { width: COLUMN.civicPanel }]}>
+        {row.persons.map((person) =>
+          person.civicPanel === null ? null : (
+            <AnswerLine
+              key={person.key}
+              answer={person.civicPanel}
+              ticks={FOLLOW_UP_TICKS}
+            />
+          ),
+        )}
+      </View>
+    )}
+    <View
+      style={[
+        styles.cell,
+        styles.lastCell,
+        { width: notesWidth(asksCivicPanel) },
+      ]}
+    >
       {row.persons.map((person) => (
         <View key={person.key} style={styles.noteLine} />
       ))}
@@ -257,7 +296,11 @@ const CallRow = ({ row, isServe }: { row: CallSheetRow; isServe: boolean }) => (
   </View>
 )
 
-const headings = (isServe: boolean): Array<[string, number]> => [
+const headings = (
+  isServe: boolean,
+  asksCivicPanel: boolean,
+  civicPanelOnly: boolean,
+): Array<[string, number]> => [
   ['#', COLUMN.seq],
   ['Name(s)', COLUMN.name],
   ['Phone', COLUMN.phone],
@@ -267,25 +310,46 @@ const headings = (isServe: boolean): Array<[string, number]> => [
   ['Wrong #', COLUMN.wrongNumber],
   ['Refused', COLUMN.refused],
   [answerHeading(isServe), COLUMN.support],
-  ['Notes', NOTES_WIDTH],
+  ...(asksCivicPanel
+    ? [
+        [
+          civicPanelOnly ? 'Stay on panel Y N' : 'Civic panel Y N',
+          COLUMN.civicPanel,
+        ] as [string, number],
+      ]
+    : []),
+  ['Notes', notesWidth(asksCivicPanel)],
 ]
 
 // `fixed` repeats this at the top of every page, so a later page is still a
 // table and not ten unlabelled columns of handwriting.
-const HeaderRow = ({ isServe }: { isServe: boolean }) => (
+const HeaderRow = ({
+  isServe,
+  asksCivicPanel,
+  civicPanelOnly,
+}: {
+  isServe: boolean
+  asksCivicPanel: boolean
+  civicPanelOnly: boolean
+}) => (
   <View style={styles.headerRow} fixed>
-    {headings(isServe).map(([label, width], index) => (
-      <Text
-        key={label}
-        style={[
-          styles.headerCell,
-          { width },
-          index === headings(isServe).length - 1 ? styles.lastCell : {},
-        ]}
-      >
-        {label}
-      </Text>
-    ))}
+    {headings(isServe, asksCivicPanel, civicPanelOnly).map(
+      ([label, width], index) => (
+        <Text
+          key={label}
+          style={[
+            styles.headerCell,
+            { width },
+            index ===
+            headings(isServe, asksCivicPanel, civicPanelOnly).length - 1
+              ? styles.lastCell
+              : {},
+          ]}
+        >
+          {label}
+        </Text>
+      ),
+    )}
   </View>
 )
 
@@ -315,6 +379,11 @@ interface CallSheetPdfProps {
   // Which question the answer column asks. Paper is the only thing a
   // volunteer has on the call, so it must ask what the app asks.
   isServe: boolean
+  // serve-citizen-panels, resolved by the route.
+  citizenPanelsEnabled?: boolean
+  // The list is civic panel members only, so the panel column asks whether
+  // they want to stay on rather than whether they want to join.
+  civicPanelOnly?: boolean
 }
 
 // The downloadable call sheet: the walk-list PDF's direct template, ruled
@@ -327,50 +396,64 @@ export const CallSheetPdf = ({
   sheetCount,
   rows,
   isServe,
-}: CallSheetPdfProps) => (
-  <Document title={listName} author="GoodParty.org" subject="Call sheet">
-    <Page size="LETTER" orientation="landscape" style={styles.page}>
-      <View>
-        <Text style={styles.title}>{listName}</Text>
-        <Text style={styles.sheetLabel}>
-          Sheet {sheetIndex} of {sheetCount}
-        </Text>
-        <View style={styles.script}>
-          <Text style={styles.scriptLabel}>Script</Text>
-          {/* Deliberately not interpolated (ENG-10938): one script prints
+  citizenPanelsEnabled = false,
+  civicPanelOnly = false,
+}: CallSheetPdfProps) => {
+  const asksCivicPanel = isServe && citizenPanelsEnabled
+  return (
+    <Document title={listName} author="GoodParty.org" subject="Call sheet">
+      <Page size="LETTER" orientation="landscape" style={styles.page}>
+        <View>
+          <Text style={styles.title}>{listName}</Text>
+          <Text style={styles.sheetLabel}>
+            Sheet {sheetIndex} of {sheetCount}
+          </Text>
+          <View style={styles.script}>
+            <Text style={styles.scriptLabel}>Script</Text>
+            {/* Deliberately not interpolated (ENG-10938): one script prints
               once per sheet header above rows for up to 60 different
               people, so there's no single "active contact" to substitute
               — the contact-name token stays a literal bracket here, same as
               the caller page shows for a list frozen before that field
               existed. Only the digital caller page (PhoneBankingEntryPanel)
               is single-contact enough to interpolate it. */}
-          <Text style={styles.scriptText}>{script}</Text>
-        </View>
-        {/* Deliberately no printed date, for the same reason the walk list
+            <Text style={styles.scriptText}>{script}</Text>
+          </View>
+          {/* Deliberately no printed date, for the same reason the walk list
             has none: this renders in Node, whose clock is UTC. */}
-        <Text style={styles.disclaimer}>
-          Answers already logged in the app are printed below. Log these in the
-          app when you&rsquo;re back online — nothing written here reaches your{' '}
-          {isServe ? 'constituent' : 'voter'} records on its own.
-        </Text>
-      </View>
+          <Text style={styles.disclaimer}>
+            Answers already logged in the app are printed below. Log these in
+            the app when you&rsquo;re back online — nothing written here reaches
+            your {isServe ? 'constituent' : 'voter'} records on its own.
+          </Text>
+        </View>
 
-      {rows.length === 0 ? (
-        <Text style={styles.empty}>This sheet has no calls.</Text>
-      ) : (
-        <>
-          <HeaderRow isServe={isServe} />
-          {rows.map((row) => (
-            <CallRow key={row.key} row={row} isServe={isServe} />
-          ))}
-          <View style={styles.gridBottom} />
-        </>
-      )}
+        {rows.length === 0 ? (
+          <Text style={styles.empty}>This sheet has no calls.</Text>
+        ) : (
+          <>
+            <HeaderRow
+              isServe={isServe}
+              asksCivicPanel={asksCivicPanel}
+              civicPanelOnly={civicPanelOnly}
+            />
+            {rows.map((row) => (
+              <CallRow
+                key={row.key}
+                row={row}
+                isServe={isServe}
+                asksCivicPanel={asksCivicPanel}
+              />
+            ))}
+            <View style={styles.gridBottom} />
+          </>
+        )}
 
-      <Footer />
-    </Page>
-  </Document>
-)
+        <Footer />
+      </Page>
+    </Document>
+  )
+}
 
 export const renderCallSheetPdf = (props: CallSheetPdfProps): Promise<Buffer> =>
   renderToBuffer(<CallSheetPdf {...props} />)

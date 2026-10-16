@@ -417,6 +417,12 @@ export const EVENTS = {
       IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
       SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
     },
+    // The SMS compliance cutoff notice shown before purchase in the Pro
+    // wizard. Both carry `source`; Completed fires on continue to payment.
+    SmsCutoff: {
+      NoticeViewed: 'Pro Upgrade - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Pro Upgrade - SMS Cutoff Notice Completed',
+    },
   },
   // Candidate questions flow. The event string is snake_case, predating the
   // 'Product Area - Action' convention; the name is kept exactly as ingested so
@@ -674,6 +680,14 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
+    // The SMS compliance cutoff notice that replaces a texting or compliance
+    // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
+    // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
+    // Completed carries `surface` and the `channel` picked instead.
+    SmsCutoff: {
+      NoticeViewed: 'Outreach - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Outreach - SMS Cutoff Notice Completed',
+    },
   },
   CandidateWebsite: {
     Continued: 'Candidate Website - Continued',
@@ -692,6 +706,13 @@ export const EVENTS = {
     CitationOpened: 'Chief Of Staff - Citation Opened',
     UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
     ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
+    // The front card of the home's task stack. `cardType` is the card's kind
+    // (onboarding, briefing, agenda_item, community_issue), `stackSize` how
+    // many cards were in the stack when the official acted.
+    TaskCompleted: 'Chief Of Staff - Task Completed',
+    // Every other choice on that card: `action` is start (its main button),
+    // ask (open the chat about it), or skip.
+    TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',

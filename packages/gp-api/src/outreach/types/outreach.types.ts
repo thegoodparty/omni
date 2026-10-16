@@ -6,7 +6,6 @@ export type OutreachWithVoterFileFilter = Prisma.OutreachGetPayload<{
 }>
 export interface OutreachPurchaseMetadata extends BasePurchaseMetadata {
   contactCount: number
-  pricePerContact?: number
   outreachType: string
   audienceSize: number
   audienceRequest?: string
@@ -14,16 +13,18 @@ export interface OutreachPurchaseMetadata extends BasePurchaseMetadata {
   message?: string
   date?: string
   // Links the checkout session to the pending_payment draft the post-purchase
-  // handler finalizes. Absent on sessions from clients predating draft-first.
+  // handler finalizes. Required for p2p: the draft's own phone list is what a
+  // p2p purchase is priced from.
   outreachId?: number
-  // The Peerly phone-list upload token (PeerlyPhoneList.token). p2p purchases
-  // re-derive the billed contactCount from this server-side rather than
-  // trusting the client-supplied value.
-  phoneListToken?: string
-  // The PeerlyPhoneList row id, used INSTEAD of phoneListToken when an async
-  // build (gated by WIN_SMS_HOLD_BILLING) has no token yet — so the biggest
-  // lists can pay while they build. Client-supplied, so every resolution scopes
-  // it to the server-validated campaign before it bills, caps, or links (the
-  // token is globally @unique; this id is not). Ignored when a token is present.
+  // The PeerlyPhoneList row id of a build still in progress (gated by the
+  // win_sms_hold_billing flag), so the biggest lists can pay while they build.
+  // Read only for a draft that has no Peerly list yet, and then only when the
+  // build belongs to this campaign and to the draft's own saved voter list. A
+  // draft that names its list is billed for that list and this is ignored.
   phoneListBuildId?: string
+  // Resolved ONCE by PurchaseService at entry (checkout-session creation, or
+  // free-purchase confirmation) for the paying user, and reused here rather
+  // than re-read — see PurchaseService.resolveWinSmsHoldBillingEnabled.
+  // Absent/false is the pre-feature, immediate-charge path.
+  winSmsHoldBillingEnabled?: boolean
 }

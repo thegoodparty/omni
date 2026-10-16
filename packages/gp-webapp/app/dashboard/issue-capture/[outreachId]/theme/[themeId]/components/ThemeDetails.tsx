@@ -36,17 +36,21 @@ const ThemeDetails = ({
           <p className="text-sm text-foreground">{theme.details}</p>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <UsersIcon size={18} aria-hidden="true" />
-            <h2 className="text-base font-semibold text-foreground">
-              {copy.stanceSplit}
-            </h2>
-          </div>
-          <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
-        </CardContent>
-      </Card>
+      {/* Null when every member is a text reply, which carries no stance:
+          a card of four zeros would read as a finding. */}
+      {theme.stanceCounts !== null && (
+        <Card>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <UsersIcon size={18} aria-hidden="true" />
+              <h2 className="text-base font-semibold text-foreground">
+                {copy.stanceSplit}
+              </h2>
+            </div>
+            <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+          </CardContent>
+        </Card>
+      )}
       {theme.desiredOutcomes.length > 0 && (
         <Card>
           <CardContent className="flex flex-col gap-2">

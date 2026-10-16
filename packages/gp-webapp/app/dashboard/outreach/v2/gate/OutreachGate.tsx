@@ -13,6 +13,7 @@ import CampaignVerificationSteps, {
   type VerificationStep,
 } from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
 import { PinDialog } from 'app/dashboard/shared/membership/PinDialog'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import {
   BANNER_COPY,
   GATE_CHROME_COPY,
@@ -58,8 +59,8 @@ export interface GateChrome {
 }
 
 // The gate screens themselves, mounted in place of a paused flow's step body:
-// the Pro interstitial, campaign verification, the PIN dialog, or an
-// in-review notice. None of them offers Delete (design: no gate screen does)
+// the Pro interstitial, campaign verification, the PIN dialog, an in-review
+// notice, or the SMS cutoff notice. None of them offers Delete (design: no gate screen does)
 // — a saved draft is discarded from its history row's drawer.
 export const OutreachGate = ({
   channel,
@@ -122,7 +123,8 @@ export const OutreachGate = ({
     if (
       remaining === 'verify' ||
       remaining === 'in_review' ||
-      remaining === 'pin'
+      remaining === 'pin' ||
+      remaining === 'closed'
     ) {
       setScreen(remaining)
       return
@@ -131,9 +133,15 @@ export const OutreachGate = ({
   }
 
   // The PIN and in-review cards are the verification phase's own notices
-  // and draw no header of their own (design: the pending screen).
+  // and draw no header of their own (design: the pending screen). The
+  // cutoff notice is the same kind of stop.
   useEffect(() => {
-    if (!open || (screen !== 'pin' && screen !== 'in_review')) return
+    if (
+      !open ||
+      (screen !== 'pin' && screen !== 'in_review' && screen !== 'closed')
+    ) {
+      return
+    }
     onChromeChangeRef.current?.({
       overline: GATE_CHROME_COPY.verification,
       currentStep: 0,
@@ -208,6 +216,17 @@ export const OutreachGate = ({
           tcrCompliance={state.tcrCompliance}
         />
       </div>
+    )
+  }
+
+  if (screen === 'closed') {
+    return (
+      <SmsCutoffNotice
+        variant="screen"
+        surface="outreach_gate"
+        onBack={onExit}
+        onPick={onExit}
+      />
     )
   }
 

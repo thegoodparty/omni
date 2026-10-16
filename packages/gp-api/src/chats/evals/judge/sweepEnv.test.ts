@@ -85,6 +85,15 @@ describe('parseArmEnv', () => {
     )
   })
 
+  it('rejects a sweep id too long for a page replay key', () => {
+    expect(() =>
+      parseArmEnv(armEnv({ JUDGE_SWEEP_ID: 'x'.repeat(65) })),
+    ).toThrow(/JUDGE_SWEEP_ID is part of every page replay key/)
+    expect(() =>
+      parseArmEnv(armEnv({ JUDGE_SWEEP_ID: 'x'.repeat(64) })),
+    ).not.toThrow()
+  })
+
   it('rejects an arm that is neither base nor candidate', () => {
     expect(() => parseArmEnv(armEnv({ JUDGE_ARM: 'both' }))).toThrow(
       SweepEnvError,

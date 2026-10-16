@@ -13,6 +13,7 @@ import {
   ListCampaignsPaginationSchema,
   ReadCampaignOutputSchema,
   SetDistrictOutputSchema,
+  SmsComplianceWindowSchema,
   UpdateCampaignM2MSchema,
 } from '@goodparty_org/contracts'
 import {
@@ -43,7 +44,6 @@ import {
   userHasRole,
 } from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { isWinSmsHoldBillingEnabled } from 'src/shared/util/winSmsHold.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
 import { Roles } from '../authentication/decorators/Roles.decorator'
@@ -62,6 +62,7 @@ import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 import { toCampaignGroupTraits } from './util/campaignGroupTraits.util'
+import { smsComplianceWindow } from './util/eligibility.util'
 
 class ListCampaignsPaginationDto extends createZodDto(
   ListCampaignsPaginationSchema,
@@ -69,15 +70,17 @@ class ListCampaignsPaginationDto extends createZodDto(
 
 // Mine-only: ownerName is the campaign OWNER's display name, for surfaces
 // that render the candidate (the campaign plan) to team members whose own
-// session-user name is NOT the candidate's. winSmsHoldBillingEnabled is the
-// gp-api WIN_SMS_HOLD_BILLING env flag, surfaced so the browser (which can't
-// read process.env) can gate its UI on the same switch the server enforces.
-// Both stay off the shared CampaignWithLiveContextSchema that the M2M GET :id
-// also validates against. getUserFullName always returns a string (possibly
-// empty, coerced to null) — never absent — so nullable, not nullish.
+// session-user name is NOT the candidate's. It stays off the shared
+// CampaignWithLiveContextSchema that the M2M GET :id also validates against.
+// getUserFullName always returns a string (possibly empty, coerced to null)
+// — never absent — so nullable, not nullish. ownerAvatar rides along so the
+// SMS composer can attach the candidate's photo, not a team member's.
 const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
   ownerName: z.string().nullable(),
-  winSmsHoldBillingEnabled: z.boolean(),
+  smsCompliance: SmsComplianceWindowSchema.optional(),
+  smsCutoffDate: z.string().nullable().optional(),
+  generalElectionDate: z.string().nullable().optional(),
+  ownerAvatar: z.string().nullable(),
 })
 
 class UpdateCampaignM2MDto extends createZodDto(UpdateCampaignM2MSchema) {}
@@ -107,15 +110,22 @@ export class CampaignsController {
       'Use this on startup to understand who the user is, what office they are running for, ' +
       'and what state the campaign is in.',
   })
-  @UseCampaign({ include: { organization: true, user: true } })
+  @UseCampaign({
+    include: { organization: true, user: true, tcrCompliance: true },
+  })
   async findMine(
     @ReqCampaign()
-    campaign: CampaignWith<'organization' | 'user'>,
+    campaign: CampaignWith<'organization' | 'user' | 'tcrCompliance'>,
   ) {
     // The user relation is the campaign OWNER (Campaign.userId), not the
     // caller — a team member's request still resolves the owner here. Strip
     // the row from the response; only the display name leaves the API.
-    const { organization: org, user: owner, ...campaignFields } = campaign
+    const {
+      organization: org,
+      user: owner,
+      tcrCompliance,
+      ...campaignFields
+    } = campaign
 
     const [{ positionName }, liveMetrics] = await Promise.all([
       this.organizations.resolvePositionContext({
@@ -131,11 +141,12 @@ export class CampaignsController {
       positionName,
       raceTargetMetrics: liveMetrics,
       ownerName: (owner && getUserFullName(owner)) || null,
-      // The browser can't read a gp-api env var; expose the one kill switch
-      // so the SMS flow's pay-before-ready UI gates on the SAME flag the
-      // server enforces. The server never trusts this value back — every
-      // money path re-checks isWinSmsHoldBillingEnabled() itself.
-      winSmsHoldBillingEnabled: isWinSmsHoldBillingEnabled(),
+      ...smsComplianceWindow({
+        electionDate: campaign.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
+      ownerAvatar: owner?.avatar?.trim() || null,
     }
   }
 
@@ -372,7 +383,21 @@ export class CampaignsController {
       isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
     )
     if (!updated) throw new NotFoundException('Campaign not found after update')
-    return updated
+
+    // The webapp writes this response straight into its campaign cache, so it
+    // carries the same SMS window fields as GET mine or the cutoff UI reopens.
+    const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
+      where: { campaignId: updated.id },
+      select: { kickoffSentAt: true, internalTestingAt: true },
+    })
+    return {
+      ...updated,
+      ...smsComplianceWindow({
+        electionDate: updated.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
+    }
   }
 
   @UseGuards(M2MOnly)

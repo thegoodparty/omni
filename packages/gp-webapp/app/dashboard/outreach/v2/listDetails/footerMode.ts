@@ -76,6 +76,7 @@ export const DRAFT_FOOTER_LABELS = {
   verification: 'Start verification',
   inReview: 'Verification in progress',
   pin: 'Enter your PIN',
+  closed: DRAFT_LABELS.closed,
 } as const
 
 export const draftFooterAction = (
@@ -84,6 +85,10 @@ export const draftFooterAction = (
 ): { label: string; disabled: boolean } => {
   if (label === DRAFT_LABELS.inReview) {
     return { label: DRAFT_FOOTER_LABELS.inReview, disabled: true }
+  }
+  // The draft stays readable and deletable, but nothing moves it on.
+  if (label === DRAFT_LABELS.closed) {
+    return { label: DRAFT_FOOTER_LABELS.closed, disabled: true }
   }
   if (label === DRAFT_LABELS.pro) {
     return { label: DRAFT_FOOTER_LABELS.pro, disabled: false }

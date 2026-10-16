@@ -332,3 +332,13 @@
     padding: 0;
   }
 }
+
+/* Serve's answer column holds two questions. The wider gap between the two
+   runs of boxes is the only thing saying where follow-up ends and the civic
+   panel ask begins. */
+.ws-answer-runs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: 3fr 2fr;
+  gap: 14px;
+}

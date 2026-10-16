@@ -42,6 +42,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { PollResponseJsonRow } from '../queue.types'
 import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
@@ -133,6 +134,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
     resolveProAccess: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -201,6 +203,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -273,6 +276,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       hubspotSingleSend as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -377,6 +381,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -416,6 +421,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -474,6 +480,8 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     // Pro-access resolved once, not once per phone.
     expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    // The people table is resolved once for the whole fan-out, not per phone.
+    expect(contactsService.resolvePeopleDataset).toHaveBeenCalledTimes(1)
     expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
       phones.length,
     )
@@ -1153,6 +1161,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -1353,6 +1362,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -1442,12 +1452,14 @@ describe('QueueConsumerService - message type routing', () => {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
   let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
+  let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
+    mockPollExpansion = { resolveDelivery: vi.fn() }
 
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1548,6 +1560,10 @@ describe('QueueConsumerService - message type routing', () => {
           provide: OutreachTextDeliveryService,
           useValue: mockOutreachTextDelivery,
         },
+        {
+          provide: OutreachServePollExpansionService,
+          useValue: mockPollExpansion,
+        },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -1635,6 +1651,120 @@ describe('QueueConsumerService - message type routing', () => {
       message: 'Trash pickup moves to Thursday.',
       imageUrl: 'https://example.com/flyer.png',
       scheduledLocalDate: '2026-10-08',
+    })
+  })
+
+  describe('outreachTextSend for a poll', () => {
+    const pollRow = (overrides: Record<string, unknown> = {}) => ({
+      outreachType: 'poll',
+      approvedAt: new Date('2026-10-10T12:00:00Z'),
+      message: 'Hi, do you support the park?',
+      imageUrl: null,
+      scheduledLocalDate: '2026-10-14',
+      voterFileFilterId: null,
+      textCount: 250,
+      pollDetails: { audienceKind: 'sample' },
+      ...overrides,
+    })
+    const delivered = {
+      audienceResolved: true,
+      recipientCount: 250,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '3-1.csv',
+    }
+
+    it('delivers a sample poll as a sample of textCount people', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'sample', size: 250 },
+          paidRecipientCap: 250,
+        }),
+      )
+    })
+
+    it('delivers a list poll to its saved filter', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({
+          voterFileFilterId: 61,
+          pollDetails: { audienceKind: 'list' },
+        }),
+      )
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'savedFilter', voterFileFilterId: 61 },
+        }),
+      )
+    })
+
+    it('sends nothing for a poll that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({ approvedAt: null }),
+      )
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    })
+
+    it('delivers an expansion as a sample that excludes earlier recipients', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue({
+        textCount: 80,
+        excludePersonIds: ['person-1', 'person-2'],
+      })
+      mockOutreachTextDelivery.requestSend.mockResolvedValue({
+        ...delivered,
+        recipientCount: 80,
+        sendKey: '3-2.csv',
+      })
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockPollExpansion.resolveDelivery).toHaveBeenCalledWith(3, 2)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sendSeq: 2,
+          audience: {
+            kind: 'sample',
+            size: 80,
+            excludePersonIds: ['person-1', 'person-2'],
+          },
+          paidRecipientCap: 80,
+        }),
+      )
+    })
+
+    it('sends nothing for an expansion that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue(null)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
     })
   })
 
@@ -2174,6 +2304,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -2385,6 +2516,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -2512,6 +2644,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -2560,6 +2693,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (handle: ReturnType<typeof vi.fn>) => {
     logger = createMockLogger()
     return new QueueConsumerService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

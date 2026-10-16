@@ -52,6 +52,59 @@ describe('<StatusChangeActivityRow>', () => {
     ).toBeInTheDocument()
   })
 
+  it('says a constituent joined the civic panel by text, not that someone changed it', () => {
+    mockedUseUser.mockReturnValue([
+      { id: 99, email: 'other@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(
+      <StatusChangeActivityRow
+        activity={makeActivity({
+          field: 'civic_panel',
+          fromLabel: 'Not a member',
+          toLabel: 'Member',
+          actorName: null,
+          actorUserId: null,
+          source: 'sms',
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText('Joined by replying JOIN to a text'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Someone/)).not.toBeInTheDocument()
+  })
+
+  it('names the channel when no one on the team made the change', () => {
+    mockedUseUser.mockReturnValue([
+      { id: 99, email: 'other@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(
+      <StatusChangeActivityRow
+        activity={makeActivity({
+          field: 'civic_panel',
+          fromLabel: 'Not a member',
+          toLabel: 'Member',
+          actorName: null,
+          actorUserId: null,
+          source: 'door_knock',
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        "A door knock changed Civic panel from 'Not a member' to 'Member'",
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('renders "You" when the viewing user made the change', () => {
     mockedUseUser.mockReturnValue([
       { id: 7, email: 'viewer@goodparty.org' } as never,

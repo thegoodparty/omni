@@ -41,6 +41,27 @@ export type CRMTeamMemberContactProperties = {
   team_role: HubSpot.TeamRole
 }
 
+/**
+ * Properties gp-api writes on an Office Holder custom object record
+ * (DATA-2623). The data platform owns every seat field after the app's
+ * day-one snapshot, so only the app-owned group is required on each write.
+ */
+export type CRMOfficeHolderProperties = {
+  elected_date: string
+  sworn_in_date: string
+  pledged_at: string
+  onboarding_completed_at: string
+  self_reported: 'true' | 'false'
+  name?: string
+  status?: HubSpot.OfficeHolderStatus
+  position_name?: string
+  candidate_office?: string
+  state?: string
+  party_affiliation?: string
+  term_start_date?: string
+  term_end_date?: string
+}
+
 /** HubSpot related types and enums */
 export namespace HubSpot {
   /** Hubspot webhook payload */
@@ -149,6 +170,13 @@ export namespace HubSpot {
     CANDIDATE = 'Candidate',
     CAMPAIGN_MANAGER = 'Campaign Manager',
     VOLUNTEER = 'Volunteer',
+  }
+
+  /** Office Holder `status` values: won but not seated, seated, or past. */
+  export enum OfficeHolderStatus {
+    ELECTED = 'elected',
+    IN_OFFICE = 'in_office',
+    FORMER = 'former',
   }
 
   /**

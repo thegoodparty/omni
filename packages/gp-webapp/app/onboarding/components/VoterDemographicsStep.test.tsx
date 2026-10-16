@@ -6,6 +6,8 @@ import {
   useQuery,
 } from '@tanstack/react-query'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   VoterDemographicsStep,
@@ -178,5 +180,46 @@ describe('VoterDemographicsStep copy overrides', () => {
     expect(
       screen.queryByText('Top issues for your voters'),
     ).not.toBeInTheDocument()
+  })
+
+  it('drops SMS from the default outreach copy once texting has closed for the race', async () => {
+    api.mock('GET /v1/onboarding/contacts/stats', {
+      status: 200,
+      data: statsResponse,
+    })
+    api.mock('GET /v1/onboarding/voter-issues', {
+      status: 200,
+      data: { issues: [] },
+    })
+
+    render(
+      <CampaignContext.Provider
+        value={[{ smsCompliance: 'closed' } as Campaign]}
+      >
+        <VoterDemographicsStep
+          ballotReadyPositionId="br-1"
+          office="Mayor"
+          showLocalNewsSources={false}
+        />
+      </CampaignContext.Provider>,
+    )
+
+    expect(await screen.findByText('Voter Demographics')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll help you tailor your outreach mix to each age group, leaning into social for younger voters and prioritizing mail and door-knocks for older ones.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll help you frame your economic messaging across email and canvassing scripts so it lands with each income segment.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll help you tune the depth and channel of your outreach (email, literature drops) to match how each education segment consumes information.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/SMS/)).toBeNull()
   })
 })

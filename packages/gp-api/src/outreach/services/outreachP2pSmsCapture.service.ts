@@ -10,10 +10,7 @@ import {
   calcTextAmountInCents,
   maxTextsForAmountInCents,
 } from 'src/shared/util/textPricing.util'
-import {
-  isWinSmsHoldBillingEnabled,
-  WIN_SMS_HOLD_MIN_CENTS,
-} from 'src/shared/util/winSmsHold.util'
+import { WIN_SMS_HOLD_MIN_CENTS } from 'src/shared/util/winSmsHold.util'
 import {
   OutreachStatus,
   P2pSmsSettleState,
@@ -43,9 +40,10 @@ const P2P_SMS_CAPTURING_STALE_MINUTES = 15
 // A handful of synchronous queries complete far inside this window.
 const P2P_SMS_CAPTURE_MIN_AGE_MINUTES = 2
 // Deploys the sweep runs on: dev as well as prod (like the build finisher),
-// because it moves money only under the flag — the gate is the flag, not the
-// environment. Fail-closed: an absent/unexpected value (local, vitest) isn't in
-// the set, so it skips.
+// because it only ever acts on rows that carry an OutreachP2pSms satellite —
+// the gate is the satellite's existence/state, not an environment or a flag.
+// Fail-closed: an absent/unexpected value (local, vitest) isn't in the set, so
+// it skips.
 const P2P_SMS_CAPTURE_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 const getDeployEnvironment = (): string =>
@@ -82,10 +80,13 @@ interface CaptureBilling {
 // `authorized → capturing` claim elects exactly one capturer across all three
 // entry points.
 //
-// Everything money-moving is gated on WIN_SMS_HOLD_BILLING (default off): the
-// trigger points no-op when the flag is off, so this ships inert in prod. The
-// @Cron runs on dev+prod (like the build finisher) because it reads/moves
-// money only under the flag — the gate is the flag, not the environment.
+// SATELLITE-gated, not flag-gated: every trigger point here acts only on rows
+// that already carry an OutreachP2pSms satellite in the right state (a
+// satellite only exists if ENTRY — checkout-session creation — decided to
+// place a hold), so a flag flip after a hold is placed can never stop it from
+// settling, and a user who never had the flag on has no satellite for any of
+// this to act on. The @Cron runs on dev+prod (like the build finisher)
+// because it reads/moves money only when a satellite says so.
 @Injectable()
 export class OutreachP2pSmsCaptureService extends createPrismaBase(
   MODELS.OutreachP2pSms,
@@ -197,10 +198,9 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // EDGE (a): called right after the hold is stamped `authorized`. If the
   // build is already `ready`, this captures now; if not, it no-ops and edge (b)
   // or the backstop fires once the list finishes. Safe to call unconditionally
-  // from the purchase handler — it gates itself on the flag and the state.
+  // from the purchase handler — SATELLITE-gated: resolveReadyBuild and the
+  // `authorized` claim below both no-op when no hold exists for this outreach.
   async captureHold(outreachId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     // READINESS GATE (before the claim): resolve the build and confirm it is
     // ready with a stable leads_loaded. A not-yet-ready build leaves the hold
     // `authorized` for a later edge/sweep. Reading the build here (not after
@@ -221,7 +221,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
   // HARD SEND CAP (team decision 2 — never oversend). The money-safe recipient
   // cap for a build's send: the largest text count the hold covers
-  // (maxTextsForAmountInCents on the authorized amount). The phone-list build
+  // (maxTextsForAmountInCents on the authorized amount plus any promotion
+  // code). The phone-list build
   // reads this before uploading recipients to Peerly and truncates to it, so the
   // uploaded list — and the Peerly send that reads it — can never exceed what was
   // billed, even if re-resolving the filter yields a larger audience than the
@@ -239,17 +240,17 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // cap was never persisted (e.g. a hold authorized by some path that skipped
   // session-creation persistence, or a reaper rebuild after the link exists);
   // capturing/captured are included there so a re-run after the money moved still
-  // caps. Returns null when the flag is off or no paid hold exists/was expected.
+  // caps. SATELLITE-gated: returns null when no persisted cap and no paid hold
+  // exist/were expected — never a flag read, so a flag flip can't un-cap a
+  // build whose hold already set one.
   async resolveSendCapForBuild(buildId: string): Promise<number | null> {
-    if (!isWinSmsHoldBillingEnabled()) return null
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { id: buildId },
       select: { sendCapTexts: true },
     })
     if (build?.sendCapTexts != null) return build.sendCapTexts
 
-    const hold = await this.model.findFirst({
+    const holds = await this.model.findMany({
       where: {
         peerlyPhoneListId: buildId,
         authorizedAmountInCents: { not: null },
@@ -261,14 +262,19 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           ],
         },
       },
-      select: { authorizedAmountInCents: true },
-      // Deterministic + conservative: a build is linked 1:1 to its hold, but if
-      // two satellites ever pointed at one build, cap to the SMALLEST authorized
-      // amount so the send can never exceed any hold that paid for it.
-      orderBy: { authorizedAmountInCents: 'asc' },
+      select: { authorizedAmountInCents: true, promoDiscountInCents: true },
     })
-    if (hold?.authorizedAmountInCents == null) return null
-    return maxTextsForAmountInCents(hold.authorizedAmountInCents)
+    // A promotion code shrinks the hold but not what it paid for, so the cap
+    // adds the discount back: a discounted send keeps its whole list.
+    // Conservative: a build is linked 1:1 to its hold, but if two satellites
+    // ever pointed at one build, cap to the SMALLEST so the send can never
+    // exceed any hold that paid for it.
+    const paidAmounts = holds.map(
+      (hold) =>
+        (hold.authorizedAmountInCents ?? 0) + (hold.promoDiscountInCents ?? 0),
+    )
+    if (paidAmounts.length === 0) return null
+    return maxTextsForAmountInCents(Math.min(...paidAmounts))
   }
 
   // EDGE (b): called right after the build finisher stamps a list `ready`. Finds
@@ -278,9 +284,9 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // this same build-ready edge stamps it moments earlier, so the satellite link
   // is the order-independent handle; a build-before-pay draft is linked just the
   // same. Whichever of edge (a)/(b) runs second is the one that captures.
+  // SATELLITE-gated: the holds query below finds nothing when no hold was
+  // placed for this list, so this is a no-op without needing a flag check.
   async captureHoldsForReadyList(peerlyListId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { peerlyListId },
       select: { id: true },
@@ -313,11 +319,10 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // build finished was NOT submitted to Peerly at the payment webhook (finalize
   // deferred on a null phoneListId); now the list exists, so stamp its numeric
   // id onto the draft and submit it. Finds the drafts through the satellite link
-  // and defers each to finalizePreBuildDraft. Self-gated; a build-before-pay
-  // draft was already finalized at the webhook and is a no-op here.
+  // and defers each to finalizePreBuildDraft. SATELLITE-gated via the holds
+  // query below; a build-before-pay draft was already finalized at the
+  // webhook and is a no-op here.
   async finalizeDraftsForReadyList(peerlyListId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const build = await this.client.peerlyPhoneList.findUnique({
       where: { peerlyListId },
       select: { id: true },
@@ -357,10 +362,11 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
   // actually completed checkout (a recorded Stripe session) and is still
   // pending_payment is submitted; an already-finalized or never-paid draft is a
   // no-op. Resolves readiness through the satellite link so it never trusts a
-  // not-yet-stamped Outreach.phoneListId.
+  // not-yet-stamped Outreach.phoneListId. Called only for outreachIds the
+  // caller already knows carry a satellite (the sweep's `authorized` query,
+  // or a satellite-linked holds list), so no flag/satellite check is needed
+  // here.
   private async finalizePreBuildDraft(outreachId: number): Promise<void> {
-    if (!isWinSmsHoldBillingEnabled()) return
-
     const outreach = await this.client.outreach.findUnique({
       where: { id: outreachId },
       select: {
@@ -447,6 +453,30 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
     const { authorizationIntentId, authorizedAmountInCents } = sms
+    const promoDiscount = sms.promoDiscountInCents ?? 0
+
+    // A promotion code covered the whole checkout, so Stripe placed no hold:
+    // there is nothing to capture or void. Once the send is out (the billing
+    // rendezvous below) it settles captured at $0, which is what lets CAS
+    // approve it. A list scrubbed to nobody sent nothing, so that one voids
+    // and hands the free-texts offer back.
+    if (sms.promoCoversTotal && authorizationIntentId == null) {
+      const billing = await this.resolveCaptureBilling(outreachId)
+      if (!billing) {
+        await this.transitionFromCapturing(
+          outreachId,
+          P2pSmsSettleState.authorized,
+        )
+        return
+      }
+      if (billing.leadsLoaded === 0) {
+        await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+        await this.restoreFreeTextsBestEffort(outreachId)
+        return
+      }
+      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      return
+    }
 
     // An `authorized`/`capturing` row MUST carry both. A null here is a data
     // anomaly, never a reason to charge blind: nothing was captured, so park
@@ -480,11 +510,21 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
 
-    // The discounted amount, clamped to the hold (defense-in-depth: the hold is
-    // undiscounted and promo codes are disabled on hold sessions, but never
-    // capture above what was authorized).
+    // Both discounts come off the final count: the free-texts offer here, and
+    // a promotion code Stripe already took off the hold. Floored at 0 because
+    // the two together can exceed what the send costs, and clamped to the hold
+    // so capture never takes more than was authorized.
     const discountedAmount = this.computeDiscountedAmount(billing)
-    const captureAmount = Math.min(discountedAmount, authorizedAmountInCents)
+    const captureAmount = Math.min(
+      Math.max(0, discountedAmount - promoDiscount),
+      authorizedAmountInCents,
+    )
+    // Only a send that reached someone: a list scrubbed to nobody sent
+    // nothing, so it voids and hands the free-texts offer back as before.
+    const promoCovered =
+      captureAmount < WIN_SMS_HOLD_MIN_CENTS &&
+      promoDiscount > 0 &&
+      billing.leadsLoaded > 0
 
     // FRESH re-read: never trust the persisted state before moving money. The
     // live PI status decides the branch (preferring Stripe's own state over the
@@ -524,6 +564,17 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // later concern, never a blind charge here. Restore the free-texts offer this
     // send redeemed at hold time, since the void means it is never billed.
     if (intent.status !== 'requires_capture') {
+      // A promo-covered send owed nothing, so a hold that is already gone (a
+      // run that released it and died before its commit) settles at $0 too.
+      if (promoCovered) {
+        await this.commitCaptured(
+          outreachId,
+          0,
+          null,
+          billing.peerlyPhoneListId,
+        )
+        return
+      }
       this.logger.error(
         { outreachId, intentStatus: intent.status },
         'CRITICAL win sms capture: hold not capturable at capture time; ' +
@@ -534,29 +585,33 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
 
-    // KILL-SWITCH on a live hold: everything below moves or releases money on a
-    // `requires_capture` hold. If the flag was flipped OFF after this row entered
-    // `capturing` (a rollback mid-settlement), do NOT issue a fresh Stripe call —
-    // revert to `authorized` and let a sweep settle it when the flag is back on.
-    // The `succeeded` reconcile above stays UNCONDITIONAL: it only records a
-    // capture that already happened, which must never be lost to a rollback.
-    if (!isWinSmsHoldBillingEnabled()) {
-      this.logger.warn(
-        { outreachId },
-        'win sms capture: flag off on a live hold; reverting to authorized',
-      )
-      await this.transitionFromCapturing(
-        outreachId,
-        P2pSmsSettleState.authorized,
-      )
-      return
-    }
+    // NO FLAG GATE HERE, DELIBERATELY: a hold already placed (this row exists
+    // and its PI is live `requires_capture`) always settles, regardless of the
+    // flag or rollout cohort — settlement is satellite/PI-driven, never a
+    // per-user flag read. A flag flip after entry can never strand this money
+    // mid-settlement.
 
     // ZERO / SUB-MINIMUM: Stripe refuses a capture under its 50c floor, so a
     // final amount below it is released, not captured — void the hold and park
     // `voided`. Covers a $0 amount (e.g. every contact free or scrubbed) too.
     // Restore the free-texts offer this send redeemed: the void means it never
     // bills, so the offer must go back to the campaign.
+    //
+    // A promotion code changes what that means. The candidate paid with the
+    // code, and the send is out: releasing the remainder is the discount, not
+    // a failed payment. So it settles captured at $0, which CAS can approve,
+    // and the free-texts offer stays spent on the send that used it. Parking
+    // it voided would read as "payment did not complete" and block the send.
+    if (promoCovered) {
+      await this.stripe.voidHold(authorizationIntentId)
+      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      this.logger.info(
+        { outreachId, captureAmount, promoDiscount },
+        'win sms capture: promotion code covered the send; released the ' +
+          'hold and settled at $0',
+      )
+      return
+    }
     if (captureAmount < WIN_SMS_HOLD_MIN_CENTS) {
       await this.stripe.voidHold(authorizationIntentId)
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)

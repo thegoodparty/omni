@@ -24,7 +24,7 @@ export class DoorKnockingAudienceCheckService {
     organization: Organization,
     input: DoorKnockingAudienceCheck,
   ): Promise<DoorKnockingAudienceCheckResponse> {
-    // Deliberately not preceded by `resolveEligibleDistrictId`, which every
+    // Deliberately not preceded by `resolveEligibleDistrict`, which every
     // other read in this feature opens with. That call reaches election-api
     // to find the district the voter data will be scanned from, and nothing
     // here is scanned: the resolution below intersects person-id sets out of

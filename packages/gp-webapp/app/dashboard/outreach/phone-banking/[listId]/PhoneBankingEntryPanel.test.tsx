@@ -5,7 +5,12 @@ import userEvent from '@testing-library/user-event'
 import type { PhoneBankingListEntry } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: vi.fn(),
+}))
 
 const SCRIPT_WITH_TOKEN =
   'Hi, is this [voter name]? My name is [your name], a volunteer.'
@@ -36,6 +41,10 @@ const buildEntry = (
 const noop = vi.fn()
 
 beforeEach(() => {
+  vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+    ready: true,
+    enabled: false,
+  })
   // The panel always mounts PhoneBankingNotes for the active person.
   api.mock('GET /v1/contacts/:personId/notes', {
     status: 200,
@@ -233,6 +242,8 @@ describe('<PhoneBankingEntryPanel>', () => {
                   supportAnswer: null,
                   willVote: null,
                   followUp: 'no',
+                  joinCivicPanel: null,
+                  stayOnCivicPanel: null,
                   occurredAt: new Date(),
                 },
               },
@@ -275,6 +286,65 @@ describe('<PhoneBankingEntryPanel>', () => {
       expect(capturedRequest).not.toHaveProperty('willVote')
     })
 
+    // A list of panel members asks whether they want to stay on, and the
+    // answer goes out as that question's, so a No takes them off the panel.
+    it('asks a panel member whether they want to stay on the civic panel', async () => {
+      vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+        ready: true,
+        enabled: true,
+      })
+      const user = userEvent.setup()
+      let capturedRequest: unknown
+      api.mock('POST /v1/phone-banking/lists/:id/calls', ({ body }) => {
+        capturedRequest = body
+        return {
+          status: 200,
+          data: {
+            entryId: 1,
+            results: [
+              {
+                personId: 'person-1',
+                interaction: {
+                  outcome: 'answered',
+                  supportAnswer: null,
+                  willVote: null,
+                  followUp: 'no',
+                  joinCivicPanel: null,
+                  stayOnCivicPanel: 'no',
+                  occurredAt: new Date(),
+                },
+              },
+            ],
+            envelopeCompleted: false,
+          },
+        }
+      })
+
+      renderPanel({ isServe: true, civicPanelOnly: true })
+      const dialog = await screen.findByRole('dialog')
+      await engage(user, dialog)
+      const followUp = within(dialog)
+        .getByText('Do they need follow-up?')
+        .closest('div') as HTMLElement
+      await user.click(within(followUp).getByRole('radio', { name: 'No' }))
+
+      expect(
+        within(dialog).queryByText('Do they want to join your civic panel?'),
+      ).not.toBeInTheDocument()
+      const stay = within(dialog)
+        .getByText('Do they want to stay on your civic panel?')
+        .closest('div') as HTMLElement
+      await user.click(within(stay).getByRole('radio', { name: 'No' }))
+      await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(capturedRequest).toBeDefined())
+      expect(capturedRequest).toMatchObject({
+        followUp: 'no',
+        stayOnCivicPanel: 'no',
+      })
+      expect(capturedRequest).not.toHaveProperty('joinCivicPanel')
+    })
+
     // The logged-row summary reads the interaction, not the draft, so it
     // needed gating of its own. A Serve list's existing rows carry the Win
     // answers — it shipped asking them — and reading those back would put
@@ -285,6 +355,8 @@ describe('<PhoneBankingEntryPanel>', () => {
         supportAnswer: 'supporter' as const,
         willVote: 'yes' as const,
         followUp: 'no' as const,
+        joinCivicPanel: null,
+        stayOnCivicPanel: null,
         occurredAt: new Date(),
       }
       const entry = buildEntry({
@@ -309,6 +381,8 @@ describe('<PhoneBankingEntryPanel>', () => {
               supportAnswer: 'supporter' as const,
               willVote: 'yes' as const,
               followUp: 'no' as const,
+              joinCivicPanel: null,
+              stayOnCivicPanel: null,
               occurredAt: new Date(),
             },
           },

@@ -57,14 +57,16 @@ export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.SUCCESS,
 ]
 
-// The flagged purchase-only wizard (outreach-pro-gating-v2): filing details
-// and the candidate profile move behind payment into campaign verification, so
-// guidance becomes a real first step (the value prop lives in the Pro pitch
-// dialog) and the router can derive it.
+// The flagged purchase-only wizard (outreach-pro-gating-v2): guidance becomes
+// a real first step (the value prop lives in the Pro pitch dialog) and the
+// router can derive it. Filing details stay before payment, in campaign
+// verification's form, because candidates who were asked for them after
+// paying rarely came back to submit them.
 export const PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.GUIDANCE,
   PRO_UPGRADE_STEP.STATUS,
   PRO_UPGRADE_STEP.EIN,
+  PRO_UPGRADE_STEP.FILING_DETAILS,
   PRO_UPGRADE_STEP.PAYMENT,
   PRO_UPGRADE_STEP.SUCCESS,
 ]
@@ -127,9 +129,9 @@ export const deriveProUpgradeStep = (
 
   // Purchase-only always opens on its first step (design: sgOpen starts at
   // the overview), the same way the outreach sheet's embedded flow does. The
-  // steps prefill from what is saved — the filing answer, the EIN — so a
-  // returning candidate walks two prefilled screens rather than being dropped
-  // onto Payment by a resume they cannot see the reason for.
+  // steps prefill from what is saved — the filing answer, the EIN, a submitted
+  // filing — so a returning candidate walks prefilled screens rather than
+  // being dropped onto Payment by a resume they cannot see the reason for.
   if (purchaseOnly) return PRO_UPGRADE_STEP.GUIDANCE
 
   // Brand-new candidate with nothing collected yet lands on the value-prop

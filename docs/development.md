@@ -36,6 +36,15 @@ election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
 
+A local stack can't run agent experiments (community issues, briefings,
+opponent research, compliance setup). A run's result comes back on dev's
+shared results queue to dev gp-api, so no `LOCAL_DEV_ENV` key or AWS
+credential fixes it. Seed the data locally (community issues have
+`POST /v1/community-issues/seed`) and test real runs on dev. Dev doesn't
+dispatch anything gated by `MEETINGS_AUTOMATION_ENABLED` on its own, because
+that flag is prod-only. Previews can't run agent experiments at all. See
+`packages/gp-api/src/communityIssues/AGENTS.md`.
+
 Once the stack is healthy, it finishes by seeding a login: a QA fixture user
 (`packages/gp-api/src/testFixtures/`) in product state `--user-state`
 (default `free-win`), minted via a per-run Clerk M2M token and printed once
@@ -45,6 +54,23 @@ This needs `LOCAL_SETUP_CLERK_MACHINE_SECRET` set in `packages/gp-api/.env`
 absent, that step just prints a skip note and the run still exits 0. Secret
 mechanics (what `LOCAL_DEV_ENV` is, what it's allowed to vend, and the
 two-place rotation rule) are in `docs/secrets.md`.
+
+That login starts empty. To test the CRM, the effort reports or feedback
+synthesis against a lived-in account, seed one with the stack running:
+
+```bash
+npm run seed:activity -- --fixture serve       # or pro-win / serve-won-race
+npm run seed:activity -- --org <organization-slug>
+```
+
+`--fixture` mints a fresh fixture user that already has activity and prints
+its login. `--org` fills an org already in your local database, such as one
+you onboarded by hand. Either way the org gets a door-knocking turf, a phone
+list, a text send and a robocall against real voters from its district, a
+few hundred memos on the answered doors and calls, and a synthesis run per
+effort. It takes a minute or two, needs working voter data, and uses the same
+`LOCAL_SETUP_CLERK_MACHINE_SECRET` as the login step. Details are in
+`packages/gp-api/src/testFixtures/AGENTS.md`.
 
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run

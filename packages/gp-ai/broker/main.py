@@ -125,6 +125,9 @@ from broker.endpoints.http_fetch import (
     get_http_client as http_get_http_client,
 )
 from broker.endpoints.http_fetch import (
+    get_page_replay as http_get_page_replay,
+)
+from broker.endpoints.http_fetch import (
     get_scope_ticket as http_get_scope_ticket,
 )
 from broker.endpoints.http_fetch import (
@@ -188,6 +191,7 @@ from broker.endpoints.upload_logs import (
 from broker.endpoints.upload_logs import (
     router as upload_router,
 )
+from broker.page_replay import PageReplay
 from broker.secrets import load_secrets_from_env
 
 _LOCAL_ENVS = ("local", "development", "test")
@@ -333,6 +337,15 @@ async def lifespan(app: FastAPI):
     app.dependency_overrides[http_get_scope_ticket] = _resolve_ticket_from_request
     app.dependency_overrides[http_get_browser_fetcher] = lambda: browser_fetcher
     app.dependency_overrides[http_get_http_client] = lambda: http_client
+    # Counts each recording run's saves on its ticket item, so it shares the
+    # ticket table.
+    page_replay = PageReplay(
+        s3_client=s3_client,
+        bucket=artifact_bucket,
+        dynamodb_client=boto3.client("dynamodb"),
+        table_name=_resolve_table_name(),
+    )
+    app.dependency_overrides[http_get_page_replay] = lambda: page_replay
 
     app.dependency_overrides[agent_mcp_get_scope_ticket] = _resolve_ticket_from_request
     app.dependency_overrides[agent_mcp_get_agent_mcp_secret] = lambda: secrets.agent_mcp_token_secret

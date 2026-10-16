@@ -29,6 +29,7 @@ import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
+import type { ServeDoorKnockingPurpose } from './createFlow/serveDoorKnockingPurposes'
 import type { PolygonStats } from './filterEngine'
 
 // A module constant so the initial state is the same object on every render
@@ -341,6 +342,9 @@ export interface CreateListSurfaceProps {
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
+  // The purpose a civic panel plan's door step answered, opening the flow
+  // past the purpose picker on it.
+  initialPurpose?: ServeDoorKnockingPurpose
 }
 
 // Stable identity, so the page's effect does not refire every render.
@@ -383,6 +387,7 @@ export default function CreateListSurface({
   onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
+  initialPurpose,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -583,6 +588,7 @@ export default function CreateListSurface({
       onPreselectApplied={onPreselectApplied}
       preselectedRecommendedVariant={preselectedRecommendedVariant}
       onRecommendedPreselectApplied={onRecommendedPreselectApplied}
+      {...(initialPurpose && { initialPurpose })}
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}

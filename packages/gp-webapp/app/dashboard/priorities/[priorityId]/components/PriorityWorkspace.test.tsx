@@ -5,8 +5,12 @@ import {
   emptyPriorityStatus,
   mintProposalKey,
   PROPOSAL_SENT_MARKER,
+  reportBackMessage,
+  GET_ANSWERS_MESSAGE,
+  type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
+import { router } from 'helpers/test-utils/router-mocking'
 import { render } from 'helpers/test-utils/render'
 import type {
   ChatMessageDto,
@@ -22,9 +26,15 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  fetchPriorityReadStatus: vi.fn(),
+  citizenPanels: { ready: true, enabled: false },
   sentListener: null as
     | null
     | ((proposal: Record<string, string | number | boolean>) => void),
+}))
+
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: () => mocks.citizenPanels,
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -42,6 +52,7 @@ vi.mock('../data/chat-api', () => ({
 
 vi.mock('../data/priority-api', () => ({
   fetchPriorityStatus: mocks.fetchPriorityStatus,
+  fetchPriorityReadStatus: mocks.fetchPriorityReadStatus,
 }))
 
 vi.mock('../../../shared/dictation/useDictationAppend', () => ({
@@ -128,6 +139,11 @@ const proposalArgs = {
 
 const renderWorkspace = (
   initialStatus: PriorityStatus = emptyPriorityStatus(),
+  reportBackOutreachId: number | null = null,
+  read: {
+    initialReadStatus?: PriorityReadStatus | null
+    getAnswersOnOpen?: boolean
+  } = {},
 ) =>
   render(
     <PriorityWorkspace
@@ -137,6 +153,9 @@ const renderWorkspace = (
       initialStatus={initialStatus}
       initialNextAction={null}
       initialCurrentStep="define"
+      reportBackOutreachId={reportBackOutreachId}
+      initialReadStatus={read.initialReadStatus ?? null}
+      getAnswersOnOpen={read.getAnswersOnOpen ?? false}
     />,
   )
 
@@ -151,9 +170,30 @@ beforeEach(() => {
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamOf([]))
   mocks.fetchPriorityStatus.mockResolvedValue(null)
+  mocks.fetchPriorityReadStatus.mockResolvedValue(null)
+  mocks.citizenPanels = { ready: true, enabled: false }
 })
 
 describe('PriorityWorkspace', () => {
+  it('links to constituent feedback under the rail with serve-citizen-panels on', async () => {
+    mocks.citizenPanels = { ready: true, enabled: true }
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    const links = screen.getAllByRole('link', { name: 'What we heard' })
+    expect(links[0]).toHaveAttribute(
+      'href',
+      '/dashboard/priorities/pri-1/results',
+    )
+  })
+
+  it('shows no constituent feedback link with serve-citizen-panels off', async () => {
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    expect(
+      screen.queryByRole('link', { name: 'What we heard' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('opens the conversation anchored on the priority and takes the first turn', async () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
@@ -882,5 +922,315 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).toHaveBeenCalledWith('pri-1')
     expect(screen.queryByText(new RegExp(proposalKey))).toBeNull()
+  })
+
+  describe('opened from a report back card', () => {
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Here is where this stands.',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [{ kind: 'text', text: 'Here is where this stands.' }],
+    }
+
+    it('opens a fresh thread on the report back, never the kickoff', async () => {
+      renderWorkspace(emptyPriorityStatus(), 77)
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: reportBackMessage(77) }),
+      )
+      expect(router.replace).toHaveBeenCalledWith(
+        '/dashboard/priorities/pri-1',
+        {
+          scroll: false,
+        },
+      )
+    })
+
+    it('starts the report back once in a thread already under way, hidden', async () => {
+      mocks.listMessages.mockResolvedValue([reply])
+      renderWorkspace(emptyPriorityStatus(), 77)
+      await screen.findByText('Here is where this stands.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: reportBackMessage(77) }),
+      )
+      expect(screen.queryByText(/Help me report back/)).toBeNull()
+    })
+
+    it('does not ask again for a send it already started on', async () => {
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: reportBackMessage(77),
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+      ])
+      renderWorkspace(emptyPriorityStatus(), 77)
+      await screen.findByText('Here is where this stands.')
+
+      expect(screen.queryByText(/Help me report back/)).toBeNull()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the read status, behind serve-citizen-panels', () => {
+    const thin: PriorityReadStatus = { answers: 54, needed: 96, good: false }
+    const good: PriorityReadStatus = { answers: 103, needed: 96, good: true }
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Here is where this stands.',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [{ kind: 'text', text: 'Here is where this stands.' }],
+    }
+
+    beforeEach(() => {
+      mocks.citizenPanels = { ready: true, enabled: true }
+      mocks.listMessages.mockResolvedValue([reply])
+    })
+
+    it('puts a short bar on the phone with the answers still needed', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByRole('heading', {
+          name: 'Fix the Maple Street flooding',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'Back to priorities' }),
+      ).toHaveAttribute('href', '/dashboard/priorities')
+      expect(
+        within(bar).getByRole('button', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+      const status = within(bar).getByRole('link', {
+        name: /42 more answers for a good read/,
+      })
+      expect(status).toHaveAttribute(
+        'href',
+        '/dashboard/priorities/pri-1/results',
+      )
+      expect(
+        within(status).getByRole('progressbar', {
+          name: '54 of 96 answers for a good read',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('button', { name: 'Get answers' }),
+      ).toBeInTheDocument()
+    })
+
+    it('opens where this stands from the bar', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByTestId('priority-phone-bar')).getByRole('button', {
+          name: 'Where this stands',
+        }),
+      )
+
+      expect(
+        await screen.findByRole('dialog', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+    })
+
+    it('says so on the phone once there is a good read', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: good })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(within(bar).getByText('You have a good read')).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'See what we heard' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri-1/results')
+      expect(
+        within(bar).queryByRole('button', { name: 'Get answers' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('tops the desktop rail with the read, a quiet link, then where this stands', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const rail = screen.getByRole('complementary')
+      expect(
+        within(rail).getByText('42 more answers for a good read'),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('button', { name: 'Get answers' }),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('link', { name: 'What we heard' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri-1/results')
+      expect(
+        within(rail).getByRole('heading', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+    })
+
+    it('shows the good read in the desktop rail', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: good })
+      await screen.findByText('Here is where this stands.')
+
+      const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('You have a good read')).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('link', { name: 'See what we heard' }),
+      ).toBeInTheDocument()
+    })
+
+    it('asks the agent for more answers with one hidden turn', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      expect(screen.queryByText(/Help me get more answers/)).toBeNull()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Priorities.MessageSent,
+        expect.anything(),
+      )
+    })
+
+    it('asks once when the results page sent the official here', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Here is where this stands.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      expect(router.replace).toHaveBeenCalledWith(
+        '/dashboard/priorities/pri-1',
+        { scroll: false },
+      )
+    })
+
+    it('does not ask again when a reload kept the results page link', async () => {
+      mocks.listMessages.mockResolvedValue([
+        reply,
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:05.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Here is a text to ask more people.',
+          segments: [
+            { kind: 'text', text: 'Here is a text to ask more people.' },
+          ],
+          createdAt: '2026-09-01T00:00:10.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Here is a text to ask more people.')
+
+      expect(screen.queryByText(/Help me get more answers/)).toBeNull()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+
+    it('asks once for a double click on Get answers', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const button = within(screen.getByRole('complementary')).getByRole(
+        'button',
+        { name: 'Get answers' },
+      )
+      act(() => {
+        fireEvent.click(button)
+        fireEvent.click(button)
+      })
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalled(),
+      )
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks again from the results page once the official has said more', async () => {
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: 'Not now, thanks.',
+          createdAt: '2026-09-02T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Okay.',
+          segments: [{ kind: 'text', text: 'Okay.' }],
+          createdAt: '2026-09-02T00:00:05.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Okay.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+    })
+
+    it('re-reads the status once a turn settles', async () => {
+      mocks.fetchPriorityReadStatus.mockResolvedValue(good)
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
+      )
+      expect(
+        (await screen.findAllByText('You have a good read')).length,
+      ).toBeGreaterThan(0)
+    })
   })
 })

@@ -36,10 +36,12 @@ const toListItem = (memo: FeedbackReportMemo): MemoListItem => ({
 
 const EveryNote = ({
   memos,
+  channel,
   outreachId,
   isServe,
 }: {
   memos: MemoListItem[]
+  channel: FeedbackReportResponse['channel']
   outreachId: number
   isServe: boolean
 }) => {
@@ -48,15 +50,19 @@ const EveryNote = ({
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h2 id={headingId} className="text-lg font-semibold text-foreground">
-          {whatWeHeardCopy(isServe).everyNoteHeading}
+          {whatWeHeardCopy(isServe).everyNoteHeading(channel)}
         </h2>
-        <DownloadNotesLink
-          outreachId={outreachId}
-          hasNotes={memos.length > 0}
-          isServe={isServe}
-        />
+        {/* The export is the canvassers' notes; a text send's replies are
+            already a file on the results page that received them. */}
+        {channel !== 'text' && (
+          <DownloadNotesLink
+            outreachId={outreachId}
+            hasNotes={memos.length > 0}
+            isServe={isServe}
+          />
+        )}
       </div>
-      <MemoList memos={memos} isServe={isServe} />
+      <MemoList memos={memos} channel={channel} isServe={isServe} />
     </section>
   )
 }
@@ -82,7 +88,12 @@ const ReportBody = ({
     return (
       <>
         <SummarizingBanner isServe={isServe} />
-        <EveryNote memos={memos} outreachId={outreachId} isServe={isServe} />
+        <EveryNote
+          memos={memos}
+          channel={report.channel}
+          outreachId={outreachId}
+          isServe={isServe}
+        />
       </>
     )
   }
@@ -92,6 +103,7 @@ const ReportBody = ({
       <UnderFloorList
         floor={report.floor}
         memos={memos}
+        channel={report.channel}
         outreachId={outreachId}
         isServe={isServe}
       />
@@ -124,7 +136,12 @@ const ReportBody = ({
           />
         </>
       )}
-      <EveryNote memos={memos} outreachId={outreachId} isServe={isServe} />
+      <EveryNote
+        memos={memos}
+        channel={report.channel}
+        outreachId={outreachId}
+        isServe={isServe}
+      />
     </>
   )
 }
@@ -186,6 +203,7 @@ const WhatWeHeardPage = ({ outreachId, isServe }: WhatWeHeardPageProps) => {
                   </h1>
                   <ReportCaption
                     denominators={report.denominators}
+                    channel={report.channel}
                     outreachId={outreachId}
                     isServe={isServe}
                   />

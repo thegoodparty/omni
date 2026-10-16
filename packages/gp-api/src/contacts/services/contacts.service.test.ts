@@ -128,6 +128,7 @@ describe('ContactsService', () => {
     }
     let mockContactsMadeResolutionService: {
       resolveContactsMade: ReturnType<typeof vi.fn>
+      lastReachedAt: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {
@@ -183,6 +184,7 @@ describe('ContactsService', () => {
       }
       mockContactsMadeResolutionService = {
         resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+        lastReachedAt: vi.fn().mockResolvedValue(null),
       }
 
       service = new ContactsService(
@@ -201,7 +203,12 @@ describe('ContactsService', () => {
         mockVoterDownloadService as never,
         {} as never,
         mockStatsService as never,
+        { resolve: vi.fn().mockResolvedValue('voters') } as never,
         mockContactsMadeResolutionService as never,
+        { latestEvent: vi.fn().mockResolvedValue(null) } as never,
+        {
+          resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+        } as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -424,6 +431,7 @@ describe('ContactsService', () => {
             page: 1,
             groupByHousehold: false,
           }),
+          'voters',
         )
       })
 
@@ -444,6 +452,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ groupByHousehold: true }),
+          'voters',
         )
       })
 
@@ -498,6 +507,7 @@ describe('ContactsService', () => {
             groupByHousehold: false,
             excludeColumns: undefined,
           }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -527,6 +537,7 @@ describe('ContactsService', () => {
               'LALVOTERID',
             ],
           }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -550,6 +561,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+          'voters',
         )
         expect(mockElectionsService.getPositionById).not.toHaveBeenCalled()
       })
@@ -580,6 +592,7 @@ describe('ContactsService', () => {
         )
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: POSITION_DISTRICT_ID }),
+          'voters',
         )
       })
 
@@ -638,6 +651,7 @@ describe('ContactsService', () => {
 
         expect(mockStatsService.findStats).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+          'voters',
         )
       })
 
@@ -656,6 +670,7 @@ describe('ContactsService', () => {
         expect(mockVoterQueryService.findPerson).toHaveBeenCalledWith(
           'person-1',
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+          'voters',
         )
       })
 
@@ -689,6 +704,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -969,6 +985,7 @@ describe('ContactsService', () => {
           expect.objectContaining({
             excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
           }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -998,6 +1015,7 @@ describe('ContactsService', () => {
           expect.objectContaining({
             excludeColumns: expect.arrayContaining(['LALVOTERID']),
           }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -1022,6 +1040,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({ excludeColumns: undefined }),
+          'voters',
           res,
           expect.any(Object),
         )
@@ -1151,6 +1170,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ search: 'smith' }),
+          'voters',
         )
       })
 
@@ -1171,6 +1191,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ search: 'jones' }),
+          'voters',
         )
       })
 
@@ -1193,6 +1214,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
           expect.objectContaining({ search: undefined }),
+          'voters',
         )
       })
     })
@@ -1286,6 +1308,7 @@ describe('ContactsService', () => {
           )
           expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
             expect.objectContaining({ groupByHousehold }),
+            'voters',
             res,
             expect.objectContaining({ filename: 'contacts.csv' }),
           )
@@ -1658,6 +1681,7 @@ describe('ContactsService', () => {
             districtId: OVERRIDE_DISTRICT_ID,
             groupByHousehold: false,
           }),
+          'voters',
           res,
           expect.objectContaining({ filename: 'contacts.csv' }),
         )
@@ -1725,6 +1749,7 @@ describe('ContactsService', () => {
               filterValues: { independentAffinity: ['Yes'] },
             }),
           }),
+          'voters',
         )
         expect(result).toEqual({
           demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },

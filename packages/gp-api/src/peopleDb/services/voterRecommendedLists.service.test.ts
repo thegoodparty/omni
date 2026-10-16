@@ -11,6 +11,8 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
+  dataset: 'constituents',
+  table: 'goodparty_data_catalog.mart_gp_api.gp_api_constituents',
 }
 
 const filters: FilterData = {
@@ -46,27 +48,52 @@ describe('VoterRecommendedListsService', () => {
     )
   })
 
-  it('logs the count under rec-count and passes idOverrides', async () => {
+  it('logs the count under rec-count and passes idOverrides and the affinity column', async () => {
     await expect(
-      service.countForFilter(district, filters, idOverrides),
+      service.countForFilter(
+        district,
+        filters,
+        idOverrides,
+        'Indep_Openness_Haystaq',
+      ),
     ).resolves.toBe(400)
 
     expect(measure).toHaveBeenCalledWith(
-      expect.objectContaining({ op: 'rec-count', districtId: DISTRICT_ID }),
+      expect.objectContaining({
+        op: 'rec-count',
+        districtId: DISTRICT_ID,
+        dataset: 'constituents',
+      }),
     )
-    expect(countForFilter).toHaveBeenCalledWith(district, filters, idOverrides)
+    expect(countForFilter).toHaveBeenCalledWith(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
   })
 
   it('logs the ranking under rec-rank-precincts', async () => {
-    await service.rankPrecincts(district, filters, idOverrides)
+    await service.rankPrecincts(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
 
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
         op: 'rec-rank-precincts',
         districtId: DISTRICT_ID,
+        dataset: 'constituents',
       }),
     )
-    expect(rankPrecincts).toHaveBeenCalledWith(district, filters, idOverrides)
+    expect(rankPrecincts).toHaveBeenCalledWith(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
   })
 
   // District resolution is an election-api hop, not a warehouse read, so it
@@ -74,9 +101,11 @@ describe('VoterRecommendedListsService', () => {
   // everything" edit from inventing a voter read that never touched the
   // warehouse and skewing the latency attribution.
   it('does not log a read for district resolution', async () => {
-    await expect(service.resolveDistrict(DISTRICT_ID)).resolves.toBe(district)
+    await expect(
+      service.resolveDistrict(DISTRICT_ID, 'constituents'),
+    ).resolves.toBe(district)
 
-    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID)
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
     expect(measure).not.toHaveBeenCalled()
   })
 })

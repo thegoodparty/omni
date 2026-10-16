@@ -137,6 +137,18 @@
     "reason": "",
     "ruled_on": "2026-09-24"
   },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710",
+    "reason": "",
+    "ruled_on": "2026-10-08"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710",
+    "reason": "",
+    "ruled_on": "2026-10-08"
+  },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#RobocallPayForm": {
     "disposition": "new",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit",

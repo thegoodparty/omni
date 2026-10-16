@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -138,6 +138,21 @@ const Opener = ({ proposal }: { proposal: Proposal }) => {
   )
 }
 
+// Every list a card saves, as the server would return them.
+let saved: Record<string, unknown>[] = []
+const mockSavedLists = () => {
+  saved = []
+  window.localStorage.clear()
+  api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+    saved.push(body)
+    return { status: 200, data: { id: 500 + saved.length, name: 'List' } }
+  })
+  api.mock('GET /v1/voters/voter-file/filters', () => ({
+    status: 200,
+    data: saved.map((_, i) => ({ id: 501 + i, name: 'List' })),
+  }))
+}
+
 const openCard = async (proposal: Proposal = card) => {
   render(
     <ProposalFlowsProvider mode="win">
@@ -152,6 +167,7 @@ const openCard = async (proposal: Proposal = card) => {
 describe('a Campaign Manager text card', () => {
   beforeEach(() => {
     smsFlow.props = null
+    mockSavedLists()
     campaign.current = { id: 9, isPro: false }
     tcr.current = null
     vi.mocked(trackEvent).mockClear()
@@ -186,7 +202,9 @@ describe('a Campaign Manager text card', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it("opens Win's text flow, filled in, for a verified Pro campaign", async () => {
+  // The card settled who gets it, so its audience is saved as a list once
+  // and the standard flow opens on the message with that list picked.
+  it("opens Win's text flow on the message, its list saved, for a verified Pro campaign", async () => {
     campaign.current = { id: 9, isPro: true }
     tcr.current = APPROVED
 
@@ -199,10 +217,46 @@ describe('a Campaign Manager text card', () => {
     expect(props?.source).toBe('campaign_manager')
     expect(props?.tcrCompliance).toEqual(APPROVED)
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
-    expect(props?.proposedAudience).toMatchObject({
+    expect(props?.audienceSettled).toBe(true)
+    expect(props?.preselectedListId).toBe(501)
+    expect(props).not.toHaveProperty('proposedAudience')
+    expect(saved).toHaveLength(1)
+    expect(saved[0]).toMatchObject({
       name: 'Ward 3 likely voters',
+      homeownerNo: true,
       sample: { size: 4_000, seedKey: PROPOSAL_KEY },
     })
+  })
+
+  // Nothing settled who gets it, so the flow lands on the audience step with
+  // the message held for compose.
+  it('opens on the audience step when the card carries no audience', async () => {
+    campaign.current = { id: 9, isPro: true }
+    tcr.current = APPROVED
+    const { audienceFilters: _filters, ...noAudience } = card
+
+    await openCard(noAudience)
+
+    expect(await screen.findByTestId('sms-flow')).toBeInTheDocument()
+    const props = smsFlow.props
+    expect(props?.initialScript).toBe(MESSAGE)
+    expect(props?.audienceSettled).toBe(false)
+    expect(props).not.toHaveProperty('preselectedListId')
+    expect(saved).toHaveLength(0)
+  })
+
+  it('reuses the list it saved when the card is opened again', async () => {
+    campaign.current = { id: 9, isPro: true }
+    tcr.current = APPROVED
+
+    await openCard()
+    await screen.findByTestId('sms-flow')
+    cleanup()
+    await openCard()
+    await screen.findByTestId('sms-flow')
+
+    expect(saved).toHaveLength(1)
+    expect(smsFlow.props?.preselectedListId).toBe(501)
   })
 
   it('closes the flow when a refused create turns out to be a sent card', async () => {
@@ -253,6 +307,7 @@ describe('a Campaign Manager card for another channel', () => {
   beforeEach(() => {
     phoneBankingFlow.props = null
     socialFlow.props = null
+    mockSavedLists()
     campaign.current = { id: 9, isPro: false }
     tcr.current = null
     vi.mocked(trackEvent).mockClear()
@@ -295,6 +350,9 @@ describe('a Campaign Manager card for another channel', () => {
     expect(props?.initialName).toBe('Ward 3 likely voters')
     expect(props?.source).toBe('campaign_manager')
     expect(props?.proposalLink).toEqual({ proposalKey: PROPOSAL_KEY })
+    expect(props?.preselectedListId).toBe(501)
+    expect(props).not.toHaveProperty('proposedAudience')
+    expect(saved).toHaveLength(1)
   })
 
   it("opens Win's social flow for a free campaign, since a post is free", async () => {

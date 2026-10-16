@@ -117,12 +117,13 @@ const bootstrapTestUser = async (
   }
 
   const generated = TestDataHelper.generateTestUserData()
+  const email = options?.user?.email ?? generated.email
   const password = `Test${randomUUID()}!`
   const zip = options?.race?.zip || generated.zipCode
 
   const clerkUser = await clerkThrottle(() =>
     clerkBackend.users.createUser({
-      emailAddress: [generated.email],
+      emailAddress: [email],
       password,
       firstName: generated.firstName,
       lastName: generated.lastName,
@@ -174,7 +175,7 @@ const bootstrapTestUser = async (
   }
 
   if (options?.skipCampaignCreation) {
-    await signInUser(page, generated.email)
+    await signInUser(page, email)
     if (!options?.isolated) {
       cachedUser = result
     }
@@ -259,7 +260,7 @@ const bootstrapTestUser = async (
     client.post('/v1/campaigns/launch', {}),
   )
 
-  await signInUser(page, generated.email)
+  await signInUser(page, email)
 
   return result
 }

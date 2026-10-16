@@ -414,13 +414,18 @@ export type Judgment = GradedJudgment | UngradedJudgment
 // https://goodparty.clickup.com/90132012119/docs/2ky4jq2q-154253/2ky4jq2q-139173
 // ---------------------------------------------------------------------------
 
-export const RUBRIC_VERSION = 'uj-rubric-0.8'
+export const RUBRIC_VERSION = 'uj-rubric-0.9'
 
 const SHAPE_BLOCKS: Readonly<Record<string, string>> = {
   chat: [
     'AGENT SHAPE: conversational. The user input is identical across X and',
     'Y; only the agent replies differ. Where a tool failed or returned',
     'partial data, look at whether the reply tells the user.',
+    'When the shared input has a line starting "Condition:", it says',
+    'what this case tests or puts the agent under. Judge first whether',
+    'each reply handled that condition appropriately. A reply that reads',
+    'better but ignores or is misled by the condition is worse than one',
+    'that handles it.',
   ].join(' '),
   background: [
     'AGENT SHAPE: artifact. The final output is a structured artifact.',

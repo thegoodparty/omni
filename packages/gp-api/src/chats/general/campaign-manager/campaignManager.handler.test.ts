@@ -28,7 +28,9 @@ import type { RaceTargetMetrics } from '@/elections/types/elections.types'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
+import { guardrailLine } from '../services/guardrailLines'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import type { PublicProfileAddressService } from '@/personProfiles/services/public-profile-address.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -63,6 +65,8 @@ const ctxWith = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -79,6 +83,7 @@ const ctxWith = (
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
   ...over,
 })
 
@@ -123,6 +128,29 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
     )
     expect(descriptionOf(tools.describe_constituent_data)).toContain(
       DATA_SOURCE_ROUTING_RULES,
+    )
+  })
+
+  // The rows are scoped to the district, so the district's state decides
+  // how party is described, not the state typed on the campaign record.
+  it('describes party by the state the district is in', async () => {
+    const tools = buildHandler(fakeProvider).buildTools(
+      ctxWith({ ...ENABLED, state: 'CA', districtState: 'MN' }),
+    )
+    const tool = tools.describe_constituent_data
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected describe_constituent_data to register')
+    }
+    const meta = await tool.execute({})
+    if (typeof meta !== 'object' || meta === null || !('dimensions' in meta)) {
+      throw new Error('expected a dimensions payload')
+    }
+    expect(meta.dimensions).toContainEqual({
+      name: 'Parties_Description',
+      label: 'Party as the vendor assigns it, not a registration',
+    })
+    expect(descriptionOf(tools.query_constituent_data)).toContain(
+      'Minnesota provides no party information in its voter file.',
     )
   })
 })
@@ -291,6 +319,142 @@ const buildHandlerWithStory = (): CampaignManagerHandler =>
     undefined,
     {} as CampaignStoryIntakeService,
   )
+
+describe('CampaignManagerHandler.loadContext — public profile address', () => {
+  const ORG_SLUG = 'win-campaign'
+  const URL = 'https://goodparty.org/people/renee-diaz-0189abcd'
+  const GATE = {
+    personId: '0189abcd-0000-7000-8000-000000000000',
+    publishedAt: new Date('2026-10-01T00:00:00Z'),
+    deletedAt: null,
+  }
+  // The conversation owner (7) and the campaign's own user (9) differ on
+  // purpose: the profile belongs to the candidate, whoever is chatting.
+  const CAMPAIGN_ROW = {
+    id: 5,
+    userId: 9,
+    details: { state: 'IL' },
+    data: {},
+    user: { id: 9, firstName: 'Renee', lastName: 'Diaz', personProfile: GATE },
+  }
+
+  type CampaignRow = Omit<typeof CAMPAIGN_ROW, 'user'> & {
+    user: Omit<(typeof CAMPAIGN_ROW)['user'], 'personProfile'> & {
+      personProfile: typeof GATE | null
+    }
+  }
+
+  const buildAddressHandler = (
+    publicProfiles?: PublicProfileAddressService,
+    campaignRow: CampaignRow | null = CAMPAIGN_ROW,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG_SLUG }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: { findFirst: vi.fn(() => Promise.resolve(campaignRow)) },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      publicProfiles,
+    )
+  }
+
+  it("carries the address resolved from the campaign user's own gate, for the local day", async () => {
+    const resolve = vi.fn(() =>
+      Promise.resolve({ status: 'live' as const, url: URL }),
+    )
+    const handler = buildAddressHandler({
+      resolve,
+    } as unknown as PublicProfileAddressService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'live', url: URL })
+    expect(resolve).toHaveBeenCalledWith(
+      GATE,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+  })
+
+  it('passes a null gate when the campaign user has no profile row', async () => {
+    const resolve = vi.fn(() =>
+      Promise.resolve({ status: 'not-live' as const }),
+    )
+    const handler = buildAddressHandler(
+      { resolve } as unknown as PublicProfileAddressService,
+      { ...CAMPAIGN_ROW, user: { ...CAMPAIGN_ROW.user, personProfile: null } },
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'not-live' })
+    expect(resolve).toHaveBeenCalledWith(
+      null,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
+  })
+
+  it('reads unknown when no service is wired', async () => {
+    const ctx = await buildAddressHandler(undefined).loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+
+  it('reads unknown, not not-live, when the lookup throws', async () => {
+    const handler = buildAddressHandler({
+      resolve: vi.fn(() => Promise.reject(new Error('election-api down'))),
+    } as unknown as PublicProfileAddressService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+
+  it('reads unknown when the lookup outlives the turn timer', async () => {
+    vi.useFakeTimers()
+    try {
+      const handler = buildAddressHandler({
+        resolve: vi.fn(
+          () =>
+            new Promise(() => {
+              // Never settles: the handler's timer must give up first.
+            }),
+        ),
+      } as unknown as PublicProfileAddressService)
+      const pending = handler.loadContext('c1', 7)
+      // The handler's lookup timer (LIVE_RACE_TIMEOUT_MS) is 3 s.
+      await vi.advanceTimersByTimeAsync(3_100)
+      expect((await pending).publicProfile).toEqual({ status: 'unknown' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads unknown when the campaign does not resolve', async () => {
+    const handler = buildAddressHandler(
+      {
+        resolve: vi.fn(() =>
+          Promise.resolve({ status: 'live' as const, url: URL }),
+        ),
+      } as unknown as PublicProfileAddressService,
+      null,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.publicProfile).toEqual({ status: 'unknown' })
+  })
+})
 
 describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
   it('registers campaign_story when the intake service + campaign are present', () => {
@@ -787,6 +951,74 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(descriptionOf(tool)).not.toContain('constituent')
   })
 
+  describe('SMS compliance cutoff', () => {
+    const proposal = {
+      audience: 'Renters on the east side',
+      count: 1200,
+      listName: 'East side renters',
+      message: 'this is Renee, candidate for City Council. What matters?',
+    }
+    const outreachTools = (smsCompliance: 'closed' | 'open') => {
+      const tools = buildCrmHandler(
+        buildContacts(),
+        buildVoterFileFilters(),
+      ).buildTools(
+        ctxWith({
+          ...CRM_ON,
+          savedFilterToolsEnabled: true,
+          smsCompliance,
+          smsCutoffDate: '2026-10-15',
+        }),
+      )
+      const present = tools.present_outreach_proposal
+      const size = tools.size_outreach_sample
+      if (!present || 'kind' in present || !size || 'kind' in size) {
+        throw new Error('not registered')
+      }
+      return { present, size }
+    }
+
+    it('refuses a text card and a text sample when texting is closed', async () => {
+      const { present, size } = outreachTools('closed')
+      expect(await present.execute({ ...proposal, channel: 'text' })).toEqual({
+        error: expect.stringContaining('Texting is closed for this race'),
+      })
+      expect(await size.execute({ audience: 50_000 })).toEqual({
+        error: expect.stringContaining('Texting is closed for this race'),
+      })
+      for (const channel of ['phoneBanking', 'doorKnocking', 'social']) {
+        expect(await present.execute({ ...proposal, channel })).toMatchObject({
+          presented: true,
+        })
+      }
+    })
+
+    it('presents and sizes a text when texting is open', async () => {
+      const { present, size } = outreachTools('open')
+      expect(await present.execute({ ...proposal, channel: 'text' })).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(await size.execute({ audience: 50_000 })).toMatchObject({
+        sampleSize: 2_767,
+      })
+    })
+
+    it('leaves texting out of the product overview only when closed', () => {
+      const closed = buildHandler().maybeCannedReply(
+        CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+        ctxWith({ smsCompliance: 'closed' }),
+      )
+      expect(closed).not.toContain('texting')
+      expect(closed).toContain('robocalls, door-knocking scripts')
+      const open = buildHandler().maybeCannedReply(
+        CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+        ctxWith({ smsCompliance: 'open' }),
+      )
+      expect(open).toContain('texting, door-knocking scripts')
+    })
+  })
+
   it('names the registered card tools in the prompt it builds', () => {
     const handler = buildCrmHandler(buildContacts(), buildVoterFileFilters())
     const withCard = handler.buildSystemPrompt(
@@ -1245,6 +1477,8 @@ describe('CampaignManagerHandler.seedConversation', () => {
       conversationId: 'new-1',
       role: ChatMessageRole.assistant,
       content: buildCampaignManagerGreeting('Dana'),
+      inputTokens: 0,
+      outputTokens: 0,
     })
   })
 
@@ -1365,12 +1599,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
 })
 
 describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  const SMALL_COUNT_LINE = guardrailLine('small_count', 'campaign_assistant')
+  const noTools = { toolEvents: [] }
+  const suppressed = (rowsSuppressed: number) => ({
+    toolEvents: [
+      {
+        toolCallId: 'call-data',
+        name: 'query_constituent_data',
+        args: {},
+        status: 'returned' as const,
+        result: { rows: [], rowsSuppressed },
+      },
+    ],
+  })
+
   it('adds the legal line when the shared check fires', () => {
     const answer =
       'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
       'resident can file a complaint with the state commission.'
 
-    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+    expect(buildHandler().finalizeAssistantText(answer, noTools)).toBe(
       `\n\n${LEGAL_LINE}`,
     )
   })
@@ -1380,7 +1628,44 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
       buildHandler().finalizeAssistantText(
         'Under RCW 42.17A.405 that contribution is over the limit. ' +
           LEGAL_LINE,
+        noTools,
       ),
     ).toBeNull()
+  })
+
+  it('adds the small-count line when a data result reports suppressed rows', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Voters under 30 lean toward the levy.',
+        suppressed(2),
+      ),
+    ).toBe(`\n\n${SMALL_COUNT_LINE}`)
+  })
+
+  it('adds nothing when the data result suppressed no rows', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Voters under 30 lean toward the levy.',
+        suppressed(0),
+      ),
+    ).toBeNull()
+  })
+
+  it('adds nothing when the model already wrote the small-count line', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        `Voters under 30 lean toward the levy. ${SMALL_COUNT_LINE}`,
+        suppressed(2),
+      ),
+    ).toBeNull()
+  })
+
+  it('stacks the legal line before the small-count line', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit.',
+        suppressed(1),
+      ),
+    ).toBe(`\n\n${LEGAL_LINE}\n\n${SMALL_COUNT_LINE}`)
   })
 })

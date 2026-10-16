@@ -12,6 +12,9 @@ const { mockCandidateAccess, mockServerRequest, mockNotFound } = vi.hoisted(
 vi.mock('app/dashboard/shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
 }))
+vi.mock('@shared/experiments/getFlagVariants', () => ({
+  getFlagVariants: () => Promise.resolve(null),
+}))
 vi.mock('gpApi/server-request', () => ({
   serverRequest: (route: string, payload: unknown) =>
     mockServerRequest(route, payload),
@@ -45,12 +48,18 @@ class NotFoundError extends Error {}
 // assertions read the props it handed over.
 const sheetProps = async (
   turfId: string,
-): Promise<{ turfId: string; turfName: string; payload: unknown }> => {
+): Promise<{
+  turfId: string
+  turfName: string
+  payload: unknown
+  citizenPanelsEnabled: boolean
+}> => {
   const element = await Page({ params: Promise.resolve({ turfId }) })
   return element.props as {
     turfId: string
     turfName: string
     payload: unknown
+    citizenPanelsEnabled: boolean
   }
 }
 
@@ -80,6 +89,7 @@ describe('walk list print Page', () => {
       turfId: '7',
       turfName: 'Elm & Cedar',
       payload: routePayload,
+      citizenPanelsEnabled: false,
     })
     expect(mockNotFound).not.toHaveBeenCalled()
   })
@@ -137,6 +147,7 @@ describe('walk list print Page', () => {
       turfId: '7',
       turfName: 'Walk list',
       payload: routePayload,
+      citizenPanelsEnabled: false,
     })
   })
 

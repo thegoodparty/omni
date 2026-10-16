@@ -73,6 +73,15 @@ export const SynthesisRunSchema = z.object({
 })
 export type SynthesisRun = z.infer<typeof SynthesisRunSchema>
 
+// Where an effort's conversations happened: a turf's envelope is door_knock,
+// a phone list's is phone_bank, and a Serve text send's is text, whose
+// members are the constituents' own replies rather than a canvasser's notes.
+export const FeedbackReportChannelSchema = z.enum([
+  ...ConstituentFeedbackChannelSchema.options,
+  'text',
+])
+export type FeedbackReportChannel = z.infer<typeof FeedbackReportChannelSchema>
+
 export const StanceCountsSchema = z.object({
   supports: z.number().int(),
   opposes: z.number().int(),
@@ -87,18 +96,20 @@ export type StanceCounts = z.infer<typeof StanceCountsSchema>
 // confirmed again. A memo can sit in two themes, so a count reads
 // "conversations that touched this theme".
 //
-// `conversationCount` counts memos. `stanceCounts` and `desiredOutcomes` are
-// stances from every issue raised in the conversations in this theme; a
-// conversation that raised two issues contributes two, so counts can exceed
+// `conversationCount` counts memos and text replies. `stanceCounts` and
+// `desiredOutcomes` are stances from every issue raised in the memos in this
+// theme; a memo that raised two issues contributes two, so counts can exceed
 // `conversationCount`. Interim, until a theme's members are issues rather
-// than memos.
+// than memos. A text reply carries no issues, so a theme whose members are
+// all replies has no stance split: `stanceCounts` is null, never four zeros
+// dressed up as a finding.
 export const FeedbackThemeSummarySchema = z.object({
   id: z.string(),
   rank: z.number().int(),
   title: z.string(),
   summary: z.string(),
   conversationCount: z.number().int(),
-  stanceCounts: StanceCountsSchema,
+  stanceCounts: StanceCountsSchema.nullable(),
   // Up to five distinct outcomes people asked for.
   desiredOutcomes: z.array(z.string()),
   tag: IssueTagRefSchema.nullable(),
@@ -110,11 +121,14 @@ export type FeedbackThemeSummary = z.infer<typeof FeedbackThemeSummarySchema>
 // effort cannot balloon the payload; the newest are the ones worth reading.
 export const FEEDBACK_REPORT_MEMO_LIMIT = 200
 
+// On a text send each entry is a constituent's reply: `channel` is text,
+// `transcript` is what they wrote, `issues` is empty, `actorName` is null
+// and `confirmedAt` is when it arrived, since a reply needs no review.
 export const FeedbackReportMemoSchema = z.object({
   id: z.string(),
   personId: z.string(),
   occurredAt: zCoerceDate(),
-  channel: ConstituentFeedbackChannelSchema,
+  channel: FeedbackReportChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
   issues: z.array(ConstituentFeedbackIssueSchema),
@@ -125,11 +139,12 @@ export const FeedbackReportMemoSchema = z.object({
 export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
 
 export const FeedbackReportResponseSchema = z.object({
-  // The effort's question, from its turf or list. Null when it asked none.
+  // The effort's question, from its turf or list. Null when it asked none,
+  // and on a text send.
   question: z.string().nullable(),
-  // A turf's envelope is door_knock, a phone list's is phone_bank, whether
-  // or not any memo has been recorded on it yet.
-  channel: ConstituentFeedbackChannelSchema,
+  // A turf's envelope is door_knock, a phone list's is phone_bank, a text
+  // send's is text, whether or not anything has been recorded on it yet.
+  channel: FeedbackReportChannelSchema,
   // The fewest confirmed memos a run accepts. Sent rather than known by the
   // client so the line under the floor cannot drift from the 422.
   floor: z.number().int(),
@@ -154,11 +169,15 @@ export type FeedbackReportResponse = z.infer<
   typeof FeedbackReportResponseSchema
 >
 
+// Exactly one of `feedbackId` / `textReplyId` is set: a confirmed memo, or
+// a constituent's reply on a text send (channel text, empty issues, no
+// actor, `transcript` is what they wrote).
 export const FeedbackThemeMemberSchema = z.object({
-  feedbackId: z.string(),
+  feedbackId: z.string().nullable(),
+  textReplyId: z.string().nullable(),
   personId: z.string(),
   occurredAt: zCoerceDate(),
-  channel: ConstituentFeedbackChannelSchema,
+  channel: FeedbackReportChannelSchema,
   // The canvasser's own summary, never the other person's words.
   transcript: z.string().nullable(),
   issues: z.array(ConstituentFeedbackIssueSchema),

@@ -230,6 +230,48 @@ describe('OutreachGate', () => {
       expect(mockCampaignVerificationSteps).toHaveBeenCalled()
     })
 
+    // The wizard collects the filing before payment, so by the time its
+    // success screen hands back, the record exists and the requirement has
+    // moved past verify. The gate must not ask for the form a second time.
+    it('for texting, lands on the in-review notice, not the filing form, when the wizard submitted the filing', () => {
+      const onComplete = vi.fn()
+      const { rerender } = render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          channel="sms"
+          state={stateWith({ requirement: 'pro' })}
+          onComplete={onComplete}
+        />,
+      )
+
+      rerender(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          channel="sms"
+          state={stateWith({
+            requirement: 'in_review',
+            membership: {
+              tier: 'pro',
+              texting: 'in_review',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      const latestCall =
+        mockProUpgradeFlow.mock.calls[mockProUpgradeFlow.mock.calls.length - 1]!
+      act(() => latestCall[0].onComplete())
+
+      expect(mockCampaignVerificationSteps).not.toHaveBeenCalled()
+      expect(screen.getByText(BANNER_COPY.inReview)).toBeInTheDocument()
+      expect(onComplete).not.toHaveBeenCalled()
+    })
+
     // The bug this latch exists for: the requirement clearing used to unmount
     // the success screen mid-upgrade, so the Continue that fires onComplete
     // was never reachable.
@@ -409,6 +451,71 @@ describe('OutreachGate', () => {
       mockPinDialog.mock.calls[0]![0].onOpenChange(true)
 
       expect(onExit).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('requirement: closed', () => {
+    it('shows the cutoff notice with a way back to outreach', async () => {
+      const user = userEvent.setup()
+      const onExit = vi.fn()
+      render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'closed' })}
+          onExit={onExit}
+        />,
+      )
+
+      expect(
+        screen.getByText(/deadline to get verified for texting has passed/),
+      ).toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        expect.objectContaining({ surface: 'outreach_gate' }),
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Back to outreach' }))
+
+      expect(onExit).toHaveBeenCalledTimes(1)
+    })
+
+    it('moves a texting upgrade on to the notice when the window closed under it', () => {
+      const onComplete = vi.fn()
+      const { rerender } = render(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({ requirement: 'pro' })}
+          onComplete={onComplete}
+        />,
+      )
+
+      rerender(
+        <OutreachGate
+          source="outreach_page"
+          {...baseProps}
+          state={stateWith({
+            requirement: 'closed',
+            membership: {
+              tier: 'pro',
+              texting: 'closed',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      const latestCall =
+        mockProUpgradeFlow.mock.calls[mockProUpgradeFlow.mock.calls.length - 1]!
+      act(() => latestCall[0].onComplete())
+
+      expect(
+        screen.getByText(/deadline to get verified for texting has passed/),
+      ).toBeInTheDocument()
+      expect(onComplete).not.toHaveBeenCalled()
     })
   })
 

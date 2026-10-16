@@ -153,7 +153,7 @@ export default function PhoneBankingCallerPage({
     surface?.exitHref ??
     (isServe ? '/dashboard/constituent-outreach' : '/dashboard/outreach')
   const hubLabel =
-    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
+    surface?.exitLabel ?? (isServe ? 'Outreach' : 'Voter Outreach')
   const showDeleteAction = surface?.showDeleteAction ?? true
   // The list payload carries no envelope, so the surfaces that open this
   // page with one in hand (the outreach drawer, the create flow) pass it on
@@ -719,6 +719,7 @@ export default function PhoneBankingCallerPage({
             if (!open) setActiveSelection(null)
           }}
           isServe={isServe}
+          civicPanelOnly={list.civicPanelOnly}
           callDrafts={callDrafts}
           onSaved={(results) => {
             // Whether THIS call is the one that finished the list. Read inside

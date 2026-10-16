@@ -27,7 +27,6 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **A recording rule has stopped writing its metric** (`gp_api:door_knocking_credits:sum1m` absent for 30 min) -- the five rules above are blind while it fires, and nothing else can tell that state from quiet. See [Door-knocking spend reads a recorded metric](#door-knocking-spend-reads-a-recorded-metric).
 - **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
-- **Loki query budget half spent / nearly spent** (50% and 80% of the included 100x-ingest allowance, averaged over 6h and sustained for 2h) -- so the vendor is never again the first to tell us we are over. Both carry the per-rule attribution query in their notification, because "we are over budget" without "and this rule is why" is a puzzle rather than an alert.
 - **Loki active stream count approaching the cap** (80% of `max_global_streams_per_user`) -- past the cap Loki rejects writes for new streams and logs are dropped, not queued. Measured against the live limit rather than a constant, since the limit is Grafana's to raise.
 - **Alert rule evaluations are failing** (>20% of evaluations erroring for 5 minutes) -- the rule that says _alerting itself is blind_. See [When alerting cannot check](#when-alerting-cannot-check).
 
@@ -246,7 +245,7 @@ Three rules follow, and they are what 2026-09-28 and 2026-09-29 cost to learn:
 
 Where a Loki rule is the right answer, `summaryDetail` set to a `{{ $labels.<field> }}` template keeps per-dimension paging: Grafana raises one alert instance per returned series either way.
 
-Ingest is the denominator, so cutting log volume also cuts the free query budget -- reducing ingest is not a fix for a query overage. Two rules watch the spend (`loki-query-budget-half`, `loki-query-budget-critical`) and their notifications carry the per-rule attribution query, so it is self-reporting rather than something to go looking for. The datasources are in `docs/observability.md`.
+Ingest is the denominator, so cutting log volume also cuts the free query budget -- reducing ingest is not a fix for a query overage. No alert rule watches the spend: the 6h ratio is driven by ad-hoc Grafana reads that no rule change bounds, so check it by hand with the per-rule attribution query in `docs/observability.md`. The datasources are in `docs/observability.md`.
 
 ## When alerting cannot check
 

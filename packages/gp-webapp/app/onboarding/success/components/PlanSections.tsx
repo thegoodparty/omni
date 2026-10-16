@@ -922,8 +922,9 @@ const PlanSections = ({
             The contact cadence below is designed so that every likely voter
             receives at least 1 introductory voter contact, at least 1
             persuasion voter contact, at least 1 early vote reminder, and at
-            least 1 Election Day push. Texts are the primary workhorse;
-            robocalls layer on top to catch landline-only voters.
+            least 1 Election Day push.
+            {!plan.smsClosed &&
+              ' Texts are the primary workhorse; robocalls layer on top to catch landline-only voters.'}
           </p>
           <PlanTable
             columns={['Date', 'Tactic', 'Purpose']}
@@ -943,7 +944,7 @@ const PlanSections = ({
             <p>
               Across{' '}
               <span className="font-semibold text-foreground">
-                7 voter contact campaigns
+                {plan.contactSchedule.length} voter contact campaigns
               </span>
               , this plan produces over{' '}
               <span className="font-semibold text-foreground">
@@ -993,9 +994,9 @@ const PlanSections = ({
                 needed to win, stay the course.
               </li>
               <li>
-                If you are falling behind, prioritize scheduling your next text
-                or robocall campaign and look for additional outreach
-                opportunities.
+                If you are falling behind, prioritize scheduling your next{' '}
+                {plan.smsClosed ? 'robocall' : 'text or robocall'} campaign and
+                look for additional outreach opportunities.
               </li>
               <li>
                 Check in at least once a week — small gaps caught early are easy

@@ -142,6 +142,7 @@ describe('unresolvable segment on the list/download paths', () => {
           }),
         }),
       }),
+      expect.anything(),
     )
   })
 })

@@ -7,6 +7,7 @@ import { Button, Card, ProBadge } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 const CTA = 'Get Pro'
 
@@ -16,6 +17,7 @@ export default function ProUpgradeBanner(): React.JSX.Element | null {
   const router = useRouter()
   const [campaign] = useCampaign()
   const isPro = campaign?.isPro ?? false
+  const { smsCompliance } = useSmsCompliance()
 
   const show = !isPro
 
@@ -49,8 +51,9 @@ export default function ProUpgradeBanner(): React.JSX.Element | null {
             76% of candidates who use Pro win
           </p>
           <p className="text-sm font-opensans text-card-foreground">
-            Get a dedicated advisor, quality voter data, and texting tools to
-            help you reach every voter that matters.
+            {smsCompliance === 'closed'
+              ? 'Get a dedicated advisor, quality voter data, and robocall and door knocking tools to help you reach every voter that matters.'
+              : 'Get a dedicated advisor, quality voter data, and texting tools to help you reach every voter that matters.'}
           </p>
         </div>
         <div className="pt-3">

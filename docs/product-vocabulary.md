@@ -34,6 +34,23 @@ Not banned, and load-bearing for a Serve official: **`vote`**, **`voting`**,
 Nothing here is banned in Win. **Win copy must not change to fix a Serve
 bug** — see "How to fix it" below.
 
+## The civic panel has one name
+
+The residents who said yes to being asked before an official decides are the
+**civic panel**: lowercase in a sentence ("your civic panel"), sentence case
+at the start of a heading or label ("Civic panel", "Your civic panel"). One
+name everywhere, so officials and the residents they text recognize the same
+thing on every screen, text, door and call.
+
+Banned everywhere, in every product: `citizens' panel` · `citizen's panel` ·
+`citizens panel` · `civics panel` · `constituent panel`.
+
+Internal identifiers keep their old names (`serve-citizen-panels`,
+`/dashboard/contacts/citizens-panel`, `CitizensPanelSection`), and
+`CIVIC_PANEL_JOIN_LINES` in contracts keeps the join lines already sent under
+the old name, so the reply reader still recognizes those sends. Only the newest
+line is ever composed.
+
 ## "campaign" has two senses, and only one is banned
 
 Serve has no run for office. Serve does send outreach campaigns.
@@ -89,6 +106,12 @@ since the shared flows are full of Win copy that must not change. It looks at:
 
 Comments, imports, object keys, route paths, enum values (`not_a_voter`),
 `className`s and strings being compared are not copy, and are not flagged.
+
+The civic panel's old names are flagged in **all** copy, not only in those
+three regions, since a panel string lives in shared flows too. gp-api and
+contracts get the same rule from
+`packages/gp-api/src/chats/general/product-knowledge/civicPanelName.test.ts`,
+a text scan that also reads comments and allows only the legacy join lines.
 
 Three layers run it:
 

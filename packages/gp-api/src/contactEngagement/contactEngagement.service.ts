@@ -260,17 +260,19 @@ export class ContactEngagementService {
         : []
 
     // One vocabulary per row, decided here rather than per reader — this feed
-    // has two (the walk's person sheet and the Constituent Data overlay), and
+    // has two (the walk's person sheet and the Constituents overlay), and
     // the `eo-` prefix is the whole rule, the same way `politicalParty` is
     // stripped in `ContactsService`. A support answer and a turnout intention
     // are Win facts about a person; a follow-up is Serve's. Each surface reads
     // back only its own, so neither can show a reader the answer to a question
     // their canvasser never asked.
     const isServe = organizationSlug.startsWith('eo-')
+    const serveStatusFields = [
+      ContactStatusField.follow_up,
+      ContactStatusField.civic_panel,
+    ]
     const statusFieldFilter = {
-      field: isServe
-        ? ContactStatusField.follow_up
-        : { not: ContactStatusField.follow_up },
+      field: isServe ? { in: serveStatusFields } : { notIn: serveStatusFields },
     }
 
     // Status-change history is filtered by field rather than by surface:
@@ -326,6 +328,13 @@ export class ContactEngagementService {
       }),
     )
 
+    const repliesByOutreach = await this.textRepliesByOutreach(
+      personId,
+      texts
+        .filter((text) => text.respondedAt !== null)
+        .map((text) => text.outreachId)
+        .filter((id): id is number => id !== null),
+    )
     const textActivities: TextConstituentActivity[] = texts.map((activity) => ({
       type: ConstituentActivityType.TEXT,
       date: activity.occurredAt.toISOString(),
@@ -336,6 +345,10 @@ export class ContactEngagementService {
         note: activity.note,
         manual: activity.manual,
         outreachId: activity.outreachId,
+        replies:
+          activity.outreachId === null
+            ? []
+            : (repliesByOutreach.get(activity.outreachId) ?? []),
       },
     }))
 
@@ -459,6 +472,33 @@ export class ContactEngagementService {
       page.length > limit && lastResult ? cursorKey(lastResult) : null
 
     return { nextCursor, results }
+  }
+
+  // The outreach ids come off this org's own text rows, so they are already
+  // scoped; the reply bodies live on poll_individual_message.
+  private async textRepliesByOutreach(
+    personId: string,
+    outreachIds: number[],
+  ): Promise<Map<number, string[]>> {
+    if (outreachIds.length === 0) return new Map()
+    const rows = await this.pollIndividualMessage.findMany({
+      where: {
+        personId,
+        outreachId: { in: outreachIds },
+        sender: PollIndividualMessageSender.CONSTITUENT,
+      },
+      orderBy: { sentAt: Prisma.SortOrder.asc },
+      select: { outreachId: true, content: true },
+    })
+    const replies = new Map<number, string[]>()
+    for (const row of rows) {
+      if (row.outreachId === null || !row.content) continue
+      replies.set(row.outreachId, [
+        ...(replies.get(row.outreachId) ?? []),
+        row.content,
+      ])
+    }
+    return replies
   }
 
   private async getPollActivities(

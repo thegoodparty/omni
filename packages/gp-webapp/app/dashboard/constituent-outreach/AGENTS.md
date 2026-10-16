@@ -1,6 +1,6 @@
 # app/dashboard/constituent-outreach/
 
-Serve outreach hub — the "Constituent Outreach" tab for elected officials
+Serve outreach hub — the "Outreach" tab for elected officials
 (epic ENG-10970). This directory is deliberately thin: a serve-gated shell
 that mounts the SAME Voter Outreach 2.0 machinery the Win hub uses
 (`app/dashboard/outreach/v2/`), parametrized for the Serve surface instead of
@@ -22,7 +22,7 @@ rule, the models, and the check that gates it:
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `page.tsx`                    | Server component: `serveAccess()` (redirects non-serve users; switches orgs through `/post-auth-redirect` when the user owns an eo- org that isn't selected), then fetches history via `GET /v1/outreach/serve` with `ignoreResponseError` — an empty array is a valid fresh-org response, never a 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the serve flows (social, phone banking, door knocking, and SMS behind `serve-sms-outreach`), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is the treatment reader of `useServeSmsFlag()`; the chat cards' `ProposalFlowsProvider` reads it without exposure, to mount the text flow behind the same flag                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the serve flows (social, phone banking, door knocking, and SMS behind `serve-sms-outreach`), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is the treatment reader of `useServeSmsFlag()`; the chat cards' `ProposalFlowsProvider` reads it without exposure, to mount the text flow behind the same flag                                                                                                                                                                                                                                                                                                    |
 | `ServeChannelCards.tsx`       | The channel grid — Social media, SMS, Phone banking and Door knocking, at `max-w-3xl grid-cols-2 sm:grid-cols-3` (four cards widen it to `max-w-4xl ... sm:grid-cols-4`, so the tiles stay the same size on either side of the SMS flag) rather than the candidate grid's five-column breakpoints. SMS renders only when the page passes an `onSmsClick`; the component itself reads no flag and stays hookless, so it needs no `'use client'`. Door knocking's card was removed for a while and is back: it had no serve wiring, and a permanently disabled placeholder reads as broken. Door knocking 3.0 wired it, and unlike the other two it navigates (`/dashboard/door-knocking?create=1`) instead of opening a flow in place — the map is its own page. So the grid shows three or four cards |
 
 ## Connection to Win outreach — one machine, two callers
@@ -47,7 +47,7 @@ byte-identical when they're omitted):
   (`GET /v1/outreach/serve/:id`, in `outreach/v2/useOutreachDetail.ts`)
   instead of Win's campaign-scoped default.
 - **`rowClickable`** scopes row clicks to `socialMedia`,
-  `nativePhoneBanking`, `nativeDoorKnocking` and `text` — the wired serve
+  `nativePhoneBanking`, `nativeDoorKnocking`, `text` and `poll` — the wired serve
   channels — so any other row type (robocall) renders as plain content,
   never a dead clickable. Door knocking joined the list in 3.0, when Serve
   orgs started getting an `Outreach` envelope at all; before that a Serve
@@ -56,7 +56,9 @@ byte-identical when they're omitted):
   surface) and it is deliberately NOT gated on `serve-sms-outreach`: only an
   org that has already sent has a text row, and an org whose flag is later
   turned off must not lose the results for a send it paid for. The flag
-  gates the way IN, not the record of what went out.
+  gates the way IN, not the record of what went out. A `poll` row is the same: its drawer shows the
+  question from the row's own `message` (no detail read) and, once completed,
+  a "View full results" link to `/dashboard/polls/results/:id`.
 - **Purpose vocabularies** live beside Win's:
   `outreach/v2/serveSocialPurposes.ts` / `servePhoneBankingPurposes.ts`
   mirror the Win files with constituent-framed copy. Slugs deliberately reuse
@@ -96,6 +98,30 @@ generation services, the spine scoping — are in
   and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
+- **`?compose=text&purpose=build_citizens_panel` opens the panel invite
+  directly.** The Chief of Staff's civic panel build card no
+  longer links here (it opens the panel page, whose text step opens the
+  same flow on the step's own list), but the link still works for anything
+  that sends it. Once both `serve-sms-outreach` and
+  `serve-citizen-panels` have resolved, the page strips the params and opens
+  the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
+  district's cell phones (`hasCellPhone`, the one filter, which is also what
+  the builder needs before Continue enables), saved as a random draw of
+  contracts' `PANEL_SEED_SAMPLE_SIZE` (8,000, sized for the uncorrected panel goal of 240 members, since the page has no district population), so a smaller district is
+  texted whole. With the panels flag off the same link
+  opens a plain text flow; with the SMS flag off it opens nothing. Both are
+  spent on close, so the tile opens a plain flow afterwards.
+- **Poll / Survey is the second flagged channel.** `useServeSelfServePollsFlag()`
+  (`serve-self-serve-polls`) gates the card and mounts `PollFlow`
+  (`outreach/v2/poll/`) on `ready && enabled`, the same way SMS does; gp-api
+  gates `POST /v1/outreach/serve/poll/draft` and `POST /v1/outreach/serve/poll`
+  on the same key. The flow rides the Serve SMS machinery: `ServeSmsScheduleStep`
+  without its name field, `SmsReviewStep` with `channelLabel`, and the
+  `SERVE_TEXT` checkout. A paid poll is then held for review, and its row reads
+  "In review". The Polls page (`/dashboard/polls`) merges these rows
+  (`GET /v1/outreach/serve`, `outreachType: poll`) into its list and opens the
+  same flow from Create Poll when the flag is on.
+
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the
   create response; a paid text send only exists once the server finalizes it,

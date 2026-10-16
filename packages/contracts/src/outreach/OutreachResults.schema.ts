@@ -34,6 +34,17 @@ export const SmsOutreachReplySchema = z.object({
   content: z.string(),
   receivedAt: z.string(),
   isOptOut: z.boolean(),
+  // Per-viewer state from OutreachReplyFlag; absent on surfaces that do not
+  // read it.
+  favorited: z.boolean().optional(),
+  read: z.boolean().optional(),
+  // Contact-level display fields only, never raw voter-file columns.
+  crm: z
+    .object({
+      contactId: z.string(),
+      statusLabel: z.string().nullable(),
+    })
+    .optional(),
 })
 export type SmsOutreachReply = z.infer<typeof SmsOutreachReplySchema>
 
@@ -48,3 +59,21 @@ export const SmsOutreachRepliesSchema = z.object({
   replies: z.array(SmsOutreachReplySchema),
 })
 export type SmsOutreachReplies = z.infer<typeof SmsOutreachRepliesSchema>
+
+export const SmsOutreachRepliesFilterSchema = z.enum([
+  'all',
+  'unread',
+  'favorited',
+])
+export type SmsOutreachRepliesFilter = z.infer<
+  typeof SmsOutreachRepliesFilterSchema
+>
+
+export const SmsOutreachRepliesQuerySchema = z.object({
+  themeId: z.string().optional(),
+  nonClustered: z.boolean().optional(),
+  filter: SmsOutreachRepliesFilterSchema.default('all'),
+})
+export type SmsOutreachRepliesQuery = z.infer<
+  typeof SmsOutreachRepliesQuerySchema
+>

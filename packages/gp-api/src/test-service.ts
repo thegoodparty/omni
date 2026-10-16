@@ -25,6 +25,15 @@ import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
+export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
+
+// Stands in for a Clerk JWT-format M2M token. The harness verifies it with
+// AUTH_SECRET instead of the Clerk JWKS; see the verifyM2MJwt stub below.
+export const signTestM2MJwt = (): string =>
+  jwt.sign({ sub: TEST_M2M_JWT_SUBJECT }, process.env.AUTH_SECRET!, {
+    expiresIn: '1h',
+    jwtid: 'm2m_test_jwt',
+  })
 
 // The reset below is a few tens of milliseconds of work. This ceiling is here
 // only to survive real pathology (a starved runner, a lock held by work that
@@ -197,6 +206,16 @@ export const useTestService = (): TestServiceContext => {
           throw new UnauthorizedException('Invalid test token')
         }
         return { externalUserId: sub }
+      },
+    )
+
+    vi.spyOn(authProvider, 'verifyM2MJwt').mockImplementation(
+      async (token: string) => {
+        const decoded = jwt.verify(token, process.env.AUTH_SECRET!)
+        if (typeof decoded !== 'object' || !decoded.sub?.startsWith('mch_')) {
+          throw new UnauthorizedException('Invalid test M2M JWT')
+        }
+        return { id: decoded.jti ?? '', subject: decoded.sub }
       },
     )
 

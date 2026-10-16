@@ -11,6 +11,7 @@ import {
 describe('SERVE_PHONE_BANKING_PURPOSES', () => {
   it('matches the canvas cards, in order', () => {
     expect(SERVE_PHONE_BANKING_PURPOSES).toEqual([
+      { id: 'build_citizens_panel', label: 'Invite to your civic panel' },
       { id: 'introduce_myself', label: 'Introduce myself to constituents' },
       { id: 'explain_decision', label: 'Explain a recent decision' },
       { id: 'event_invite', label: 'Invite constituents to a local event' },

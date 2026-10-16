@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
@@ -57,6 +63,11 @@ vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
 // cases pick it, so the flag is on here.
 vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
   useIssueCaptureFlag: () => ({ ready: true, enabled: true }),
+}))
+
+const panelFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
+  useServeCitizenPanelsFlag: () => panelFlag,
 }))
 
 // useListWizardCount (reached in the audience builder) reads the active org
@@ -1418,6 +1429,59 @@ describe('PhoneBankingFlow', () => {
     ).toBeEnabled()
   })
 
+  // A chat card hands over its saved list and its script: once the list
+  // resolves the flow lands on the script, with every step behind it.
+  it('lands on the script when the list and the script are both handed over', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    mockListDetail(5)
+    render(
+      <PhoneBankingFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        preselectedListId={7}
+        initialScript="Hi, this is Jane calling about the library."
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Write your call script')).length,
+    ).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('Supporters')).toBeInTheDocument()
+  })
+
+  it('lands on the who step when the script is handed over without a list', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 7, name: 'Supporters' }])
+    render(
+      <PhoneBankingFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        initialScript="Hi, this is Jane calling about the library."
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+  })
+
+  it('lands on the purpose when nothing is handed over', async () => {
+    openFlow()
+
+    expect(
+      await screen.findByText('Introduce myself to voters'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Who do you want to reach?')).toBeNull()
+  })
+
   it('ignores a preselected id that matches no saved list', async () => {
     mockDraft()
     mockSavedLists([{ id: 7, name: 'Supporters' }])
@@ -1505,6 +1569,58 @@ describe('PhoneBankingFlow with the serve surface', () => {
     )
     return { onClose }
   }
+
+  it('offers the civic panel invite only with serve-citizen-panels on', async () => {
+    openServeFlow()
+    expect(screen.queryByText('Invite to your civic panel')).toBeNull()
+    cleanup()
+
+    panelFlag.enabled = true
+    try {
+      openServeFlow()
+      expect(
+        await screen.findByText('Invite to your civic panel'),
+      ).toBeInTheDocument()
+    } finally {
+      panelFlag.enabled = false
+    }
+  })
+
+  // A civic panel plan's call step hands over the invite and its frozen
+  // list, so the flow lands on the script with the invite drafting, and
+  // Back still reaches the list.
+  it("lands a plan step's calls on the script, drafting the invite", async () => {
+    panelFlag.enabled = true
+    try {
+      const draftCalls = mockServeDraft()
+      mockSavedLists([{ id: 8, name: 'Civic panel calls' }])
+      mockListDetail(30)
+      render(
+        <PhoneBankingFlow
+          source="deep_link"
+          open
+          onClose={vi.fn()}
+          surface={SERVE_PHONE_BANKING_SURFACE}
+          preselectedListId={8}
+          initialPurpose="build_citizens_panel"
+          initialName="Civic panel calls"
+        />,
+      )
+
+      expect(
+        (await screen.findAllByText('Write your call script')).length,
+      ).toBeGreaterThan(0)
+      await waitFor(() => expect(draftCalls).toHaveLength(1))
+      expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      expect(
+        (await screen.findAllByText('Who do you want to reach?')).length,
+      ).toBeGreaterThan(0)
+    } finally {
+      panelFlag.enabled = false
+    }
+  })
 
   it('renders the 6 serve cards and hits the serve routes with serve slugs', async () => {
     const draftCalls = mockServeDraft()

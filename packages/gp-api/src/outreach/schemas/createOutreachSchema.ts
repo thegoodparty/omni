@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { isValid, parseISO } from 'date-fns'
-import { isWinSmsHoldBillingEnabled } from '../../shared/util/winSmsHold.util'
 
 export class CreateOutreachSchema extends createZodDto(
   z
@@ -85,22 +84,14 @@ export class CreateOutreachSchema extends createZodDto(
     })
     .strict()
     .superRefine((data, ctx) => {
-      // Win SMS hold pay-before-build (D2a): under the flag a p2p draft may be
-      // created before its phone-list build finishes, so phoneListId is no longer
-      // required here; R1's build-ready edge stamps it later. Flag off, the list
-      // must already be built (unchanged). The flag is read live, so validation
-      // tracks the current cutover state without a redeploy.
-      if (
-        data.outreachType === OutreachType.p2p &&
-        !data.phoneListId &&
-        !isWinSmsHoldBillingEnabled()
-      ) {
-        ctx.addIssue({
-          path: ['phoneListId'],
-          code: z.ZodIssueCode.custom,
-          message: 'Phone list ID is required for P2P outreach',
-        })
-      }
+      // Win SMS hold pay-before-build: under the managed flag
+      // (`win_sms_hold_billing`, per-user) a p2p draft may be created before
+      // its phone-list build finishes, so phoneListId is not required here —
+      // R1's build-ready edge stamps it later. The flag is per-user and this
+      // DTO has no request context to evaluate it against, so the schema
+      // never enforces this requirement; OutreachService.create (which has
+      // the user) is the single enforcement point and 400s the same way when
+      // the flag is off for this caller.
       if (data.outreachType === OutreachType.p2p && !data.script) {
         ctx.addIssue({
           path: ['script'],

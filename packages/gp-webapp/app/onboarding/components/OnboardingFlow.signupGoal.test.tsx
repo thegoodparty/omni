@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import { EVENTS } from 'helpers/analyticsHelper'
 import OnboardingFlow from './OnboardingFlow'
 import type { OfficePickerGiveUpContext } from './onboardingTypes'
@@ -188,6 +189,25 @@ beforeEach(() => {
 })
 
 describe('signup-goal step', () => {
+  it('names only the channels still open once texting has closed for the race', async () => {
+    const campaign = { id: 1, smsCompliance: 'closed' } as Campaign
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CampaignContext.Provider value={[campaign]}>
+          <OnboardingFlow campaign={campaign} />
+        </CampaignContext.Provider>
+      </QueryClientProvider>,
+    )
+    await advanceToSignupGoal()
+
+    expect(
+      screen.getByText('Door-knocking, robocalls and phone banking.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Texting, door-knocking and robocalls.'),
+    ).toBeNull()
+  })
+
   it('blocks Continue until a reason is selected', async () => {
     renderFlow()
     await advanceToSignupGoal()

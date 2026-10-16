@@ -46,6 +46,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CLERK_SECRET_KEY: { tier: 'optional' },
   CLERK_PUBLISHABLE_KEY: { tier: 'optional' },
   ELECTION_API_MACHINE_SECRET: { tier: 'optional' },
+  CLERK_JWT_KEY: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'.
   OTEL_SERVICE_ENVIRONMENT: { tier: 'optional', default: 'local' },

@@ -1166,6 +1166,151 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(streamMessageMock).not.toHaveBeenCalled()
   })
 
+  it('sends a suggestion with `message` as the user’s own visible turn', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_msg' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Your next meeting is Tuesday.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'Help me get ready for my next meeting.'),
+      msg('assistant', 'Your next meeting is Tuesday.', { id: 'a1' }),
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Get ready for your next meeting',
+            description: 'Walk in knowing what is on the agenda.',
+            message: 'Help me get ready for my next meeting.',
+          },
+        ]}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Get ready for your next meeting/,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Help me get ready for my next meeting.',
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText('Help me get ready for my next meeting.'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Get ready for your next meeting/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  describe('showSuggestionsAfterKickoff', () => {
+    const EXPLAIN = '[Explain] What is it?'
+    const BUILD = '[Build] Build it.'
+    const REPLY = 'It is a group of residents. Do you want to build yours?'
+
+    beforeEach(() => {
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_explain' })
+      streamMessageMock
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: REPLY },
+            { type: 'done', assistantMessageId: 'a1' },
+          ]),
+        )
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: 'Here is the math.' },
+            { type: 'done', assistantMessageId: 'a2' },
+          ]),
+        )
+      listMessagesMock
+        .mockResolvedValueOnce([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+        ])
+        .mockResolvedValue([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+          msg('user', BUILD),
+          msg('assistant', 'Here is the math.', { id: 'a2' }),
+        ])
+    })
+
+    it('shows the step under the kickoff’s reply, and sends it into the same conversation', async () => {
+      const user = userEvent.setup()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[{ label: 'Build my panel', kickoff: BUILD }]}
+        />,
+      )
+
+      // Never on the empty transcript before the kickoff has answered.
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+
+      const cta = await screen.findByRole(
+        'button',
+        { name: 'Build my panel' },
+        { timeout: 5000 },
+      )
+      expect(screen.getByText(REPLY)).toBeInTheDocument()
+
+      await user.click(cta)
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            conversationId: 'conv_explain',
+            content: BUILD,
+          }),
+        ),
+      )
+      expect(createMock).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.getByText('Here is the math.')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(BUILD)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when the kickoff has no next step', async () => {
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[]}
+        />,
+      )
+      await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument())
+      // Not the built-in starter chips either.
+      expect(
+        screen.queryByRole('button', { name: "What's most urgent this week?" }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
@@ -2838,5 +2983,205 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       conversationId: 'conv',
       content: 'Main Street',
     })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> building the civic panel', () => {
+  type Next = {
+    stepId: string
+    channel: 'text' | 'phone_banking' | 'door_knocking'
+    status: 'not_started' | 'in_progress' | 'waiting_on_replies'
+    line: string
+    href: string | null
+  }
+  const plan = (next: Next | null) => ({
+    plan: {
+      id: 'plan-1',
+      status: 'active' as const,
+      goalMembers: 100,
+      hoursPerWeek: 2,
+      currentWave: 1,
+      createdAt: new Date('2026-10-15T00:00:00.000Z'),
+      completedAt: null,
+      steps: [],
+    },
+    next,
+    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+  })
+
+  const timeQuestion = (answer?: string) => [
+    msg('assistant', 'A plan mixes texts with your own calls.', {
+      segments: [
+        { kind: 'text', text: 'A plan mixes texts with your own calls.' },
+        { kind: 'tool', toolName: 'ask_panel_weekly_time', payload: {} },
+      ],
+    }),
+    ...(answer ? [msg('user', answer), msg('assistant', 'Done.')] : []),
+  ]
+
+  it("asks the weekly time question with the panel page's answers, and sends the one picked", async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText('How much time can you give each week?'),
+    ).toBeInTheDocument()
+    for (const label of [
+      '1 hour a week',
+      '2 hours a week',
+      '3 hours a week',
+      '4 or more hours a week',
+    ]) {
+      expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
+    }
+    await user.click(screen.getByRole('radio', { name: '2 hours a week' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: '2 hours a week',
+    })
+  })
+
+  it('locks an answered weekly time question on reload', async () => {
+    listMessagesMock.mockResolvedValue(timeQuestion('3 hours a week'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', { name: '3 hours a week' })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+  })
+
+  it("shows the plan's next step in the panel page's words, opening that step", async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'phone_banking',
+        status: 'not_started',
+        line: 'Call residents to invite them to your civic panel',
+        href: '/dashboard/contacts/citizens-panel?step=s1',
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Your plan is ready.', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+          { kind: 'text', text: 'Your plan is ready.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText(
+        'Call residents to invite them to your civic panel',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Your panel can give about 5 of the 96 answers you need.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Start the calls' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s1')
+    expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel',
+    )
+  })
+
+  it('offers no button while the plan waits on replies, only the plan', async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'text',
+        status: 'waiting_on_replies',
+        line: 'Replies to your civic panel invite should be in by Monday',
+        href: null,
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(
+      within(card).getByText(
+        'Replies to your civic panel invite should be in by Monday',
+      ),
+    ).toBeInTheDocument()
+    expect(within(card).getAllByRole('link')).toHaveLength(1)
+    expect(
+      within(card).getByRole('link', { name: 'See your plan' }),
+    ).toBeInTheDocument()
+  })
+
+  it('draws nothing for a refused call', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here it is.', {
+        segments: [
+          { kind: 'text', text: 'Here it is.' },
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: null },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText('Here it is.')).toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-next-step')).toBeNull()
+    expect(screen.queryByTestId('chat-card-loading')).toBeNull()
+  })
+
+  it('reads the plan and the home cards again once the weekly time is saved', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const user = userEvent.setup()
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'save_panel_weekly_time',
+          args: { hoursPerWeek: 2 },
+          toolCallId: 't1',
+        },
+        {
+          type: 'tool_result',
+          toolName: 'save_panel_weekly_time',
+          result: { saved: 'created' },
+          toolCallId: 't1',
+        },
+        { type: 'done' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+    await user.click(
+      await screen.findByRole('radio', { name: '2 hours a week' }),
+    )
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['civic-panel-plan', 'eo-test-org'],
+      }),
+    )
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['chief-of-staff', 'cards'],
+    })
+    invalidate.mockRestore()
   })
 })

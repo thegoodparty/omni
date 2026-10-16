@@ -1,7 +1,11 @@
 import { differenceInMinutes } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { describe, expect, it } from 'vitest'
-import { estimateRobocallDialCompletion } from './robocallDialCompletion.util'
+import {
+  estimateRobocallDialCompletion,
+  projectRobocallDialQueue,
+  robocallDialCeilingAt,
+} from './robocallDialCompletion.util'
 import { SCHEDULE_TZ } from './robocallDialWindow.const'
 
 const EASTERN_TZ = 'America/New_York'
@@ -181,5 +185,135 @@ describe('estimateRobocallDialCompletion', () => {
         startAt: at('2026-06-15 06:00:00'),
       }),
     ).toThrow(RangeError)
+  })
+})
+
+describe('robocallDialCeilingAt', () => {
+  it('adds the flat buffer on top of the window-walked estimate', () => {
+    // 600 / 10 = 60 dialing-minutes from 10:00 → 11:00, then + 90 buffer.
+    expect(
+      robocallDialCeilingAt({
+        audienceSize: 600,
+        callsPerMinute: 10,
+        startAt: at('2026-06-15 10:00:00'),
+        bufferMinutes: 90,
+      }),
+    ).toEqual(at('2026-06-15 12:30:00'))
+  })
+})
+
+describe('projectRobocallDialQueue', () => {
+  const now = at('2026-06-15 10:00:00')
+
+  it('a run whose pool is free before its schedule starts on time', () => {
+    // poolAvailableAt is now, the run is scheduled later today, so it starts at
+    // its own schedule — same day, never delayed.
+    const [run] = projectRobocallDialQueue({
+      now,
+      poolAvailableAt: now,
+      queue: [
+        {
+          outreachId: 1,
+          audienceSize: 600,
+          scheduledAt: at('2026-06-15 14:00:00'),
+          callsPerMinute: 10,
+        },
+      ],
+      bufferMinutes: 60,
+    })
+    expect(run?.projectedStartAt).toEqual(at('2026-06-15 14:00:00'))
+    expect(run?.delayedPastScheduledDay).toBe(false)
+  })
+
+  it('flags a run the backlog pushes to the next day', () => {
+    // An in-flight run holds the pool until tomorrow morning; the queued run,
+    // scheduled for today, cannot start until then → delayed past its day.
+    const [run] = projectRobocallDialQueue({
+      now,
+      poolAvailableAt: at('2026-06-16 09:30:00'),
+      queue: [
+        {
+          outreachId: 1,
+          audienceSize: 600,
+          scheduledAt: at('2026-06-15 14:00:00'),
+          callsPerMinute: 10,
+        },
+      ],
+      bufferMinutes: 60,
+    })
+    expect(run?.projectedStartAt).toEqual(at('2026-06-16 09:30:00'))
+    expect(run?.delayedPastScheduledDay).toBe(true)
+  })
+
+  it('serializes the queue — each run waits on the one ahead', () => {
+    // Two big runs scheduled for today. The first fills most of the window; the
+    // second cannot start until the first completes + buffer, spilling it past
+    // its scheduled day.
+    const projected = projectRobocallDialQueue({
+      now,
+      poolAvailableAt: now,
+      queue: [
+        {
+          outreachId: 1,
+          audienceSize: 6000,
+          scheduledAt: at('2026-06-15 10:00:00'),
+          callsPerMinute: 10,
+        },
+        {
+          outreachId: 2,
+          audienceSize: 6000,
+          scheduledAt: at('2026-06-15 10:00:00'),
+          callsPerMinute: 10,
+        },
+      ],
+      bufferMinutes: 60,
+    })
+    // Run 1: 6000/10 = 600 min from 10:00 = 20:00, + 60 buffer = 21:00.
+    expect(projected[0]?.projectedStartAt).toEqual(at('2026-06-15 10:00:00'))
+    expect(projected[0]?.delayedPastScheduledDay).toBe(false)
+    // Run 2 cannot start until run 1's ceiling (21:00 = window close), so it
+    // rolls to the next morning — delayed.
+    expect(projected[1]?.projectedStartAt).toEqual(at('2026-06-16 09:00:00'))
+    expect(projected[1]?.delayedPastScheduledDay).toBe(true)
+  })
+
+  it('does not flag a run whose OWN schedule is past the day window', () => {
+    // Scheduled at 22:00 (past the 21:00 close) with an idle pool: it rolls to
+    // the next morning on its own, not because of any backlog, so it is NOT
+    // flagged delayed. This is what keeps a late-evening schedule from paging.
+    const [run] = projectRobocallDialQueue({
+      now,
+      poolAvailableAt: now,
+      queue: [
+        {
+          outreachId: 1,
+          audienceSize: 600,
+          scheduledAt: at('2026-06-15 22:00:00'),
+          callsPerMinute: 10,
+        },
+      ],
+      bufferMinutes: 60,
+    })
+    expect(run?.projectedStartAt).toEqual(at('2026-06-16 09:00:00'))
+    expect(run?.delayedPastScheduledDay).toBe(false)
+  })
+
+  it('floors the pool-free instant at now', () => {
+    // A poolAvailableAt in the past is clamped to now, so a run scheduled in the
+    // past (already due) projects a start of now, not an even-earlier instant.
+    const [run] = projectRobocallDialQueue({
+      now,
+      poolAvailableAt: at('2026-06-15 06:00:00'),
+      queue: [
+        {
+          outreachId: 1,
+          audienceSize: 600,
+          scheduledAt: at('2026-06-14 14:00:00'),
+          callsPerMinute: 10,
+        },
+      ],
+      bufferMinutes: 60,
+    })
+    expect(run?.projectedStartAt).toEqual(now)
   })
 })

@@ -57,11 +57,11 @@ export class HoldStillSettlingException extends BadRequestException {}
 // (void it while authorized, refund it once captured) off the satellite intent,
 // NOT the shared checkout-session refund the immediate-charge path uses.
 //
-// SATELLITE-GATED, NEVER FLAG-GATED (kill switch): the flag gates whether new
-// rows ENTER the hold model, but once a row IS a hold its money guards apply
+// SATELLITE-GATED, NEVER FLAG-GATED: the managed flag gates whether new rows
+// ENTER the hold model, but once a row IS a hold its money guards apply
 // regardless of the flag — a satellite that exists must be released correctly
-// even on a WIN_SMS_HOLD_BILLING rollback. A non-satellite row never reaches
-// this service; its cancel/deny stays byte-for-byte on the shared path.
+// even if win_sms_hold_billing is since turned off. A non-satellite row never
+// reaches this service; its cancel/deny stays byte-for-byte on the shared path.
 //
 // MONEY SAFETY. Release NEVER voids a captured charge or refunds an uncaptured
 // hold: it re-reads the LIVE PaymentIntent before every action and branches on
@@ -262,6 +262,7 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
           settleState: true,
           authorizationIntentId: true,
           chargeIntentId: true,
+          capturedAmountInCents: true,
         },
       })
       if (!satellite) return { refunded: false }
@@ -307,12 +308,31 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         )
       }
 
+      // Settled at $0 because a promotion code covered it: nothing was charged,
+      // so there is nothing to refund and no hold left to void. Release it the
+      // same way a never-held row is released.
+      if (
+        satellite.settleState === P2pSmsSettleState.captured &&
+        satellite.capturedAmountInCents === 0
+      ) {
+        const claimed = await this.claim(
+          outreachId,
+          [P2pSmsSettleState.captured],
+          P2pSmsSettleState.voided,
+        )
+        if (claimed) {
+          await this.restoreFreeTextsBestEffort(outreachId)
+          return { refunded: false }
+        }
+        continue
+      }
+
       // No hold intent was ever recorded (a pending_payment / hold_pending
       // satellite whose authorize never committed, or a data anomaly): there is
       // no money to move. Freeze the row voided so the cancel/deny completes
       // rather than looping to a 502, hand back any offer, and return. Claims
-      // from the pre-hold states (an `authorized` row always carries an intent,
-      // so it never reaches here).
+      // from the pre-hold states, plus `authorized` for a send a promotion code
+      // covered in full, which Stripe placed no hold for.
       if (!satellite.authorizationIntentId) {
         const claimed = await this.claim(
           outreachId,

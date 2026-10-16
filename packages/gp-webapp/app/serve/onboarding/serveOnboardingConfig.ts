@@ -8,6 +8,12 @@ import {
   Wand2,
   type LucideIcon,
 } from 'lucide-react'
+import {
+  CalendarCheckIcon,
+  ListChecksIcon,
+  MegaphoneIcon,
+  UsersRoundIcon,
+} from '@styleguide/components/ui/icons'
 
 /**
  * Step set + per-branch ordering for the net-new elected-official ("serve")
@@ -33,7 +39,23 @@ export type ServeStepId =
   | 'term-dates'
   | 'confirm'
   | 'constituents'
+  | ServeStoryStepId
+  | 'priorities'
   | 'pledge'
+
+// The district story serve-citizen-panels shows in place of `constituents`:
+// one persistent map that changes mode on each step.
+export const SERVE_STORY_STEPS = [
+  'story-represent',
+  'story-loudest',
+  'story-sample',
+  'story-grow',
+] as const
+
+export type ServeStoryStepId = (typeof SERVE_STORY_STEPS)[number]
+
+export const isServeStoryStep = (step: ServeStepId): step is ServeStoryStepId =>
+  (SERVE_STORY_STEPS as readonly string[]).includes(step)
 
 export type ServeBranch = 'prefill' | 'net-new'
 
@@ -57,6 +79,7 @@ const PREFILL_STEPS: ServeStepId[] = [
   'party',
   'confirm',
   'constituents',
+  'priorities',
   'pledge',
 ]
 
@@ -67,11 +90,27 @@ const NET_NEW_STEPS: ServeStepId[] = [
   'office',
   'term-dates',
   'constituents',
+  'priorities',
   'pledge',
 ]
 
-export const getServeBranchSteps = (branch: ServeBranch): ServeStepId[] =>
-  branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+// With serve-citizen-panels on, the district story replaces `constituents`
+// and the `priorities` step follows it. Without the flag the flow goes from
+// `constituents` straight to `pledge`.
+export const getServeBranchSteps = (
+  branch: ServeBranch,
+  citizenPanels = false,
+): ServeStepId[] => {
+  const steps = branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+  if (!citizenPanels) return steps.filter((s) => s !== 'priorities')
+  return steps.flatMap((s) =>
+    s === 'constituents' ? [...SERVE_STORY_STEPS] : [s],
+  )
+}
+
+// The first step after the office and term are settled.
+export const firstStepAfterTerm = (citizenPanels = false): ServeStepId =>
+  citizenPanels ? SERVE_STORY_STEPS[0] : 'constituents'
 
 /**
  * Which of the data-collecting answers are already persisted on the EO/org
@@ -145,14 +184,15 @@ export const resolveServeBranch = ({
 export const computeServeResumeStep = (
   branch: ServeBranch,
   { hasParty, hasOffice, hasDates }: ServeResumeState,
+  citizenPanels = false,
 ): ServeStepId => {
   if (!hasParty) return 'welcome'
   if (branch === 'prefill') {
-    return hasOffice && hasDates ? 'constituents' : 'confirm'
+    return hasOffice && hasDates ? firstStepAfterTerm(citizenPanels) : 'confirm'
   }
   if (!hasOffice) return 'office'
   if (!hasDates) return 'term-dates'
-  return 'constituents'
+  return firstStepAfterTerm(citizenPanels)
 }
 
 /**
@@ -193,11 +233,14 @@ export const resolveServeResumeStep = (
   branch: ServeBranch,
   checkpoint: ServeStepId | null | undefined,
   dataState: ServeResumeState,
+  citizenPanels = false,
 ): ServeStepId => {
-  if (!checkpoint) return computeServeResumeStep(branch, dataState)
-  const steps = getServeBranchSteps(branch)
+  if (!checkpoint) {
+    return computeServeResumeStep(branch, dataState, citizenPanels)
+  }
+  const steps = getServeBranchSteps(branch, citizenPanels)
   if (!steps.includes(checkpoint)) {
-    return computeServeResumeStep(branch, dataState)
+    return computeServeResumeStep(branch, dataState, citizenPanels)
   }
   const furthestSafe = maxDataSufficientStep(branch, dataState)
   return steps.indexOf(checkpoint) > steps.indexOf(furthestSafe)
@@ -251,8 +294,9 @@ export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
 export const getServeProgress = (
   branch: ServeBranch,
   step: ServeStepId,
+  citizenPanels = false,
 ): { current: number; total: number } => {
-  const steps = getServeBranchSteps(branch)
+  const steps = getServeBranchSteps(branch, citizenPanels)
   const total = steps.length
   let index = steps.indexOf(step)
   if (index === -1) {
@@ -268,7 +312,10 @@ export interface ServeStepCopy {
   whyWeAsk?: string
 }
 
-export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
+export const SERVE_STEP_COPY: Record<
+  Exclude<ServeStepId, ServeStoryStepId>,
+  ServeStepCopy
+> = {
   welcome: {
     title: 'Meet your virtual chief of staff in 5 minutes',
     description:
@@ -316,10 +363,95 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     whyWeAsk:
       "Understanding your constituents' makeup and concerns helps you prioritize where to focus and how to communicate.",
   },
+  priorities: {
+    title: 'Turn what you ran on into what you work on',
+    description:
+      'Your priorities, shaped by what residents tell you. Your Chief of Staff keeps each one moving.',
+    whyWeAsk:
+      'Your priorities shape your briefings and the questions we suggest asking your constituents.',
+  },
   pledge: {
     title: 'Take our pledge to get your chief of staff',
     description:
       'We only work with officials who are independent of both major parties, and the corrupting influence of big money.',
+  },
+}
+
+// With serve-citizen-panels on, the welcome and pledge reframe onboarding
+// around hearing from the community instead of the chief of staff.
+export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
+  Record<ServeStepId, ServeStepCopy>,
+  'welcome' | 'pledge'
+> = {
+  welcome: {
+    title: 'Hear from your whole community, not only the loudest voices',
+    description:
+      "Tell us what office you hold and where. We'll help you listen, act, and report back.",
+  },
+  pledge: {
+    title: 'Take our pledge to get started',
+    description: SERVE_STEP_COPY.pledge.description,
+  },
+}
+
+export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
+
+// The district story's copy. Titles are split so the accent words can be
+// colored without a second string to keep in sync.
+export interface ServeStoryTitle {
+  lead: string
+  accent: string
+  tail: string
+}
+
+export const SERVE_STORY_COPY = {
+  represent: {
+    title: (people: string): ServeStoryTitle => ({
+      lead: 'You represent',
+      accent: people,
+      tail: 'people',
+    }),
+    titleWithoutCount: 'You represent every resident of your district',
+    description: (perDot: string, place: string): string =>
+      `Every dot is about ${perDot} residents of ${place}. Each of them counts on you to speak for them.`,
+    descriptionWithoutCount: (place: string): string =>
+      `Every dot is a group of residents of ${place}. Each of them counts on you to speak for them.`,
+    defaultPlace: 'your district',
+  },
+  loudest: {
+    title: {
+      lead: "Until now, you've heard from the",
+      accent: 'loudest voices',
+      tail: 'only',
+    } satisfies ServeStoryTitle,
+    description:
+      'The people who make it to a meeting or send an email. Most residents never do.',
+    heardFrom: 'Heard from',
+    notHeardFrom: 'Not heard from yet',
+  },
+  sample: {
+    title: (answers: number): ServeStoryTitle => ({
+      lead: 'With about',
+      accent: `${answers} answers`,
+      tail: ", you'll know where your community stands",
+    }),
+    description:
+      'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
+    howWeGotIt: 'How we got this number',
+    explanation: (answers: number): string =>
+      `We picked ${answers} so that when residents split close to evenly, you know their view within about 10 points either way. Accuracy depends on how many people answer, not how many live in your district.`,
+  },
+  grow: {
+    title: "We'll help you build and grow the list of people you hear from",
+    description:
+      'Listen to the people first. Then prioritize, act, and tell them what you did.',
+    loop: [
+      { title: 'Listen', desc: 'Text, call or knock' },
+      { title: 'Prioritize', desc: 'See what matters most' },
+      { title: 'Act', desc: 'Bring it to your vote' },
+      { title: 'Communicate', desc: 'Tell them what you did' },
+    ],
+    again: 'Then listen again. Each round, your panel grows.',
   },
 }
 
@@ -349,6 +481,29 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
     icon: Wand2,
     title: 'Draft legislation and get feedback directly from your community',
     desc: 'We help you draft legislation based on what works in communities like yours. Share with your constituents and get early feedback.',
+  },
+]
+
+export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
+  {
+    icon: UsersRoundIcon,
+    title: 'Ask residents before you vote',
+    desc: "We'll help you build and grow the list of people you hear from, picked from every corner of your district.",
+  },
+  {
+    icon: MegaphoneIcon,
+    title: 'Know what your community is talking about',
+    desc: 'We track local news, meetings, and constituent data to surface the issues residents raise most.',
+  },
+  {
+    icon: ListChecksIcon,
+    title: 'Follow through on the issues you were elected to solve',
+    desc: 'Get a plan for each priority, draft ordinances that work, and report back on what you did.',
+  },
+  {
+    icon: CalendarCheckIcon,
+    title: 'Walk into every meeting prepared',
+    desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
   },
 ]
 

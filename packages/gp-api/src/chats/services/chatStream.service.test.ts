@@ -185,6 +185,10 @@ class FakeChatStore {
     return Promise.resolve()
   }
 
+  recordAssistantUsage(): Promise<void> {
+    return Promise.resolve()
+  }
+
   getPersistedMessages(conversationId: string): ChatMessage[] {
     return [...(this.messagesByConversation.get(conversationId) ?? [])]
   }
@@ -1086,6 +1090,26 @@ describe('ChatStreamService', () => {
       )
     })
 
+    it("replays the Chief of Staff's weekly time question, which has no args", async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'A plan mixes texts.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_panel_weekly_time',
+            payload: {},
+          },
+        ],
+        'A plan mixes texts.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        'A plan mixes texts.\n\n[Card you showed: ask_panel_weekly_time {}]',
+      )
+    })
+
     it('replays a card on a leading assistant turn', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       store.seedMessage({
@@ -1215,6 +1239,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'after' },
       ])
@@ -1250,6 +1275,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'done' },
       ])
@@ -1259,6 +1285,33 @@ describe('ChatStreamService', () => {
           kind: 'tool',
           toolName: 'web_search',
           payload: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
+        },
+        { kind: 'text', text: 'done' },
+      ])
+    })
+
+    it('drops the arguments of a call the tool refused, so its card never replays', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'bad' },
+          output: { error: 'Fix the arguments and call again.' },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      await collect(
+        service.stream(baseStreamArgs({ tools: { web_search: fakeTool } })),
+      )
+
+      expect(store.lastAppendedSegments).toEqual([
+        {
+          kind: 'tool',
+          toolName: 'web_search',
+          payload: null,
           toolCallId: 'test-web_search',
         },
         { kind: 'text', text: 'done' },

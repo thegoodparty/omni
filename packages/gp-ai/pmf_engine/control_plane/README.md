@@ -215,3 +215,32 @@ to be suppressed too.
 With no `_judge_override` present nothing about dispatch changes: the mint body
 omits both `experiment_override` and `is_eval`, the enqueued routing carries no
 extra key, and the container env is unchanged.
+
+## Judge page replay (`_judge_replay`)
+
+A judge sweep runs the base and candidate arms over an hour apart, so the pages
+an agent fetches drift in between. The broker can record what the base arm
+fetched and serve the candidate the same responses. The dispatch message names
+the store with an optional top-level
+
+```json
+"_judge_replay": { "mode": "record" | "replay", "key": "_judge/replay/..." }
+```
+
+Ingest never reads the store. It checks for exactly those two keys, a `key` that fully
+matches one of the three store layouts in `manifest_loader.JUDGE_REPLAY_KEY_RES`
+(sweep, base cache or seed, built by `packages/contracts`), an `agentId` segment
+equal to `experiment_type`, and no `record` into a seed store. It also puts the
+dispatch through the same judge gate as an override (judge run id, `dev` only),
+since mint would refuse it anyway. Nothing here reads the store.
+
+It rides `routing["replay"]` like `judge_override`, so the scheduler threads it
+to `launch_run`, which passes it to mint. The broker re-checks all of it, and
+refuses the mint unless its own `REPLAY_ENABLED` switch is on (dev only), so such
+a run fails rather than running without replay. The
+broker's copy of the key patterns is held equal to this one by a test in
+`broker/tests/test_dynamodb_client.py`.
+
+With no `_judge_replay` the mint body omits `replay` entirely rather than
+sending null, because `MintRequest` refuses unknown fields and a broker that
+predates the field would refuse every mint.

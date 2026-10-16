@@ -1,4 +1,10 @@
-import { addDays, addMinutes, differenceInMinutes, isBefore } from 'date-fns'
+import {
+  addDays,
+  addMinutes,
+  differenceInMinutes,
+  isBefore,
+  max,
+} from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import {
   DAILY_START_TIME,
@@ -37,6 +43,18 @@ const windowBoundsForDay = (instant: Date, timeZone: string) => {
 // regardless of DST, then the open bound is re-anchored from that day.
 const nextDayOpen = (instant: Date, timeZone: string): Date =>
   windowBoundsForDay(addDays(instant, 1), timeZone).opensAt
+
+// The first instant at or after `candidate` that actually falls inside the daily
+// dial window: a before-open candidate waits to open, an at-or-after-close one
+// waits to the next day's open, an in-window one is unchanged. The effective
+// dial-START instant, so a run whose pool frees after 21:00 is projected to
+// start the next morning rather than at the (closed-window) free instant.
+const nextDialableInstant = (candidate: Date, timeZone: string): Date => {
+  const { opensAt, closesAt } = windowBoundsForDay(candidate, timeZone)
+  if (isBefore(candidate, opensAt)) return opensAt
+  if (!isBefore(candidate, closesAt)) return nextDayOpen(candidate, timeZone)
+  return candidate
+}
 
 /**
  * Estimates the instant a robocall campaign finishes DIALING, from its audience
@@ -85,4 +103,127 @@ export const estimateRobocallDialCompletion = ({
     cursor = nextDayOpen(cursor, timeZone)
   }
   return cursor
+}
+
+interface DialCeilingParams {
+  audienceSize: number
+  callsPerMinute: number
+  startAt: Date
+  bufferMinutes: number
+  timeZone?: string
+}
+
+/**
+ * The instant a run is SURELY done dialing: the raw window-walked completion
+ * estimate plus a flat buffer. The same money-safe ceiling the send sweep's
+ * free-and-advance step frees a run at — `callsPerMinute` is expected to be the
+ * rate-haircut (safe) rate and `bufferMinutes` the configured flat buffer, so a
+ * caller gets the identical instant the queue actually advances the pool at.
+ */
+export const robocallDialCeilingAt = ({
+  audienceSize,
+  callsPerMinute,
+  startAt,
+  bufferMinutes,
+  timeZone = SCHEDULE_TZ,
+}: DialCeilingParams): Date =>
+  addMinutes(
+    estimateRobocallDialCompletion({
+      audienceSize,
+      callsPerMinute,
+      startAt,
+      timeZone,
+    }),
+    bufferMinutes,
+  )
+
+interface QueuedDialRun {
+  outreachId: number
+  audienceSize: number
+  // The run's scheduled send instant (`Outreach.date`).
+  scheduledAt: Date
+  // The rate-haircut (safe) calls-per-minute THIS run dials at — derived from the
+  // rate it was STAGED at, so a run staged slow keeps its longer projection even
+  // after the live rate is raised for newer campaigns.
+  callsPerMinute: number
+}
+
+interface ProjectedDialRun {
+  outreachId: number
+  scheduledAt: Date
+  // When the serial queue is projected to actually START dialing this run.
+  projectedStartAt: Date
+  // True when the projected start lands on a LATER local calendar day than the
+  // scheduled send — the backlog has pushed the send past its desired day.
+  delayedPastScheduledDay: boolean
+}
+
+interface ProjectDialQueueParams {
+  now: Date
+  // When the shared CallHub pool first becomes free: the latest projected dial
+  // completion of any in-flight run, floored at `now` (an idle queue passes
+  // `now`).
+  poolAvailableAt: Date
+  // The waiting runs in dial order — oldest-due first (scheduledAt asc, then
+  // outreachId asc), the SAME total order the serial send sweep launches in.
+  // Each carries its own staged (haircut) rate.
+  queue: QueuedDialRun[]
+  bufferMinutes: number
+  timeZone?: string
+}
+
+const localDay = (instant: Date, timeZone: string): string =>
+  formatInTimeZone(instant, timeZone, LOCAL_DAY_FORMAT)
+
+/**
+ * Projects when each waiting robocall will actually dial through the strictly
+ * serial queue, so a proactive alert can fire BEFORE a backlog pushes a send
+ * past its scheduled day (distinct from the overdue alert, which fires only
+ * once a send is already late). The pool frees one run at a time at the same
+ * money-safe ceiling the send sweep advances at, so each run starts at
+ * max(pool-free, its own schedule) and the next run waits on this run's
+ * projected completion. A run is flagged delayed when its projected start lands
+ * on a later local day than its scheduled send.
+ */
+export const projectRobocallDialQueue = ({
+  now,
+  poolAvailableAt,
+  queue,
+  bufferMinutes,
+  timeZone = SCHEDULE_TZ,
+}: ProjectDialQueueParams): ProjectedDialRun[] => {
+  let poolFreeAt = max([now, poolAvailableAt])
+  return queue.map((run) => {
+    // The effective dial start: when the pool frees or the run is scheduled
+    // (whichever is later), rolled to the next window open if that lands outside
+    // the daily dial window — a run whose pool frees at 22:00 dials next morning.
+    const projectedStartAt = nextDialableInstant(
+      max([poolFreeAt, run.scheduledAt]),
+      timeZone,
+    )
+    // The day the run would dial with a FREE pool (its own schedule, window-
+    // rolled). Comparing against this — not the raw scheduled instant —
+    // attributes a day slip to the BACKLOG only: a run scheduled after the daily
+    // window closes always dials the next morning regardless, which is the run's
+    // own scheduling, not something the queue backlog caused.
+    const baselineStartAt = nextDialableInstant(
+      max([now, run.scheduledAt]),
+      timeZone,
+    )
+    const delayedPastScheduledDay =
+      localDay(projectedStartAt, timeZone) > localDay(baselineStartAt, timeZone)
+    poolFreeAt = robocallDialCeilingAt({
+      audienceSize: run.audienceSize,
+      callsPerMinute: run.callsPerMinute,
+      startAt: projectedStartAt,
+      bufferMinutes,
+      timeZone,
+    })
+    return {
+      outreachId: run.outreachId,
+      scheduledAt: run.scheduledAt,
+      projectedStartAt,
+      delayedPastScheduledDay,
+    }
+  })
 }

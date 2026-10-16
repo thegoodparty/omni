@@ -5,6 +5,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
@@ -44,15 +49,22 @@ const LoadingShell = (): React.JSX.Element => (
   </Card>
 )
 
-export default function ProUpgrade3Compliance(): React.JSX.Element {
+export default function ProUpgrade3Compliance(): React.JSX.Element | null {
   const { data: tcrCompliance, isPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
   const [campaign] = useCampaign()
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
 
   const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
+
+  // gp-api reports closed only for a campaign whose verification never
+  // started, so there is no status to show and nothing left to set up.
+  if (smsCompliance === 'closed') {
+    return null
+  }
 
   // Hold a placeholder shell while loading so we don't flash the neutral
   // fallback to a candidate who is actually awaiting-PIN / in review / etc.
@@ -108,6 +120,10 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
   // flow. Offer the election-filing form: it calls createAgentic (which kicks
   // off the agent for an already-Pro campaign and recreates a failed record)
   // and works without a pre-existing website, so it's the right entry here.
+  const closingCutoff =
+    smsCompliance === 'closing' && smsCutoffDate
+      ? formatSmsCutoffDate(smsCutoffDate)
+      : null
   return (
     <Card
       className="relative mt-4 overflow-hidden p-4 md:p-6"
@@ -115,7 +131,11 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
     >
       <div className="relative z-10 flex flex-col items-start gap-3 pr-24">
         <div className="flex flex-col gap-1">
-          <p className="text-lg font-semibold">Set up texting compliance</p>
+          <p className="text-lg font-semibold">
+            {closingCutoff
+              ? SMS_CUTOFF_COPY.countdownDeadline(closingCutoff)
+              : 'Set up texting compliance'}
+          </p>
           <p className="text-sm text-muted-foreground">
             Register your campaign for 10DLC texting compliance so you can send
             text messages to voters.

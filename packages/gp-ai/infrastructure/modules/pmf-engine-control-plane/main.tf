@@ -163,6 +163,36 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
       days = 365
     }
   }
+
+  # The Universal Judge's own store (records, rulings and page recordings)
+  # holds agent answers and fetched pages, so it doesn't outlive its use. An object
+  # matching both rules expires on the shorter one. Only the dev bucket ever
+  # gets `_judge/` keys, so in prod these rules match nothing.
+  rule {
+    id     = "expire-judge-replay"
+    status = "Enabled"
+
+    filter {
+      prefix = "_judge/replay/"
+    }
+
+    expiration {
+      days = 14
+    }
+  }
+
+  rule {
+    id     = "expire-judge-records"
+    status = "Enabled"
+
+    filter {
+      prefix = "_judge/"
+    }
+
+    expiration {
+      days = 90
+    }
+  }
 }
 
 

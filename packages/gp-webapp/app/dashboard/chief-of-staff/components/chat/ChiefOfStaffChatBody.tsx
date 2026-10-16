@@ -38,8 +38,8 @@ import {
   CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
 import {
-  CLARIFY_TOOL,
   clarifyWidgetTool,
+  isQuestionTool,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
@@ -60,10 +60,16 @@ import {
   COS_INTRO_MESSAGES,
   SAVED_FILTERS_TOOL,
   toolDisplayName,
+  type ChatSuggestion,
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
+import {
+  civicPanelWidgetTools,
+  SAVE_PANEL_WEEKLY_TIME_TOOL,
+} from './civicPanelWidgets'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
+  isToolRefusal,
   ListProposalSchema,
   mintProposalKey,
   ShowListMapSchema,
@@ -131,6 +137,12 @@ interface Props {
    */
   showSuggestionsWithGreeting?: boolean
   /**
+   * Render the starter chips under the reply to `pendingKickoff` instead of
+   * on an empty transcript, until anything else is sent: the next step a
+   * kickoff's answer leads to.
+   */
+  showSuggestionsAfterKickoff?: boolean
+  /**
    * Short quick-prompt pills shown below the suggestions (above the composer),
    * each sending its own text as a visible message. Distinct from `suggestions`
    * (the larger action cards). Omit for CoS / Community Issues.
@@ -191,17 +203,9 @@ interface Props {
   scope?: ChatScope
 }
 
-/**
- * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (no user bubble); otherwise `onSelect` runs. `description` renders a
- * secondary line beneath the label.
- */
-export type ChatSuggestion = {
-  label: string
-  description?: string
-  onSelect?: () => void
-  kickoff?: string
-}
+// Defined beside the copy that builds the Chief of Staff's next steps, so the
+// two modules do not import each other.
+export type { ChatSuggestion }
 
 // Per scope, so seeing one assistant's intro never suppresses the other's.
 // Chief of Staff keeps its original key so officials who already saw it are
@@ -265,6 +269,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
+  ...civicPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -323,6 +328,7 @@ function ChiefOfStaffChatThread({
   defaultIntro = COS_INTRO_MESSAGES,
   suggestions,
   showSuggestionsWithGreeting = false,
+  showSuggestionsAfterKickoff = false,
   quickPrompts,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
@@ -374,10 +380,10 @@ function ChiefOfStaffChatThread({
     null,
   )
   const [introProgress, setIntroProgress] = useState(0)
-  // True once anything has been sent this session (visible OR hidden). Gates the
-  // with-greeting starter chips off after a hidden kickoff (which adds no user
-  // turn).
-  const [hasSent, setHasSent] = useState(false)
+  // Sends this session, visible OR hidden. Any send gates the with-greeting
+  // starter chips off, even a hidden kickoff (which adds no user turn).
+  const [sendCount, setSendCount] = useState(0)
+  const hasSent = sendCount > 0
   // Contents sent hidden this session; their persisted user turn is dropped from
   // the rendered transcript (the engine reconciles against the raw server
   // transcript, which includes the hidden turn).
@@ -475,6 +481,14 @@ function ChiefOfStaffChatThread({
       },
       onError: (message, retryable) => setStreamError({ message, retryable }),
       onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+        if (
+          event.type === 'tool_result' &&
+          event.toolCallId &&
+          isToolRefusal(event.result)
+        ) {
+          const key = `${event.toolName}-${event.toolCallId}`
+          setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+        }
         // The ARGS carry the payload, which is why this reads tool_call and
         // not tool_result: args are what the segment persists, so the same
         // payload replays on reload.
@@ -546,6 +560,19 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
+          })
+        }
+        // A saved weekly time made or changed the panel's plan, which the
+        // home's panel card and the next step card both follow.
+        if (
+          event.type === 'tool_result' &&
+          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ['civic-panel-plan', orgSlug],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false
@@ -1082,7 +1109,7 @@ function ChiefOfStaffChatThread({
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
       setStreamError(null)
-      setHasSent(true)
+      setSendCount((n) => n + 1)
       // A send mid-playback flushes the rest of the greeting into history so the
       // transcript stays ordered ahead of the user's message.
       if (playback) {
@@ -1288,6 +1315,10 @@ function ChiefOfStaffChatThread({
         void deliver(s.kickoff, { hidden: true })
         return
       }
+      if (s.message) {
+        void deliver(s.message, { hidden: false })
+        return
+      }
       s.onSelect?.()
     },
     [deliver],
@@ -1341,7 +1372,7 @@ function ChiefOfStaffChatThread({
       const message = visibleMessages[i]
       if (!message) continue
       if (message.role === 'user') return null
-      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if ((message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return message.id
       }
     }
@@ -1353,7 +1384,7 @@ function ChiefOfStaffChatThread({
     const answers: Record<string, string> = {}
     visibleMessages.forEach((message, index) => {
       if (message.role === 'user') return
-      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if (!(message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return
       }
       const reply = visibleMessages
@@ -1430,9 +1461,19 @@ function ChiefOfStaffChatThread({
   const isPristineGreeting =
     !hasSent && visibleMessages.length + (playback?.items.length ?? 0) <= 1
 
+  // The kickoff is this session's only send and its reply has landed.
+  const kickoffAnswered =
+    pendingKickoff !== undefined &&
+    sendCount === 1 &&
+    hiddenSent.includes(pendingKickoff.trim()) &&
+    visibleSegments.length === 0 &&
+    visibleMessages.some((m) => m.role === 'assistant')
+
   const showStarters =
-    ((visibleMessages.length === 0 && !playback) ||
-      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    (showSuggestionsAfterKickoff
+      ? kickoffAnswered
+      : (visibleMessages.length === 0 && !playback) ||
+        (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
     !streamError
   const suggestionsAsCards = effectiveSuggestions.some((s) =>

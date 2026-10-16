@@ -43,6 +43,7 @@ describe('ServeSmsCreateRequestSchema', () => {
   const valid = {
     name: 'Ward 3 street repair update',
     message: 'Hello {first_name}, ...',
+    imageUrl: 'https://assets.test/header.png',
     scheduledLocalDate: '2026-10-05',
     voterFileFilterId: 42,
   }
@@ -63,6 +64,13 @@ describe('ServeSmsCreateRequestSchema', () => {
         scheduledLocalDate: '2026-10-05T11:00:00.000Z',
       }).success,
     ).toBe(false)
+  })
+
+  it('requires an image', () => {
+    const { imageUrl: _omitted, ...withoutImage } = valid
+    expect(ServeSmsCreateRequestSchema.safeParse(withoutImage).success).toBe(
+      false,
+    )
   })
 
   it('requires a saved list', () => {

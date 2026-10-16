@@ -18,6 +18,7 @@ Candidate website builder. Lets a campaign create a public site, edit content se
 
 - **Three sub-flows, one feature**: `create/`, `editor/`, `domain/` are sibling routes under `/dashboard/website/`. They share state through `shared/` rather than via context — most flows are short-lived single-page interactions.
 - **AI-generated content** flows through `helpers/buildAiContentSections.ts` and friends; the editor surfaces "regenerate" actions but the heavy lifting is in `helpers/`.
+- **SMS cutoff.** Once gp-api reports texting `closed` (`useSmsCompliance()`), the editor's `CompleteStep` domain card drops its texting pitch ("Get 5,000 texts", "Make your campaign compliant" and the texting image) and keeps the domain offer.
 - **Slug uniqueness** is checked at create-time against gp-api; treat the slug as immutable once a site is published.
 
 ## Gotchas

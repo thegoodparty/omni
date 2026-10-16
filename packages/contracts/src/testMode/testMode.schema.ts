@@ -90,6 +90,7 @@ export const CreateTestOrganizationRequestSchema = z.discriminatedUnion(
     }),
     z.object({
       type: z.literal('elected_office'),
+      race: TestModeRaceSchema,
       onboarding: TestModeOnboardingPresetSchema,
       term: TestModeTermPresetSchema,
     }),

@@ -27,6 +27,9 @@ model PollIndividualMessage {
   outreach        Outreach?      @relation(fields: [outreachId], references: [id], onDelete: Cascade)
   outreachId      Int?           @map("outreach_id")
   pollIssues      PollIssue[]
+  // The themes a reply landed in when its text send was synthesized.
+  themeMembers    FeedbackThemeMember[]
+  replyFlags      OutreachReplyFlag[]
 
   @@index([electedOfficeId, personId, sentAt])
   @@index([electedOfficeId, pollId, personCellPhone])

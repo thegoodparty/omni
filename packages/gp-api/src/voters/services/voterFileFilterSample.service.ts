@@ -38,6 +38,30 @@ export class VoterFileFilterSampleService extends createPrismaBase(
     return [...new Set(rows.map(({ personId }) => personId))]
   }
 
+  // Everyone a text send reached who has not opted out of the office's texts
+  // since: who a report back on that send goes to. Org-scoped, so another
+  // office's send id reaches nobody.
+  async personIdsReachedBy(
+    organizationSlug: string,
+    outreachId: number,
+  ): Promise<string[]> {
+    const rows = await this.client.$queryRaw<{ personId: string }[]>(
+      Prisma.sql`
+        SELECT r.person_id AS "personId"
+        FROM outreach_text_recipient r
+        WHERE r.outreach_id = ${outreachId}
+        AND r.organization_slug = ${organizationSlug}
+        AND NOT EXISTS (
+          SELECT 1 FROM contact_interaction_text t
+          WHERE t.organization_slug = r.organization_slug
+          AND t.person_id = r.person_id
+          AND t.opted_out_at IS NOT NULL
+        )
+      `,
+    )
+    return rows.map(({ personId }) => personId)
+  }
+
   // Inside the create's transaction, so a list never reads as sampled with
   // its members half-written: a sample with no rows resolves to nobody.
   async writeMembers(

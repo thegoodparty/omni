@@ -7,6 +7,7 @@ import DashboardLayout from '../../shared/DashboardLayout'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganization } from '@shared/organization-picker'
+import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import {
   getContactsLabels,
   WIN_UNIVERSE_STAT_LABELS,
@@ -23,6 +24,7 @@ import { ChannelPickerProvider } from './shared/channelPicker/ChannelPickerProvi
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
+import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -40,6 +42,12 @@ export const CrmContactsPage = () => {
   } = useContactsTable()
   const organization = useOrganization()
   const labels = getContactsLabels(isWinContext)
+  // gp-api's PeopleDatasetService reads the same key: with it on, a Serve
+  // org's records include residents who are not registered to vote, so the
+  // record count is the district figure and the census row is redundant.
+  const { on: serveConsumerDataOn } = useFlagOn('serve-consumer-data', {
+    trackExposure: false,
+  })
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
@@ -175,11 +183,16 @@ export const CrmContactsPage = () => {
                     <DistrictStatCard
                       className="mt-4"
                       label={labels.districtTotalLabel}
-                      populationLabel={labels.districtPopulationLabel}
+                      populationLabel={
+                        serveConsumerDataOn
+                          ? undefined
+                          : labels.districtPopulationLabel
+                      }
                       additionalRows={universeMetricRows}
                     />
                   </div>
 
+                  <CitizensPanelSection />
                   <RecommendedListsSection />
                   <ListsIndex />
                 </>

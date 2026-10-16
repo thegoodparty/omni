@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { SERVE_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
 
@@ -85,7 +86,37 @@ const freshPurposes = SERVE_OUTREACH_PURPOSE_VALUES.filter(
   (purpose) => purpose !== 'custom',
 )
 
+const panelFlag = (enabled: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(enabled)
+
 describe('POST /v1/outreach/serve/door-knocking/draft', () => {
+  // The civic panel invite's ask is the join question the canvasser records.
+  it('drafts the civic panel invite around the join question', async () => {
+    panelFlag(true)
+    mockPoints()
+
+    const res = await postDraft(draftBody({ purpose: 'build_citizens_panel' }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('user')).toContain(
+      SERVE_DOOR_KNOCKING_VOICE.purposePrompts.build_citizens_panel,
+    )
+    expect(promptOf('user')).toContain(
+      'whether they want to join the civic panel',
+    )
+  })
+
+  it('hides the civic panel invite with the panel flag off', async () => {
+    panelFlag(false)
+
+    const res = await postDraft(draftBody({ purpose: 'build_citizens_panel' }))
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it.each(freshPurposes)('drafts the %s purpose', async (purpose) => {
     mockPoints()
 
@@ -192,7 +223,7 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('a conversation with a constituent')
     expect(system).toContain('about what the office is working toward')
-    expect(system).toContain('Refer to the official by first name')
+    expect(system).toContain('Refer to the official by full name')
     expect(system).toContain('Write 4 or 5 short bullets')
   })
 

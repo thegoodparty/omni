@@ -34,12 +34,24 @@ const CALLHUB_DATE_FORMAT = 'yyyy-MM-dd HH:mm:ss'
 // enough for a large landline list to drain.
 const EXPIRATION_WINDOW_DAYS = 7
 // Calls per minute to request on each created campaign. CallHub's account-wide
-// VB cap is ~60 calls/min SHARED across every scheduled/running campaign and a
-// new campaign defaults to `frequency: 60` (the whole pool), so a second
-// campaign cannot START (`over_cps_limit`, incident 2026-10-08). A low default
-// lets ~6 campaigns coexist under the cap; env-tunable (and raise the account
-// cap with CallHub for more throughput — support@callhub.io, billed monthly).
-const DEFAULT_CALLS_PER_MINUTE = 10
+// VB pool is ~120 calls/min SHARED across RUNNING campaigns — two at 60 each
+// tripped `over_cps_limit` when both ran (incident 2026-10-08).
+//
+// Set to 120 (the whole pool) on 2026-10-15: the serial send sweep runs exactly
+// ONE campaign at a time, so a single run can own the full pool with nothing of
+// ours to contend with. 10 → 30 → 120 — at the lower rates big lists dialed
+// slowly and held the shared pool for hours, stacking sends up overdue; the
+// full rate finishes a run in minutes and drains the queue. Safe because (a)
+// the serial gate guarantees one running campaign; (b) R1 freezes each run's
+// rate at staging and the completion estimate walks THAT frozen rate at a fixed
+// ratio, so a faster rate shortens the estimate in step and never mis-frees an
+// in-flight run; (c) the Oct incident showed PAUSED campaigns do NOT consume the
+// cap (leroy ran at 60 while others sat Paused at 60) — only running ones do;
+// (d) a stray `over_cps` self-heals via startCampaign's throttle revert. A live
+// PATCH confirmed CallHub accepts 120. Env-tunable
+// (`CALLHUB_VB_CALLS_PER_MINUTE`); going ABOVE 120 needs CallHub to raise the
+// account cap (support@callhub.io), not just this knob.
+const DEFAULT_CALLS_PER_MINUTE = 120
 const callsPerMinute = (): number => {
   const raw = Number(process.env.CALLHUB_VB_CALLS_PER_MINUTE)
   return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_CALLS_PER_MINUTE
@@ -68,6 +80,11 @@ interface CreateVoiceBroadcastParams {
 export interface CreateVbCampaignResult extends CreateVbCampaignResponse {
   startingDate: Date
   expirationDate: Date
+  // The `frequency` (calls/min) this campaign was created with — the rate
+  // CallHub dials it at. Returned so the caller can FREEZE it per-run, so the
+  // dial-completion estimate reads the rate THIS campaign was staged at rather
+  // than a later-raised live env value.
+  callsPerMinute: number
 }
 
 // Creates a CallHub voice broadcast in a scheduled, PAUSED (not-launched)
@@ -85,6 +102,18 @@ export class CallhubCampaignService {
     this.logger.setContext(CallhubCampaignService.name)
   }
 
+  // The per-campaign calls/min `createVoiceBroadcast` stamps on every campaign it
+  // creates (CALLHUB_VB_CALLS_PER_MINUTE, default DEFAULT_CALLS_PER_MINUTE). This
+  // is the LIVE value; `createVoiceBroadcast` now RETURNS the rate it stamped so
+  // the staging slice can FREEZE it per-run (OutreachRobocall.stagedCallsPerMinute).
+  // The dial-completion estimate reads that frozen rate, falling back HERE only
+  // for a run staged before the freeze — so raising this env for new campaigns no
+  // longer shortens the estimate for a run already staged at the old rate (which
+  // would free the pool / abort while it is still dialing).
+  getConfiguredCallsPerMinute(): number {
+    return callsPerMinute()
+  }
+
   async createVoiceBroadcast(
     params: CreateVoiceBroadcastParams,
   ): Promise<CreateVbCampaignResult> {
@@ -96,10 +125,11 @@ export class CallhubCampaignService {
 
     const startingDate = params.scheduledStart
     const expirationDate = addDays(startingDate, EXPIRATION_WINDOW_DAYS)
+    const frequency = callsPerMinute()
     const body: CreateVbCampaignBody = {
       name: params.name,
       phonebooks: [params.phonebookPkStr],
-      frequency: callsPerMinute(),
+      frequency,
       script: {
         label: params.name,
         live_message: { audiofile: params.mediaFileId },
@@ -143,6 +173,7 @@ export class CallhubCampaignService {
       ...CreateVbCampaignResponseSchema.parse(data),
       startingDate,
       expirationDate,
+      callsPerMinute: frequency,
     }
   }
 

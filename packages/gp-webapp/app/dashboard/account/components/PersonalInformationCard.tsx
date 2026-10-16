@@ -1,8 +1,26 @@
 'use client'
 
+import { type FormEvent, useState } from 'react'
 import { useUser as useClerkUser, useClerk } from '@clerk/nextjs'
-import { Badge, Button, Card } from '@styleguide'
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+} from '@styleguide'
+import { clientRequest } from 'gpApi/typed-request'
+import { useUser } from '@shared/hooks/useUser'
 import { User } from 'helpers/types'
+
+const MIN_NAME_LENGTH = 2
+const MAX_NAME_LENGTH = 50
 
 interface PersonalInformationCardProps {
   user: User
@@ -74,24 +92,82 @@ export const PersonalInformationCard = ({
 }: PersonalInformationCardProps): React.JSX.Element => {
   const { user: clerkUser } = useClerkUser()
   const { openUserProfile } = useClerk()
+  const [appUser, setUser] = useUser()
+  const [editOpen, setEditOpen] = useState(false)
+  const [firstNameInput, setFirstNameInput] = useState('')
+  const [lastNameInput, setLastNameInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const firstName = clerkUser?.firstName || user.firstName || ''
-  const lastName = clerkUser?.lastName || user.lastName || ''
+  const currentUser = appUser ?? user
+  const firstName = currentUser.firstName || clerkUser?.firstName || ''
+  const lastName = currentUser.lastName || clerkUser?.lastName || ''
   const email = clerkUser?.primaryEmailAddress?.emailAddress || user.email || ''
   const phone = clerkUser?.primaryPhoneNumber?.phoneNumber || user.phone || ''
   const externalAccounts = clerkUser?.externalAccounts ?? []
 
+  const openEdit = (): void => {
+    setFirstNameInput(firstName)
+    setLastNameInput(lastName)
+    setError(null)
+    setEditOpen(true)
+  }
+
+  const handleSave = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
+    e.preventDefault()
+    if (saving) return
+    const nextFirstName = firstNameInput.trim()
+    const nextLastName = lastNameInput.trim()
+    if (
+      nextFirstName.length < MIN_NAME_LENGTH ||
+      nextLastName.length < MIN_NAME_LENGTH
+    ) {
+      setError('First and last name each need at least 2 characters.')
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      const res = await clientRequest(
+        'PUT /v1/users/me',
+        { firstName: nextFirstName, lastName: nextLastName },
+        { ignoreResponseError: true },
+      )
+      if (!res.ok) {
+        setError('We could not save your name. Try again.')
+        return
+      }
+      setUser(res.data)
+      setEditOpen(false)
+    } catch {
+      setError('We could not save your name. Try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Card className="w-full max-w-[640px] gap-4 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-xl font-semibold text-foreground">{title}</h2>
-        <Button
-          variant="outline"
-          size="small"
-          onClick={() => openUserProfile()}
-        >
-          Edit details
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() =>
+              openUserProfile({
+                appearance: {
+                  elements: { profileSection__profile: { display: 'none' } },
+                },
+              })
+            }
+          >
+            Manage sign-in
+          </Button>
+          <Button variant="outline" size="small" onClick={openEdit}>
+            Edit details
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -117,6 +193,58 @@ export const PersonalInformationCard = ({
           </div>
         </div>
       )}
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleSave} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>What&apos;s your name?</DialogTitle>
+              <DialogDescription>
+                This is the name you&apos;ll see across your account.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="personal-info-first-name">First name</Label>
+              <Input
+                id="personal-info-first-name"
+                value={firstNameInput}
+                maxLength={MAX_NAME_LENGTH}
+                required
+                autoComplete="given-name"
+                onChange={(event) => setFirstNameInput(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="personal-info-last-name">Last name</Label>
+              <Input
+                id="personal-info-last-name"
+                value={lastNameInput}
+                maxLength={MAX_NAME_LENGTH}
+                required
+                autoComplete="family-name"
+                onChange={(event) => setLastNameInput(event.target.value)}
+              />
+            </div>
+            {error && (
+              <p role="alert" className="m-0 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" loading={saving}>
+                Save name
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

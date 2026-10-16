@@ -70,7 +70,12 @@ export type ChatStreamEvent =
       args?: unknown
       toolCallId?: string
     }
-  | { type: 'tool_result'; toolName: string; result?: unknown }
+  | {
+      type: 'tool_result'
+      toolName: string
+      result?: unknown
+      toolCallId?: string
+    }
   | { type: 'ping' }
   | {
       type: 'citation'
