@@ -9,7 +9,6 @@ import {
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_MAX_HOURS_PER_WEEK,
-  PANEL_SEED_TARGET_MEMBERS,
   PRIORITY_STEP_LABELS,
   SAMPLE_TARGET_REPLIES,
   type ChatAnchor,
@@ -290,7 +289,7 @@ const civicPanelBuildBlock = (
   const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
   const explain =
     '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being asked about once a month what they think, so the official hears from more of the community, not only the loudest voices. Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
-  const atGoal = panel.members >= PANEL_SEED_TARGET_MEMBERS
+  const atGoal = panel.members >= panel.goalMembers
   const askTime = [
     `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you give each week?", and its answers, so never write the question or the answers yourself.`,
   ]
@@ -301,7 +300,7 @@ const civicPanelBuildBlock = (
       ]
     : panel.hasPlan
       ? [
-          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "You have 12 of 100 members so far." The card shows the step and opens it, so never restate it.`,
+          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "Your panel can give about 12 of the 96 answers you need." from expectedAnswers and answersNeeded The card shows the step and opens it, so never restate it.`,
         ]
       : atGoal
         ? [
@@ -309,7 +308,7 @@ const civicPanelBuildBlock = (
           ]
         : panel.members > 0
           ? [
-              `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line. To grow it toward about ${PANEL_SEED_TARGET_MEMBERS} members, they need a plan.`,
+              `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line. To grow it toward about ${people(panel.goalMembers)} members, they need a plan.`,
               ...askTime,
             ]
           : panel.inviteSent

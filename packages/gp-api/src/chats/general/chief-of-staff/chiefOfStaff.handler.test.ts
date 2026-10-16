@@ -103,7 +103,12 @@ describe('ChiefOfStaffHandler', () => {
         }),
       ),
       civicPanelBuildState: vi.fn(() =>
-        Promise.resolve({ members: 0, inviteSent: false, hasPlan: false }),
+        Promise.resolve({
+          members: 0,
+          inviteSent: false,
+          hasPlan: false,
+          goalMembers: 240,
+        }),
       ),
     } as unknown as ChiefOfStaffContextService
   })
@@ -673,6 +678,7 @@ describe('ChiefOfStaffHandler', () => {
         {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
+          getDistrictPopulation: vi.fn(() => Promise.resolve(105_154)),
         } as unknown as ContactsService,
         {
           findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
@@ -694,7 +700,7 @@ describe('ChiefOfStaffHandler', () => {
       hasPlan?: boolean
     }) => {
       context.civicPanelBuildState = vi.fn(() =>
-        Promise.resolve({ hasPlan: false, ...state }),
+        Promise.resolve({ hasPlan: false, goalMembers: 240, ...state }),
       )
     }
 
@@ -792,10 +798,10 @@ describe('ChiefOfStaffHandler', () => {
     })
 
     it('asks nothing of a panel at its goal', async () => {
-      withPanel({ members: 100, inviteSent: true })
+      withPanel({ members: 240, inviteSent: true })
       const prompt = await promptFor()
       expect(prompt).toContain(
-        'Their civic panel already has 100 people, its goal.',
+        'Their civic panel already has 240 people, its goal.',
       )
       expect(prompt).not.toContain(
         'call `ask_panel_weekly_time` with nothing after it',

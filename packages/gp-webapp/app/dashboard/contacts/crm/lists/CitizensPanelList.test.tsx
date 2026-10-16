@@ -221,10 +221,8 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     expect(within(dialog).getByText('List filters')).toBeInTheDocument()
     expect(within(dialog).getByText('On your civic panel.')).toBeInTheDocument()
     expect(
-      within(dialog).getByRole('link', {
-        name: 'Make a list of who can be asked now',
-      }),
-    ).toBeInTheDocument()
+      within(dialog).queryByRole('link', { name: /who can be asked now/ }),
+    ).not.toBeInTheDocument()
     expect(within(dialog).getByText('Where they are')).toBeInTheDocument()
     expect(
       await within(dialog).findByTestId('contact-map-stub'),

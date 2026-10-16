@@ -10,7 +10,7 @@ const organization = { slug: 'eo-1' } as Organization
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 4, goal: 100 },
+  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
 }
 
 const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
@@ -31,7 +31,7 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     line: 'Invite residents to your civic panel by text',
     href: '/dashboard/contacts/citizens-panel?step=step-1',
   },
-  progress: { members: 4, goal: 100 },
+  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
 })
 
 const buildPlans = (overrides: Partial<CivicPanelBuildPlanService> = {}) =>
@@ -73,7 +73,9 @@ describe('the civic panel plan tools', () => {
     expect(result).toEqual({
       saved: 'created',
       members: 4,
-      goal: 100,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
     })
@@ -184,7 +186,9 @@ describe('the civic panel plan tools', () => {
     ).toEqual({
       shown: true,
       members: 4,
-      goal: 100,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
     })

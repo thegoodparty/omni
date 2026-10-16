@@ -19,15 +19,21 @@ import {
 } from '../../../shared/agent-chat/cards/cardShell'
 import { OPTION_CARD_CLASS } from '../../../shared/agent-chat/optionCard'
 import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../../contacts/citizens-panel/citizensPanelCopy'
-import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelPlan.query'
+import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 
 export const PANEL_NEXT_STEP_TOOL = 'present_panel_next_step'
 // Makes or changes the plan, so the next step card and the home's panel
 // card are read again once it returns.
 export const SAVE_PANEL_WEEKLY_TIME_TOOL = 'save_panel_weekly_time'
 
+// The progress line is the home's panel card summary, word for word
+// (gp-api civicPanelBuildCardContent), so the chat and the home agree.
 export const CIVIC_PANEL_CHAT_COPY = {
   seePlan: 'See your plan',
+  answers: (expected: number, needed: number) =>
+    expected >= needed
+      ? `Your panel can give the ${needed.toLocaleString('en-US')} answers you need.`
+      : `Your panel can give about ${expected.toLocaleString('en-US')} of the ${needed.toLocaleString('en-US')} answers you need.`,
 } as const
 
 // The panel page's own question and answers, so the chat and the page ask
@@ -68,9 +74,9 @@ export const CivicPanelNextStepCard = () => {
   if (isError || !data) return <CompactCardUnavailable />
   const next = data.plan?.status === 'active' ? data.next : null
   const label = next ? nextStepLabel(next) : null
-  const progress = PANEL_COPY.progress(
-    data.progress.members.toLocaleString('en-US'),
-    data.progress.goal.toLocaleString('en-US'),
+  const progress = CIVIC_PANEL_CHAT_COPY.answers(
+    data.progress.expectedAnswers,
+    data.progress.answersNeeded,
   )
   return (
     <div

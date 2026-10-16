@@ -3006,7 +3006,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       steps: [],
     },
     next,
-    progress: { members: 12, goal: 100 },
+    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
   })
 
   const timeQuestion = (answer?: string) => [
@@ -3083,7 +3083,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
         'Call residents to invite them to your civic panel',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('12 of 100 members')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your panel can give about 5 of the 96 answers you need.'),
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Start the calls' }),
     ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s1')

@@ -65,6 +65,11 @@ model CivicPanelBuildStep {
   /// The official chose not to do this step. Only read while nothing was
   /// started from it.
   skippedAt          DateTime?              @map("skipped_at")
+  /// The official ticked (true) or unticked (false) a call or door step by
+  /// hand, over what its list says. Null: read off the list. `markedAt` is
+  /// when.
+  markedDone         Boolean?               @map("marked_done")
+  markedAt           DateTime?              @map("marked_at")
 
   @@unique([planId, wave, channel, position])
   @@index([outreachId])

@@ -42,6 +42,8 @@ const saveInput = z.object({
 const standing = (panel: CivicPanelBuildPlanResponse) => ({
   members: panel.progress.members,
   goal: panel.progress.goal,
+  answersNeeded: panel.progress.answersNeeded,
+  expectedAnswers: panel.progress.expectedAnswers,
   hoursPerWeek: panel.plan?.hoursPerWeek ?? null,
   next: panel.next?.line ?? null,
 })

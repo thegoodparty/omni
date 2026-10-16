@@ -267,8 +267,8 @@ export const checkPanelPart = (input: {
     input.panelSampleSize >= input.sampleSize
   ) {
     return (
-      'sampleSize is the whole send: the panel part plus as many residents ' +
-      'not on the panel, so twice panelSampleSize. A send of panel members ' +
+      'sampleSize is the whole send: the panel part plus the residents not ' +
+      'on the panel, as size_panel_ask returned it. A send of panel members ' +
       'alone invites nobody new to join. Set sampleSize that way and ' +
       'present again.'
     )
