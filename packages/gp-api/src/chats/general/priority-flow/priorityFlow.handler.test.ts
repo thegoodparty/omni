@@ -7,6 +7,7 @@ import {
   PROPOSAL_SENT_MARKER,
   REPORT_BACK_MARKER,
   GET_ANSWERS_MARKER,
+  answersNeeded,
 } from '@goodparty_org/contracts'
 import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
@@ -1532,9 +1533,16 @@ describe('PriorityFlowHandler', () => {
   describe('behind serve-citizen-panels, before a good read', () => {
     const thin = { answers: 54, needed: 96, good: false }
     let readStatuses: ReturnType<typeof vi.fn>
+    let districtPopulation: ReturnType<typeof vi.fn>
+    let getDistrictPopulation: ReturnType<typeof vi.fn>
 
-    const withReadStatus = (enabled = true) => {
+    const withReadStatus = (
+      enabled = true,
+      population: number | null = null,
+    ) => {
       readStatuses = vi.fn(() => Promise.resolve(new Map([['pri-1', thin]])))
+      districtPopulation = vi.fn(() => Promise.resolve(population))
+      getDistrictPopulation = vi.fn(() => Promise.resolve(null))
       return new PriorityFlowHandler(
         store,
         context,
@@ -1548,13 +1556,16 @@ describe('PriorityFlowHandler', () => {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
           countSegment: vi.fn(),
-          getDistrictPopulation: vi.fn(() => Promise.resolve(null)),
+          getDistrictPopulation,
         } as never,
         {} as never,
         undefined,
         { isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)) } as never,
         undefined,
-        { readStatuses } as unknown as PriorityResultsService,
+        {
+          readStatuses,
+          districtPopulation,
+        } as unknown as PriorityResultsService,
       )
     }
     const at = (readStatus: typeof thin): PriorityFlowContext => ({
@@ -1567,14 +1578,30 @@ describe('PriorityFlowHandler', () => {
       context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
       const ctx = await withReadStatus(true).loadContext('c1', USER_ID)
       expect(ctx.readStatus).toEqual(thin)
-      expect(readStatuses).toHaveBeenCalledWith(ORG, ['pri-1'])
+      expect(readStatuses).toHaveBeenCalledWith(ORG, ['pri-1'], null)
 
       const off = await withReadStatus(false).loadContext('c1', USER_ID)
       expect(off.readStatus).toBeUndefined()
       expect(readStatuses).not.toHaveBeenCalled()
+      expect(districtPopulation).not.toHaveBeenCalled()
       const prompt = withReadStatus().buildSystemPrompt(baseCtx())
       expect(prompt).not.toContain('BEFORE A GOOD READ')
       expect(prompt).not.toContain('needed for a good read')
+    })
+
+    it('reads the district population once a turn for both the sizing and the read', async () => {
+      context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
+      const ctx = await withReadStatus(true, 105_154).loadContext('c1', USER_ID)
+      expect(districtPopulation).toHaveBeenCalledTimes(1)
+      expect(getDistrictPopulation).not.toHaveBeenCalled()
+      expect(readStatuses).toHaveBeenCalledWith(ORG, ['pri-1'], 105_154)
+      expect(ctx.panelAnswersNeeded).toBe(answersNeeded(105_154))
+
+      const unknown = await withReadStatus(true, null).loadContext(
+        'c1',
+        USER_ID,
+      )
+      expect(unknown.panelAnswersNeeded).toBe(96)
     })
 
     it('tells the agent where the read stands in <priority>', () => {

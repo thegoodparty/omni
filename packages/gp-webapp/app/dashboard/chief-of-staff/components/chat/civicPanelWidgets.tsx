@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CIVIC_PANEL_PAGE_HREF,
   type ChatClarifyQuestion,
   type CivicPanelBuildNext,
+  type CivicPanelBuildStep,
 } from '@goodparty_org/contracts'
 import { Button, cn } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
@@ -20,6 +22,10 @@ import {
 import { OPTION_CARD_CLASS } from '../../../shared/agent-chat/optionCard'
 import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../../contacts/citizens-panel/citizensPanelCopy'
 import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
+import {
+  keepGoingHref,
+  useCivicPanelStepFlow,
+} from '../../../contacts/citizens-panel/components/useCivicPanelStepFlow'
 
 export const PANEL_NEXT_STEP_TOOL = 'present_panel_next_step'
 // Makes or changes the plan, so the next step card and the home's panel
@@ -63,17 +69,76 @@ export const nextStepLabel = (next: CivicPanelBuildNext): string | null => {
 
 // The plan's next step, read live from the plan so it never holds state of
 // its own: the panel page's Next line, members against the goal, a button
-// that opens that step, and the panel page.
+// that opens that step's own text, call or door flow the way the panel page
+// does, and the panel page.
 export const CivicPanelNextStepCard = () => {
   const orgSlug = useOrganization()?.slug
+  const queryClient = useQueryClient()
   const { data, isPending, isError } = useQuery({
     ...civicPanelPlanQueryOptions(orgSlug),
     enabled: Boolean(orgSlug),
+  })
+  const [starting, setStarting] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const stepFlow = useCivicPanelStepFlow({
+    onChange: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: civicPanelPlanQueryOptions(orgSlug).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['chief-of-staff', 'cards'],
+        }),
+      ])
+    },
   })
   if (isPending) return <CompactCardLoading />
   if (isError || !data) return <CompactCardUnavailable />
   const next = data.plan?.status === 'active' ? data.next : null
   const label = next ? nextStepLabel(next) : null
+  const step =
+    data.plan?.steps.find((candidate) => candidate.id === next?.stepId) ?? null
+
+  const start = async (target: CivicPanelBuildStep) => {
+    setStarting(true)
+    setFailed(false)
+    try {
+      // Leaving for the door knocking page keeps the button loading.
+      if ((await stepFlow.open(target)) === 'navigating') return
+    } catch {
+      setFailed(true)
+    }
+    setStarting(false)
+  }
+
+  const keepGoing = step ? keepGoingHref(step) : null
+  const action = (() => {
+    if (!label || !next?.href || !step) return null
+    if (keepGoing && step.channel !== 'text') {
+      return (
+        <Button asChild size="small">
+          <Link href={keepGoing}>{label}</Link>
+        </Button>
+      )
+    }
+    if (step.status !== 'not_started') return null
+    if (step.channel === 'text' && stepFlow.textingOff) {
+      return (
+        <p className="text-sm text-muted-foreground">{PANEL_COPY.textingOff}</p>
+      )
+    }
+    return (
+      <Button
+        type="button"
+        size="small"
+        loading={starting}
+        onClick={() => void start(step)}
+      >
+        {label}
+      </Button>
+    )
+  })()
+
   const progress = CIVIC_PANEL_CHAT_COPY.answers(
     data.progress.expectedAnswers,
     data.progress.answersNeeded,
@@ -94,11 +159,7 @@ export const CivicPanelNextStepCard = () => {
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {label && next?.href ? (
-          <Button asChild size="small">
-            <Link href={next.href}>{label}</Link>
-          </Button>
-        ) : null}
+        {action}
         <Link
           href={CIVIC_PANEL_PAGE_HREF}
           className="text-sm text-foreground underline underline-offset-2"
@@ -106,6 +167,12 @@ export const CivicPanelNextStepCard = () => {
           {CIVIC_PANEL_CHAT_COPY.seePlan}
         </Link>
       </div>
+      {failed ? (
+        <p className="text-sm text-destructive" role="alert">
+          {PANEL_COPY.stepError}
+        </p>
+      ) : null}
+      {stepFlow.flows}
     </div>
   )
 }
