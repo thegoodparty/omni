@@ -388,12 +388,14 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     )
 
     expect(result.status).toBe(400)
+    expect(result.data.errorCode).toBe('NO_TEXTABLE_CONTACTS')
     expect(upload).not.toHaveBeenCalled()
     // The row created on accept is marked failed (empty audience is one of
     // the build-failure paths), not left behind at queued.
     expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
     expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
       buildStatus: 'failed',
+      buildErrorCode: 'NO_TEXTABLE_CONTACTS',
       token: null,
     })
   })
@@ -999,6 +1001,7 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
 
     expect(result.status).toBe(400)
     expect(result.data.message).toMatch(/too many to build a phone list/)
+    expect(result.data.errorCode).toBe('AUDIENCE_TOO_LARGE')
     // Two pages, not 82: the official is told in about 4.5s.
     expect(findPeople).toHaveBeenCalledTimes(2)
     // The harm this closes. Nothing reached Peerly, so there is no list the
@@ -1008,6 +1011,7 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
     expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
     expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
       buildStatus: 'failed',
+      buildErrorCode: 'AUDIENCE_TOO_LARGE',
       token: null,
     })
   })
@@ -1256,8 +1260,33 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     expect(result.data).toEqual({
       buildStatus: 'failed',
       buildError: 'No contacts matched the filter',
+      buildErrorCode: null,
     })
     expect(checkStatus).not.toHaveBeenCalled()
+  })
+
+  it('returns the stored buildErrorCode so the client can say what to do', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        buildStatus: 'failed',
+        buildError: 'This filter matches over the 100000 phone-list limit',
+        buildErrorCode: 'AUDIENCE_TOO_LARGE',
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toMatchObject({
+      buildStatus: 'failed',
+      buildErrorCode: 'AUDIENCE_TOO_LARGE',
+    })
   })
 
   it('404s a build the campaign does not own', async () => {

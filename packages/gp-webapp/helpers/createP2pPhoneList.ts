@@ -43,7 +43,7 @@ export interface PhoneListStatusResponse {
 export type PhoneListBuildStatusResult =
   | { buildStatus: 'building' }
   | ({ buildStatus: 'ready' } & PhoneListStatusResponse)
-  | { buildStatus: 'failed'; buildError: string }
+  | { buildStatus: 'failed'; buildError: string; buildErrorCode: string | null }
 
 export const createP2pPhoneList = async (
   voterFileFilter: PhoneListInput | undefined,
@@ -90,6 +90,7 @@ export const createP2pPhoneList = async (
 interface PhoneListBuildFailedBody {
   buildStatus: 'failed'
   buildError: string
+  buildErrorCode: string | null
 }
 
 export const getP2pPhoneListBuildStatus = async (
@@ -118,7 +119,11 @@ export const getP2pPhoneListBuildStatus = async (
       return { buildStatus: 'building' }
     }
     if ('buildStatus' in resp.data && resp.data.buildStatus === 'failed') {
-      return { buildStatus: 'failed', buildError: resp.data.buildError }
+      return {
+        buildStatus: 'failed',
+        buildError: resp.data.buildError,
+        buildErrorCode: resp.data.buildErrorCode ?? null,
+      }
     }
     return { buildStatus: 'ready', ...resp.data }
   } catch (e) {

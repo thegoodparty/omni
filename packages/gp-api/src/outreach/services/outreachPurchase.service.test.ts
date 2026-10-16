@@ -118,6 +118,7 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   voterFileFilterId: null,
   buildStatus: 'ready',
   buildError: null,
+  buildErrorCode: null,
   requestSnapshot: null,
   lastSeenLeadsLoaded: null,
   leadsLoaded: null,

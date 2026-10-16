@@ -19,6 +19,9 @@ export class CheckPhoneListBuildStatusReadyResponseDto extends createZodDto(
 const checkPhoneListBuildStatusFailedResponseSchema = z.object({
   buildStatus: z.literal('failed'),
   buildError: z.string(),
+  // Null unless the candidate can act on the failure (e.g.
+  // AUDIENCE_TOO_LARGE). Clients key their copy off this, not buildError.
+  buildErrorCode: z.string().nullable(),
 })
 
 export class CheckPhoneListBuildStatusFailedResponseDto extends createZodDto(

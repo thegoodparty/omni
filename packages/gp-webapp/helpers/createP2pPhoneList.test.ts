@@ -95,6 +95,7 @@ describe('getP2pPhoneListBuildStatus', () => {
     expect(result).toEqual({
       buildStatus: 'failed',
       buildError: 'No contacts matched.',
+      buildErrorCode: null,
     })
   })
 

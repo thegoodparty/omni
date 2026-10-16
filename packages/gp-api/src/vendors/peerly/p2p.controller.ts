@@ -152,6 +152,7 @@ export class P2pController {
       return {
         buildStatus: 'failed',
         buildError: build.buildError ?? 'Phone list build failed',
+        buildErrorCode: build.buildErrorCode,
       }
     }
 
