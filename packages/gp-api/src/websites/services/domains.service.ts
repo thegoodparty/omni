@@ -1523,6 +1523,9 @@ export class DomainsService
       const remainingMs =
         REGISTRAR_ORDER_POLL_BUDGET_MS -
         differenceInMilliseconds(new Date(), startedAt)
+      if (remainingMs <= 0) {
+        break
+      }
       try {
         order = await this.vercel.getRegistrarOrder(
           orderId,
