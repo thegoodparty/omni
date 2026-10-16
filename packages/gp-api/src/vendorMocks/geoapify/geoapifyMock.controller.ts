@@ -70,11 +70,16 @@ export class GeoapifyMockController {
     const jobs = body.jobs ?? []
     const agents = body.agents ?? []
 
-    // Check for a 'routeFail' flag. orderBy ensures we inspect the most
-    // recently seeded/updated record when multiple records exist (e.g. after
-    // prior test calls within the same suite), keeping the flag check stable.
+    // Check for a 'routeFail' flag. kind filter prevents routing_request
+    // records from masking a flag seeded on a routeplanner_request row.
+    // orderBy ensures we inspect the most recently seeded/updated record
+    // when multiple matching rows exist.
     const failRecord = await this.vendorMockRecord.findFirst({
-      where: { vendor: VendorMockVendor.geoapify, campaignId: null },
+      where: {
+        vendor: VendorMockVendor.geoapify,
+        campaignId: null,
+        kind: 'routeplanner_request',
+      },
       orderBy: { updatedAt: Prisma.SortOrder.desc },
     })
 

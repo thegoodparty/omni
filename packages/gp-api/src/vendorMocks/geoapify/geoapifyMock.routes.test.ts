@@ -162,4 +162,28 @@ describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
     )
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it('returns coords in [lng, lat] GeoJSON order for lat,lng input', async () => {
+    const waypoints = '40.73,-73.935|40.732,-73.94'
+    const res = await service.client.get(
+      `${ROUTING_PATH}?waypoints=${encodeURIComponent(waypoints)}&mode=walk&apiKey=${API_KEY}`,
+    )
+    expect(res.status).toBe(HttpStatus.OK)
+    const coords = res.data.features[0].geometry.coordinates
+    expect(coords).toHaveLength(2)
+    expect(coords[0]).toEqual([-73.935, 40.73])
+    expect(coords[1]).toEqual([-73.94, 40.732])
+  })
+
+  it('returns coords in [lng, lat] GeoJSON order for lonlat: input', async () => {
+    const waypoints = 'lonlat:-73.935,40.73|lonlat:-73.94,40.732'
+    const res = await service.client.get(
+      `${ROUTING_PATH}?waypoints=${encodeURIComponent(waypoints)}&mode=walk&apiKey=${API_KEY}`,
+    )
+    expect(res.status).toBe(HttpStatus.OK)
+    const coords = res.data.features[0].geometry.coordinates
+    expect(coords).toHaveLength(2)
+    expect(coords[0]).toEqual([-73.935, 40.73])
+    expect(coords[1]).toEqual([-73.94, 40.732])
+  })
 })
