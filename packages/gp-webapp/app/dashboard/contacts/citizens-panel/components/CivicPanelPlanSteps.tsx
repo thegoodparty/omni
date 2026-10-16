@@ -223,7 +223,7 @@ export const CivicPanelPlanSteps = ({
           asChild
           size={primary ? 'large' : 'medium'}
           variant={primary ? 'default' : 'outline'}
-          className={cn(primary && 'flex-1 sm:flex-none')}
+          className={cn(primary ? 'flex-1 sm:flex-none' : 'h-11 sm:h-10')}
         >
           <Link href={keepGoing}>{COPY.keepGoing[step.channel]}</Link>
         </Button>
@@ -238,7 +238,7 @@ export const CivicPanelPlanSteps = ({
         type="button"
         size={primary ? 'large' : 'medium'}
         variant={primary ? 'default' : 'outline'}
-        className={cn(primary && 'flex-1 sm:flex-none')}
+        className={cn(primary ? 'flex-1 sm:flex-none' : 'h-11 sm:h-10')}
         loading={pendingId === step.id}
         disabled={pendingId !== null && pendingId !== step.id}
         onClick={() => void start(step)}
@@ -307,30 +307,37 @@ export const CivicPanelPlanSteps = ({
             <div className="sm:ml-9">{errorFor(featured)}</div>
           </li>
         ) : null}
-        {rest.map((step) => (
-          <li
-            key={step.id}
-            {...rowProps(step)}
-            className={cn(
-              'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
-              ring(step),
-            )}
-          >
-            <div className="flex items-center gap-3 sm:gap-3.5">
-              {checkbox(step)}
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="text-base font-semibold text-foreground">
-                  {stepTitle(step)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {stepDetail(step)}
-                </p>
+        {rest.map((step) => {
+          const action = actionFor(step, false)
+          return (
+            <li
+              key={step.id}
+              {...rowProps(step)}
+              className={cn(
+                'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
+                ring(step),
+              )}
+            >
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-3.5">
+                {checkbox(step)}
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-base font-semibold text-foreground">
+                    {stepTitle(step)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {stepDetail(step)}
+                  </p>
+                </div>
+                {action ? (
+                  <div className="col-start-2 mt-3 justify-self-start sm:col-start-3 sm:row-start-1 sm:mt-0">
+                    {action}
+                  </div>
+                ) : null}
               </div>
-              <div className="shrink-0">{actionFor(step, false)}</div>
-            </div>
-            {errorFor(step)}
-          </li>
-        ))}
+              {errorFor(step)}
+            </li>
+          )
+        })}
         {done.map((step) => (
           <li
             key={step.id}
