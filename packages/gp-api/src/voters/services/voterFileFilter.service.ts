@@ -33,6 +33,13 @@ import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSch
 // — see PRO_FILTERING_REQUIRED_MESSAGE in contacts.service.ts.
 export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
 
+// A boundary's membership is written in the same transaction as the list,
+// and a multi-part shape can freeze 50,000 people per part. That write
+// grows with the shape, so Prisma's 5s default does not fit it: a
+// 69,024-person save ran out of time in prod (ENG-11251). Nothing else
+// waits on these rows, and no advisory lock is held.
+const GEO_WRITE_TX_OPTIONS = { timeout: 30_000 }
+
 const ACTIVITY_CONDITIONS_INCLUDE = {
   activityConditions: true,
 } as const satisfies Prisma.VoterFileFilterInclude
@@ -275,7 +282,7 @@ export class VoterFileFilterService extends createPrismaBase(
         await this.sampleMembers.writeMembers(tx, created.id, sampleMemberIds)
       }
       return created
-    })
+    }, GEO_WRITE_TX_OPTIONS)
     if (!rest.proposalKey) return write
     // Two presses of one card can both miss the read above, from two tabs or
     // a reload racing the first press. The loser trips the unique key; the
@@ -440,7 +447,7 @@ export class VoterFileFilterService extends createPrismaBase(
         },
         include: ACTIVITY_CONDITIONS_INCLUDE,
       })
-    })
+    }, GEO_WRITE_TX_OPTIONS)
   }
 
   async deleteByIdAndOrganizationSlug(

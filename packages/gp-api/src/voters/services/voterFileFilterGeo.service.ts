@@ -38,9 +38,15 @@ export class VoterFileFilterGeoService extends createPrismaBase(
       where: { voterFileFilterId },
     })
     if (personIds.length === 0) return
-    await tx.voterFileFilterGeoMember.createMany({
-      data: personIds.map((personId) => ({ voterFileFilterId, personId })),
-      skipDuplicates: true,
-    })
+    // One statement with the ids as a single array parameter. createMany
+    // builds a row object per id and splits a big set into six INSERTs:
+    // for 69k ids that cost about 2s before the first row reached the
+    // database (ENG-11251). `created_at` takes its column default.
+    await tx.$executeRaw`
+      INSERT INTO "voter_file_filter_geo_member"
+        ("voter_file_filter_id", "person_id")
+      SELECT ${voterFileFilterId}, unnest(${personIds}::text[])
+      ON CONFLICT DO NOTHING
+    `
   }
 }
