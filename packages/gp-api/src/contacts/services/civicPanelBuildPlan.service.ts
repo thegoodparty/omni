@@ -274,7 +274,13 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const office = await this.officeFor(organization)
     const step = await this.client.civicPanelBuildStep.findFirst({
       where: { id: stepId, plan: { electedOfficeId: office.id } },
-      select: { id: true, channel: true, plan: { select: { status: true } } },
+      select: {
+        id: true,
+        channel: true,
+        skippedAt: true,
+        startedAt: true,
+        plan: { select: { status: true } },
+      },
     })
     if (!step) throw new NotFoundException('Step not found')
     if (step.plan.status !== CivicPanelBuildPlanStatus.active) {
@@ -282,6 +288,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     }
     if (step.channel === CivicPanelBuildChannel.text) {
       throw new BadRequestException('A text step is done once it is sent')
+    }
+    // A skip only holds while nothing was started from the step, the same
+    // as its status reads.
+    if (step.skippedAt && !step.startedAt) {
+      throw new ConflictException('This step was skipped')
     }
     await this.client.civicPanelBuildStep.update({
       where: { id: step.id },

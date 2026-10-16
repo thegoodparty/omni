@@ -872,6 +872,18 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/mark', () => {
     })
   })
 
+  it('409s for a step that was skipped', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const plan = await createPlan(slug, 1)
+    const calls = stepOf(plan, 'phone_banking')
+    await skip(slug, calls.id)
+
+    const res = await mark(slug, calls.id, true)
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+  })
+
   it('400s for a text, which is done once it is sent', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)

@@ -904,7 +904,7 @@ past checkout (`UNSENT_OUTREACH_STATUSES`) does not count.
 **Ticked by hand.** The official can tick a call or door step done, or
 untick it, over what its list says (`POST …/steps/:id/mark` with
 `{ done }`, active plan only, 400 for a text, which is done once it is
-sent). It writes `markedDone` and `markedAt`; the read applies it before
+sent, 409 for a step skipped before anything started from it). It writes `markedDone` and `markedAt`; the read applies it before
 the status (`withMark`): ticked is done when it was ticked (or when the list
 finished), unticked is never done whatever the list says. Null reads off the
 list as above. Each step also carries `reached` (residents called, or
