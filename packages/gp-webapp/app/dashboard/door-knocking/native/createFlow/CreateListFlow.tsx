@@ -1476,6 +1476,7 @@ export default function CreateListFlow({
             // an inline build persists as an ordinary saved filter.
             audienceSource:
               recommendedMeta !== null ? 'recommended' : 'savedList',
+            ...(purpose ? { purpose } : {}),
           }),
         )
       }

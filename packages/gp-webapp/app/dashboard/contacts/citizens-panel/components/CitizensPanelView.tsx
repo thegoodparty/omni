@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   answersNeeded,
@@ -13,9 +14,11 @@ import {
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import {
   CITIZENS_PANEL_LIST_PATH,
+  CIVIC_PANEL_ENTRY_PARAM,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import { CitizensPanelStats } from './CitizensPanelStats'
@@ -50,6 +53,20 @@ export const CitizensPanelView = ({
   const activePlan =
     planState?.plan?.status === 'active' ? planState.plan : null
   const underGoal = progress.members < progress.goal
+
+  const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
+  // Once per visit, on what the page was given, not on later plan changes.
+  useEffect(() => {
+    trackEvent(EVENTS.CivicPanel.PanelViewed, {
+      members: summary.members,
+      goalMembers: progress.goal,
+      expectedAnswers: progress.expectedAnswers,
+      answersNeeded: progress.answersNeeded,
+      planStatus: initialPlan?.plan?.status ?? 'none',
+      entry,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 p-4 sm:gap-6 lg:px-12 lg:py-8">

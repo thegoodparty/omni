@@ -138,7 +138,10 @@ export const CivicPanelPlanSteps = ({
   const fail = (stepId: string, message: string) =>
     setError({ stepId, message })
 
-  const stepFlow = useCivicPanelStepFlow({ onChange: refresh })
+  const stepFlow = useCivicPanelStepFlow({
+    onChange: refresh,
+    surface: 'panel_page',
+  })
 
   const start = async (step: CivicPanelBuildStep) => {
     setPendingId(step.id)

@@ -97,6 +97,14 @@ export interface OutreachEventInput {
   listId?: number
   audienceSource?: string
   tracker?: OutreachTrackerOrigin
+  // What the send is for, where the flow knows it (Serve's purpose picker:
+  // a civic panel invite, a report back, ...).
+  purpose?: string
+  // The priority a chat card's send answers, so a priority's asks can be
+  // counted without joining on the outreach.
+  priorityId?: string
+  // Serve texts only: whether the send asks people to join the civic panel.
+  asksToJoinCivicPanel?: boolean
 }
 
 // A Date is reduced to its LOCAL calendar day, never `toISOString()`'s UTC
@@ -124,7 +132,7 @@ const toSendDate = (value: string | Date): string => {
  */
 export const outreachEventProps = (
   input: OutreachEventInput,
-): Record<string, string | number> => ({
+): Record<string, string | number | boolean> => ({
   medium: input.channel,
   fanout: CHANNEL_FANOUT[input.channel],
   product: outreachProduct(input.isServe),
@@ -148,5 +156,10 @@ export const outreachEventProps = (
   ...(input.audienceSource ? { audienceSource: input.audienceSource } : {}),
   ...(input.tracker
     ? { trackerTaskId: input.tracker.trackerTaskId, phase: input.tracker.phase }
+    : {}),
+  ...(input.purpose ? { purpose: input.purpose } : {}),
+  ...(input.priorityId ? { priorityId: input.priorityId } : {}),
+  ...(input.asksToJoinCivicPanel !== undefined
+    ? { asksToJoinCivicPanel: input.asksToJoinCivicPanel }
     : {}),
 })

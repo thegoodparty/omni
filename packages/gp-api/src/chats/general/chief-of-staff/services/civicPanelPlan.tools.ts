@@ -97,7 +97,9 @@ export const buildCivicPanelPlanTools = ({
     execute: async ({ hoursPerWeek }) => {
       const update = async () => ({
         saved: 'updated',
-        ...standing(await plans.updateHours(organization, hoursPerWeek)),
+        ...standing(
+          await plans.updateHours(organization, hoursPerWeek, 'chief_of_staff'),
+        ),
       })
       if (planMade) {
         try {
@@ -108,7 +110,11 @@ export const buildCivicPanelPlanTools = ({
         }
       }
       try {
-        const panel = await plans.create(organization, hoursPerWeek)
+        const panel = await plans.create(
+          organization,
+          hoursPerWeek,
+          'chief_of_staff',
+        )
         planMade = true
         return { saved: 'created', ...standing(panel) }
       } catch (error) {

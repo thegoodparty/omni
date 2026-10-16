@@ -68,7 +68,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(plans.updateHours).not.toHaveBeenCalled()
     expect(result).toEqual({
       saved: 'created',
@@ -92,7 +92,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 3,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 3)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      3,
+      'chief_of_staff',
+    )
     expect(plans.create).not.toHaveBeenCalled()
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 3 })
   })
@@ -111,7 +115,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 4,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 4)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      4,
+      'chief_of_staff',
+    )
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 4 })
   })
 
@@ -128,7 +136,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(result).toMatchObject({ saved: 'created' })
   })
 

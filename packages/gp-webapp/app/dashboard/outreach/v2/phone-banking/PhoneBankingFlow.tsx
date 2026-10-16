@@ -502,6 +502,10 @@ export const PhoneBankingFlow = ({
         // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
+        ...(purpose ? { purpose } : {}),
+        ...(proposalLink?.priorityId
+          ? { priorityId: proposalLink.priorityId }
+          : {}),
       })
       // The cross-channel sibling of the event above. Phone banking is
       // one-to-one, so creating the list is NOT reaching anyone — completion
@@ -522,6 +526,10 @@ export const PhoneBankingFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(purpose ? { purpose } : {}),
+          ...(proposalLink?.priorityId
+            ? { priorityId: proposalLink.priorityId }
+            : {}),
         }),
       })
       if (response.outreachId != null) {
