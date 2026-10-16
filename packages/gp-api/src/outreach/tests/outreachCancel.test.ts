@@ -14,6 +14,7 @@ import {
 const service = useTestService()
 
 const deleteJob = vi.fn()
+const getJob = vi.fn()
 const slackMessage = vi.fn()
 const retrieveCheckoutSession = vi.fn()
 const refundPaymentIntent = vi.fn()
@@ -26,6 +27,12 @@ beforeEach(async () => {
   // clearMocks resets calls, not implementations — a persistent
   // mockRejectedValue from one test must not leak into the next.
   deleteJob.mockReset().mockResolvedValue(undefined)
+  // Outreach 85286's live job: paused, nobody booked.
+  getJob.mockReset().mockResolvedValue({
+    status: 'paused',
+    has_canvassers_scheduled: false,
+    canvassers_schedule: null,
+  })
   slackMessage.mockReset().mockResolvedValue(undefined)
   retrieveCheckoutSession.mockReset()
   refundPaymentIntent.mockReset()
@@ -33,6 +40,7 @@ beforeEach(async () => {
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
+  vi.spyOn(peerly, 'getJob').mockImplementation(getJob)
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
   )
@@ -285,6 +293,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.refunded).toBe(true)
+    expect(getJob).toHaveBeenCalledWith('peerly-job-1')
     expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
@@ -319,6 +328,75 @@ describe('POST /v1/outreach/:id/cancel', () => {
       where: { id: row.id },
     })
     expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('refuses an in_progress row booked by hand in Peerly', async () => {
+    // Staff can book canvassers in Peerly's console, which stamps nothing on
+    // the row, so past the send time the live job is the booking record.
+    getJob.mockResolvedValue({
+      status: 'active',
+      has_canvassers_scheduled: true,
+      canvassers_schedule: { approved: true },
+    })
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('refuses when the live booking check cannot read Peerly', async () => {
+    getJob.mockRejectedValue(new Error('peerly down'))
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('loses to an approve that lands between the eligibility read and the claim', async () => {
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+    // The live read sits between the eligibility check and the claim, so it
+    // is where a concurrent approve gets in.
+    getJob.mockImplementation(async () => {
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { approvedAt: new Date(), approvedBy: 'cas@goodparty.org' },
+      })
+      return { status: 'paused', has_canvassers_scheduled: false }
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+    expect(unchanged.approvedAt).not.toBeNull()
   })
 
   it('does not widen the in_progress cancel beyond p2p', async () => {

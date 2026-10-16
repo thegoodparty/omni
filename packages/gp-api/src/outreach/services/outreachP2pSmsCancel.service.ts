@@ -10,6 +10,7 @@ import Stripe from 'stripe'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import {
   Outreach,
   OutreachStatus,
@@ -17,6 +18,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 
 // Stripe leaves latest_charge as a string id or an expanded Charge; normalize to
 // the charge id the charge-keyed refund targets (same as the capture service).
@@ -175,20 +177,110 @@ export class OutreachP2pSmsCancelService extends createPrismaBase(
         'This campaign has reached its send time and can no longer be canceled',
       )
     }
-
-    // Delete the vendor job first so a cancel can never leave a live Peerly job
-    // that still sends. Idempotent (already-deleted is a no-op); a failure throws
-    // before any money moves, so the candidate keeps their campaign and can retry.
-    if (spine.projectId) {
-      await this.peerlyP2pJobService.deleteJob(spine.projectId)
+    // Staff can book canvassers by hand in Peerly, which stamps nothing on
+    // the spine, so past the send time the live job decides. A failed read
+    // refuses: deleting a job we could not check may be deleting a live send.
+    const pastSendTime =
+      spine.date === null || !isBefore(new Date(), spine.date)
+    if (unbookedSendDay && spine.projectId && pastSendTime) {
+      let job: PeerlyJob
+      try {
+        job = await this.peerlyP2pJobService.getJob(spine.projectId)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'win sms cancel: could not read the Peerly job to confirm it is unbooked',
+        )
+        throw new BadGatewayException(
+          'Could not confirm with the texting vendor that this campaign ' +
+            'is not booked to send. Try canceling again.',
+        )
+      }
+      if (hasPeerlyCanvassersBooked(job)) {
+        throw new BadRequestException(
+          'This campaign has reached its send time and can no longer be ' +
+            'canceled',
+        )
+      }
     }
 
-    const { refunded } = await this.releaseHold(outreachId)
+    // Claim the spine BEFORE the vendor delete and the money release, the
+    // shared cancel's discipline: approve's claim requires a reviewable,
+    // unapproved row, so whichever claim lands first wins and a cancel can
+    // never refund a send an approve just booked.
+    const claimedFrom = unbookedSendDay
+      ? OutreachStatus.in_progress
+      : spine.status === OutreachStatus.pending_payment
+        ? OutreachStatus.pending_payment
+        : OutreachStatus.pending
+    const claimed = await this.client.outreach.updateMany({
+      where: {
+        id: outreachId,
+        status: claimedFrom,
+        ...(unbookedSendDay
+          ? { approvedAt: null, canvassRequestedAt: null }
+          : {}),
+      },
+      data: {
+        status: OutreachStatus.canceled,
+        canceledAt: new Date(),
+        canceledBy: attribution?.canceledBy ?? null,
+        canceledByAdmin: attribution?.byAdmin ?? false,
+      },
+    })
+    if (claimed.count === 0) {
+      const current = await this.client.outreach.findFirstOrThrow({
+        where: { id: outreachId, campaignId },
+      })
+      if (current.status === OutreachStatus.canceled) {
+        return { outreach: current, refunded: false }
+      }
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
 
-    await this.markSpineCanceled(outreachId, attribution)
+    // Delete the vendor job first so a cancel can never leave a live Peerly job
+    // that still sends. Idempotent (already-deleted is a no-op). Every release
+    // failure leaves the money where it was (see releaseHold), so either failure
+    // hands the claim back and the candidate can retry.
+    let release: { refunded: boolean }
+    try {
+      if (spine.projectId) {
+        await this.peerlyP2pJobService.deleteJob(spine.projectId)
+      }
+      release = await this.releaseHold(outreachId)
+    } catch (err) {
+      await this.revertSpineClaim(outreachId, claimedFrom)
+      throw err
+    }
+
     await this.tryNotifyCanceled(outreachId, campaignId, attribution)
 
-    return this.result(outreachId, refunded)
+    return this.result(outreachId, release.refunded)
+  }
+
+  // A revert failure must never replace the error that triggered it, so it
+  // logs instead of throwing.
+  private async revertSpineClaim(
+    outreachId: number,
+    claimedFrom: OutreachStatus,
+  ): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.canceled },
+        data: {
+          status: claimedFrom,
+          canceledAt: null,
+          canceledBy: null,
+          canceledByAdmin: false,
+        },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'win sms cancel: claim revert failed; the spine reads canceled with ' +
+          'the cancel unfinished, manual intervention required',
+      )
+    }
   }
 
   // The CAS "canceled" Slack notice (covering the candidate route and the admin

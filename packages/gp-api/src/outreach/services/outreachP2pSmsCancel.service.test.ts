@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common'
-import { addHours } from 'date-fns'
+import { addHours, subHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
@@ -13,6 +13,7 @@ import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyJob } from '@/vendors/peerly/peerly.types'
 import {
   Campaign,
   OutreachStatus,
@@ -29,6 +30,7 @@ let refundIntentSpy: ReturnType<typeof vi.spyOn>
 let voidSpy: ReturnType<typeof vi.spyOn>
 let sessionSpy: ReturnType<typeof vi.spyOn>
 let deleteJobSpy: ReturnType<typeof vi.spyOn>
+let getJobSpy: ReturnType<typeof vi.spyOn>
 let notifyCanceledSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
@@ -51,6 +53,13 @@ const mockIntent = (
     latest_charge: CHARGE_ID,
     ...overrides,
   }) as unknown as Stripe.Response<Stripe.PaymentIntent>
+
+const unbookedJob = (): PeerlyJob =>
+  ({
+    status: 'paused',
+    has_canvassers_scheduled: false,
+    canvassers_schedule: null,
+  }) as unknown as PeerlyJob
 
 // A refund result with the given Stripe status (the only field the release reads).
 const refundResult = (status: string): Stripe.Response<Stripe.Refund> =>
@@ -79,6 +88,10 @@ beforeEach(async () => {
   deleteJobSpy = vi
     .spyOn(service.app.get(PeerlyP2pJobService), 'deleteJob')
     .mockResolvedValue(undefined)
+  // Outreach 85286's live job: paused, nobody booked.
+  getJobSpy = vi
+    .spyOn(service.app.get(PeerlyP2pJobService), 'getJob')
+    .mockResolvedValue(unbookedJob())
   notifyCanceledSpy = vi
     .spyOn(service.app.get(OutreachNotificationService), 'notifyCanceled')
     .mockResolvedValue(undefined)
@@ -115,6 +128,7 @@ const createHold = async ({
   projectId = 'peerly-job-1' as string | null,
   campaignId = campaign.id,
   approvedAt = null as Date | null,
+  date = addHours(new Date(), 72),
 }: {
   settleState: P2pSmsSettleState
   spineStatus?: OutreachStatus
@@ -124,6 +138,7 @@ const createHold = async ({
   projectId?: string | null
   campaignId?: number
   approvedAt?: Date | null
+  date?: Date
 }): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -131,7 +146,7 @@ const createHold = async ({
       organizationSlug: `campaign-${campaignId}`,
       outreachType: 'p2p',
       status: spineStatus,
-      date: addHours(new Date(), 72),
+      date,
       voterFileFilterId: filterId,
       projectId,
       approvedAt,
@@ -543,12 +558,14 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
       settleState: P2pSmsSettleState.captured,
       chargeIntentId: CHARGE_ID,
       spineStatus: OutreachStatus.in_progress,
+      date: subHours(new Date(), 1),
     })
     await markOfferRedeemed(outreachId)
 
     const { refunded } = await cancel.cancel(outreachId, campaign.id)
 
     expect(refunded).toBe(true)
+    expect(getJobSpy).toHaveBeenCalledWith('peerly-job-1')
     expect(deleteJobSpy).toHaveBeenCalledWith('peerly-job-1')
     expect(refundChargeSpy).toHaveBeenCalledWith(
       CHARGE_ID,
@@ -581,6 +598,100 @@ describe('OutreachP2pSmsCancelService.cancel', () => {
     expect((await readSpine(outreachId)).status).toBe(
       OutreachStatus.in_progress,
     )
+  })
+
+  it('refuses an in_progress hold row booked by hand in Peerly', async () => {
+    getJobSpy.mockResolvedValue({
+      ...unbookedJob(),
+      has_canvassers_scheduled: true,
+    })
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      date: subHours(new Date(), 1),
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
+    )
+  })
+
+  it('refuses (fails closed) when the live booking read fails', async () => {
+    getJobSpy.mockRejectedValue(new Error('peerly down'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      date: subHours(new Date(), 1),
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.captured,
+    )
+    expect((await readSpine(outreachId)).status).toBe(
+      OutreachStatus.in_progress,
+    )
+  })
+
+  it('loses to an approve that lands between the eligibility read and the claim', async () => {
+    retrieveSpy.mockResolvedValue(mockIntent({ status: 'succeeded' }))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      date: subHours(new Date(), 1),
+    })
+    // The live read sits between the eligibility check and the spine claim,
+    // so it is where a concurrent approve gets in.
+    getJobSpy.mockImplementation(async () => {
+      await service.prisma.outreach.update({
+        where: { id: outreachId },
+        data: { approvedAt: new Date(), approvedBy: 'cas@goodparty.org' },
+      })
+      return unbookedJob()
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(deleteJobSpy).not.toHaveBeenCalled()
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    expect(voidSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.captured,
+    )
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe(OutreachStatus.in_progress)
+    expect(spine.approvedAt).not.toBeNull()
+  })
+
+  it('hands the spine claim back to its original status when the vendor delete fails', async () => {
+    deleteJobSpy.mockRejectedValue(new Error('peerly down'))
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.captured,
+      chargeIntentId: CHARGE_ID,
+      spineStatus: OutreachStatus.in_progress,
+      date: subHours(new Date(), 1),
+    })
+
+    await expect(cancel.cancel(outreachId, campaign.id)).rejects.toThrow(
+      'peerly down',
+    )
+    expect(refundChargeSpy).not.toHaveBeenCalled()
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe(OutreachStatus.in_progress)
+    expect(spine.canceledAt).toBeNull()
   })
 
   it('cancels a pending_payment satellite (no hold placed) without a 502', async () => {

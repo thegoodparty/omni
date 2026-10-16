@@ -39,6 +39,7 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import {
@@ -46,6 +47,7 @@ import {
   type P2pJobGeographyResult,
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import {
   createUnderProposalKey,
@@ -1201,6 +1203,32 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       throw new BadRequestException(
         'This campaign has reached its send time and can no longer be canceled',
       )
+    }
+    // Staff can book canvassers by hand in Peerly, which stamps nothing on
+    // this row, so past the send time the live job decides. A failed read
+    // refuses: deleting a job we could not check may be deleting a live send.
+    const pastSendTime =
+      outreach.date === null || !isBefore(new Date(), outreach.date)
+    if (unbookedSendDay && outreach.projectId && pastSendTime) {
+      let job: PeerlyJob
+      try {
+        job = await this.peerlyP2pJobService.getJob(outreach.projectId)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'Cancel could not read the Peerly job to confirm it is unbooked',
+        )
+        throw new BadGatewayException(
+          'Could not confirm with the texting vendor that this campaign ' +
+            'is not booked to send. Try canceling again.',
+        )
+      }
+      if (hasPeerlyCanvassersBooked(job)) {
+        throw new BadRequestException(
+          'This campaign has reached its send time and can no longer be ' +
+            'canceled',
+        )
+      }
     }
 
     const claimedFrom = unbookedSendDay
