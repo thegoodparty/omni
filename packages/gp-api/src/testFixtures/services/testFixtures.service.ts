@@ -5,8 +5,12 @@ import { UsersService } from '@/users/services/users.service'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
+import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { ClerkClient } from '@clerk/backend'
 import {
+  type MockAction,
+  type MockActionResponse,
+  type MockRecordsResponse,
   DeleteTestFixtureUsersResponse,
   TestFixtureSessionResponse,
   TestFixtureUserResponse,
@@ -21,8 +25,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { addSeconds, formatISO } from 'date-fns'
-import { User } from '../../generated/prisma'
+import { addSeconds, compareDesc, formatISO } from 'date-fns'
+import { User, VendorMockVendor } from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
   DeleteTestFixtureUsersInput,
@@ -49,6 +53,7 @@ export class TestFixturesService {
     private readonly organizations: OrganizationsService,
     private readonly activitySeed: ActivitySeedService,
     private readonly elections: ElectionsService,
+    private readonly vendorMockRecord: VendorMockRecordService,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
   ) {}
@@ -271,6 +276,50 @@ export class TestFixturesService {
       signInToken,
       expiresAt: formatISO(addSeconds(new Date(), FIXTURE_TOKEN_TTL_SECONDS)),
     }
+  }
+
+  async applyMockAction(body: MockAction): Promise<MockActionResponse> {
+    const { campaignId, action } = body
+    if (action === 'geoapify.route.fail') {
+      const all = await this.vendorMockRecord.findByCampaign(campaignId)
+      const mostRecent = all
+        .filter(
+          (r) =>
+            r.vendor === VendorMockVendor.geoapify &&
+            r.kind === 'routing_request',
+        )
+        .sort((a, b) => compareDesc(a.createdAt, b.createdAt))
+        .at(0)
+      if (mostRecent) {
+        await this.vendorMockRecord.setFlag(
+          VendorMockVendor.geoapify,
+          'routing_request',
+          mostRecent.externalId,
+          'routeFail',
+          true,
+        )
+      } else {
+        await this.vendorMockRecord.upsert(
+          VendorMockVendor.geoapify,
+          'routing_request',
+          'sentinel',
+          { routeFail: true },
+          campaignId,
+        )
+      }
+    } else {
+      throw new BadRequestException(`Unsupported action: ${action}`)
+    }
+    return this.getMockRecords(campaignId)
+  }
+
+  async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
+    const records = await this.vendorMockRecord.findByCampaign(campaignId)
+    return { records }
+  }
+
+  runJob(name: string): never {
+    throw new NotFoundException(`Unknown job: ${name}`)
   }
 
   private buildCookies(user: User, token: string, orgSlug: string) {

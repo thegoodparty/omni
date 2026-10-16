@@ -3,6 +3,13 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   DeleteTestFixtureUsersResponseSchema,
+  type MockAction,
+  MockActionResponseSchema,
+  MockActionSchema,
+  type MockRecordsQuery,
+  MockRecordsQuerySchema,
+  MockRecordsResponseSchema,
+  RunJobResponseSchema,
   SeedTestFixtureActivityRequestSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityRequest,
@@ -13,12 +20,14 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -88,6 +97,31 @@ export class TestFixturesController {
   ) {
     this.assertNonProdDeploy()
     return this.activitySeed.seed(slug, body)
+  }
+
+  @Post('vendor-mocks/actions')
+  @ResponseSchema(MockActionResponseSchema)
+  vendorMockAction(
+    @Body(new ZodValidationPipe(MockActionSchema)) body: MockAction,
+  ) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.applyMockAction(body)
+  }
+
+  @Get('vendor-mocks/records')
+  @ResponseSchema(MockRecordsResponseSchema)
+  vendorMockRecords(
+    @Query(new ZodValidationPipe(MockRecordsQuerySchema)) q: MockRecordsQuery,
+  ) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.getMockRecords(q.campaignId)
+  }
+
+  @Post('jobs/:name/run')
+  @ResponseSchema(RunJobResponseSchema)
+  runJob(@Param('name') name: string) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.runJob(name)
   }
 
   // Fail-closed to the known non-prod deploys, and 404 rather than 403 so the
