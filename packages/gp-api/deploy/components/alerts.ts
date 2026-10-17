@@ -40,6 +40,7 @@ import { doorKnockingCredits } from './alerting/door-knocking-spend'
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
   'queue',
