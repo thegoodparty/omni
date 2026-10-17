@@ -42,6 +42,7 @@ export class ElectionsService {
   private static readonly VOTER_CONTACT_MULTIPLIER = 5
   private static readonly WIN_NUMBER_MULTIPLIER = 0.5
   private static readonly API_VERSION = 'v1'
+  private static readonly RETRY_DELAY_MS = 500
 
   constructor(
     private readonly httpService: HttpService,
@@ -53,6 +54,23 @@ export class ElectionsService {
     if (!ElectionsService.BASE_URL) {
       throw new Error(`Please set ELECTION_API_URL in your .env.
         Recommendation is to point it at dev if you are developing`)
+    }
+  }
+
+  private async retryOnceOnTransientFailure<T>(
+    request: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await request()
+    } catch (error: unknown) {
+      const status = isAxiosError(error) ? error.response?.status : undefined
+      const transient =
+        isAxiosError(error) && (status === undefined || status >= 500)
+      if (!transient) throw error
+      await new Promise((resolve) =>
+        setTimeout(resolve, ElectionsService.RETRY_DELAY_MS),
+      )
+      return request()
     }
   }
 
@@ -75,20 +93,26 @@ export class ElectionsService {
     this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
     try {
       const headers = await this.tokenService.authHeader()
-      const { data, status } = (await lastValueFrom(
-        this.httpService.get(fullUrl, {
-          headers,
-          params: query,
-          paramsSerializer: (params) =>
-            Object.entries(params)
-              .filter(([, v]) => v !== undefined && v !== null)
-              .flatMap(([k, v]) =>
-                Array.isArray(v)
-                  ? v.map((item) => `${k}=${encodeURIComponent(String(item))}`)
-                  : [`${k}=${encodeURIComponent(String(v))}`],
-              )
-              .join('&'),
-        }),
+      const request = () =>
+        lastValueFrom(
+          this.httpService.get(fullUrl, {
+            headers,
+            params: query,
+            paramsSerializer: (params) =>
+              Object.entries(params)
+                .filter(([, v]) => v !== undefined && v !== null)
+                .flatMap(([k, v]) =>
+                  Array.isArray(v)
+                    ? v.map(
+                        (item) => `${k}=${encodeURIComponent(String(item))}`,
+                      )
+                    : [`${k}=${encodeURIComponent(String(v))}`],
+                )
+                .join('&'),
+          }),
+        )
+      const { data, status } = (await this.retryOnceOnTransientFailure(
+        request,
       )) as { data: Res; status: number }
       if (status >= 200 && status < 300) return data
       this.logger.warn(`Election API GET ${path}} responded ${status}`)
