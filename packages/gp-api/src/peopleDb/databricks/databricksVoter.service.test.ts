@@ -4,6 +4,7 @@ import {
   GatewayTimeoutException,
   InternalServerErrorException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -207,6 +208,39 @@ describe('DatabricksVoterService', () => {
           'voters',
         ),
       ).rejects.toThrow(GatewayTimeoutException)
+    })
+
+    it('answers 422, not 500, when the district type is not a voter column', async () => {
+      findDistrictById.mockReset()
+      stubDistrict('Congressional_District_2026', '29')
+      query.mockRejectedValueOnce(
+        new Error(
+          'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `v`.`Congressional_District_2026` cannot be resolved. SQLSTATE: 42703',
+        ),
+      )
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+          'voters',
+        ),
+      ).rejects.toThrow(UnprocessableEntityException)
+    })
+
+    it('keeps an unresolved column that is not the district type a 500', async () => {
+      findDistrictById.mockReset()
+      stubDistrict('US_Congressional_District', '29')
+      const failure = new Error(
+        'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] name `v`.`Typo_Column` cannot be resolved.',
+      )
+      query.mockRejectedValueOnce(failure)
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+          'voters',
+        ),
+      ).rejects.toBe(failure)
     })
 
     // There is no fallback store, so an unreachable warehouse has to surface as
@@ -618,6 +652,22 @@ describe('DatabricksVoterService', () => {
         BadGatewayException,
       )
       expect(logger.error).toHaveBeenCalled()
+    })
+
+    it('answers 422, not 500, when the district type is not a voter column', async () => {
+      findDistrictById.mockReset()
+      stubDistrict('Congressional_District_2026', '29')
+      query
+        .mockRejectedValueOnce(
+          new Error(
+            'Databricks statement FAILED: [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `v`.`Congressional_District_2026` cannot be resolved. SQLSTATE: 42703',
+          ),
+        )
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findStats(DISTRICT_ID, 'voters')).rejects.toThrow(
+        UnprocessableEntityException,
+      )
     })
   })
 

@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
@@ -125,6 +126,8 @@ const NUMERIC_LIST_COLUMNS = new Set<string>([
 
 // L2 district-type columns are word characters only -- all 181 in use match.
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_]+$/
+
+const UNRESOLVED_COLUMN_PATTERN = /UNRESOLVED_COLUMN[^`]*`[^`]+`\.`([^`]+)`/
 
 const NUMERIC_RESIDENT_COLUMNS = new Set<string>([
   'Age_Int',
@@ -662,6 +665,16 @@ export class DatabricksVoterService {
     })
   }
 
+  private missingDistrictType(err: unknown): string | null {
+    if (!(err instanceof Error)) return null
+    const column = UNRESOLVED_COLUMN_PATTERN.exec(err.message)?.[1]
+    if (!column) return null
+    for (const district of this.districts.values()) {
+      if (district.districtType === column) return column
+    }
+    return null
+  }
+
   private async run(statement: DbxStatement) {
     try {
       return await this.client.query(statement)
@@ -684,6 +697,16 @@ export class DatabricksVoterService {
           message: UNAVAILABLE_MESSAGE,
           errorCode: VOTER_DATA_UNREACHABLE_ERROR_CODE,
         })
+      }
+      const missingDistrictType = this.missingDistrictType(err)
+      if (missingDistrictType) {
+        this.logger.error(
+          { err, districtType: missingDistrictType },
+          'district type is not a column on the voter table',
+        )
+        throw new UnprocessableEntityException(
+          `Voter data is not available for district type ${missingDistrictType}.`,
+        )
       }
       if (!(err instanceof PeopleDbxTimeoutError)) throw err
       this.logger.error({ err }, 'databricks voter query exceeded its ceiling')
