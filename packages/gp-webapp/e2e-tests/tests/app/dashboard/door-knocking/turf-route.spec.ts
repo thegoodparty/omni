@@ -3,6 +3,7 @@ import {
   setupElectedOfficeUser,
   setupProCampaignUser,
 } from 'src/helpers/organizations'
+import { mockAction, mockRecords } from 'src/helpers/vendor-mocks.helper'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // A convex polygon inside Cheyenne WY Ward 1 — the fixture district used by
@@ -35,6 +36,10 @@ test.describe('Win — turf route via Geoapify mock', () => {
   }) => {
     const { client } = await setupProCampaignUser(page)
 
+    // 0. Resolve the campaign ID (needed for vendor-mock assertions).
+    const { data: mine } = await client.get<{ id: number }>('/v1/campaigns/mine')
+    const campaignId = mine.id
+
     // 1. Create a voter file filter (no Geoapify involved).
     const { data: list } = await withGatewayRetry(
       'POST /v1/voters/voter-file/filter',
@@ -66,6 +71,13 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }>(`/v1/door-knocking/turfs/${turf.id}`)
     expect(routedTurf.routeSeconds).not.toBeNull()
 
+    // 3b. Confirm the Geoapify mock wrote a routeplanner_request record.
+    const records = await mockRecords(client, campaignId)
+    const routeRecord = records.records.find(
+      (r) => r.kind === 'routeplanner_request',
+    )
+    expect(routeRecord).toBeTruthy()
+
     // 4. Navigate directly to the walk surface for this pre-routed turf.
     await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
 
@@ -96,6 +108,7 @@ test.describe('Win — turf route via Geoapify mock', () => {
     if (
       !(await page
         .getByRole('button', { name: 'Close person details' })
+        .first()
         .isVisible())
     ) {
       await stopLi.getByRole('button').nth(2).click()
@@ -114,9 +127,10 @@ test.describe('Win — turf route via Geoapify mock', () => {
 
     // 10. Close PersonSheet if still open (auto-closes when no residents remain;
     //     stays open to advance to the next resident in the same stop).
-    const closePersonDetails = page.getByRole('button', {
-      name: 'Close person details',
-    })
+    //     Use .first() to disambiguate the overlay backdrop from the icon button.
+    const closePersonDetails = page
+      .getByRole('button', { name: 'Close person details' })
+      .first()
     if (await closePersonDetails.isVisible()) {
       await closePersonDetails.click()
     }
@@ -144,6 +158,12 @@ test.describe('Win — turf route via Geoapify mock', () => {
     async ({ page }) => {
       const { client } = await setupProCampaignUser(page)
 
+      // Resolve the campaign ID (needed to arm the mock action).
+      const { data: mine } = await client.get<{ id: number }>(
+        '/v1/campaigns/mine',
+      )
+      const campaignId = mine.id
+
       // Create a voter file filter.
       const { data: list } = await withGatewayRetry(
         'POST /v1/voters/voter-file/filter',
@@ -167,12 +187,8 @@ test.describe('Win — turf route via Geoapify mock', () => {
           }),
       )
 
-      // Arm the failure flag via the Geoapify mock controller's test endpoint.
-      // The controller is @PublicAccess() and only reachable with VENDOR_MODE=mock,
-      // so no admin credentials are required.
-      await client.post('/v1/vendor-mocks/geoapify/test/actions', {
-        action: 'route.fail',
-      })
+      // Arm the Geoapify route-failure flag via the test-fixtures endpoint.
+      await mockAction(client, campaignId, 'geoapify.route.fail')
 
       // Navigate to the walk surface — StartKnockingDialog appears (no route).
       await page.goto(
@@ -266,6 +282,7 @@ test.describe('Serve — turf route via Geoapify mock', () => {
       if (
         !(await page
           .getByRole('button', { name: 'Close person details' })
+          .first()
           .isVisible())
       ) {
         await stopLi.getByRole('button').nth(2).click()
@@ -284,9 +301,10 @@ test.describe('Serve — turf route via Geoapify mock', () => {
       ).toBeHidden()
 
       // Close PersonSheet if still open before marking the route done.
-      const closePersonDetails = page.getByRole('button', {
-        name: 'Close person details',
-      })
+      // Use .first() to disambiguate the overlay backdrop from the icon button.
+      const closePersonDetails = page
+        .getByRole('button', { name: 'Close person details' })
+        .first()
       if (await closePersonDetails.isVisible()) {
         await closePersonDetails.click()
       }

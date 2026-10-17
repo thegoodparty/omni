@@ -286,25 +286,27 @@ export class TestFixturesService {
         .filter(
           (r) =>
             r.vendor === VendorMockVendor.geoapify &&
-            r.kind === 'routing_request',
+            r.kind === 'routeplanner_request',
         )
         .sort((a, b) => compareDesc(a.createdAt, b.createdAt))
         .at(0)
       if (mostRecent) {
         await this.vendorMockRecord.setFlag(
           VendorMockVendor.geoapify,
-          'routing_request',
+          'routeplanner_request',
           mostRecent.externalId,
           'routeFail',
           true,
         )
       } else {
+        // No campaign-specific record yet — seed a global sentinel so the
+        // mock controller's campaignId: null lookup finds it.
         await this.vendorMockRecord.upsert(
           VendorMockVendor.geoapify,
-          'routing_request',
+          'routeplanner_request',
           'sentinel',
           { routeFail: true },
-          campaignId,
+          undefined,
         )
       }
     } else {

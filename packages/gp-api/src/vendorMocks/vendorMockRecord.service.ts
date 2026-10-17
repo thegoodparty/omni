@@ -53,8 +53,13 @@ export class VendorMockRecordService extends createPrismaBase(
     })
   }
 
+  // Returns campaign-specific records plus global (null campaignId) records so
+  // that a sentinel seeded by applyMockAction without a campaignId is visible
+  // when the caller queries by their campaign's id.
   async findByCampaign(campaignId: number) {
-    return this.model.findMany({ where: { campaignId } })
+    return this.model.findMany({
+      where: { OR: [{ campaignId }, { campaignId: null }] },
+    })
   }
 
   // Merge { [flag]: value } into the state JSON of a specific record.
