@@ -11,11 +11,12 @@ import {
   Get,
   InternalServerErrorException,
   NotFoundException,
+  Param,
   Post,
   Query,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { Prisma, VendorMockVendor } from '@/generated/prisma'
+import { VendorMockVendor } from '@/generated/prisma'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 
 // Haversine distance between two [lng, lat] points, in metres.
@@ -58,8 +59,9 @@ const parseWaypointParam = (raw: string): [number, number][] =>
 export class GeoapifyMockController {
   constructor(private readonly vendorMockRecord: VendorMockRecordService) {}
 
-  @Post('v1/routeplanner')
+  @Post(['v1/routeplanner', 'org/:organizationSlug/v1/routeplanner'])
   async routePlanner(
+    @Param('organizationSlug') organizationSlug: string | undefined,
     @Query('apiKey') apiKey: string | undefined,
     @Body() rawBody: RoutePlannerRequest,
   ) {
@@ -69,36 +71,13 @@ export class GeoapifyMockController {
     const body = RoutePlannerRequestSchema.parse(rawBody)
     const jobs = body.jobs ?? []
     const agents = body.agents ?? []
+    const campaignId =
+      await this.vendorMockRecord.campaignIdFor(organizationSlug)
 
-    // Check for a 'routeFail' flag. kind filter prevents routing_request
-    // records from masking a flag seeded on a routeplanner_request row.
-    // orderBy ensures we inspect the most recently seeded/updated record
-    // when multiple matching rows exist.
-    const failRecord = await this.vendorMockRecord.findFirst({
-      where: {
-        vendor: VendorMockVendor.geoapify,
-        campaignId: null,
-        kind: 'routeplanner_request',
-      },
-      orderBy: { updatedAt: Prisma.SortOrder.desc },
-    })
-
-    const routeFail =
-      failRecord !== null &&
-      typeof failRecord.state === 'object' &&
-      failRecord.state !== null &&
-      !Array.isArray(failRecord.state) &&
-      'routeFail' in failRecord.state &&
-      failRecord.state['routeFail'] === true
-
-    if (routeFail && failRecord) {
-      await this.vendorMockRecord.setFlag(
-        VendorMockVendor.geoapify,
-        failRecord.kind,
-        failRecord.externalId,
-        'routeFail',
-        false,
-      )
+    if (
+      campaignId !== undefined &&
+      (await this.vendorMockRecord.consumeRouteFail(campaignId))
+    ) {
       throw new InternalServerErrorException('mock route failure')
     }
 
@@ -107,7 +86,7 @@ export class GeoapifyMockController {
       'routeplanner_request',
       randomUUID(),
       { status: 'complete', waypoints: jobs.length },
-      undefined,
+      campaignId,
       rawBody,
     )
 
@@ -162,8 +141,9 @@ export class GeoapifyMockController {
     }
   }
 
-  @Get('v1/routing')
+  @Get(['v1/routing', 'org/:organizationSlug/v1/routing'])
   async routing(
+    @Param('organizationSlug') organizationSlug: string | undefined,
     @Query('waypoints') waypointsParam: string | undefined,
     @Query('mode') mode: string | undefined,
     @Query('apiKey') apiKey: string | undefined,
@@ -182,7 +162,7 @@ export class GeoapifyMockController {
       'routing_request',
       randomUUID(),
       { status: 'complete', waypointCount: coords.length, mode },
-      undefined,
+      await this.vendorMockRecord.campaignIdFor(organizationSlug),
       { waypoints: waypointsParam, mode },
     )
 

@@ -43,30 +43,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     envNonProd.value = true
   })
 
-  it('sets routeFail on a routeplanner_request record owned by the caller', async () => {
-    const campaign = await seedCampaign(service.user.id)
-    await seedRecord(
-      VendorMockVendor.geoapify,
-      'routeplanner_request',
-      'ext-1',
-      { status: 'ok' },
-      campaign.id,
-    )
-
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId: campaign.id, action: 'geoapify.route.fail' },
-      { validateStatus: () => true },
-    )
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    const record = res.data.records.find(
-      (r: { externalId: string }) => r.externalId === 'ext-1',
-    )
-    expect(record?.state).toMatchObject({ routeFail: true })
-  })
-
-  it('creates a global sentinel record when no routeplanner_request exists', async () => {
+  it("arms a route failure scoped to the caller's campaign", async () => {
     const campaign = await seedCampaign(service.user.id)
 
     const res = await service.client.post(
@@ -76,10 +53,14 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     )
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    const sentinel = res.data.records.find(
-      (r: { externalId: string }) => r.externalId === 'sentinel',
-    )
-    expect(sentinel?.state).toMatchObject({ routeFail: true })
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'route_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { routeFail: true },
+      }),
+    ])
   })
 
   it('returns 403 when the campaign belongs to a different user', async () => {

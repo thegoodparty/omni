@@ -27,6 +27,19 @@ const ROUTEPLANNER_PATH = '/v1/vendor-mocks/geoapify/v1/routeplanner'
 const ROUTING_PATH = '/v1/vendor-mocks/geoapify/v1/routing'
 const API_KEY = 'test-api-key'
 
+const scopedPath = (slug: string, api: 'routeplanner' | 'routing') =>
+  `/v1/vendor-mocks/geoapify/org/${slug}/v1/${api}`
+
+const seedCampaign = async () => {
+  const slug = `mock-org-${Math.random().toString(36).slice(2)}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: service.user.id },
+  })
+  return service.prisma.campaign.create({
+    data: { userId: service.user.id, slug, organizationSlug: slug },
+  })
+}
+
 const twoJobBody = {
   mode: 'walk',
   agents: [{ start_location: [-73.935242, 40.73061] }],
@@ -91,30 +104,62 @@ describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
-  it('returns 500 when routeFail flag is set; clears on next call', async () => {
-    const svc = service.app.get(VendorMockRecordService)
-
-    // Seed a record with routeFail=true
-    await svc.upsert(
-      VendorMockVendor.geoapify,
-      'routeplanner_request',
-      'flag-seed',
-      { status: 'complete', waypoints: 0, routeFail: true },
-    )
+  it('fails the armed campaign once, then succeeds', async () => {
+    const campaign = await seedCampaign()
+    await service.app.get(VendorMockRecordService).armRouteFail(campaign.id)
+    const path = scopedPath(campaign.organizationSlug, 'routeplanner')
 
     const failRes = await service.client.post(
-      `${ROUTEPLANNER_PATH}?apiKey=${API_KEY}`,
+      `${path}?apiKey=${API_KEY}`,
       twoJobBody,
     )
     expect(failRes.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
     expect(failRes.data.message).toContain('mock route failure')
 
-    // Flag cleared — subsequent call succeeds
     const okRes = await service.client.post(
-      `${ROUTEPLANNER_PATH}?apiKey=${API_KEY}`,
+      `${path}?apiKey=${API_KEY}`,
       twoJobBody,
     )
     expect(okRes.status).toBe(HttpStatus.CREATED)
+  })
+
+  it("never fails a call that isn't the armed campaign's", async () => {
+    const armed = await seedCampaign()
+    const other = await seedCampaign()
+    await service.app.get(VendorMockRecordService).armRouteFail(armed.id)
+
+    const unscoped = await service.client.post(
+      `${ROUTEPLANNER_PATH}?apiKey=${API_KEY}`,
+      twoJobBody,
+    )
+    const otherRes = await service.client.post(
+      `${scopedPath(other.organizationSlug, 'routeplanner')}?apiKey=${API_KEY}`,
+      twoJobBody,
+    )
+    const armedRes = await service.client.post(
+      `${scopedPath(armed.organizationSlug, 'routeplanner')}?apiKey=${API_KEY}`,
+      twoJobBody,
+    )
+
+    expect(unscoped.status).toBe(HttpStatus.CREATED)
+    expect(otherRes.status).toBe(HttpStatus.CREATED)
+    expect(armedRes.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
+  })
+
+  it('records a scoped call against its campaign', async () => {
+    const campaign = await seedCampaign()
+
+    await service.client.post(
+      `${scopedPath(campaign.organizationSlug, 'routeplanner')}?apiKey=${API_KEY}`,
+      twoJobBody,
+    )
+
+    const records = await service.app
+      .get(VendorMockRecordService)
+      .findByCampaign(campaign.id)
+    expect(records).toEqual([
+      expect.objectContaining({ kind: 'routeplanner_request' }),
+    ])
   })
 })
 

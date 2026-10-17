@@ -78,21 +78,18 @@ describe('VendorMockRecordService', () => {
   })
 
   describe('findByCampaign', () => {
-    it(
-      'returns records for the given campaignId and global ' +
-        '(null campaignId) sentinels, but not other campaigns',
-      async () => {
-        await svc.upsert(vendor, kind, 'camp-a-1', state, 10)
-        await svc.upsert(vendor, kind, 'camp-a-2', state, 10)
-        await svc.upsert(vendor, kind, 'camp-b-1', state, 20)
-        await svc.upsert(vendor, kind, 'global-1', state) // null campaignId
+    it('returns only the given campaign, not others or unscoped rows', async () => {
+      await svc.upsert(vendor, kind, 'camp-a-1', state, 10)
+      await svc.upsert(vendor, kind, 'camp-a-2', state, 10)
+      await svc.upsert(vendor, kind, 'camp-b-1', state, 20)
+      await svc.upsert(vendor, kind, 'global-1', state)
 
-        const results = await svc.findByCampaign(10)
-        expect(results).toHaveLength(3)
-        expect(results.every((r) => r.campaignId !== 20)).toBe(true)
-        expect(results.some((r) => r.campaignId === null)).toBe(true)
-      },
-    )
+      const results = await svc.findByCampaign(10)
+      expect(results.map((r) => r.externalId).sort()).toEqual([
+        'camp-a-1',
+        'camp-a-2',
+      ])
+    })
   })
 
   describe('setFlag', () => {

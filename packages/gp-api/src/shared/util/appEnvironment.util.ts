@@ -117,7 +117,17 @@ if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
   throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
 }
 
-export const vendorBaseUrl = (vendor: MockedVendor, liveUrl: string): string =>
-  VENDOR_MODE === 'mock'
-    ? `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}`
-    : liveUrl
+// The organization rides in the mock's path, never in a live URL, so the mock
+// can keep one caller's fixture state (a seeded failure, its request records)
+// apart from every other test running against the same deploy.
+export const vendorBaseUrl = (
+  vendor: MockedVendor,
+  liveUrl: string,
+  organizationSlug?: string,
+): string =>
+  VENDOR_MODE !== 'mock'
+    ? liveUrl
+    : organizationSlug
+      ? `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}/org/` +
+        encodeURIComponent(organizationSlug)
+      : `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}`

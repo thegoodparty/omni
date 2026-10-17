@@ -25,8 +25,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { addSeconds, compareDesc, formatISO } from 'date-fns'
-import { User, VendorMockVendor } from '@/generated/prisma'
+import { addSeconds, formatISO } from 'date-fns'
+import { User } from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
   DeleteTestFixtureUsersInput,
@@ -281,34 +281,7 @@ export class TestFixturesService {
   async applyMockAction(body: MockAction): Promise<MockActionResponse> {
     const { campaignId, action } = body
     if (action === 'geoapify.route.fail') {
-      const all = await this.vendorMockRecord.findByCampaign(campaignId)
-      const mostRecent = all
-        .filter(
-          (r) =>
-            r.vendor === VendorMockVendor.geoapify &&
-            r.kind === 'routeplanner_request',
-        )
-        .sort((a, b) => compareDesc(a.createdAt, b.createdAt))
-        .at(0)
-      if (mostRecent) {
-        await this.vendorMockRecord.setFlag(
-          VendorMockVendor.geoapify,
-          'routeplanner_request',
-          mostRecent.externalId,
-          'routeFail',
-          true,
-        )
-      } else {
-        // No campaign-specific record yet — seed a global sentinel so the
-        // mock controller's campaignId: null lookup finds it.
-        await this.vendorMockRecord.upsert(
-          VendorMockVendor.geoapify,
-          'routeplanner_request',
-          'sentinel',
-          { routeFail: true },
-          undefined,
-        )
-      }
+      await this.vendorMockRecord.armRouteFail(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
