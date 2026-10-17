@@ -112,8 +112,8 @@ describe('public-person-profiles-error-ratio', () => {
     )
   })
 
-  // Same reasoning as the sibling, and the reason this controller is not
-  // simply added to ALERT_OWNERSHIP: the generated rule fires on one error in
+  // Same reasoning as the sibling, and the reason this controller does not
+  // rely on its generated route rule alone: that rule fires on one error in
   // the window, and these routes serve ~4 req/s, so it would sit permanently
   // lit and be muted — which is indistinguishable from the silence it replaced.
   it('is a ratio, not an any-error count', () => {
@@ -281,8 +281,8 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 92 today: 7 for the seven event rules at the floor of 1, 5
- * for the five route rules, 1 for the door-knocking recording rule, and 79
+ * The set totals 89 today: 7 for the seven event rules at the floor of 1, 2
+ * for the two route rules, 1 for the door-knocking recording rule, and 79
  * for the six that need a window wider than their interval (the two ratio
  * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
  * the email lookup at 5). Before the move to instant queries and the removal
@@ -365,13 +365,6 @@ describe('people-person-id-repoint-collision', () => {
     expect(alert!.expr.indexOf('|= "')).toBeLessThan(
       alert!.expr.indexOf('|~ "'),
     )
-  })
-
-  // Unrouted alerts land on the default receiver. This one names a human
-  // action nobody is otherwise told to take, so it goes to the rotation that
-  // owns the people surface.
-  it('pages a group rather than the default receiver', () => {
-    expect(alert!.notify).toEqual('win-bugs')
   })
 })
 
@@ -681,10 +674,6 @@ describe('geoapify daily budget tiers', () => {
       ceiling!.threshold,
     )
   })
-
-  it('pages the team that owns door knocking', () => {
-    for (const alert of tiers) expect(alert.notify).toBe('win-bugs')
-  })
 })
 
 // The registry is the only place in this repo where a code change makes an
@@ -824,14 +813,6 @@ describe('alert-notification-delivery-failing', () => {
   it('measures Grafana own delivery attempts rather than anything gp-api emits', () => {
     expect(alert.expr).toContain('alerting_notification_send_failures_total')
     expect(alert.expr).not.toContain('service_name="gp-api"')
-  })
-
-  // A subteam mention is added to the message BODY, and this rule's premise is
-  // that the path carrying message bodies is broken — so a mention would travel
-  // exactly as far as the thing it exists to escape. What makes this alert work
-  // is its route, which lives in the notification policy tree and not here.
-  it('pages nobody, because the mention would ride the broken path', () => {
-    expect(alert.notify).toBeUndefined()
   })
 
   // The message has to carry the escape hatch, because whoever reads it is

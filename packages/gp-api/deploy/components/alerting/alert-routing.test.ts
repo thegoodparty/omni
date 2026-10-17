@@ -79,7 +79,7 @@ describe('routing every provisioned alert', () => {
 // resolved, which pages nobody. A group per endpoint gives the second
 // route its own group_wait delivery.
 describe('grouping route alerts', () => {
-  const SLUG = 'route-errors-win'
+  const SLUG = 'route-errors'
   const SEARCH = 'POST /v1/domains/search'
   const PURCHASE = 'POST /v1/domains/purchase'
   const labelsFor = (endpoint: string) => ({

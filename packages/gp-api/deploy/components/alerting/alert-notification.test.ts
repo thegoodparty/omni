@@ -16,14 +16,12 @@ const alert: Alert = {
   for: '1m',
   threshold: 0,
   message: '`GET /v1/door-knocking/turfs/:id/route` returned server errors.',
-  notify: 'win-bugs',
 }
 
 // The regression, and it cost real triage time on the 2026-08-20
 // door-knocking page: both environments provision this rule from the same
 // definition, and a Slack notification carries neither the rule's environment
-// label nor its folder. The two pages were identical down to the group
-// mention, so the recipient could not tell whether production was broken
+// label nor its folder. The two pages were identical, so the recipient could not tell whether production was broken
 // without opening Grafana. Neither the title nor the body may be the field
 // their contact point happens to show, so both have to name the environment.
 describe.each([
@@ -66,39 +64,13 @@ describe('buildAlertSummary', () => {
 })
 
 describe('buildAlertDescription', () => {
-  it('substitutes $ENV and appends the owning group mention', () => {
+  it('substitutes $ENV', () => {
     const description = buildAlertDescription(
       { ...alert, message: 'errors in $ENV' },
       'prod',
     )
 
     expect(description).toContain('errors in prod')
-    expect(description).toContain('<!subteam^S0AE3NTCXM3>')
-  })
-
-  it('omits the mention for an alert nobody owns', () => {
-    const description = buildAlertDescription(
-      { ...alert, notify: undefined },
-      'prod',
-    )
-
-    expect(description).not.toContain('<!subteam^')
-    expect(description.trimEnd()).toEqual(description)
-  })
-
-  // Shared surfaces — auth, users, payments, websites — belong to both products,
-  // and `notify` used to hold one group, so the alert reached whichever was
-  // found first and the other was never told. Tagging both is the point of the
-  // list, and the failure it replaces was silent: the controller WAS listed
-  // under the second group, so the map looked right.
-  it('mentions every group an alert is owned by', () => {
-    const description = buildAlertDescription(
-      { ...alert, notify: ['serve-bugs', 'win-bugs'] },
-      'prod',
-    )
-
-    const mentions = description.match(/<!subteam\^/g) ?? []
-    expect(mentions).toHaveLength(2)
   })
 
   // The regression is the 2026-09-28 Grafana query-service outage: 190 of 216
@@ -113,34 +85,10 @@ describe('buildAlertDescription', () => {
     )
   })
 
-  // Covers the generated controller alerts as much as the hand-written ones,
-  // which is the reason it lives here and not in each `message`.
-  it('warns on an alert nobody owns too', () => {
-    expect(
-      buildAlertDescription({ ...alert, notify: undefined }, 'prod'),
-    ).toContain(EVALUATION_ERROR_NOTE)
-  })
-
   // The note is fixed prose, so it must not smuggle in a placeholder that only
   // `message`, `expr` and `evidence` are substituted for.
   it('needs no environment substitution of its own', () => {
     expect(EVALUATION_ERROR_NOTE).not.toContain('$ENV')
-  })
-
-  // The single-group spelling is what most alerts use, and a list of one has to
-  // read identically — otherwise widening the type quietly reformats every
-  // existing alert's message.
-  it('renders one group the same whether or not it is in a list', () => {
-    const asScalar = buildAlertDescription(
-      { ...alert, notify: 'win-bugs' },
-      'prod',
-    )
-    const asList = buildAlertDescription(
-      { ...alert, notify: ['win-bugs'] },
-      'prod',
-    )
-
-    expect(asList).toEqual(asScalar)
   })
 })
 
