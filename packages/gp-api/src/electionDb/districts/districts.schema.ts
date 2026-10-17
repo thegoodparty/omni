@@ -1,0 +1,94 @@
+import { Prisma, ElectionCode as EC } from '@/generated/election-prisma'
+import { createZodDto } from 'nestjs-zod'
+import { STATE_CODES } from '@goodparty_org/nest-common'
+import { z } from 'zod'
+
+export const districtColumns = Object.values(
+  Prisma.DistrictScalarFieldEnum,
+) as (keyof typeof Prisma.DistrictScalarFieldEnum)[]
+
+const ElectionCode = z.nativeEnum(EC)
+
+const getDistrictTypesSchema = z.object({
+  state: z
+    .string()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => STATE_CODES.includes(v), 'Invalid state code')
+    .optional(),
+  electionYear: z.coerce.number().int().optional(),
+  electionCode: ElectionCode.optional(),
+  excludeInvalid: z.preprocess(
+    (val) =>
+      val === 'true' || val === '1' || val === true
+        ? true
+        : val === 'false' || val === '0' || val === false
+          ? false
+          : undefined,
+    z.boolean().optional().default(false),
+  ),
+})
+
+const getDistrictsSchema = z.object({
+  state: z
+    .string()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => STATE_CODES.includes(v), 'Invalid state code')
+    .optional(),
+  L2DistrictType: z.string().optional(),
+  L2DistrictName: z.string().optional(),
+  electionYear: z.coerce.number().int().optional(),
+  excludeInvalid: z.preprocess(
+    (val) =>
+      val === 'true' || val === '1' || val === true
+        ? true
+        : val === 'false' || val === '0' || val === false
+          ? false
+          : undefined,
+    z.boolean().optional().default(false),
+  ),
+  electionCode: ElectionCode.optional(),
+  districtColumns: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val) return true
+        const columns = val.split(',').map((col) => col.trim())
+        return columns.every((col) =>
+          (districtColumns as string[]).includes(col),
+        )
+      },
+      {
+        message: `Invalid district column provided. Allowed columns are: ${districtColumns.join(', ')}`,
+      },
+    ),
+})
+
+const getDistrictNamesSchema = z.object({
+  state: z
+    .string()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => STATE_CODES.includes(v), 'Invalid state code'),
+  L2DistrictType: z.string(),
+  electionYear: z.coerce.number().int().optional(),
+  excludeInvalid: z.preprocess(
+    (val) =>
+      val === 'true' || val === '1' || val === true
+        ? true
+        : val === 'false' || val === '0' || val === false
+          ? false
+          : undefined,
+    z.boolean().optional().default(false),
+  ),
+})
+
+const getDistrictByIdParamsSchema = z.object({
+  id: z.guid('District ID must be a valid UUID'),
+})
+
+export class GetDistrictByIdParamsDTO extends createZodDto(
+  getDistrictByIdParamsSchema,
+) {}
+export class GetDistrictNamesDto extends createZodDto(getDistrictNamesSchema) {}
+export class GetDistrictTypesDTO extends createZodDto(getDistrictTypesSchema) {}
+export class GetDistrictsDTO extends createZodDto(getDistrictsSchema) {}

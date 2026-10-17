@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
-// The support estimate is now sourced from election-api over HTTP, so the
-// happy-path mapping is covered hermetically by the unit tests
-// (supportEstimate.service.test.ts + electedOfficeSupportApi.service.test.ts).
-// Here we only assert the route's auth gate, which never reaches election-api.
+// The support estimate is sourced from the election database, so the
+// happy-path mapping is covered hermetically by the unit test
+// (supportEstimate.service.test.ts). Here we only assert the route's auth
+// gate, which never reaches the election database.
 describe('GET /v1/elected-office/support-estimate (integration)', () => {
   let orgSlug: string
 

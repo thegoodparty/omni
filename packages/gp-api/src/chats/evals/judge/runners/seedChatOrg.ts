@@ -165,18 +165,18 @@ export const seedOptionsFor = (
 // THE DISTRICT GATE IS HALF OURS AND HALF NOT, and this is the half that is.
 //
 // `organization.positionId` does not point at a row in this database. It holds
-// an election-api position id, and DistrictResolverService resolves it with an
-// HTTP GET (ElectionsService.getPositionById, which is `electionApiGet`), so
-// there is no position or district table here that seeding could fill. What IS
-// ours is the precondition: resolveByOrgSlug returns null on a missing
-// positionId BEFORE it asks election-api at all, which is why districtFilters
+// an election-db position id, and DistrictResolverService resolves it through
+// ElectionsService.getPositionById, a read of the separate election database,
+// so there is no position or district table here that seeding could fill. What
+// IS ours is the precondition: resolveByOrgSlug returns null on a missing
+// positionId BEFORE it asks election-db at all, which is why districtFilters
 // was null no matter what else was configured.
 //
 // JUDGE_POSITION is that reply, exported rather than written out at each call
 // site so the seeded id and the stubbed position cannot drift apart. A test
 // re-spies ElectionsService.getPositionById with it, which is what
 // test-service asks a suite needing a real position to do. A deployment that
-// can reach election-api needs no stub, and one that cannot cannot be given a
+// can reach election-db needs no stub, and one that cannot cannot be given a
 // district by any amount of seeding.
 //
 // NO `overrideDistrictId` on purpose. resolveDistrict takes
@@ -297,7 +297,7 @@ export const seedChatOrg = async (
   const organizationSlug = chatOrgSlug(agentId, slugKey)
   // Omitted rather than nulled when a case asked for no district: a missing
   // positionId is the production state, and resolveByOrgSlug refuses on it
-  // before it asks election-api anything.
+  // before it asks election-db anything.
   const position =
     options.district === false ? {} : { positionId: JUDGE_POSITION_ID }
 
@@ -352,7 +352,7 @@ export const seedChatOrg = async (
       },
     })
     // The agent's own municipality, and the ONLY source of it that does not
-    // need election-api: OrdinanceFlowContextService reads this row by the
+    // need election-db: OrdinanceFlowContextService reads this row by the
     // office's organizationSlug and renders `place, state` as the
     // jurisdiction, while the handler's district resolver only overrides it.
     // Without it the agent does not know which city it is drafting for on
