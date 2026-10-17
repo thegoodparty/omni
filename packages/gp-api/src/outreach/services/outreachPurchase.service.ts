@@ -86,7 +86,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       where: { id: campaignId },
       include: {
         tcrCompliance: {
-          select: { kickoffSentAt: true, internalTestingAt: true },
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            status: true,
+          },
         },
       },
     })

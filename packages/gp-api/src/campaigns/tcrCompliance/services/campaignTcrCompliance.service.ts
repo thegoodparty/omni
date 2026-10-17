@@ -2105,7 +2105,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     campaign: Campaign
     tcrCompliance: Pick<
       TcrCompliance,
-      'kickoffSentAt' | 'internalTestingAt'
+      'kickoffSentAt' | 'internalTestingAt' | 'status'
     > | null
     path: 'agentic' | 'legacy' | 'kickoff' | 'submit_to_peerly'
   }): Promise<boolean> {

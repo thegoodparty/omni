@@ -845,7 +845,13 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 - **SMS compliance cutoff.** `smsComplianceWindow` (`campaigns/util/eligibility.util.ts`)
   closes texting setup 19 days before `details.electionDate`, at the end of the cutoff
   day in Eastern time (`EASTERN_TIMEZONE`), unless the record has
-  `kickoffSentAt` (filed and paid in time, `not_applicable`). A record saved without
+  `kickoffSentAt` (filed and paid in time, `not_applicable`), has `internalTestingAt`
+  (staff test approvals never kick off), or has status `approved` or `pending`.
+  Records created before `kickoffSentAt` shipped (2026-05-16) never got the stamp, so
+  without the status check those already-compliant candidates were locked out once the
+  cutoff passed (ENG-11326). In the agentic flow `pending` always follows the stamp, so
+  the status check only adds legacy rows. The weekly digest SQL
+  (`weeklyTasksDigestHandler.service.ts`) repeats this rule; keep the two in sync. A record saved without
   payment does not count. When closed, `createAgentic` still saves the filing details
   and writes the record as usual (we keep collecting them), but for an already-Pro
   campaign it skips the inline claim/enqueue, so the record has no `kickoffSentAt` and
