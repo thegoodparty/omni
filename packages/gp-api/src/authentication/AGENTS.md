@@ -84,6 +84,14 @@ Auth state is enforced globally via three guards registered in order. Most route
   needs both — pull the real admin from `effectiveUser`, the impersonated
   subject from `req.user`.
 - `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` — no opt-in needed. It logs `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
+- **M2M impersonation and sign-in links must name a staff actor.** On the
+  M2M path, `POST /admin/users/impersonate/:id` and
+  `POST /admin/users/sign-in-link/:id` require `actorEmail` in the body, and
+  it must match (case-insensitively) a gp-api user with the `admin` role:
+  400 when missing, 403 when unknown or not an admin. gp-admin sends the
+  signed-in staff member's gp-admin Clerk primary email, so staff need an
+  admin account in each gp-api environment they act in. A staff session acts
+  as the session user.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
 - **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
   phone attribute.** Enabling the real attribute would force SMS
