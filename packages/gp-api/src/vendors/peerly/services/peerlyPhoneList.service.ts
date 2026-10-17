@@ -226,7 +226,9 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
 
   private isTransientPhoneListError(error: unknown): boolean {
     if (!isAxiosError(error)) return false
-    if (error.response?.status !== 400) return false
+    const status = error.response?.status
+    if (status === 502 || status === 503 || status === 504) return true
+    if (status !== 400) return false
     const data: unknown = error.response?.data
     if (!data || typeof data !== 'object') return false
     const message =
