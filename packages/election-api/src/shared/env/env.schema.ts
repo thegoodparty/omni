@@ -56,6 +56,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   PRISMA_CONNECTION_LIMIT: { tier: 'optional', default: '10' },
   PRISMA_POOL_TIMEOUT: { tier: 'optional', default: '20' },
 
+  // src/shared/interceptors/responseCache.interceptor.ts's GET response
+  // cache lifetime. 0 or unset turns the cache off.
+  RESPONSE_CACHE_TTL_SECONDS: { tier: 'optional', default: '0' },
+
   // src/zipToPosition/zipToPosition.service.ts's district/zip match
   // threshold.
   PCT_DISTRICTZIP_TO_ZIP_THRESHOLD: { tier: 'optional', default: '0.005' },

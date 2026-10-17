@@ -170,6 +170,10 @@ export = async () => {
       // org list); 6-16 prod tasks x 25 = 150-400 connections, well within
       // Aurora Serverless v2 capacity.
       PRISMA_CONNECTION_LIMIT: select({ dev: '10', prod: '25' }),
+      // Repeated GETs are answered from memory for this long. The data is
+      // loaded once a day, and crawler bursts on gp-marketing's public pages
+      // repeat the same URLs within minutes (ENG-11302).
+      RESPONSE_CACHE_TTL_SECONDS: '300',
       // Clerk instance public key, so M2M tokens verify without fetching
       // Clerk's JWKS. Public, so it lives here and not in the secret.
       CLERK_JWT_KEY: select({
