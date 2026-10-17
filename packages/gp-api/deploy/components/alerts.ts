@@ -201,6 +201,7 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
   'queue',

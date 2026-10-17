@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { VendorMockVendor } from '@/generated/prisma'
+import { UserRole, VendorMockVendor } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
@@ -186,8 +186,12 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
 })
 
 describe('POST /v1/test-fixtures/jobs/:name/run', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
   })
 
   it('returns 404 for any job name (M1 allowlist is empty)', async () => {
