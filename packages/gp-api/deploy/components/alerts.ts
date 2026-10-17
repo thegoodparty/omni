@@ -124,6 +124,7 @@ const CONTROLLER_OWNERS: Partial<
   // takes out public /elections and /people pages, not a product flow.
   'elections/candidacies': BOTH,
   'elections/officeholders': BOTH,
+  'elections/person-merges': BOTH,
   'elections/persons': BOTH,
   'elections/places': BOTH,
   'elections/positions': BOTH,
