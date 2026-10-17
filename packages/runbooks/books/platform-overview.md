@@ -82,8 +82,6 @@ gp-api (53 controllers, 20+ Prisma models)
   │     PATH_TO_VICTORY          → Win number calculations (3 retry max, gold/silver flows)
   │     TCR_COMPLIANCE_STATUS_CHECK → Peerly 10DLC verification
   │     DOMAIN_EMAIL_FORWARDING  → ForwardEmail domain setup
-  │     POLL_CREATION            → Sample contacts + send CSV to Tevyn via Slack
-  │     POLL_EXPANSION           → Expand poll audience (exclude already sent)
   │     POLL_ANALYSIS_COMPLETE   → Process poll results from gp-ai-projects
   │     experiment_run           → PMF Engine: dispatch a runbook to the agent worker
   │
@@ -543,14 +541,12 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ## Polling System — End to End
 
-1. **Create poll**: gp-webapp → gp-api `POST /polls` → enqueues `POLL_CREATION` to SQS
-2. **Sample voters**: Queue consumer calls `ContactsService.sampleContacts` → `VoterQueryService.samplePeople` (hash-bucketed random sampling, in-process against the warehouse)
-3. **Build CSV**: Generates CSV (id, firstName, lastName, cellPhone), uploads to S3 (`tevyn-poll-csvs-{stage}`)
-4. **Send to Tevyn**: Posts CSV + poll message to Slack channel for Tevyn (SMS delivery service)
-5. **Expand poll** (optional): `POLL_EXPANSION` message — samples more contacts, excludes already-sent
-6. **Analyze results**: gp-ai-projects V1 pipeline runs (triggered by Lambda) — downloads response data from S3, clusters messages via hierarchical discovery + Gemini LLM, ranks top 3 clusters
-7. **Publish results**: V1 pipeline publishes `POLL_ANALYSIS_COMPLETE` event to SQS with top issues
-8. **Store results**: gp-api queue consumer creates `PollIssue` records, marks poll complete, determines confidence (HIGH if 75+ responses or >= 10% of constituency)
+1. **Create poll**: gp-webapp → gp-api `POST /outreach/serve/poll` (onboarding uses `POST /polls/initial-poll`) → an `Outreach` row with `outreachType: poll`
+2. **Hold for review**: payment (or the free onboarding claim) moves the row to `pending`; staff approve it in gp-admin Poll approvals
+3. **Send**: approval enqueues `OUTREACH_TEXT_SEND`; the delivery layer samples contacts with the opt-out scrub, builds the CSV (id, firstName, lastName, cellPhone), and posts it to the fulfilment Slack channel
+4. **Analyze results**: gp-ai-projects V1 pipeline runs (triggered by Lambda) — downloads response data from S3, clusters messages via hierarchical discovery + Gemini LLM, ranks top 3 clusters
+5. **Publish results**: V1 pipeline publishes `POLL_ANALYSIS_COMPLETE` event to SQS with top issues
+6. **Store results**: gp-api queue consumer creates `PollIssue` records, marks poll complete, determines confidence (HIGH if 75+ responses or >= 10% of constituency)
 
 ---
 

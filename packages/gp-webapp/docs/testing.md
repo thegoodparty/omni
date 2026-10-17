@@ -35,7 +35,11 @@ api.mock('GET /v1/polls', {
 // Dynamic — body / query / params are typed
 api.mock('POST /v1/polls/initial-poll', ({ body }) => ({
   status: 200,
-  data: { ...mockPoll, message: body.message },
+  data: {
+    outreachId: 1,
+    recipientCount: 500,
+    amountCents: body.question.length,
+  },
 }))
 
 // Ordered — each response served exactly once

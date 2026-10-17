@@ -4,7 +4,6 @@ import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
   OutreachType,
-  Poll,
   PollAudienceKind,
   PollIndividualMessageSender,
   Prisma,
@@ -12,10 +11,8 @@ import {
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
-import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
+import { addMinutes, isValid, parseISO } from 'date-fns'
 import { groupBy } from 'es-toolkit'
-import { formatInTimeZone } from 'date-fns-tz'
-import parseCsv from 'neat-csv'
 import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -24,8 +21,6 @@ import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
-import { PersonOutput } from 'src/contacts/schemas/person.schema'
-import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
@@ -37,16 +32,12 @@ import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCo
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
-import {
-  POLL_INDIVIDUAL_MESSAGE_NAMESPACE,
-  sendTevynAPIPollMessage,
-} from 'src/polls/utils/polls.utils'
+import { POLL_INDIVIDUAL_MESSAGE_NAMESPACE } from 'src/polls/utils/polls.utils'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { UsersService } from 'src/users/services/users.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { csvEscape } from '../../shared/util/csv.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
 import { EVENTS } from '../../vendors/segment/segment.types'
@@ -69,10 +60,6 @@ import {
   P2pPhoneListBuildMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
-  PollCreationEvent,
-  PollCreationEventSchema,
-  PollExpansionEvent,
-  PollExpansionEventSchema,
   PollClusterAnalysisJsonSchema,
   QueueMessage,
   QueueType,
@@ -426,20 +413,6 @@ export class QueueConsumerService {
         await this.feedbackSynthesisIngest.handle(event.data)
         return true
       }
-      case QueueType.POLL_CREATION:
-        this.logger.info('received pollCreation message')
-        const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)
-        return await this.handlePollCreation(
-          pollCreationEvent,
-          message.MessageId!,
-        )
-      case QueueType.POLL_EXPANSION:
-        this.logger.info('received pollExpansion message')
-        const pollExpansionEvent = PollExpansionEventSchema.parse(queueMessage)
-        return await this.handlePollExpansion(
-          pollExpansionEvent,
-          message.MessageId!,
-        )
       case QueueType.CAMPAIGN_PLAN_COMPLETE:
         this.logger.info(
           { data: queueMessage.data, messageId: message.MessageId },
@@ -1249,46 +1222,6 @@ export class QueueConsumerService {
     }
   }
 
-  private async handlePollCreation(
-    event: PollCreationEvent,
-    messageId: string,
-  ) {
-    return this.triggerPollExecution({
-      pollId: event.data.pollId,
-      messageId,
-      sampleParams: async (poll) => {
-        return { size: poll.targetAudienceSize }
-      },
-      isExpansion: false,
-    })
-  }
-
-  private async handlePollExpansion(
-    event: PollExpansionEvent,
-    messageId: string,
-  ) {
-    return this.triggerPollExecution({
-      pollId: event.data.pollId,
-      messageId,
-      sampleParams: async (poll) => {
-        const alreadySent =
-          await this.pollsService.client.pollIndividualMessage.findMany({
-            where: {
-              pollId: poll.id,
-              sender: PollIndividualMessageSender.ELECTED_OFFICIAL,
-            },
-            select: { personId: true },
-          })
-
-        return {
-          size: poll.targetAudienceSize - alreadySent.length,
-          excludeIds: alreadySent.map((p) => p.personId),
-        }
-      },
-      isExpansion: true,
-    })
-  }
-
   // Reads the agent artifact to decide terminal vs resumable status. The result
   // message only says success/failed; data_quality/next_action live in the S3
   // artifact. Falls back to COMPLETED on any read/parse failure so a transient
@@ -1484,125 +1417,6 @@ export class QueueConsumerService {
     return true
   }
 
-  private async triggerPollExecution(params: {
-    pollId: string
-    messageId: string
-    sampleParams: (poll: Poll) => Promise<SampleContacts> | SampleContacts
-    isExpansion: boolean
-  }): Promise<boolean> {
-    const data = await this.getPollAndOrganization(params.pollId)
-    if (!data) {
-      this.logger.info(`${params.pollId} Poll not found, ignoring event`)
-      return true
-    }
-    const { poll, office, organization } = data
-
-    const user = await this.usersService.findUnique({
-      where: { id: office.userId },
-    })
-    this.logger.info(`${params.pollId} Fetched sample and user`)
-
-    if (!user) {
-      this.logger.info(`${params.pollId} User not found, ignoring event`)
-      return true
-    }
-
-    const bucket = process.env.TEVYN_POLL_CSVS_BUCKET
-    if (!bucket) {
-      throw new Error(
-        `${params.pollId} TEVYN_POLL_CSVS_BUCKET environment variable is required`,
-      )
-    }
-    // It's important that this filename be deterministic based on the particular poll "run".
-    // That way, in the event of a failure and retry, we can safely re-use a previously generated CSV.
-    // We use the estimated completion date here because it gets set when the poll expanded, and then
-    // does not change.
-    const fileName = `${poll.id}-${poll.estimatedCompletionDate.toISOString()}.csv`
-    const key = this.s3Service.buildKey(undefined, fileName)
-
-    // 1. Get or create the CSV file of a random sample of contacts.
-    // We do get-or-create here so that the logic remains retry-safe in the event of a failure.
-    let csv = await this.s3Service.getFile(bucket, key)
-
-    if (!csv) {
-      this.logger.info(
-        `${params.pollId} No existing CSV found, generating new one`,
-      )
-      const sampleParams = await params.sampleParams(poll)
-      this.logger.info(
-        { sampleParams },
-        `${poll.id} Sampling contacts with params: `,
-      )
-      const sample = await this.contactsService.sampleContacts(
-        sampleParams,
-        organization,
-      )
-      if (sample.length === 0) {
-        throw new Error(`No contacts returned in sample for poll ${poll.id}`)
-      }
-      this.logger.info(
-        `${params.pollId} Generated sample of ${sample.length} contacts`,
-      )
-      csv = buildCsvFromContacts(sample)
-      await this.s3Service.uploadFile(bucket, csv, key, {
-        contentType: 'text/csv',
-      })
-    }
-
-    const people = await parseCsv<{ id: string; cellPhone: string }>(csv)
-
-    // 2. Create individual poll messages
-    // IDs are deterministic (`pollId-personId`) so re-processing the same CSV
-    // is safe: skipDuplicates silently ignores rows that already exist.
-    const now = new Date()
-    const messages: Prisma.PollIndividualMessageCreateManyInput[] = people.map(
-      (person) => ({
-        id: `${poll.id}-${person.id}`,
-        pollId: poll.id,
-        personId: person.id!,
-        sentAt: now,
-        personCellPhone: normalizePhoneNumber(person.cellPhone),
-        electedOfficeId: poll.electedOfficeId,
-      }),
-    )
-    await this.pollsService.client.pollIndividualMessage.createMany({
-      data: messages,
-      skipDuplicates: true,
-    })
-
-    this.logger.info(`${params.pollId} Created individual poll messages`)
-
-    // 3. Send CSV file to Slack for Tevyn
-    if (!this.slackService.isConfigured) {
-      this.logger.warn(
-        `${params.pollId} Slack not configured, skipping Tevyn poll message`,
-      )
-    } else {
-      await sendTevynAPIPollMessage(this.slackService.client, {
-        message: poll.messageContent,
-        pollId: poll.id,
-        scheduledDate: isBefore(poll.scheduledDate, new Date())
-          ? 'Now'
-          : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
-            ' ET',
-        csv: {
-          fileContent: Buffer.from(csv),
-          filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
-        },
-        imageUrl: poll.imageUrl || undefined,
-        userInfo: {
-          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-          email: user.email,
-          phone: user.phone || undefined,
-        },
-        isExpansion: params.isExpansion,
-      })
-      this.logger.info(`${params.pollId} Slack message sent`)
-    }
-
-    return true
-  }
-
   private async getPollAndOrganization(pollId: string) {
     const poll = await this.pollsService.findUnique({
       where: { id: pollId },
@@ -1693,19 +1507,4 @@ export class QueueConsumerService {
       throw err
     }
   }
-}
-
-const buildCsvFromContacts = (people: PersonOutput[]) => {
-  const headers: (keyof PersonOutput)[] = [
-    'id',
-    'firstName',
-    'lastName',
-    'cellPhone',
-  ]
-  const lines = [headers.join(',')]
-  for (const person of people) {
-    const row = headers.map((key) => csvEscape(person?.[key] ?? ''))
-    lines.push(row.join(','))
-  }
-  return lines.join('\n')
 }

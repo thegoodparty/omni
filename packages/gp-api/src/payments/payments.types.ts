@@ -36,7 +36,6 @@ export enum PaymentStatus {
 export enum PaymentType {
   DOMAIN_REGISTRATION = 'domain_registration',
   OUTREACH_PURCHASE = 'outreach_purchase',
-  POLL = 'poll',
 }
 
 export interface CustomCheckoutSessionPayload {
@@ -64,11 +63,6 @@ export type PaymentIntentPayload<T extends PaymentType> = {
       domainName: string
       domainId?: number
     }
-  : T extends PaymentType.POLL
-    ? {
-        count: number
-        pollId: number
-      }
-    : never)
+  : never)
 
 export type PurchaseIntentPayloadEntry = PurchaseType | string | number

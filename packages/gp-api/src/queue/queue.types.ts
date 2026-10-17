@@ -12,8 +12,6 @@ export enum QueueType {
   // capture run's memos. Shape: FeedbackSynthesisCompleteEventSchema in
   // @goodparty_org/contracts.
   FEEDBACK_SYNTHESIS_COMPLETE = 'feedbackSynthesisComplete',
-  POLL_CREATION = 'pollCreation',
-  POLL_EXPANSION = 'pollExpansion',
   CAMPAIGN_PLAN_COMPLETE = 'campaignPlanComplete',
   WEEKLY_TASKS_DIGEST = 'weeklyTasksDigest',
   // A campaign story field was written. The handler decides whether the story
@@ -57,8 +55,6 @@ export type QueueMessage =
       type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE
       data: FeedbackSynthesisCompleteEvent['data']
     }
-  | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
-  | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
   | {
       type: QueueType.OUTREACH_TEXT_SEND
       data: OutreachTextSendEvent['data']
@@ -189,18 +185,6 @@ export const PollAnalysisCompleteEventSchema = z.object({
 export type PollAnalysisCompleteEvent = z.infer<
   typeof PollAnalysisCompleteEventSchema
 >
-
-export const PollCreationEventSchema = z.object({
-  type: z.literal(QueueType.POLL_CREATION),
-  data: z.object({ pollId: z.string() }),
-})
-export type PollCreationEvent = z.infer<typeof PollCreationEventSchema>
-
-export const PollExpansionEventSchema = z.object({
-  type: z.literal(QueueType.POLL_EXPANSION),
-  data: z.object({ pollId: z.string() }),
-})
-export type PollExpansionEvent = z.infer<typeof PollExpansionEventSchema>
 
 // Outbound trigger for the shared delivery layer. Carries the envelope id and
 // nothing else: everything the send needs (audience, message, schedule) is

@@ -11,7 +11,6 @@ export enum PurchaseType {
   // has no identity for. See outreach/services/outreachServeSmsPurchase
   // .service.ts and docs/features/serve-sms.md, "Layer 2: SMS (Serve)".
   SERVE_TEXT = 'SERVE_TEXT',
-  POLL = 'POLL',
 }
 
 export interface BasePurchaseMetadata {

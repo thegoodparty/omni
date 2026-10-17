@@ -184,7 +184,7 @@ export default function OnboardingPage() {
   const submit = async () => {
     try {
       setShowError(false)
-      const poll = await submitOnboarding()
+      await submitOnboarding()
       await identifyUser(user?.id, { 'Serve Activated': true })
       const sendDate = formData.scheduledDate
         ? format(formData.scheduledDate, 'dd-MM-yyyy')
@@ -193,9 +193,7 @@ export default function OnboardingPage() {
         sendDate,
         message: demoMessageText,
       })
-      router.push(
-        `/polls/onboarding/success?pollId=${encodeURIComponent(poll.id)}`,
-      )
+      router.push('/polls/onboarding/success')
     } catch (error) {
       console.error('Failed to submit onboarding:', error)
       setShowError(true)

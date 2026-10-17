@@ -27,8 +27,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
  * always campaign-scoped, and its post-purchase step returns early unless a
  * `campaignId` is present and `outreachType === 'p2p'` before finalizing to
  * Peerly. A Serve row has no campaign, no Peerly identity and no 10DLC
- * registration, so none of that applies. The closer precedent is
- * `PollPurchaseHandlerService`, which is org-scoped the same way.
+ * registration, so none of that applies.
  *
  * See docs/features/serve-sms.md, "Layer 2: SMS (Serve)" → Create and pay,
  * and "Layer 1: Delivery" → Outbound → Trigger.
