@@ -962,5 +962,38 @@ describe('PersonsService', () => {
         cells: [],
       })
     })
+
+    it('reads a district once for concurrent requests that share it', async () => {
+      findUnique
+        .mockResolvedValueOnce(personInDistrict('d1'))
+        .mockResolvedValueOnce(personInDistrict('d1'))
+      densityFindMany.mockResolvedValue([
+        { lat: 34.1, lng: -118.2, voterCount: 12 },
+      ])
+      metaFindUnique.mockResolvedValue({ coverage: 0.5 })
+
+      const [a, b] = await Promise.all([
+        service.getVoterDensity('p1'),
+        service.getVoterDensity('p2'),
+      ])
+
+      expect(densityFindMany).toHaveBeenCalledTimes(1)
+      expect(a.cells).toEqual(b.cells)
+      expect(a.personId).toBe('p1')
+      expect(b.personId).toBe('p2')
+    })
+
+    it('does not replay a failed district read', async () => {
+      findUnique.mockResolvedValue(personInDistrict('d1'))
+      densityFindMany.mockRejectedValueOnce(new Error('pool timeout'))
+
+      await expect(service.getVoterDensity('p1')).rejects.toThrow(
+        'pool timeout',
+      )
+      densityFindMany.mockResolvedValueOnce([{ lat: 1, lng: 2, voterCount: 3 }])
+
+      const result = await service.getVoterDensity('p1')
+      expect(result.cells).toHaveLength(1)
+    })
   })
 })

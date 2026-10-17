@@ -75,6 +75,16 @@ const PERSON_SPINE_INCLUDE = {
 // forbids — cannot spin.
 const MAX_MERGE_HOPS = 4
 
+// Many people share one district. The public page fans out one request per
+// visitor, each of which used to read the same (often thousands of) rows on its
+// own pool connection; a burst held all of them for the 20s pool timeout and
+// surfaced as 500s. Concurrent reads of one district now share a single query.
+// Nothing is kept once it settles, so results are never stale.
+type DensityRead = {
+  coverage: number | null
+  cells: VoterDensityCell[]
+}
+
 /** A single precomputed heat-map cell: an H3 centroid and its voter count. */
 export interface VoterDensityCell {
   lat: number
@@ -84,6 +94,8 @@ export interface VoterDensityCell {
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
+  private readonly inFlightDensity = new Map<string, Promise<DensityRead>>()
+
   async getPersons(filterDto: PersonFilterDto) {
     const {
       slug,
@@ -301,6 +313,32 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       return { personId, districtId: null, coverage: null, cells: [] }
     }
 
+    const { coverage, cells } = await this.readDistrictDensity(
+      districtId,
+      resolution,
+    )
+    return { personId, districtId, coverage, cells }
+  }
+
+  private readDistrictDensity(
+    districtId: string,
+    resolution: number,
+  ): Promise<DensityRead> {
+    const key = `${districtId}:${resolution}`
+    const inFlight = this.inFlightDensity.get(key)
+    if (inFlight) return inFlight
+
+    const read = this.queryDistrictDensity(districtId, resolution).finally(() =>
+      this.inFlightDensity.delete(key),
+    )
+    this.inFlightDensity.set(key, read)
+    return read
+  }
+
+  private async queryDistrictDensity(
+    districtId: string,
+    resolution: number,
+  ): Promise<DensityRead> {
     // The cells and their coverage meta are independent reads on the same key;
     // fetch them together.
     const [rows, meta] = await Promise.all([
@@ -317,8 +355,6 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     ])
 
     return {
-      personId,
-      districtId,
       coverage: meta?.coverage ?? null,
       cells: rows.map((r) => ({ lat: r.lat, lng: r.lng, count: r.voterCount })),
     }
