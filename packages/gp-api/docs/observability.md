@@ -8,11 +8,11 @@ There are two categories of alerts:
 
 ### Route Alerts (auto-generated)
 
-Five rules cover every owned route in the service:
+Two rules cover every route in the service:
 
 - **Error count**: Fires when requests to a route return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 60-second window that ends 30 seconds before each evaluation. A group whose controllers are in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
 
-These are generated from the controllers in the codebase -- you don't write them by hand -- and bucketed into the smallest number of Loki queries that can still say the right thing. See [Route alerts are five grouped rules](#route-alerts-are-five-grouped-rules). A controller's routes are covered only if it has an owner (see [Ownership](#ownership)); the few deliberately left uncovered are listed in `CONTROLLERS_WITHOUT_ROUTE_ALERTS`.
+These are generated from the controllers in the codebase -- you don't write them by hand -- and bucketed into the smallest number of Loki queries that can still say the right thing. See [Route alerts are two grouped rules](#route-alerts-are-two-grouped-rules). Every controller's routes are covered except the few deliberately left out in `CONTROLLERS_WITHOUT_ROUTE_ALERTS` (see [Coverage](#coverage)).
 
 ### Global Alerts (hand-written)
 
@@ -21,7 +21,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **High CPU utilization** (>80% for 5 min)
 - **High memory utilization** (>90% for 5 min)
 - **Missing health check logs** (no `/v1/health` requests logged for 2 min)
-- **Synthesis fell back to the in-repo theme prompt** -- the polls and issue-feedback synthesis pipeline (`packages/gp-ai/serve/v1_pipeline`, clustering in `serve/hierarchical_discovery`) loads its cluster-naming prompt from Braintrust in strict mode, so a hosted placeholder the code doesn't supply raises and the pipeline falls back to its in-repo prompt -- the run still completes with themes, just from the older prompt, so nothing on screen looks wrong. The queue consumer logs the one line this reads, from both `handlePollAnalysisComplete` and the `feedbackSynthesisComplete` case (`src/queue/consumer/queueConsumer.service.ts`), since either product's run can hit it. Owned by both `serve-bugs` and `win-bugs` -- polls are Serve, issue capture is both. Investigate by comparing the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` actually supplies.
+- **Synthesis fell back to the in-repo theme prompt** -- the polls and issue-feedback synthesis pipeline (`packages/gp-ai/serve/v1_pipeline`, clustering in `serve/hierarchical_discovery`) loads its cluster-naming prompt from Braintrust in strict mode, so a hosted placeholder the code doesn't supply raises and the pipeline falls back to its in-repo prompt -- the run still completes with themes, just from the older prompt, so nothing on screen looks wrong. The queue consumer logs the one line this reads, from both `handlePollAnalysisComplete` and the `feedbackSynthesisComplete` case (`src/queue/consumer/queueConsumer.service.ts`), since either product's run can hit it. Investigate by comparing the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` actually supplies.
 - **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h, about a fifth of the daily pool) -- the global view nothing else gives, since nothing bounds per-organization spend any more: both limits door knocking had are removed, and one organization preparing a large canvass can legitimately reach this threshold in an evening (incident 99). Reaching it is a reason to look, not evidence of a loop. See gp-api `docs/door-knocking.md` § Spend visibility. Like the four tiers below it reads a recorded metric rather than Loki -- see [Door-knocking spend reads a recorded metric](#door-knocking-spend-reads-a-recorded-metric).
 - **Geoapify daily credit budget** at 60 / 80 / 90 / 95% consumed over 24h -- four rules generated from `alerting/geoapify-budget-alerts.ts`, escalating as the whole account approaches the wall. The ceiling above measures the _rate_ of a runaway; these measure how much of the _pool_ is left, which is what decides whether the next knock gets a route at all. **Their denominator is a hand-maintained constant** (`GEOAPIFY_DAILY_CREDIT_POOL`), because the allowance lives in Geoapify's billing console and nothing in gp-api can read it -- if all four fire at once, suspect the constant before the spend.
 - **A recording rule has stopped writing its metric** (`gp_api:door_knocking_credits:sum1m` absent for 30 min) -- the five rules above are blind while it fires, and nothing else can tell that state from quiet. See [Door-knocking spend reads a recorded metric](#door-knocking-spend-reads-a-recorded-metric).
@@ -36,17 +36,17 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 
 The rule fires when more than 30% of probe executions fail over 5 minutes, sustained for 2 minutes. `rate()` over 5 minutes of a once-a-minute counter sees 4 intervals per probe, so the window holds 12 executions across the three probes, and each failed run stays in it for about 4 minutes. At the old 0.1 threshold two failed runs in the same minute (2/12) paged. That happened twice in the 30 days to 2026-10-16 (2026-10-08 07:41Z and 2026-10-09 07:27Z, ENG-11243): one gp-api task stalled for about 20 seconds under a traffic burst, two probes hit it and timed out at 10s, and the ALB served no 5xx. No other window in those 30 days went above 2/12. A full outage fails all three probes every minute: 3/12 after one minute, 6/12 after two, so it clears 30% within about two minutes and pages about 4 minutes after it starts.
 
-**It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Ownership](#ownership)). The dev check stays provisioned but disabled; dev has no alert rules for it to raise, so re-enabling it would also mean provisioning alerting there.
+**It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Overview](#overview)). The dev check stays provisioned but disabled; dev has no alert rules for it to raise, so re-enabling it would also mean provisioning alerting there.
 
 The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month against the 100,000 included.
 
-## Route alerts are five grouped rules
+## Route alerts are two grouped rules
 
-`routeAlertGroups()` in `deploy/components/alerting/route-alerts.ts` buckets every owned controller by the only two things that ever differ between these rules: the owner set, and whether `SERVER_ERRORS_ONLY` applies. Both are properties of the rule rather than of the series it returns, so controllers that agree on both share one rule; the anchored endpoint alternation is what keeps them apart. That is five rules today, where there was one per controller.
+`routeAlertGroups()` in `deploy/components/alerting/route-alerts.ts` buckets every watched controller by the only thing that differs between these rules: whether `SERVER_ERRORS_ONLY` applies. That is a property of the rule rather than of the series it returns, so controllers that agree on it share one rule; the anchored endpoint alternation is what keeps them apart. That is two rules, `route-errors` and `route-errors-server-errors`, where there was once one per controller.
 
 Each is `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | <status filter> | request_endpoint =~ "<the group's routes>" | keep request_endpoint [1m]))`, evaluated every 60 seconds over `relativeTimeRange {from: 90, to: 30}`. Every rule pages on a single qualifying error.
 
-**Paging is still per route.** `sum by (request_endpoint)` returns one series per failing route, Grafana raises one alert instance per series, and `summaryDetail` puts the endpoint in the title. A grouped rule pages exactly as a per-controller rule did. What it no longer does is name the controller, which the endpoint already implies, and 75 alert slugs became five -- alert history and any silence keyed to an old slug did not survive that.
+**Paging is still per route.** `sum by (request_endpoint)` returns one series per failing route, Grafana raises one alert instance per series, and `summaryDetail` puts the endpoint in the title. A grouped rule pages exactly as a per-controller rule did. What it no longer does is name the controller, which the endpoint already implies.
 
 **Delivery is per route too.** The notification policy groups by `alert_slug` and `request_endpoint` (`deploy/components/alerting/alert-routing.policy.json`), so a second route failing on the same rule gets its own group and its own 30-second `group_wait` delivery. Grouped by slug alone, it joined the group the first route had already notified and waited for the 5-minute `group_interval`. A one-minute window has resolved it by then, so it went out as resolved, which pages nobody -- `POST /v1/domains/purchase` was lost exactly this way on 2026-09-30. Alerts without a `request_endpoint` label still group by slug alone. The policy tree is hand-edited in Grafana Cloud, not provisioned; the snapshot is what the tests check and what the deploy compares the live tree against.
 
@@ -83,17 +83,12 @@ When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack cha
 - The environment the alert fired in, tagged `[DEV]` or `[PROD]` on both the title and the body (which of the two a contact point shows is Grafana's default templating to decide, so neither omits it)
 - The alert name and a description with guidance on how to investigate
 - A link back to the alert in Grafana
-- A mention of the owning Slack group (`@serve-bugs` or `@win-bugs`) if applicable
 
 You can also view all alert states in the [Grafana Alerting UI](https://goodparty.grafana.net/alerting/list).
 
-## Ownership
+## Coverage
 
-_Route_ alerts follow a **Serve/Win ownership model**. Each controller is assigned to `serve-bugs`, `win-bugs` or both in `CONTROLLER_OWNERS` in `deploy/components/alerts.ts`, which decides who is notified and therefore which of the five rules its routes land in. `ALERT_OWNERSHIP` is derived from that map and keeps its old shape, so nothing downstream changed.
-
-Both is the honest answer for a shared surface rather than a hedge: auth, users, payments and elections serve both products, and over-tagging costs someone a glance where under-tagging costs an outage.
-
-A controller with no owner gets **no rule at all**, rather than a paused one. It has to be listed in `CONTROLLERS_WITHOUT_ROUTE_ALERTS` with a reason instead, and `route-alerts.test.ts` fails a controller that is in neither list, so a new controller cannot default into silence.
+Every controller gets a route alert unless it is listed in `CONTROLLERS_WITHOUT_ROUTE_ALERTS` in `deploy/components/alerts.ts` with a reason. A new controller is watched by default; there is nothing to opt in.
 
 ## Key files
 
@@ -101,19 +96,17 @@ All alerting configuration lives in `deploy/`:
 
 | File                                                | Purpose                                                                                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `deploy/components/alerts.ts`                       | Ownership, the per-controller status override, and the global alerts                                                                       |
-| `deploy/components/alerting/route-alerts.ts`        | The route groups and the five Loki rules they become; the Slack body links to the fired route's exception lines                            |
+| `deploy/components/alerts.ts`                       | The route alert opt-out list, the per-controller status override, and the global alerts                                                    |
+| `deploy/components/alerting/route-alerts.ts`        | The route groups and the two Loki rules they become; the Slack body links to the fired route's exception lines                             |
 | `deploy/components/alerting/door-knocking-spend.ts` | The one recording rule, and the helper every Geoapify alert reads it through                                                               |
 | `deploy/components/alerting/provisioned-alerts.ts`  | The recording-rule list, the provider dialect their expressions have to be written in, and the one list of provisioned slugs routing walks |
-| `deploy/components/alerting/alerts.types.ts`        | Type definitions for `Alert`, `RecordingRule` and `SlackGroup`                                                                             |
-| `deploy/components/alerting/alert-notification.ts`  | Notification title and body: environment tag, mention                                                                                      |
+| `deploy/components/alerting/alerts.types.ts`        | Type definitions for `Alert` and `RecordingRule`                                                                                           |
+| `deploy/components/alerting/alert-notification.ts`  | Notification title and body: environment tag, evaluation-error note                                                                        |
 | `deploy/components/grafana.ts`                      | Converts alerts into Grafana rule groups via Pulumi                                                                                        |
 
-## How to opt in a controller
+## How to opt out a controller
 
-Opting in a controller means assigning it an owner. Add it to `CONTROLLER_OWNERS` in `deploy/components/alerts.ts`. The controller name is the string from the `@Controller('...')` decorator (e.g., `@Controller('contacts')` -> `'contacts'`), and will be typesafe and autocompleted by your editor.
-
-Its routes join the matching group's rule on the next deploy.
+Add it to `CONTROLLERS_WITHOUT_ROUTE_ALERTS` in `deploy/components/alerts.ts` with a comment saying why its failures are not worth a page. The controller name is the string from the `@Controller('...')` decorator (e.g., `@Controller('contacts')` -> `'contacts'`), and will be typesafe and autocompleted by your editor.
 
 ### High-volume routes: prefer a ratio
 
@@ -167,7 +160,7 @@ This list narrowed in scope once **400 joined the global exclusions**. Door knoc
 
 The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages. Add a controller only when its 4xx vocabulary is deliberate, documented, and **not already excluded globally**. Everything else keeps the `≥ 400`-minus-exclusions rule.
 
-Per-route granularity, ownership, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
+Per-route granularity, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
 
 ## No status is also a fault
 
@@ -194,7 +187,6 @@ Add an entry to `GLOBAL_ALERTS` in `deploy/components/alerts.ts`:
   threshold: 1,                            // fires when expr result exceeds this value
   for: '5m',                               // must exceed threshold for this long before firing
   message: 'Description of what happened and how to investigate.',
-  notify: 'serve-bugs',                    // optional: which Slack group to ping
 }
 ```
 

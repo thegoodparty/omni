@@ -39,10 +39,9 @@ npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 
 **If you added or renamed a controller, run `npm run generate` first.**
 `src/generated/route-types.ts` is gitignored and built by
-`scripts/generate-route-types.ts`, and the alerting ownership tests read
+`scripts/generate-route-types.ts`, and the route alerting tests read
 `CONTROLLER_NAMES` from it. CI always generates fresh, so a stale local copy
-makes those tests pass here and fail there — a new controller with no entry in
-`CONTROLLER_OWNERS` is invisible until the PR is already open.
+makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
