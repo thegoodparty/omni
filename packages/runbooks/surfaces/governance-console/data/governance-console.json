@@ -2,27 +2,26 @@
  "changes": {
   "escalated": [],
   "new": [
-   "Ordinances - Draft Details Status Updated",
-   "Poll - Results Synthesis Complete",
-   "Profile - Running Against: Click Add New",
-   "Profile - Running Against: Click Save",
-   "Profile - Running Against: Submit Add New",
-   "Serve Onboarding - Office Completed",
-   "Serve Onboarding - Office Viewed",
-   "question_complete"
+   "Content Builder: Generation Completed",
+   "Content Builder: Generation Started",
+   "Pro Upgrade - Texting Setup Banner Viewed",
+   "Pro Upgrade - Texting Setup Banner: Click Start",
+   "Serve Onboarding - Know Your Constituents Completed",
+   "Serve Onboarding - Know Your Constituents Viewed"
   ],
   "resolved": [
-   "Candidate Website - Selected domain",
-   "Candidate Website - Started",
-   "Candidate Website - Started domain selection",
-   "Candidate Website - Unpublished",
-   "Contacts - Outreach Timeline Viewed",
-   "Navigation - Dashboard: Click Community",
-   "Onboarding - User Created",
-   "Profile - Running Against: Cancel Add New",
-   "Profile - Running Against: Cancel Edit",
-   "Profile - Running Against: Click Delete",
-   "Profile - Top Issues: Cancel Edit"
+   "Content Builder - Editor: Click Copy",
+   "Content Builder - Editor: Click Rename",
+   "Content Builder: Click Content",
+   "Content Builder: Click Continue Questions",
+   "Content Builder: Click Generate",
+   "Content Builder: Close Additional Inputs",
+   "Content Builder: Select Template",
+   "Navigation - Dashboard: Click Content Builder",
+   "Serve Onboarding - Office Completed",
+   "Serve Onboarding - Office Viewed",
+   "Serve Onboarding - Party Designation Blocked",
+   "ai_content_generation_start"
   ],
   "still_open": [
    "AI Assistant - Response Completed",
@@ -36,31 +35,27 @@
    "Community Issues - Dispatch Skipped",
    "Constituent Data - Activity List Created",
    "Constituent Data - Note Added",
-   "Content Builder - Editor: Click Copy",
-   "Content Builder - Editor: Click Rename",
-   "Content Builder: Click Content",
-   "Content Builder: Click Continue Questions",
-   "Content Builder: Click Generate",
-   "Content Builder: Close Additional Inputs",
-   "Content Builder: Select Template",
    "Dashboard - Campaign Plan: Plan Shared",
-   "Navigation - Dashboard: Click Content Builder",
    "Ordinances - Draft Details Deleted",
+   "Ordinances - Draft Details Status Updated",
    "Payment - Completed",
    "Payment - Review and Pay Screen Viewed",
+   "Poll - Results Synthesis Complete",
    "Polls - Expand Poll Recommendations Completed",
    "Polls - Expand Poll Recommendations Viewed",
    "Polls - Expand Poll Review Viewed",
+   "Profile - Running Against: Click Add New",
    "Profile - Running Against: Click Edit",
+   "Profile - Running Against: Click Save",
+   "Profile - Running Against: Submit Add New",
    "Profile - Running Against: Submit Edit",
-   "Serve Onboarding - Party Designation Blocked",
    "Serve Onboarding - SMS Poll Creation Failed",
    "Serve Onboarding - SMS Poll Sent",
    "Serve Onboarding - Success Page Viewed",
    "Voter Data - Activity List Created",
    "Win - Opponent Activity Viewed",
    "Win - Self Research Completed",
-   "ai_content_generation_start"
+   "question_complete"
   ]
  },
  "event_cards": {
@@ -284,15 +279,15 @@
    "area": "Campaign Story",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 453,
-   "count_total": 1365,
+   "count_30d": 441,
+   "count_total": 1418,
    "declared_intent": "in use",
    "description": "Fired when a user accepts an AI-rewritten campaign story.",
    "display_name": "Campaign Story - Rewrite Accepted",
    "fires_on": "Dashboard Campaign Story page, accepting an AI-rewritten story field",
    "fires_on_source": "govern",
    "first_seen": "2026-06-24",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -307,7 +302,7 @@
     "Do the AI-generated Win artifacts get opened and acted on, or just generated?"
    ],
    "series": [
-    196,
+    63,
     129,
     143,
     112,
@@ -332,15 +327,15 @@
    "area": "Campaign Story",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 13,
-   "count_total": 53,
+   "count_30d": 18,
+   "count_total": 60,
    "declared_intent": "in use",
    "description": "Fired when a user discards an AI-rewritten campaign story.",
    "display_name": "Campaign Story - Rewrite Discarded",
    "fires_on": "Campaign Story editor, discarding an AI rewrite (undo)",
    "fires_on_source": "govern",
    "first_seen": "2026-06-24",
-   "last_seen": "2026-10-05",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -353,7 +348,7 @@
    },
    "questions": [],
    "series": [
-    5,
+    0,
     4,
     7,
     2,
@@ -378,15 +373,15 @@
    "area": "Campaign Story",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 461,
-   "count_total": 1406,
+   "count_30d": 449,
+   "count_total": 1459,
    "declared_intent": "in use",
    "description": "Fired when a user requests an AI rewrite of their campaign story.",
    "display_name": "Campaign Story - Rewrite Requested",
    "fires_on": "Dashboard Campaign Story page, clicking to request an AI rewrite of a story field",
    "fires_on_source": "govern",
    "first_seen": "2026-06-24",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -399,7 +394,7 @@
    },
    "questions": [],
    "series": [
-    198,
+    64,
     130,
     143,
     113,
@@ -557,40 +552,6 @@
    "used_by": [],
    "watchlist_status": "\u2014"
   },
-  "Constituent Data - Follow Up List Created": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Constituent Data",
-   "call_site_count": 2,
-   "call_site_retired_date": null,
-   "count_30d": 0,
-   "count_total": 0,
-   "declared_intent": "",
-   "description": "",
-   "display_name": "Constituent Data - Follow Up List Created",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "",
-   "last_seen": "",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "bryclevgp@users.noreply.github.com",
-    "instrumented_date": "2026-09-18",
-    "instrumented_pr": "https://github.com/thegoodparty/omni/pull/1990",
-    "retired_author_email": "",
-    "retired_date": "",
-    "retired_pr": ""
-   },
-   "questions": [],
-   "series": [],
-   "status": "instrumented_never_observed",
-   "supersession": "",
-   "tags": [],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
   "Constituent Data - Note Added": {
    "anchor_confidence": "",
    "anchor_flag_reason": "",
@@ -633,15 +594,15 @@
    "area": "Contacts",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 31,
-   "count_total": 41,
+   "count_30d": 50,
+   "count_total": 60,
    "declared_intent": "in use",
    "description": "How often do users open the CRM contacts assistant, and from where (a new message vs the history popover)?",
    "display_name": "Contacts - Assistant Chat Opened",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-07-24",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -662,7 +623,7 @@
     2,
     0,
     8,
-    21
+    24
    ],
    "status": "active",
    "supersession": "",
@@ -679,15 +640,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 71,
-   "count_total": 90,
+   "count_30d": 102,
+   "count_total": 121,
    "declared_intent": "in use",
    "description": "Do users who open the contacts assistant actually send messages (open-to-send drop-off), and how many?",
    "display_name": "Contacts - Assistant Message Sent",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-07-24",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -708,7 +669,7 @@
     0,
     0,
     10,
-    61
+    70
    ],
    "status": "active",
    "supersession": "",
@@ -725,15 +686,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 3381,
-   "count_total": 9776,
+   "count_30d": 3456,
+   "count_total": 10399,
    "declared_intent": "in use",
    "description": "Fired when user views the \"Contacts\" screen in the Contacts flow.",
    "display_name": "Contacts - Contacts Viewed",
    "fires_on": "Contacts screen (CRM view) in the dashboard, fires automatically when the page loads",
    "fires_on_source": "govern",
    "first_seen": "2026-06-17",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -746,15 +707,15 @@
    },
    "questions": [],
    "series": [
-    571,
+    205,
     474,
     643,
     617,
     613,
     740,
-    663,
+    664,
     836,
-    903
+    929
    ],
    "status": "active",
    "supersession": "",
@@ -771,15 +732,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 483,
-   "count_total": 1357,
+   "count_30d": 479,
+   "count_total": 1416,
    "declared_intent": "in use",
    "description": "Fired when user downloads a Contacts artifact.",
    "display_name": "Contacts - Download",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2025-10-08",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -792,7 +753,7 @@
    },
    "questions": [],
    "series": [
-    46,
+    18,
     50,
     78,
     79,
@@ -817,15 +778,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 38,
-   "count_total": 38,
+   "count_30d": 98,
+   "count_total": 98,
    "declared_intent": "",
    "description": "",
    "display_name": "Contacts - List Wizard Boundary Completed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-20",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -846,7 +807,7 @@
     3,
     5,
     4,
-    26
+    27
    ],
    "status": "active",
    "supersession": "",
@@ -861,15 +822,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 49,
-   "count_total": 49,
+   "count_30d": 118,
+   "count_total": 118,
    "declared_intent": "",
    "description": "",
    "display_name": "Contacts - List Wizard Boundary Viewed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-20",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -890,7 +851,7 @@
     3,
     9,
     6,
-    31
+    32
    ],
    "status": "active",
    "supersession": "",
@@ -905,15 +866,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 453,
-   "count_total": 743,
+   "count_30d": 473,
+   "count_total": 810,
    "declared_intent": "in use",
    "description": "How many users complete the create-list wizard's conditions stage and advance to naming, per branch?",
    "display_name": "Contacts - List Wizard Conditions Completed",
    "fires_on": "Contacts CRM, clicking Next after completing the conditions step of the Create List wizard",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -926,7 +887,7 @@
    },
    "questions": [],
    "series": [
-    44,
+    10,
     39,
     59,
     52,
@@ -934,7 +895,7 @@
     94,
     117,
     132,
-    86
+    87
    ],
    "status": "active",
    "supersession": "",
@@ -951,15 +912,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 702,
-   "count_total": 1208,
+   "count_30d": 726,
+   "count_total": 1320,
    "declared_intent": "in use",
    "description": "How many users reach the create-list wizard's conditions stage, per branch (re-fires on Back re-entry)?",
    "display_name": "Contacts - List Wizard Conditions Viewed",
    "fires_on": "Contacts CRM, reaching the conditions stage of the create-list wizard.",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -972,7 +933,7 @@
    },
    "questions": [],
    "series": [
-    75,
+    20,
     63,
     103,
     87,
@@ -980,7 +941,7 @@
     164,
     168,
     195,
-    140
+    141
    ],
    "status": "active",
    "supersession": "",
@@ -997,15 +958,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 629,
-   "count_total": 1082,
+   "count_30d": 646,
+   "count_total": 1183,
    "declared_intent": "in use",
    "description": "How many users choose a build method and advance out of the create-list wizard's method stage (per-stage drop-off)?",
    "display_name": "Contacts - List Wizard Method Completed",
    "fires_on": "Create-list wizard in Contacts/CRM, clicking Next after choosing a list build method",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1018,7 +979,7 @@
    },
    "questions": [],
    "series": [
-    73,
+    20,
     62,
     95,
     84,
@@ -1026,7 +987,7 @@
     152,
     134,
     179,
-    129
+    130
    ],
    "status": "active",
    "supersession": "",
@@ -1043,15 +1004,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 948,
-   "count_total": 1492,
+   "count_30d": 986,
+   "count_total": 1634,
    "declared_intent": "in use",
    "description": "How many users enter the create-list wizard's method stage (funnel top; Win only \u2014 Serve's 2-step wizard has no method stage)?",
    "display_name": "Contacts - List Wizard Method Viewed",
    "fires_on": "Contacts CRM, opening the create-list wizard on its first (method-choice) stage.",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1064,7 +1025,7 @@
    },
    "questions": [],
    "series": [
-    96,
+    25,
     70,
     111,
     95,
@@ -1072,7 +1033,7 @@
     201,
     173,
     369,
-    162
+    165
    ],
    "status": "active",
    "supersession": "",
@@ -1089,15 +1050,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 388,
-   "count_total": 631,
+   "count_30d": 396,
+   "count_total": 682,
    "declared_intent": "in use",
    "description": "How many users complete the create-list wizard funnel (fires alongside the List Created outcome on a successful create)?",
    "display_name": "Contacts - List Wizard Name Completed",
    "fires_on": "Contacts CRM, Create List wizard, completing the name step and creating the list",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1110,7 +1071,7 @@
    },
    "questions": [],
    "series": [
-    38,
+    10,
     35,
     50,
     47,
@@ -1118,7 +1079,7 @@
     79,
     89,
     120,
-    77
+    78
    ],
    "status": "active",
    "supersession": "",
@@ -1135,15 +1096,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 446,
-   "count_total": 737,
+   "count_30d": 459,
+   "count_total": 797,
    "declared_intent": "in use",
    "description": "How many users reach the create-list wizard's name stage (last-stage drop-off)?",
    "display_name": "Contacts - List Wizard Name Viewed",
    "fires_on": "Contacts CRM, reaching the \"name your list\" step of the Create List wizard",
    "fires_on_source": "govern",
    "first_seen": "2026-07-23",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1156,7 +1117,7 @@
    },
    "questions": [],
    "series": [
-    44,
+    10,
     40,
     59,
     52,
@@ -1164,7 +1125,7 @@
     94,
     113,
     131,
-    84
+    85
    ],
    "status": "active",
    "supersession": "",
@@ -1181,15 +1142,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 49,
-   "count_total": 736,
+   "count_30d": 53,
+   "count_total": 741,
    "declared_intent": "",
    "description": "A user created a contact segment.",
    "display_name": "Contacts - Segment Created",
    "fires_on": "Contacts/CRM lists, duplicating a list which creates a new segment",
    "fires_on_source": "govern",
    "first_seen": "2025-09-24",
-   "last_seen": "2026-10-05",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1205,7 +1166,7 @@
     "How many candidates create a voter file, across every path that creates one?"
    ],
    "series": [
-    1,
+    0,
     6,
     6,
     1,
@@ -1228,15 +1189,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 75,
-   "count_total": 284,
+   "count_30d": 67,
+   "count_total": 295,
    "declared_intent": "",
    "description": "A user deleted a contact segment.",
    "display_name": "Contacts - Segment Deleted",
    "fires_on": "Contacts/CRM lists page, confirming deletion of a saved contact segment/list.",
    "fires_on_source": "govern",
    "first_seen": "2025-10-07",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1249,7 +1210,7 @@
    },
    "questions": [],
    "series": [
-    8,
+    0,
     20,
     21,
     9,
@@ -1257,7 +1218,7 @@
     11,
     13,
     33,
-    5
+    7
    ],
    "status": "active",
    "supersession": "",
@@ -1272,15 +1233,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 206,
-   "count_total": 588,
+   "count_30d": 221,
+   "count_total": 606,
    "declared_intent": "",
    "description": "A user updated a contact segment.",
    "display_name": "Contacts - Segment Updated",
    "fires_on": "Contacts CRM segment editor, saving edits to a segment's filters/criteria (the 'List updated' confirmation).",
    "fires_on_source": "govern",
    "first_seen": "2025-10-07",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1301,7 +1262,7 @@
     15,
     15,
     157,
-    16
+    18
    ],
    "status": "active",
    "supersession": "",
@@ -1316,15 +1277,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 1321,
-   "count_total": 6108,
+   "count_30d": 1312,
+   "count_total": 6266,
    "declared_intent": "",
    "description": "A user viewed a contact segment.",
    "display_name": "Contacts - Segment Viewed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2025-09-19",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1337,7 +1298,7 @@
    },
    "questions": [],
    "series": [
-    109,
+    41,
     96,
     146,
     158,
@@ -1345,7 +1306,7 @@
     257,
     204,
     566,
-    223
+    232
    ],
    "status": "active",
    "supersession": "",
@@ -1360,15 +1321,15 @@
    "area": "Contacts",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 125,
-   "count_total": 235,
+   "count_30d": 120,
+   "count_total": 245,
    "declared_intent": "in use",
    "description": "How many campaigns and elected offices reach the contacts page but cannot resolve a district, so the page can only offer a support handoff?",
    "display_name": "Contacts - Voter Data Unavailable",
    "fires_on": "Contacts page, automatically fires when the voter district can't be resolved and the page falls back to a support handoff message.",
    "fires_on_source": "govern",
    "first_seen": "2026-08-08",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1381,7 +1342,7 @@
    },
    "questions": [],
    "series": [
-    23,
+    3,
     17,
     37,
     21,
@@ -1400,111 +1361,19 @@
    "used_by": [],
    "watchlist_status": "\u2014"
   },
-  "Content Builder - Editor: Click Copy": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Content Builder",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 1,
-   "count_total": 140,
-   "declared_intent": "not in use",
-   "description": "A user copied generated content.",
-   "display_name": "Content Builder - Editor: Click Copy",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2026-01-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    4,
-    1,
-    2,
-    2,
-    3,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
-  "Content Builder - Editor: Click Rename": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Content Builder",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 2,
-   "count_total": 340,
-   "declared_intent": "not in use",
-   "description": "A user renamed a content piece.",
-   "display_name": "Content Builder - Editor: Click Rename",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2025-05-29",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    3,
-    0,
-    2,
-    8,
-    7,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
-  "Content Builder: Click Content": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
+  "Content Builder: Generation Completed": {
+   "anchor_confidence": "low",
+   "anchor_flag_reason": "no_route",
    "area": "Uncategorised",
-   "call_site_count": null,
+   "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 10,
-   "count_total": 7362,
-   "declared_intent": "not in use",
-   "description": "A user opened a content piece.",
-   "display_name": "Content Builder: Click Content",
-   "fires_on": "",
-   "fires_on_source": "",
+   "count_30d": 0,
+   "count_total": 10918,
+   "declared_intent": "",
+   "description": "The system completed content generation.",
+   "display_name": "Content Builder: Generation Completed",
+   "fires_on": "Content Builder, server-side AI content generation job completing (no user-facing page).",
+   "fires_on_source": "govern",
    "first_seen": "2025-05-28",
    "last_seen": "2026-09-13",
    "okr": "",
@@ -1513,212 +1382,70 @@
     "instrumented_author_email": "snayak00@gmail.com",
     "instrumented_date": "2025-02-26",
     "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
+    "retired_author_email": "",
+    "retired_date": "",
+    "retired_pr": ""
    },
    "questions": [],
    "series": [
-    60,
-    50,
-    44,
-    78,
-    44,
+    85,
+    85,
+    77,
+    73,
+    43,
     0,
     0,
     0,
     0
    ],
-   "status": "orphaned_firing",
+   "status": "dormant",
    "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
+   "tags": [],
+   "url": "n/a (backend service, no route)",
    "used_by": [],
    "watchlist_status": "\u2014"
   },
-  "Content Builder: Click Continue Questions": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
+  "Content Builder: Generation Started": {
+   "anchor_confidence": "low",
+   "anchor_flag_reason": "no_route",
    "area": "Uncategorised",
-   "call_site_count": null,
+   "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 1,
-   "count_total": 1189,
-   "declared_intent": "not in use",
-   "description": "A user continued content questions.",
-   "display_name": "Content Builder: Click Continue Questions",
-   "fires_on": "",
-   "fires_on_source": "",
+   "count_30d": 0,
+   "count_total": 14624,
+   "declared_intent": "",
+   "description": "The system started content generation.",
+   "display_name": "Content Builder: Generation Started",
+   "fires_on": "Server-side AI content generation job starting, triggered from the Content Builder feature",
+   "fires_on_source": "govern",
    "first_seen": "2025-05-28",
    "last_seen": "2026-09-13",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
+    "instrumented_author_email": "lurchbulldog@gmail.com",
+    "instrumented_date": "2025-08-19",
+    "instrumented_pr": "https://github.com/thegoodparty/gp-api/pull/457",
+    "retired_author_email": "",
+    "retired_date": "",
+    "retired_pr": ""
    },
    "questions": [],
    "series": [
-    12,
-    12,
-    9,
-    9,
-    7,
+    148,
+    123,
+    126,
+    130,
+    91,
     0,
     0,
     0,
     0
    ],
-   "status": "orphaned_firing",
+   "status": "dormant",
    "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
-  "Content Builder: Click Generate": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Uncategorised",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 6,
-   "count_total": 7446,
-   "declared_intent": "not in use",
-   "description": "A user clicked generate on content.",
-   "display_name": "Content Builder: Click Generate",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2025-05-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    88,
-    65,
-    48,
-    64,
-    42,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
-  "Content Builder: Close Additional Inputs": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Uncategorised",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 1,
-   "count_total": 3270,
-   "declared_intent": "not in use",
-   "description": "A user closed the additional input fields.",
-   "display_name": "Content Builder: Close Additional Inputs",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2025-05-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    29,
-    28,
-    24,
-    26,
-    16,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
-  "Content Builder: Select Template": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Uncategorised",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 5,
-   "count_total": 6152,
-   "declared_intent": "not in use",
-   "description": "A user selected a content template.",
-   "display_name": "Content Builder: Select Template",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2025-05-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    72,
-    44,
-    48,
-    47,
-    28,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
+   "tags": [],
+   "url": "n/a (backend service, no route)",
    "used_by": [],
    "watchlist_status": "\u2014"
   },
@@ -1728,15 +1455,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1601,
-   "count_total": 4281,
+   "count_30d": 1724,
+   "count_total": 4586,
    "declared_intent": "in use",
    "description": "Fired when \"Campaign Plan: Media\" results are shown to the user.",
    "display_name": "Dashboard - Campaign Plan: Media Displayed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1751,7 +1478,7 @@
     "Do the AI-generated Win artifacts get opened and acted on, or just generated?"
    ],
    "series": [
-    285,
+    122,
     266,
     375,
     374,
@@ -1759,7 +1486,7 @@
     277,
     346,
     379,
-    533
+    557
    ],
    "status": "active",
    "supersession": "",
@@ -1776,15 +1503,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1648,
-   "count_total": 4383,
+   "count_30d": 1780,
+   "count_total": 4700,
    "declared_intent": "in use",
    "description": "Fired when user requests \"Campaign Plan: Media\".",
    "display_name": "Dashboard - Campaign Plan: Media Requested",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1797,7 +1524,7 @@
    },
    "questions": [],
    "series": [
-    290,
+    124,
     268,
     378,
     379,
@@ -1805,7 +1532,7 @@
     282,
     354,
     390,
-    553
+    577
    ],
    "status": "active",
    "supersession": "",
@@ -1822,15 +1549,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1601,
-   "count_total": 4281,
+   "count_30d": 1724,
+   "count_total": 4586,
    "declared_intent": "in use",
    "description": "Fired when server returns results for \"Campaign Plan: Media\".",
    "display_name": "Dashboard - Campaign Plan: Media Results Received",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1843,7 +1570,7 @@
    },
    "questions": [],
    "series": [
-    285,
+    122,
     266,
     375,
     374,
@@ -1851,7 +1578,7 @@
     277,
     346,
     379,
-    533
+    557
    ],
    "status": "active",
    "supersession": "",
@@ -1902,15 +1629,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1329,
-   "count_total": 3846,
+   "count_30d": 1401,
+   "count_total": 4084,
    "declared_intent": "in use",
    "description": "Fired when \"Campaign Plan: Strategic Landscape\" results are shown to the user.",
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Displayed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1923,7 +1650,7 @@
    },
    "questions": [],
    "series": [
-    275,
+    119,
     247,
     339,
     355,
@@ -1931,7 +1658,7 @@
     252,
     319,
     311,
-    387
+    406
    ],
    "status": "active",
    "supersession": "",
@@ -1948,15 +1675,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1648,
-   "count_total": 4383,
+   "count_30d": 1780,
+   "count_total": 4700,
    "declared_intent": "in use",
    "description": "Fired when user requests \"Campaign Plan: Strategic Landscape\".",
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Requested",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -1969,7 +1696,7 @@
    },
    "questions": [],
    "series": [
-    290,
+    124,
     268,
     378,
     379,
@@ -1977,7 +1704,7 @@
     282,
     354,
     390,
-    553
+    577
    ],
    "status": "active",
    "supersession": "",
@@ -1994,15 +1721,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 1329,
-   "count_total": 3846,
+   "count_30d": 1401,
+   "count_total": 4084,
    "declared_intent": "in use",
    "description": "Fired when server returns results for \"Campaign Plan: Strategic Landscape\".",
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Results Received",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-06-11",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2015,7 +1742,7 @@
    },
    "questions": [],
    "series": [
-    275,
+    119,
     247,
     339,
     355,
@@ -2023,7 +1750,7 @@
     252,
     319,
     311,
-    387
+    406
    ],
    "status": "active",
    "supersession": "",
@@ -2040,15 +1767,15 @@
    "area": "Dashboard",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 415,
-   "count_total": 415,
+   "count_30d": 1206,
+   "count_total": 1206,
    "declared_intent": "",
    "description": "",
    "display_name": "Dashboard - Campaign Task Completed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-29",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2069,7 +1796,7 @@
     0,
     0,
     87,
-    328
+    386
    ],
    "status": "active",
    "supersession": "",
@@ -2084,8 +1811,8 @@
    "area": "Dashboard",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 125,
-   "count_total": 2105,
+   "count_30d": 101,
+   "count_total": 2106,
    "declared_intent": "",
    "description": "A user exited the path-to-victory info.",
    "display_name": "Dashboard - Path to Victory: Exit Understand Path to Victory",
@@ -2105,7 +1832,7 @@
    },
    "questions": [],
    "series": [
-    23,
+    12,
     19,
     35,
     37,
@@ -2113,7 +1840,7 @@
     22,
     31,
     33,
-    23
+    24
    ],
    "status": "active",
    "supersession": "",
@@ -2128,15 +1855,15 @@
    "area": "Door Knocking",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 792,
-   "count_total": 828,
+   "count_30d": 894,
+   "count_total": 948,
    "declared_intent": "",
    "description": "",
    "display_name": "Door Knocking - Canvassing Totals Updated",
    "fires_on": "Backend rollup of an org's door knocking canvassing totals (turf create, turf complete, or daily sweep), not a page click",
    "fires_on_source": "govern",
    "first_seen": "2026-09-08",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2157,7 +1884,7 @@
     30,
     42,
     343,
-    368
+    375
    ],
    "status": "active",
    "supersession": "",
@@ -2336,67 +2063,21 @@
    "used_by": [],
    "watchlist_status": "\u2014"
   },
-  "Navigation - Dashboard: Click Content Builder": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Navigation",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 31,
-   "count_total": 13707,
-   "declared_intent": "not in use",
-   "description": "A user clicked Content Builder in the sidebar.",
-   "display_name": "Navigation - Dashboard: Click Content Builder",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2025-05-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "snayak00@gmail.com",
-    "instrumented_date": "2025-02-26",
-    "instrumented_pr": "",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    144,
-    142,
-    196,
-    166,
-    176,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
   "Onboarding - Candidate Office Completed": {
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Campaign Details",
    "call_site_count": 3,
    "call_site_retired_date": null,
-   "count_30d": 42,
-   "count_total": 14933,
+   "count_30d": 46,
+   "count_total": 14948,
    "declared_intent": "in use",
    "description": "A user saved an office. Despite the \"Onboarding\" prefix, this has not fired from onboarding since the Onboarding V2 cutover. The prefix is the raw event_type and cannot be changed; the display name reflects the real surface.",
    "display_name": "Profile - Office Details: Office Completed",
    "fires_on": "Dashboard > Campaign details > Office details card > Edit office, on save. The legacy route app/onboarding/[slug]/[step] is now a bare redirect, but its OfficeStep tree is still mounted by app/dashboard/shared/CampaignOfficeSelectionModal.tsx. Call sites: OfficeStep.tsx:191 and :198 (picker path), ballotOffices/CustomOfficeForm.tsx:181 (manual path)",
    "fires_on_source": "govern",
    "first_seen": "2025-06-26",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2409,7 +2090,7 @@
    },
    "questions": [],
    "series": [
-    12,
+    8,
     8,
     21,
     14,
@@ -2434,15 +2115,15 @@
    "area": "Campaign Details",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 757,
-   "count_total": 132503,
+   "count_30d": 783,
+   "count_total": 132635,
    "declared_intent": "in use",
    "description": "A user searched for an office by ZIP. Despite the \"Onboarding\" prefix, this has not fired from onboarding since the Onboarding V2 cutover. The prefix is the raw event_type and cannot be changed; the display name reflects the real surface.",
    "display_name": "Profile - Office Details: Office Searched",
    "fires_on": "Dashboard > Campaign details > Office details card > Edit office. The legacy route app/onboarding/[slug]/[step] is now a bare redirect, but its OfficeStep tree is still mounted by app/dashboard/shared/CampaignOfficeSelectionModal.tsx. Call site: the @shared/hooks/useTrackOfficeSearch hook, whose only caller is that orphaned OfficeStep.tsx:72",
    "fires_on_source": "govern",
    "first_seen": "2025-06-26",
-   "last_seen": "2026-10-10",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2455,7 +2136,7 @@
    },
    "questions": [],
    "series": [
-    125,
+    63,
     137,
     298,
     191,
@@ -2480,15 +2161,15 @@
    "area": "Onboarding",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 58,
-   "count_total": 508,
+   "count_30d": 65,
+   "count_total": 520,
    "declared_intent": "in use",
    "description": "Fired when a user clicks a passwordless magic-link sign-in email during onboarding.",
    "display_name": "Onboarding - Magic Link Clicked",
    "fires_on": "Serve welcome/onboarding landing page, arriving after clicking a magic-link sign-in email",
    "fires_on_source": "govern",
    "first_seen": "2026-06-24",
-   "last_seen": "2026-10-10",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2501,7 +2182,7 @@
    },
    "questions": [],
    "series": [
-    60,
+    24,
     67,
     65,
     69,
@@ -2526,15 +2207,15 @@
    "area": "Campaign Details",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 31,
-   "count_total": 7069,
+   "count_30d": 34,
+   "count_total": 7078,
    "declared_intent": "in use",
    "description": "A user gave up on the office picker and opened the manual-entry help modal. Despite the \"Onboarding\" prefix, this has not fired from onboarding since the Onboarding V2 cutover. The prefix is the raw event_type and cannot be changed; the display name reflects the real surface.",
    "display_name": "Profile - Office Details: Click Can't Find Office",
    "fires_on": "Dashboard > Campaign details > Office details card > Edit office > \"I can't find my race\". The legacy route app/onboarding/[slug]/[step] is now a bare redirect, but its OfficeStep tree is still mounted by app/dashboard/shared/CampaignOfficeSelectionModal.tsx. Call site: packages/gp-webapp/app/onboarding/[slug]/[step]/components/ballotOffices/BallotRaces.tsx:233",
    "fires_on_source": "govern",
    "first_seen": "2025-05-28",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2547,7 +2228,7 @@
    },
    "questions": [],
    "series": [
-    4,
+    2,
     7,
     23,
     13,
@@ -2572,15 +2253,15 @@
    "area": "Campaign Details",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 33,
-   "count_total": 21112,
+   "count_30d": 34,
+   "count_total": 21121,
    "declared_intent": "in use",
    "description": "A user clicked Next on the office step. Despite the \"Onboarding\" prefix, this has not fired from onboarding since the Onboarding V2 cutover. The prefix is the raw event_type and cannot be changed; the display name reflects the real surface.",
    "display_name": "Profile - Office Details: Click Next",
    "fires_on": "Dashboard > Campaign details > Office details card > Edit office. The legacy route app/onboarding/[slug]/[step] is now a bare redirect, but its OfficeStep tree is still mounted by app/dashboard/shared/CampaignOfficeSelectionModal.tsx. Call site: packages/gp-webapp/app/onboarding/[slug]/[step]/components/OfficeStep.tsx:108",
    "fires_on_source": "govern",
    "first_seen": "2025-05-28",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2593,7 +2274,7 @@
    },
    "questions": [],
    "series": [
-    11,
+    7,
     6,
     10,
     12,
@@ -2618,15 +2299,15 @@
    "area": "Campaign Details",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 108,
-   "count_total": 27932,
+   "count_30d": 115,
+   "count_total": 27951,
    "declared_intent": "in use",
    "description": "A user selected an office from the picker results. Despite the \"Onboarding\" prefix, this has not fired from onboarding since the Onboarding V2 cutover. The prefix is the raw event_type and cannot be changed; the display name reflects the real surface.",
    "display_name": "Profile - Office Details: Office Selected",
    "fires_on": "Dashboard > Campaign details > Office details card > Edit office. The legacy route app/onboarding/[slug]/[step] is now a bare redirect, but its OfficeStep tree is still mounted by app/dashboard/shared/CampaignOfficeSelectionModal.tsx. Call site: packages/gp-webapp/app/onboarding/[slug]/[step]/components/OfficeStep.tsx:235",
    "fires_on_source": "govern",
    "first_seen": "2025-05-28",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2639,7 +2320,7 @@
    },
    "questions": [],
    "series": [
-    31,
+    13,
     12,
     52,
     38,
@@ -2776,15 +2457,15 @@
    "area": "Outreach",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 950,
-   "count_total": 950,
+   "count_30d": 1359,
+   "count_total": 1359,
    "declared_intent": "",
    "description": "",
    "display_name": "Outreach - Door Knocking Door Logged",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-30",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [
     {
@@ -2825,7 +2506,7 @@
     0,
     0,
     422,
-    528
+    577
    ],
    "status": "active",
    "supersession": "",
@@ -2840,15 +2521,15 @@
    "area": "Outreach",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 628,
-   "count_total": 628,
+   "count_30d": 730,
+   "count_total": 730,
    "declared_intent": "",
    "description": "",
    "display_name": "Outreach - Door Knocking List Created",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-30",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -2869,7 +2550,7 @@
     0,
     0,
     288,
-    340
+    346
    ],
    "status": "active",
    "supersession": "",
@@ -3030,15 +2711,15 @@
    "area": "Outreach",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 166,
-   "count_total": 166,
+   "count_30d": 206,
+   "count_total": 206,
    "declared_intent": "",
    "description": "",
    "display_name": "Outreach - Door Knocking Session Abandoned",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-30",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3059,7 +2740,7 @@
     0,
     0,
     72,
-    94
+    98
    ],
    "status": "active",
    "supersession": "",
@@ -3074,15 +2755,15 @@
    "area": "Outreach",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 21,
-   "count_total": 21,
+   "count_30d": 29,
+   "count_total": 29,
    "declared_intent": "in use",
    "description": "A walk session ended with at least one door logged.",
    "display_name": "Outreach - Door Knocking Session Completed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-10-01",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3103,7 +2784,7 @@
     0,
     0,
     11,
-    10
+    12
    ],
    "status": "active",
    "supersession": "supersedes `Door Knocking - Session Completed` (door knocking moved under the `Outreach -` prefix; low volume on the old name; history NOT merged; charts must union both names)",
@@ -3120,15 +2801,15 @@
    "area": "Outreach",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 637,
-   "count_total": 637,
+   "count_30d": 810,
+   "count_total": 810,
    "declared_intent": "",
    "description": "",
    "display_name": "Outreach - Door Knocking Session Started",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-30",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3149,7 +2830,7 @@
     0,
     0,
     398,
-    239
+    273
    ],
    "status": "active",
    "supersession": "",
@@ -3386,17 +3067,7 @@
     "retired_pr": ""
    },
    "questions": [],
-   "series": [
-    2,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
-   ],
+   "series": [],
    "status": "dormant",
    "supersession": "",
    "tags": [],
@@ -3444,15 +3115,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 65,
-   "count_total": 65,
+   "count_30d": 96,
+   "count_total": 96,
    "declared_intent": "in use",
    "description": "How often does a free candidate press the nav unit's Pro upsell, and from which page (path)?",
    "display_name": "Pro Upgrade - Banner Clicked",
    "fires_on": "The dashboard nav unit in its free state, the sidebar banner on desktop or the top-bar chip on mobile, when pressed.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-02",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3473,7 +3144,7 @@
     0,
     0,
     9,
-    56
+    62
    ],
    "status": "active",
    "supersession": "supersedes Pro Upgrade - Membership Banner: Click and Pro Upgrade - Membership Chip: Click (their free-state presses; the verify and PIN presses moved to 10DLC events, a separate funnel)",
@@ -3490,15 +3161,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 3,
-   "count_total": 3,
+   "count_30d": 9,
+   "count_total": 9,
    "declared_intent": "in use",
    "description": "How many campaigns without an EIN ask for the IRS steps by email instead of finishing the Pro upgrade now?",
    "display_name": "Pro Upgrade - EIN: Click email me these steps",
    "fires_on": "Pro upgrade wizard, EIN step, Email me these steps button inside the how-to collapsible.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-05",
-   "last_seen": "2026-10-08",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3536,15 +3207,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 234,
-   "count_total": 234,
+   "count_30d": 341,
+   "count_total": 341,
    "declared_intent": "in use",
    "description": "Which entry point (source, channel, CTA) started each Pro upgrade attempt, so the upgrade funnel can be grouped by where candidates came from?",
    "display_name": "Pro Upgrade - Flow Started",
    "fires_on": "Once per Pro upgrade attempt: on the wizard index just before it redirects to the resume step, or when an outreach flow's Pro gate opens the in-flow wizard. Carries source, channel and cta, plus trackerTaskId and phase when a task started the flow.",
    "fires_on_source": "govern",
    "first_seen": "2026-09-30",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3565,7 +3236,7 @@
     0,
     0,
     73,
-    161
+    172
    ],
    "status": "active",
    "supersession": "",
@@ -3576,21 +3247,113 @@
    "used_by": [],
    "watchlist_status": "proposed"
   },
+  "Pro Upgrade - Texting Setup Banner Viewed": {
+   "anchor_confidence": "high",
+   "anchor_flag_reason": "",
+   "area": "Pro Upgrade",
+   "call_site_count": 1,
+   "call_site_retired_date": null,
+   "count_30d": 0,
+   "count_total": 773,
+   "declared_intent": "in use",
+   "description": "How many already-Pro candidates who never started 10DLC see the dashboard banner prompting them to begin texting setup?",
+   "display_name": "Pro Upgrade - Texting Setup Banner Viewed",
+   "fires_on": "Dashboard, viewing the \"Finish your texting setup\" banner prompting a Pro candidate to complete 10DLC texting compliance.",
+   "fires_on_source": "govern",
+   "first_seen": "2026-08-01",
+   "last_seen": "2026-09-13",
+   "okr": "",
+   "okr_metrics": [],
+   "provenance": {
+    "instrumented_author_email": "tomer@goodparty.org",
+    "instrumented_date": "2026-07-31",
+    "instrumented_pr": "https://github.com/thegoodparty/omni/pull/1114",
+    "retired_author_email": "",
+    "retired_date": "",
+    "retired_pr": ""
+   },
+   "questions": [],
+   "series": [
+    53,
+    90,
+    106,
+    131,
+    139,
+    0,
+    0,
+    0,
+    0
+   ],
+   "status": "dormant",
+   "supersession": "",
+   "tags": [
+    "product:win"
+   ],
+   "url": "/dashboard",
+   "used_by": [],
+   "watchlist_status": "dismissed"
+  },
+  "Pro Upgrade - Texting Setup Banner: Click Start": {
+   "anchor_confidence": "high",
+   "anchor_flag_reason": "",
+   "area": "Pro Upgrade",
+   "call_site_count": 1,
+   "call_site_retired_date": null,
+   "count_30d": 0,
+   "count_total": 79,
+   "declared_intent": "in use",
+   "description": "How many Pro candidates click the texting-setup banner CTA into the election-filing registration (view-to-start conversion for the 10DLC funnel)?",
+   "display_name": "Pro Upgrade - Texting Setup Banner: Click Start",
+   "fires_on": "Dashboard texting-setup banner, click 'Start registration' to begin 10DLC election-filing",
+   "fires_on_source": "govern",
+   "first_seen": "2026-08-01",
+   "last_seen": "2026-09-13",
+   "okr": "",
+   "okr_metrics": [],
+   "provenance": {
+    "instrumented_author_email": "tomer@goodparty.org",
+    "instrumented_date": "2026-07-31",
+    "instrumented_pr": "https://github.com/thegoodparty/omni/pull/1114",
+    "retired_author_email": "",
+    "retired_date": "",
+    "retired_pr": ""
+   },
+   "questions": [],
+   "series": [
+    10,
+    11,
+    4,
+    14,
+    14,
+    0,
+    0,
+    0,
+    0
+   ],
+   "status": "dormant",
+   "supersession": "",
+   "tags": [
+    "product:win"
+   ],
+   "url": "/dashboard",
+   "used_by": [],
+   "watchlist_status": "tracked"
+  },
   "Pro Upgrade - Upgrade Interstitial Completed": {
    "anchor_confidence": "",
    "anchor_flag_reason": "",
    "area": "Pro Upgrade",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 61,
-   "count_total": 61,
+   "count_30d": 90,
+   "count_total": 90,
    "declared_intent": "in use",
    "description": "How often does a Pro pitch convert into starting the upgrade, by channel?",
    "display_name": "Pro Upgrade - Upgrade Interstitial Completed",
    "fires_on": "Join Pro on the Pro pitch dialog or on the outreach in-flow pause screen.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-02",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3611,7 +3374,7 @@
     0,
     0,
     13,
-    48
+    52
    ],
    "status": "active",
    "supersession": "supersedes Pro Upgrade - Pitch: Click join",
@@ -3628,15 +3391,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 51,
-   "count_total": 51,
+   "count_30d": 91,
+   "count_total": 91,
    "declared_intent": "in use",
    "description": "How often do candidates decline a Pro pitch, by channel?",
    "display_name": "Pro Upgrade - Upgrade Interstitial Dismissed",
    "fires_on": "Closing the Pro pitch dialog (X, Escape or clicking outside), or Maybe later on the outreach in-flow pause screen.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-01",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3657,7 +3420,7 @@
     0,
     0,
     7,
-    44
+    49
    ],
    "status": "active",
    "supersession": "supersedes Pro Upgrade - Pitch: Click continue without Pro",
@@ -3674,15 +3437,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 2,
    "call_site_retired_date": null,
-   "count_30d": 115,
-   "count_total": 115,
+   "count_30d": 185,
+   "count_total": 185,
    "declared_intent": "in use",
    "description": "How often do candidates see a Pro pitch, and which pitch (channel)?",
    "display_name": "Pro Upgrade - Upgrade Interstitial Viewed",
    "fires_on": "The Pro pitch dialog (nav banner/chip: channel generic; contacts voter data walls: channel voter-data) and the outreach in-flow pause screen (channel sms, robocall, door, phone-bank), when it opens.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-01",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3703,7 +3466,7 @@
     0,
     0,
     21,
-    94
+    103
    ],
    "status": "active",
    "supersession": "supersedes Pro Upgrade - Pitch Viewed",
@@ -3720,15 +3483,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 107,
-   "count_total": 107,
+   "count_30d": 136,
+   "count_total": 136,
    "declared_intent": "in use",
    "description": "Did the user see the campaign verification intro step?",
    "display_name": "Pro Upgrade - Verification Intro Viewed",
    "fires_on": "Campaign verification flow, intro step on entry.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-01",
-   "last_seen": "2026-10-10",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3749,7 +3512,7 @@
     0,
     0,
     23,
-    84
+    89
    ],
    "status": "active",
    "supersession": "",
@@ -3767,15 +3530,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 88,
-   "count_total": 88,
+   "count_30d": 111,
+   "count_total": 111,
    "declared_intent": "in use",
    "description": "Did the user continue past the campaign verification intro step to the filing form?",
    "display_name": "Pro Upgrade - Verification Intro: Click continue",
    "fires_on": "Campaign verification flow, intro step Continue button.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-01",
-   "last_seen": "2026-10-10",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3796,7 +3559,7 @@
     0,
     0,
     16,
-    72
+    76
    ],
    "status": "active",
    "supersession": "",
@@ -3814,15 +3577,15 @@
    "area": "Pro Upgrade",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 75,
-   "count_total": 75,
+   "count_30d": 94,
+   "count_total": 94,
    "declared_intent": "in use",
    "description": "Did the user reach the campaign verification submitted confirmation step?",
    "display_name": "Pro Upgrade - Verification Submitted Viewed",
    "fires_on": "Campaign verification flow, submitted confirmation step on entry.",
    "fires_on_source": "govern",
    "first_seen": "2026-10-02",
-   "last_seen": "2026-10-11",
+   "last_seen": "2026-10-13",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -3843,7 +3606,7 @@
     0,
     0,
     13,
-    62
+    63
    ],
    "status": "active",
    "supersession": "",
@@ -3882,7 +3645,7 @@
    },
    "questions": [],
    "series": [
-    15,
+    2,
     7,
     10,
     12,
@@ -3970,7 +3733,7 @@
    },
    "questions": [],
    "series": [
-    8,
+    2,
     6,
     4,
     6,
@@ -4014,7 +3777,7 @@
    },
    "questions": [],
    "series": [
-    15,
+    2,
     5,
     8,
     10,
@@ -4081,15 +3844,15 @@
    "area": "Robocall",
    "call_site_count": 3,
    "call_site_retired_date": null,
-   "count_30d": 5,
-   "count_total": 5,
+   "count_30d": 6,
+   "count_total": 6,
    "declared_intent": "",
    "description": "",
    "display_name": "Robocall - Send Failed",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-09-27",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-12",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -4119,21 +3882,21 @@
    "used_by": [],
    "watchlist_status": "proposed"
   },
-  "Serve Onboarding - Office Completed": {
+  "Serve Onboarding - Know Your Constituents Completed": {
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Serve Onboarding",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 0,
-   "count_total": 13,
+   "count_30d": 10,
+   "count_total": 39,
    "declared_intent": "in use",
-   "description": "Fired when the Office step of serve onboarding is completed.",
-   "display_name": "Serve Onboarding - Office Completed",
-   "fires_on": "Serve onboarding flow, clicking Continue on the Office selection step.",
+   "description": "Fired when the Know Your Constituents step of serve onboarding is completed.",
+   "display_name": "Serve Onboarding - Know Your Constituents Completed",
+   "fires_on": "Serve onboarding flow, Know Your Constituents step is completed",
    "fires_on_source": "govern",
-   "first_seen": "2026-06-24",
-   "last_seen": "2026-09-11",
+   "first_seen": "2026-06-25",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -4141,22 +3904,22 @@
     "instrumented_date": "2026-06-24",
     "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
     "retired_author_email": "",
-    "retired_date": "",
-    "retired_pr": ""
+    "retired_date": "2026-10-16",
+    "retired_pr": "https://github.com/thegoodparty/omni/pull/2861"
    },
    "questions": [],
    "series": [
     0,
+    1,
+    8,
     0,
-    6,
+    3,
+    1,
     0,
-    2,
-    0,
-    0,
-    0,
-    0
+    1,
+    1
    ],
-   "status": "dormant",
+   "status": "deprecating",
    "supersession": "",
    "tags": [
     "product:serve"
@@ -4165,21 +3928,21 @@
    "used_by": [],
    "watchlist_status": "tracked"
   },
-  "Serve Onboarding - Office Viewed": {
+  "Serve Onboarding - Know Your Constituents Viewed": {
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
    "area": "Serve Onboarding",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 0,
-   "count_total": 15,
+   "count_30d": 10,
+   "count_total": 41,
    "declared_intent": "in use",
-   "description": "Fired when the Office step of serve onboarding is viewed.",
-   "display_name": "Serve Onboarding - Office Viewed",
-   "fires_on": "Serve onboarding flow, Office step is viewed",
+   "description": "Fired when the Know Your Constituents step of serve onboarding is viewed.",
+   "display_name": "Serve Onboarding - Know Your Constituents Viewed",
+   "fires_on": "Serve onboarding flow, Know Your Constituents step is viewed",
    "fires_on_source": "govern",
-   "first_seen": "2026-06-24",
-   "last_seen": "2026-09-11",
+   "first_seen": "2026-06-25",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -4187,22 +3950,22 @@
     "instrumented_date": "2026-06-24",
     "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
     "retired_author_email": "",
-    "retired_date": "",
-    "retired_pr": ""
+    "retired_date": "2026-10-16",
+    "retired_pr": "https://github.com/thegoodparty/omni/pull/2861"
    },
    "questions": [],
    "series": [
+    0,
+    1,
+    8,
+    0,
+    3,
     1,
     0,
-    7,
-    0,
-    2,
-    0,
-    0,
-    0,
-    0
+    1,
+    1
    ],
-   "status": "dormant",
+   "status": "deprecating",
    "supersession": "",
    "tags": [
     "product:serve"
@@ -4210,42 +3973,6 @@
    "url": "/serve/onboarding",
    "used_by": [],
    "watchlist_status": "dismissed"
-  },
-  "Serve Onboarding - Party Designation Blocked": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Serve Onboarding",
-   "call_site_count": 1,
-   "call_site_retired_date": null,
-   "count_30d": 0,
-   "count_total": 1,
-   "declared_intent": "in use",
-   "description": "Fired when the Party Designation step of serve onboarding is blocked.",
-   "display_name": "Serve Onboarding - Party Designation Blocked",
-   "fires_on": "",
-   "fires_on_source": "",
-   "first_seen": "2026-06-25",
-   "last_seen": "2026-06-25",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "145415012+oakinh@users.noreply.github.com",
-    "instrumented_date": "2026-06-22",
-    "instrumented_pr": "https://github.com/thegoodparty/omni/pull/254",
-    "retired_author_email": "",
-    "retired_date": "",
-    "retired_pr": ""
-   },
-   "questions": [],
-   "series": [],
-   "status": "dormant",
-   "supersession": "",
-   "tags": [
-    "product:serve"
-   ],
-   "url": "",
-   "used_by": [],
-   "watchlist_status": "\u2014"
   },
   "Serve Onboarding - SMS Poll Creation Failed": {
    "anchor_confidence": "",
@@ -4369,15 +4096,15 @@
    "area": "Campaign Details",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 27,
-   "count_total": 2184,
+   "count_30d": 29,
+   "count_total": 2190,
    "declared_intent": "in use",
    "description": "A user uploaded a profile photo in settings.",
    "display_name": "Settings - Personal Info: Click Upload",
    "fires_on": "Campaign details, profile photo dialog, on Save with a new image chosen (re-instrumented after the Clerk migration removed it).",
    "fires_on_source": "govern",
    "first_seen": "2025-05-29",
-   "last_seen": "2026-10-08",
+   "last_seen": "2026-10-15",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -4390,7 +4117,7 @@
    },
    "questions": [],
    "series": [
-    11,
+    5,
     18,
     18,
     10,
@@ -4465,15 +4192,15 @@
    "area": "Voter Data",
    "call_site_count": 1,
    "call_site_retired_date": null,
-   "count_30d": 2,
-   "count_total": 2,
+   "count_30d": 8,
+   "count_total": 8,
    "declared_intent": "",
    "description": "",
    "display_name": "Voter Data - List Boundary Saved",
    "fires_on": "",
    "fires_on_source": "",
    "first_seen": "2026-10-09",
-   "last_seen": "2026-10-09",
+   "last_seen": "2026-10-14",
    "okr": "",
    "okr_metrics": [],
    "provenance": {
@@ -4494,7 +4221,7 @@
     0,
     0,
     0,
-    2
+    3
    ],
    "status": "active",
    "supersession": "",
@@ -4615,52 +4342,6 @@
    "used_by": [],
    "watchlist_status": "\u2014"
   },
-  "ai_content_generation_start": {
-   "anchor_confidence": "",
-   "anchor_flag_reason": "",
-   "area": "Uncategorised",
-   "call_site_count": null,
-   "call_site_retired_date": null,
-   "count_30d": 2,
-   "count_total": 6605,
-   "declared_intent": "not in use",
-   "description": "A user started AI content generation.",
-   "display_name": "ai_content_generation_start",
-   "fires_on": "nothing. The Content Builder that fired it was removed from the Win product 2026-09-10.",
-   "fires_on_source": "govern",
-   "first_seen": "2025-05-28",
-   "last_seen": "2026-09-13",
-   "okr": "",
-   "okr_metrics": [],
-   "provenance": {
-    "instrumented_author_email": "oldfashionedrobot@users.noreply.github.com",
-    "instrumented_date": "2024-10-18",
-    "instrumented_pr": "https://github.com/thegoodparty/gp-webapp/pull/316",
-    "retired_author_email": "bryan@goodparty.org",
-    "retired_date": "2026-09-10",
-    "retired_pr": "https://github.com/thegoodparty/omni/pull/1788"
-   },
-   "questions": [],
-   "series": [
-    55,
-    24,
-    19,
-    33,
-    21,
-    0,
-    0,
-    0,
-    0
-   ],
-   "status": "orphaned_firing",
-   "supersession": "",
-   "tags": [
-    "product:win"
-   ],
-   "url": "n/a (surface removed)",
-   "used_by": [],
-   "watchlist_status": "\u2014"
-  },
   "question_complete": {
    "anchor_confidence": "high",
    "anchor_flag_reason": "",
@@ -4688,7 +4369,7 @@
    },
    "questions": [],
    "series": [
-    8,
+    2,
     6,
     4,
     6,
@@ -4706,7 +4387,7 @@
    "watchlist_status": "\u2014"
   }
  },
- "generated_at": "2026-10-12T11:14:45+00:00",
+ "generated_at": "2026-10-16T18:28:40+00:00",
  "okr_labels": {
   "activated_serve_users": "Activated Serve Users",
   "serve_users": "Serve Users",
@@ -4719,12 +4400,11 @@
   "by_area": [
    {
     "counts": {
-     "active": 8,
+     "active": 6,
      "code_unknown": 18,
      "deprecating": 3,
-     "dormant": 1,
-     "orphaned_firing": 6,
-     "retired": 29,
+     "dormant": 3,
+     "retired": 35,
      "system": 39
     },
     "name": "Uncategorised",
@@ -4732,12 +4412,14 @@
    },
    {
     "counts": {
-     "active": 41,
+     "active": 39,
      "deprecating": 6,
+     "dormant": 2,
+     "instrumented_never_observed": 2,
      "retired": 12
     },
     "name": "Pro Upgrade",
-    "total": 59
+    "total": 61
    },
    {
     "counts": {
@@ -4747,6 +4429,15 @@
     },
     "name": "Onboarding V2",
     "total": 47
+   },
+   {
+    "counts": {
+     "active": 21,
+     "deprecating": 6,
+     "instrumented_never_observed": 7
+    },
+    "name": "Outreach",
+    "total": 34
    },
    {
     "counts": {
@@ -4760,17 +4451,9 @@
    },
    {
     "counts": {
-     "active": 21,
-     "deprecating": 6,
-     "instrumented_never_observed": 5
-    },
-    "name": "Outreach",
-    "total": 32
-   },
-   {
-    "counts": {
-     "active": 21,
-     "dormant": 6,
+     "active": 22,
+     "deprecating": 2,
+     "dormant": 3,
      "retired": 2
     },
     "name": "Serve Onboarding",
@@ -4789,8 +4472,7 @@
     "counts": {
      "active": 13,
      "deprecating": 3,
-     "orphaned_firing": 1,
-     "retired": 6
+     "retired": 7
     },
     "name": "Navigation",
     "total": 23
@@ -4807,6 +4489,15 @@
    },
    {
     "counts": {
+     "active": 17,
+     "dormant": 3,
+     "instrumented_never_observed": 1
+    },
+    "name": "Polls",
+    "total": 21
+   },
+   {
+    "counts": {
      "active": 16,
      "deprecating": 4
     },
@@ -4820,14 +4511,6 @@
      "instrumented_never_observed": 7
     },
     "name": "Ordinances",
-    "total": 20
-   },
-   {
-    "counts": {
-     "active": 17,
-     "dormant": 3
-    },
-    "name": "Polls",
     "total": 20
    },
    {
@@ -4859,10 +4542,10 @@
    },
    {
     "counts": {
-     "code_unknown": 14
+     "code_unknown": 15
     },
     "name": "Voter Guide",
-    "total": 14
+    "total": 15
    },
    {
     "counts": {
@@ -4899,8 +4582,7 @@
    },
    {
     "counts": {
-     "orphaned_firing": 2,
-     "retired": 8
+     "retired": 10
     },
     "name": "Content Builder",
     "total": 10
@@ -4959,6 +4641,21 @@
    },
    {
     "counts": {
+     "active": 8
+    },
+    "name": "Chat",
+    "total": 8
+   },
+   {
+    "counts": {
+     "active": 7,
+     "code_unknown": 1
+    },
+    "name": "Team",
+    "total": 8
+   },
+   {
+    "counts": {
      "dormant": 2,
      "retired": 6
     },
@@ -4972,20 +4669,6 @@
     },
     "name": "Win",
     "total": 8
-   },
-   {
-    "counts": {
-     "active": 7
-    },
-    "name": "Chat",
-    "total": 7
-   },
-   {
-    "counts": {
-     "active": 7
-    },
-    "name": "Team",
-    "total": 7
    },
    {
     "counts": {
@@ -5069,6 +4752,14 @@
    },
    {
     "counts": {
+     "active": 1,
+     "instrumented_never_observed": 1
+    },
+    "name": "Chief Of Staff",
+    "total": 2
+   },
+   {
+    "counts": {
      "active": 2
     },
     "name": "Dictation",
@@ -5099,16 +4790,16 @@
    },
    {
     "counts": {
-     "active": 1
+     "instrumented_never_observed": 1
     },
-    "name": "Campaign Manager",
+    "name": "10DLC",
     "total": 1
    },
    {
     "counts": {
-     "instrumented_never_observed": 1
+     "active": 1
     },
-    "name": "Chief Of Staff",
+    "name": "Campaign Manager",
     "total": 1
    },
    {
@@ -5141,13 +4832,12 @@
    }
   ],
   "by_status": {
-   "active": 334,
-   "code_unknown": 32,
-   "deprecating": 78,
-   "dormant": 30,
-   "instrumented_never_observed": 42,
-   "orphaned_firing": 9,
-   "retired": 138,
+   "active": 333,
+   "code_unknown": 34,
+   "deprecating": 80,
+   "dormant": 31,
+   "instrumented_never_observed": 48,
+   "retired": 147,
    "system": 39
   },
   "metadata_coverage": {
@@ -5172,14 +4862,14 @@
     "Voter Outreach - Phone Banking Call List Created",
     "Voter Outreach - Phone Banking Call Sheet Downloaded"
    ],
-   "other_missing_count": 92,
-   "scored": 621,
-   "with_description": 511
+   "other_missing_count": 94,
+   "scored": 625,
+   "with_description": 513
   },
   "totals": {
-   "events": 702,
-   "flagged": 44,
-   "open_decisions": 91
+   "events": 712,
+   "flagged": 38,
+   "open_decisions": 93
   }
  },
  "prior_flagged": {
@@ -5194,15 +4884,9 @@
   "Community Issues - Dispatch Skipped": "instrumented_never_observed",
   "Constituent Data - Activity List Created": "instrumented_never_observed",
   "Constituent Data - Note Added": "dormant",
-  "Content Builder - Editor: Click Copy": "orphaned_firing",
-  "Content Builder - Editor: Click Rename": "orphaned_firing",
-  "Content Builder: Click Content": "orphaned_firing",
-  "Content Builder: Click Continue Questions": "orphaned_firing",
-  "Content Builder: Click Generate": "orphaned_firing",
-  "Content Builder: Close Additional Inputs": "orphaned_firing",
-  "Content Builder: Select Template": "orphaned_firing",
+  "Content Builder: Generation Completed": "dormant",
+  "Content Builder: Generation Started": "dormant",
   "Dashboard - Campaign Plan: Plan Shared": "dormant",
-  "Navigation - Dashboard: Click Content Builder": "orphaned_firing",
   "Ordinances - Draft Details Deleted": "instrumented_never_observed",
   "Ordinances - Draft Details Status Updated": "dormant",
   "Payment - Completed": "dormant",
@@ -5211,21 +4895,21 @@
   "Polls - Expand Poll Recommendations Completed": "dormant",
   "Polls - Expand Poll Recommendations Viewed": "dormant",
   "Polls - Expand Poll Review Viewed": "dormant",
+  "Pro Upgrade - Texting Setup Banner Viewed": "dormant",
+  "Pro Upgrade - Texting Setup Banner: Click Start": "dormant",
   "Profile - Running Against: Click Add New": "dormant",
   "Profile - Running Against: Click Edit": "dormant",
   "Profile - Running Against: Click Save": "dormant",
   "Profile - Running Against: Submit Add New": "dormant",
   "Profile - Running Against: Submit Edit": "dormant",
-  "Serve Onboarding - Office Completed": "dormant",
-  "Serve Onboarding - Office Viewed": "dormant",
-  "Serve Onboarding - Party Designation Blocked": "dormant",
+  "Serve Onboarding - Know Your Constituents Completed": "deprecating",
+  "Serve Onboarding - Know Your Constituents Viewed": "deprecating",
   "Serve Onboarding - SMS Poll Creation Failed": "dormant",
   "Serve Onboarding - SMS Poll Sent": "dormant",
   "Serve Onboarding - Success Page Viewed": "dormant",
   "Voter Data - Activity List Created": "dormant",
   "Win - Opponent Activity Viewed": "instrumented_never_observed",
   "Win - Self Research Completed": "instrumented_never_observed",
-  "ai_content_generation_start": "orphaned_firing",
   "question_complete": "dormant"
  },
  "queues": [
@@ -5240,27 +4924,23 @@
       "reference": "books/analytics-governance-gotchas.md",
       "wrong": "The same 30-day blindness as the ordinary dormant group. Watching an event more closely raises how loudly this gets reported; it does not give us any better idea of how often the event ought to fire."
      },
-     "count": 9,
+     "count": 7,
      "dismissable": true,
      "dismissed": null,
      "elevated": [
       "Community Issues - Ask AI Started",
       "Poll - Results Synthesis Complete",
-      "Serve Onboarding - Office Completed",
-      "Serve Onboarding - Office Viewed",
-      "Serve Onboarding - Party Designation Blocked",
+      "Pro Upgrade - Texting Setup Banner: Click Start",
       "Serve Onboarding - SMS Poll Creation Failed",
       "Serve Onboarding - SMS Poll Sent",
       "Serve Onboarding - Success Page Viewed",
       "Voter Data - Activity List Created"
      ],
-     "elevated_note": "9 of 9 elevated: on the curated watchlist, or in an onboarding, activation or compliance family.",
+     "elevated_note": "7 of 7 elevated: on the curated watchlist, or in an onboarding, activation or compliance family.",
      "events": [
       "Community Issues - Ask AI Started",
       "Poll - Results Synthesis Complete",
-      "Serve Onboarding - Office Completed",
-      "Serve Onboarding - Office Viewed",
-      "Serve Onboarding - Party Designation Blocked",
+      "Pro Upgrade - Texting Setup Banner: Click Start",
       "Serve Onboarding - SMS Poll Creation Failed",
       "Serve Onboarding - SMS Poll Sent",
       "Serve Onboarding - Success Page Viewed",
@@ -5268,7 +4948,7 @@
      ],
      "evidence": [
       {
-       "days_since_instrumented": 368,
+       "days_since_instrumented": 372,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5282,7 +4962,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 364,
+       "days_since_instrumented": 368,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5296,7 +4976,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 348,
+       "days_since_instrumented": 352,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5310,7 +4990,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 250,
+       "days_since_instrumented": 254,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5324,7 +5004,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 115,
+       "days_since_instrumented": 119,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5338,49 +5018,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 112,
-       "divergence": null,
-       "elevated": true,
-       "event_count_30d": 0,
-       "event_type": "Serve Onboarding - Party Designation Blocked",
-       "instrumented_date": "2026-06-22",
-       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/254",
-       "last_seen_date": "2026-06-25",
-       "okr": null,
-       "provenance": "full",
-       "removed_by_pr": null,
-       "status": "dormant"
-      },
-      {
-       "days_since_instrumented": 110,
-       "divergence": null,
-       "elevated": true,
-       "event_count_30d": 0,
-       "event_type": "Serve Onboarding - Office Completed",
-       "instrumented_date": "2026-06-24",
-       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
-       "last_seen_date": "2026-09-11",
-       "okr": null,
-       "provenance": "full",
-       "removed_by_pr": null,
-       "status": "dormant"
-      },
-      {
-       "days_since_instrumented": 110,
-       "divergence": null,
-       "elevated": true,
-       "event_count_30d": 0,
-       "event_type": "Serve Onboarding - Office Viewed",
-       "instrumented_date": "2026-06-24",
-       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
-       "last_seen_date": "2026-09-11",
-       "okr": null,
-       "provenance": "full",
-       "removed_by_pr": null,
-       "status": "dormant"
-      },
-      {
-       "days_since_instrumented": 87,
+       "days_since_instrumented": 91,
        "divergence": null,
        "elevated": true,
        "event_count_30d": 0,
@@ -5388,6 +5026,20 @@
        "instrumented_date": "2026-07-17",
        "instrumented_pr": "https://github.com/thegoodparty/omni/pull/852",
        "last_seen_date": "2026-08-25",
+       "okr": null,
+       "provenance": "full",
+       "removed_by_pr": null,
+       "status": "dormant"
+      },
+      {
+       "days_since_instrumented": 77,
+       "divergence": null,
+       "elevated": true,
+       "event_count_30d": 0,
+       "event_type": "Pro Upgrade - Texting Setup Banner: Click Start",
+       "instrumented_date": "2026-07-31",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/1114",
+       "last_seen_date": "2026-09-13",
        "okr": null,
        "provenance": "full",
        "removed_by_pr": null,
@@ -5413,165 +5065,63 @@
     },
     {
      "caveat": {
-      "check": "Find the replacement event named in the declaration. If nothing in the code sends it and it has never fired, the rename never happened, and it is the declaration that needs fixing rather than the event.",
-      "means": "The declaration and reality disagree. Either the event was retired and something is still sending it, or the declaration is simply wrong.",
-      "measured": "Someone marked these events 'not in use' in Amplitude Govern, and Amplitude shows them still firing after that date.",
-      "names": "event_count_30d, retired_date, ORPHAN_GRACE_DAYS (DATA-2140), DATA-2573",
+      "check": "If a replacement event is named, confirm that something in the code sends it and that it has actually fired, before changing anything about this event.",
+      "means": "The two disagree. Either Govern says the event is in use and its code is gone, or Govern says it is dead and it is still firing. One of the two is wrong, and which one decides what you do about it.",
+      "measured": "We compare what Amplitude Govern says about an event with what the data shows it doing.",
+      "names": "the divergence column, DATA-2573",
       "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "A freshly retired event no longer lands here; there is a grace period for that. What does land here is a rename that was declared but never built. Someone marked the old event dead and named a replacement, the replacement was never written, and the old event keeps firing because it is still the only one there is."
+      "wrong": "The same unbuilt-rename trap as the group above. A 'not in use' declaration naming a replacement that was never written reads here as a problem with the event, when the problem is the declaration."
      },
-     "count": 9,
+     "count": 2,
      "dismissable": true,
      "dismissed": null,
-     "elevated": [],
-     "elevated_note": "None of 9 elevated: not on the curated watchlist, and neither the family nor the name matches an onboarding, activation or compliance rule.",
+     "elevated": [
+      "Serve Onboarding - Know Your Constituents Completed",
+      "Serve Onboarding - Know Your Constituents Viewed"
+     ],
+     "elevated_note": "2 of 2 elevated: on the curated watchlist, or in an onboarding, activation or compliance family.",
      "events": [
-      "Content Builder - Editor: Click Copy",
-      "Content Builder - Editor: Click Rename",
-      "Content Builder: Click Content",
-      "Content Builder: Click Continue Questions",
-      "Content Builder: Click Generate",
-      "Content Builder: Close Additional Inputs",
-      "Content Builder: Select Template",
-      "Navigation - Dashboard: Click Content Builder",
-      "ai_content_generation_start"
+      "Serve Onboarding - Know Your Constituents Completed",
+      "Serve Onboarding - Know Your Constituents Viewed"
      ],
      "evidence": [
       {
-       "days_since_instrumented": 724,
-       "divergence": null,
-       "elevated": false,
-       "event_count_30d": 2,
-       "event_type": "ai_content_generation_start",
-       "instrumented_date": "2024-10-18",
-       "instrumented_pr": "https://github.com/thegoodparty/gp-webapp/pull/316",
-       "last_seen_date": "2026-09-13",
+       "days_since_instrumented": 114,
+       "divergence": "declared in-use but code removed + quiet",
+       "elevated": true,
+       "event_count_30d": 10,
+       "event_type": "Serve Onboarding - Know Your Constituents Completed",
+       "instrumented_date": "2026-06-24",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
+       "last_seen_date": "2026-10-14",
        "okr": null,
        "provenance": "full",
        "removed_by_pr": null,
-       "status": "orphaned_firing"
+       "status": "deprecating"
       },
       {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 1,
-       "event_type": "Content Builder - Editor: Click Copy",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 2,
-       "event_type": "Content Builder - Editor: Click Rename",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
+       "days_since_instrumented": 114,
+       "divergence": "declared in-use but code removed + quiet",
+       "elevated": true,
        "event_count_30d": 10,
-       "event_type": "Content Builder: Click Content",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
+       "event_type": "Serve Onboarding - Know Your Constituents Viewed",
+       "instrumented_date": "2026-06-24",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
+       "last_seen_date": "2026-10-14",
        "okr": null,
-       "provenance": "commit only",
+       "provenance": "full",
        "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 1,
-       "event_type": "Content Builder: Click Continue Questions",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 6,
-       "event_type": "Content Builder: Click Generate",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 1,
-       "event_type": "Content Builder: Close Additional Inputs",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 5,
-       "event_type": "Content Builder: Select Template",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
-      },
-      {
-       "days_since_instrumented": 593,
-       "divergence": "declared not-in-use but still firing",
-       "elevated": false,
-       "event_count_30d": 31,
-       "event_type": "Navigation - Dashboard: Click Content Builder",
-       "instrumented_date": "2025-02-26",
-       "instrumented_pr": "",
-       "last_seen_date": "2026-09-13",
-       "okr": null,
-       "provenance": "commit only",
-       "removed_by_pr": null,
-       "status": "orphaned_firing"
+       "status": "deprecating"
       }
      ],
-     "id": "orphaned_firing",
-     "label": "declared not-in-use, still firing",
+     "id": "intent_divergence",
+     "label": "intent divergence",
      "okr_break": [],
      "proof_hint": "",
      "queue": "flags",
-     "rank": 1,
-     "recommendation_reason": "Two different problems look identical here: old app versions still sending a genuinely retired event, and a declaration that is simply wrong. Check when each one last fired before writing anything.",
-     "recommended": "investigate",
+     "rank": 5,
+     "recommendation_reason": "What Amplitude says about these and what they actually do disagree. Amplitude is where you correct it.",
+     "recommended": "govern",
      "verbs": {
       "dismiss": "Dismiss cause",
       "govern": "Fix in Govern",
@@ -5602,7 +5152,7 @@
      ],
      "evidence": [
       {
-       "days_since_instrumented": 106,
+       "days_since_instrumented": 110,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5616,7 +5166,7 @@
        "status": "instrumented_never_observed"
       },
       {
-       "days_since_instrumented": 106,
+       "days_since_instrumented": 110,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5630,7 +5180,7 @@
        "status": "instrumented_never_observed"
       },
       {
-       "days_since_instrumented": 95,
+       "days_since_instrumented": 99,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5644,7 +5194,7 @@
        "status": "instrumented_never_observed"
       },
       {
-       "days_since_instrumented": 87,
+       "days_since_instrumented": 91,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5658,7 +5208,7 @@
        "status": "instrumented_never_observed"
       },
       {
-       "days_since_instrumented": 77,
+       "days_since_instrumented": 81,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5696,11 +5246,11 @@
       "reference": "books/analytics-governance-gotchas.md",
       "wrong": "Thirty days is not a season. We hold no expectation of how often any individual event should fire, so a genuinely infrequent one looks exactly like a broken one."
      },
-     "count": 21,
+     "count": 24,
      "dismissable": true,
      "dismissed": null,
      "elevated": [],
-     "elevated_note": "None of 21 elevated: not on the curated watchlist, and neither the family nor the name matches an onboarding, activation or compliance rule.",
+     "elevated_note": "None of 24 elevated: not on the curated watchlist, and neither the family nor the name matches an onboarding, activation or compliance rule.",
      "events": [
       "AI Assistant - Response Completed",
       "AI Assistant - Response Failed",
@@ -5710,6 +5260,8 @@
       "Campaign - Follow-On Blocked",
       "Candidate Website - Purchased domain",
       "Constituent Data - Note Added",
+      "Content Builder: Generation Completed",
+      "Content Builder: Generation Started",
       "Dashboard - Campaign Plan: Plan Shared",
       "Ordinances - Draft Details Status Updated",
       "Payment - Completed",
@@ -5717,6 +5269,7 @@
       "Polls - Expand Poll Recommendations Completed",
       "Polls - Expand Poll Recommendations Viewed",
       "Polls - Expand Poll Review Viewed",
+      "Pro Upgrade - Texting Setup Banner Viewed",
       "Profile - Running Against: Click Add New",
       "Profile - Running Against: Click Edit",
       "Profile - Running Against: Click Save",
@@ -5726,7 +5279,7 @@
      ],
      "evidence": [
       {
-       "days_since_instrumented": 777,
+       "days_since_instrumented": 781,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5740,7 +5293,21 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 593,
+       "days_since_instrumented": 597,
+       "divergence": null,
+       "elevated": false,
+       "event_count_30d": 0,
+       "event_type": "Content Builder: Generation Completed",
+       "instrumented_date": "2025-02-26",
+       "instrumented_pr": "",
+       "last_seen_date": "2026-09-13",
+       "okr": null,
+       "provenance": "commit only",
+       "removed_by_pr": null,
+       "status": "dormant"
+      },
+      {
+       "days_since_instrumented": 597,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5754,7 +5321,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 593,
+       "days_since_instrumented": 597,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5768,7 +5335,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 593,
+       "days_since_instrumented": 597,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5782,7 +5349,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 593,
+       "days_since_instrumented": 597,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5796,7 +5363,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 593,
+       "days_since_instrumented": 597,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5810,7 +5377,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 472,
+       "days_since_instrumented": 476,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5824,7 +5391,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 445,
+       "days_since_instrumented": 449,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5838,7 +5405,21 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 342,
+       "days_since_instrumented": 423,
+       "divergence": null,
+       "elevated": false,
+       "event_count_30d": 0,
+       "event_type": "Content Builder: Generation Started",
+       "instrumented_date": "2025-08-19",
+       "instrumented_pr": "https://github.com/thegoodparty/gp-api/pull/457",
+       "last_seen_date": "2026-09-13",
+       "okr": null,
+       "provenance": "full",
+       "removed_by_pr": null,
+       "status": "dormant"
+      },
+      {
+       "days_since_instrumented": 346,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5852,7 +5433,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 342,
+       "days_since_instrumented": 346,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5866,7 +5447,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 342,
+       "days_since_instrumented": 346,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5880,7 +5461,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 342,
+       "days_since_instrumented": 346,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5894,7 +5475,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 342,
+       "days_since_instrumented": 346,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5908,7 +5489,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 137,
+       "days_since_instrumented": 141,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5922,7 +5503,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 125,
+       "days_since_instrumented": 129,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5936,7 +5517,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 119,
+       "days_since_instrumented": 123,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5950,7 +5531,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 118,
+       "days_since_instrumented": 122,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5964,7 +5545,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 118,
+       "days_since_instrumented": 122,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5978,7 +5559,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 118,
+       "days_since_instrumented": 122,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -5992,7 +5573,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 88,
+       "days_since_instrumented": 92,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -6006,7 +5587,7 @@
        "status": "dormant"
       },
       {
-       "days_since_instrumented": 77,
+       "days_since_instrumented": 81,
        "divergence": null,
        "elevated": false,
        "event_count_30d": 0,
@@ -6016,6 +5597,20 @@
        "last_seen_date": "2026-09-10",
        "okr": null,
        "provenance": "provisional",
+       "removed_by_pr": null,
+       "status": "dormant"
+      },
+      {
+       "days_since_instrumented": 77,
+       "divergence": null,
+       "elevated": false,
+       "event_count_30d": 0,
+       "event_type": "Pro Upgrade - Texting Setup Banner Viewed",
+       "instrumented_date": "2026-07-31",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/1114",
+       "last_seen_date": "2026-09-13",
+       "okr": null,
+       "provenance": "full",
        "removed_by_pr": null,
        "status": "dormant"
       }
@@ -6055,40 +5650,6 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "This is the shared chrome for a URL-stable multi-step poll wizard with Back/Next and a StepIndicator; per-stage Viewed/Completed events are not visible here and must exist for drop-off visibility.",
-       "last_seen": "2026-10-12",
-       "location": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx",
-       "rubric_rule": "multi-step flow Viewed/Completed",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage",
-     "label": "At which step of poll creation do users drop off?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "This is the shared chrome for a URL-stable multi-step poll wizard with Back/Next and a StepIndicator; per-stage Viewed/Completed events are not visible here and must exist for drop-off visibility.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-10-01",
        "judge_reason": "Renders step labels for a multi-step priorities flow with no visible per-stage Viewed/Completed tracking.",
        "last_seen": "2026-10-05",
        "location": "packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx",
@@ -6101,40 +5662,6 @@
      "queue": "gaps",
      "rank": 0,
      "recommendation_reason": "Renders step labels for a multi-step priorities flow with no visible per-stage Viewed/Completed tracking.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-10-01",
-       "judge_reason": "This is the wizard context (goToStep/goToNextStep/complete) backing a multi-step Pro upgrade flow; stage-level Viewed/Completed instrumentation should live here or be verified to exist, per the multi-step rule.",
-       "last_seen": "2026-10-12",
-       "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx",
-       "rubric_rule": "multi-step flow Viewed/Completed",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage",
-     "label": "At which step of the Pro upgrade wizard do users drop off?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "This is the wizard context (goToStep/goToNextStep/complete) backing a multi-step Pro upgrade flow; stage-level Viewed/Completed instrumentation should live here or be verified to exist, per the multi-step rule.",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -6190,6 +5717,74 @@
      "dismissed": null,
      "evidence": [
       {
+       "first_seen": "2026-10-01",
+       "judge_reason": "Generic StepIndicator/Back/Next chrome with no shell or hook providing tracking; per-stage Viewed/Completed events are missing for this URL-stable wizard.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx",
+       "rubric_rule": "multi-step flow viewed/completed",
+       "surface_type": "wizard_stage"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage",
+     "label": "At which step of the Create Poll wizard do users abandon the flow?",
+     "queue": "gaps",
+     "rank": 1,
+     "recommendation_reason": "Generic StepIndicator/Back/Next chrome with no shell or hook providing tracking; per-stage Viewed/Completed events are missing for this URL-stable wizard.",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
+       "first_seen": "2026-10-01",
+       "judge_reason": "Default context value with goToStep/goToNextStep/goToPreviousStep/complete and no visible tracking; the referenced counter-example (Pro Upgrade) in the rubric suggests this flow needs explicit per-stage Viewed/Completed events.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx",
+       "rubric_rule": "multi-step flow viewed/completed",
+       "surface_type": "wizard_stage"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage",
+     "label": "At which step of the Pro Upgrade wizard do users drop off?",
+     "queue": "gaps",
+     "rank": 1,
+     "recommendation_reason": "Default context value with goToStep/goToNextStep/goToPreviousStep/complete and no visible tracking; the referenced counter-example (Pro Upgrade) in the rubric suggests this flow needs explicit per-stage Viewed/Completed events.",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
        "first_seen": "2026-10-12",
        "judge_reason": "Shared full-screen stepper chrome used across flows; it is pure chrome (Stepper + footer slot) so tracking likely belongs to the stage content it wraps, but callers should be checked for per-stage Viewed/Completed events.",
        "last_seen": "2026-10-12",
@@ -6224,16 +5819,50 @@
      "dismissed": null,
      "evidence": [
       {
+       "first_seen": "2026-10-16",
+       "judge_reason": "A profile edit form submit with success/error branches and no trackEvent call; this is a primary save action worth instrumenting as a Completed/Errored event.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx",
+       "rubric_rule": "primary CTA / outcome",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit",
+     "label": "How often do users successfully update their personal information (name)?",
+     "queue": "gaps",
+     "rank": 2,
+     "recommendation_reason": "A profile edit form submit with success/error branches and no trackEvent call; this is a primary save action worth instrumenting as a Completed/Errored event.",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
        "first_seen": "2026-10-01",
-       "judge_reason": "This is the Submit button for creating a bug report annotation; no trackEvent call is visible around the submit/delete actions for this primary CTA.",
-       "last_seen": "2026-10-12",
+       "judge_reason": "Submit button for reporting a briefing error has no visible tracking call; this is a primary action producing a user-generated outcome (bug report).",
+       "last_seen": "2026-10-16",
        "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
-       "rubric_rule": "primary CTA / form submit",
+       "rubric_rule": "primary CTA / blocker-error",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215",
-     "label": "How many users submit a bug report via the annotation sheet, and how often does it fail?",
+     "label": "How many briefing error reports are submitted vs. abandoned?",
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "Ruled accepted at this location on 2026-08-06: Bug-report submit success and failure is worth tracking as briefing-quality feedback.. Usually the same call.",
@@ -6259,15 +5888,15 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "handleSubmit creates a bug report (an outcome) and has an explicit error branch (a blocker) with no visible tracking of success or failure.",
-       "last_seen": "2026-10-12",
+       "judge_reason": "handleSubmit creates a bug report (an outcome) with error handling via Sentry but no analytics trackEvent; this is the core action of the feature and should be tracked.",
+       "last_seen": "2026-10-16",
        "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
-       "rubric_rule": "outcome / blocker",
+       "rubric_rule": "primary CTA / outcome",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet",
-     "label": "How many bug reports are successfully submitted vs. erroring out?",
+     "label": "How many users successfully submit a briefing error report vs. hit an error?",
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "Ruled accepted at this location on 2026-08-06: Bug-report submit success and failure is worth tracking as briefing-quality feedback.. Usually the same call.",
@@ -6293,15 +5922,15 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "handleSubmit produces the outcome (notes saved) and has an explicit failure path with a user-facing error message, with no visible tracking call.",
-       "last_seen": "2026-10-12",
+       "judge_reason": "handleSubmit is the primary outcome-producing action (saving staged notes) with no trackEvent despite success/error paths.",
+       "last_seen": "2026-10-16",
        "location": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx",
-       "rubric_rule": "outcome / blocker",
+       "rubric_rule": "primary CTA / outcome",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog",
-     "label": "How many notes submissions succeed vs. fail in the Add Notes flow?",
+     "label": "How many users successfully submit notes intake vs. fail?",
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "Ruled accepted at this location on 2026-08-06: Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.. Usually the same call.",
@@ -6326,53 +5955,19 @@
      "dismissed": null,
      "evidence": [
       {
-       "first_seen": "2026-10-05",
-       "judge_reason": "This form submit calls onSave to persist opponent info, a primary CTA/outcome with no visible tracking.",
-       "last_seen": "2026-10-12",
-       "location": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx",
-       "rubric_rule": "form submit CTA",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77",
-     "label": "How many users save their 'running against' opponent details?",
-     "queue": "gaps",
-     "rank": 2,
-     "recommendation_reason": "Ruled dismissed at this location on 2026-08-06: Low-frequency single-field save; not a funnel milestone.. Usually the same call.",
-     "recommended": "dismiss",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-10-01",
-       "judge_reason": "submitBugReport creates an ordinance bug report (an outcome the feature produces) and shows a success snackbar, but has no visible tracking call.",
-       "last_seen": "2026-10-12",
-       "location": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx",
+       "first_seen": "2026-10-16",
+       "judge_reason": "Submits a new civic panel plan (POST) producing the outcome the feature exists for, with blocked/error branches but no analytics event.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
        "rubric_rule": "outcome",
        "surface_type": "form_submit"
       }
      ],
-     "id": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit",
-     "label": "How many ordinance bug reports are submitted from the draft detail view?",
+     "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit",
+     "label": "How many citizen panel plans are started/created?",
      "queue": "gaps",
      "rank": 2,
-     "recommendation_reason": "submitBugReport creates an ordinance bug report (an outcome the feature produces) and shows a success snackbar, but has no visible tracking call.",
+     "recommendation_reason": "Submits a new civic panel plan (POST) producing the outcome the feature exists for, with blocked/error branches but no analytics event.",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -6395,18 +5990,18 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "Sending a chat message is explicitly called out as real engagement to track (not chrome), and no tracking call is visible around the send action.",
-       "last_seen": "2026-10-12",
+       "judge_reason": "Sending a chat message is explicitly called out as real engagement to track (not chrome), and no trackEvent is visible for this send action.",
+       "last_seen": "2026-10-16",
        "location": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx",
-       "rubric_rule": "chat message sent (exception to chrome skip)",
+       "rubric_rule": "engagement \u2014 chat message sent",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit",
-     "label": "How many messages are sent in the ordinance flow chat?",
+     "label": "How many messages are sent in the Ordinance flow chat?",
      "queue": "gaps",
      "rank": 2,
-     "recommendation_reason": "Sending a chat message is explicitly called out as real engagement to track (not chrome), and no tracking call is visible around the send action.",
+     "recommendation_reason": "Sending a chat message is explicitly called out as real engagement to track (not chrome), and no trackEvent is visible for this send action.",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -6509,6 +6104,108 @@
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "handleSubmit calls onSubmit to create the recommended list and surfaces errors; outcome and error are both untracked.",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
+       "first_seen": "2026-10-05",
+       "judge_reason": "Form submit calls onSave with no tracking; a moderate-value profile/data-entry action worth instrumenting as Completed.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx",
+       "rubric_rule": "form_submit / primary CTA",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77",
+     "label": "How often do users save their 'running against' campaign details?",
+     "queue": "gaps",
+     "rank": 3,
+     "recommendation_reason": "Ruled dismissed at this location on 2026-08-06: Low-frequency single-field save; not a funnel milestone.. Usually the same call.",
+     "recommended": "dismiss",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
+       "first_seen": "2026-10-16",
+       "judge_reason": "PATCH to update an existing plan with success/error handling and no trackEvent call.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
+       "rubric_rule": "outcome / update",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit",
+     "label": "How often do users update their citizen panel plan (hours per week)?",
+     "queue": "gaps",
+     "rank": 3,
+     "recommendation_reason": "PATCH to update an existing plan with success/error handling and no trackEvent call.",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
+       "first_seen": "2026-10-01",
+       "judge_reason": "submitBugReport creates a bug report (an outcome) with no analytics tracking, only a success snackbar.",
+       "last_seen": "2026-10-16",
+       "location": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx",
+       "rubric_rule": "outcome / blocker",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit",
+     "label": "How many ordinance bug reports are submitted?",
+     "queue": "gaps",
+     "rank": 3,
+     "recommendation_reason": "submitBugReport creates a bug report (an outcome) with no analytics tracking, only a success snackbar.",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -7000,9 +6697,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-story, /onboarding/office-selection",
        "okr": false,
-       "page_path_agreement": 0.276,
-       "page_path_coverage": 0.875,
-       "page_path_users": 279,
+       "page_path_agreement": 0.281,
+       "page_path_coverage": 0.859,
+       "page_path_users": 272,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -7043,9 +6740,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-story, /onboarding/office-selection",
        "okr": false,
-       "page_path_agreement": 0.385,
-       "page_path_coverage": 0.765,
-       "page_path_users": 27,
+       "page_path_agreement": 0.469,
+       "page_path_coverage": 0.8,
+       "page_path_users": 29,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -7129,9 +6826,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-story, /onboarding/office-selection",
        "okr": false,
-       "page_path_agreement": 0.271,
-       "page_path_coverage": 0.878,
-       "page_path_users": 283,
+       "page_path_agreement": 0.276,
+       "page_path_coverage": 0.862,
+       "page_path_users": 276,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -7165,49 +6862,6 @@
      "dismissable": true,
      "dismissed": null,
      "events": [
-      "Constituent Data - Follow Up List Created"
-     ],
-     "evidence": [
-      {
-       "confidence": "proposed",
-       "live_routes": "/dashboard/constituent-outreach, /dashboard/outreach",
-       "okr": false,
-       "page_path_agreement": null,
-       "page_path_coverage": null,
-       "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
-       "removal_commit": null,
-       "surface_options": "",
-       "verdict": "moved_then_quiet"
-      }
-     ],
-     "id": "Constituent Data - Follow Up List Created",
-     "label": "Constituent Data - Follow Up List Created: labeled Constituent Data, fires from Constituent Outreach, Voter Outreach",
-     "queue": "surface",
-     "rank": 45,
-     "recommendation_reason": "",
-     "recommended": "",
-     "verbs": {
-      "accept": "Relabel it",
-      "defer": "Defer",
-      "dismiss": "Label is right"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Open the removal commit and the page-path numbers in the evidence. A low coverage figure means most fires could not be placed on a page.",
-      "means": "The event fires somewhere other than where its label says, so anyone filtering by area or reading its name is looking in the wrong place.",
-      "measured": "We traced each event from the code that sends it up to the pages that show that code, and compared those pages with the area its name or surface tag claims. Where we could, we also checked which page people were on when it fired.",
-      "names": "event_reach.py, surface_drift.py, surface_drift.json",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Code that is imported is not always shown, and a live page may have no link to it. A suggested relabel is only offered when the page people were on agrees."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "events": [
       "Contacts - Assistant Chat Opened"
      ],
      "evidence": [
@@ -7216,13 +6870,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.903,
-       "page_path_users": 21,
+       "page_path_coverage": 0.94,
+       "page_path_users": 31,
        "proposed_display_name": "Voter Data - Assistant Chat Opened",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7259,13 +6913,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.887,
-       "page_path_users": 20,
+       "page_path_coverage": 0.922,
+       "page_path_users": 30,
        "proposed_display_name": "Voter Data - Assistant Message Sent",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7301,14 +6955,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.947,
+       "page_path_agreement": 0.945,
        "page_path_coverage": 0.939,
-       "page_path_users": 832,
+       "page_path_users": 850,
        "proposed_display_name": "Voter Data - Contacts Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7345,13 +6999,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 0.995,
-       "page_path_coverage": 0.982,
-       "page_path_users": 218,
+       "page_path_coverage": 0.983,
+       "page_path_users": 217,
        "proposed_display_name": "Voter Data - Download",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7388,13 +7042,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.947,
-       "page_path_users": 23,
+       "page_path_coverage": 0.98,
+       "page_path_users": 44,
        "proposed_display_name": "Voter Data - List Wizard Boundary Completed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7431,13 +7085,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.878,
-       "page_path_users": 23,
+       "page_path_coverage": 0.949,
+       "page_path_users": 44,
        "proposed_display_name": "Voter Data - List Wizard Boundary Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7473,14 +7127,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.99,
-       "page_path_coverage": 0.941,
-       "page_path_users": 179,
+       "page_path_agreement": 0.991,
+       "page_path_coverage": 0.945,
+       "page_path_users": 183,
        "proposed_display_name": "Voter Data - List Wizard Conditions Completed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7517,13 +7171,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 0.993,
-       "page_path_coverage": 0.94,
-       "page_path_users": 235,
+       "page_path_coverage": 0.939,
+       "page_path_users": 240,
        "proposed_display_name": "Voter Data - List Wizard Conditions Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7559,14 +7213,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.992,
-       "page_path_coverage": 0.949,
-       "page_path_users": 224,
+       "page_path_agreement": 0.993,
+       "page_path_coverage": 0.948,
+       "page_path_users": 229,
        "proposed_display_name": "Voter Data - List Wizard Method Completed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7603,13 +7257,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 0.991,
-       "page_path_coverage": 0.954,
-       "page_path_users": 238,
+       "page_path_coverage": 0.952,
+       "page_path_users": 246,
        "proposed_display_name": "Voter Data - List Wizard Method Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7645,14 +7299,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.987,
-       "page_path_coverage": 0.947,
-       "page_path_users": 173,
+       "page_path_agreement": 0.988,
+       "page_path_coverage": 0.95,
+       "page_path_users": 176,
        "proposed_display_name": "Voter Data - List Wizard Name Completed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7688,14 +7342,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.99,
-       "page_path_coverage": 0.945,
-       "page_path_users": 179,
+       "page_path_agreement": 0.991,
+       "page_path_coverage": 0.948,
+       "page_path_users": 183,
        "proposed_display_name": "Voter Data - List Wizard Name Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7731,14 +7385,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.984,
-       "page_path_coverage": 0.984,
-       "page_path_users": 14,
+       "page_path_agreement": 0.985,
+       "page_path_coverage": 0.986,
+       "page_path_users": 15,
        "proposed_display_name": "Voter Data - Segment Created",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7775,13 +7429,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.958,
-       "page_path_users": 38,
+       "page_path_coverage": 0.961,
+       "page_path_users": 44,
        "proposed_display_name": "Voter Data - Segment Deleted",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7818,13 +7472,13 @@
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
        "page_path_agreement": 1.0,
-       "page_path_coverage": 0.986,
-       "page_path_users": 38,
+       "page_path_coverage": 0.987,
+       "page_path_users": 40,
        "proposed_display_name": "Voter Data - Segment Updated",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7860,14 +7514,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.984,
-       "page_path_coverage": 0.954,
-       "page_path_users": 261,
+       "page_path_agreement": 0.985,
+       "page_path_coverage": 0.956,
+       "page_path_users": 264,
        "proposed_display_name": "Voter Data - Segment Viewed",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7903,14 +7557,14 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/contacts/[[...attr]]",
        "okr": false,
-       "page_path_agreement": 0.933,
-       "page_path_coverage": 0.959,
-       "page_path_users": 72,
+       "page_path_agreement": 0.932,
+       "page_path_coverage": 0.958,
+       "page_path_users": 73,
        "proposed_display_name": "Voter Data - Voter Data Unavailable",
        "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
        "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituent-data, voter-data",
+       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -7946,9 +7600,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.932,
-       "page_path_coverage": 0.934,
-       "page_path_users": 679,
+       "page_path_agreement": 0.924,
+       "page_path_coverage": 0.932,
+       "page_path_users": 710,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Media Displayed",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -7989,9 +7643,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.57,
-       "page_path_coverage": 0.887,
-       "page_path_users": 699,
+       "page_path_agreement": 0.563,
+       "page_path_coverage": 0.883,
+       "page_path_users": 736,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Media Requested",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -8032,9 +7686,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.926,
-       "page_path_coverage": 0.931,
-       "page_path_users": 679,
+       "page_path_agreement": 0.917,
+       "page_path_coverage": 0.928,
+       "page_path_users": 710,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Media Results Received",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -8118,9 +7772,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.952,
-       "page_path_coverage": 0.94,
-       "page_path_users": 599,
+       "page_path_agreement": 0.946,
+       "page_path_coverage": 0.938,
+       "page_path_users": 623,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Displayed",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -8161,9 +7815,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.597,
-       "page_path_coverage": 0.892,
-       "page_path_users": 699,
+       "page_path_agreement": 0.594,
+       "page_path_coverage": 0.888,
+       "page_path_users": 736,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Requested",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -8204,9 +7858,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.948,
-       "page_path_coverage": 0.936,
-       "page_path_users": 599,
+       "page_path_agreement": 0.942,
+       "page_path_coverage": 0.934,
+       "page_path_users": 623,
        "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Results Received",
        "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
        "proposed_surface": "campaign-plan",
@@ -8247,9 +7901,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard, /dashboard/campaign-plan",
        "okr": false,
-       "page_path_agreement": 0.995,
-       "page_path_coverage": 0.957,
-       "page_path_users": 59,
+       "page_path_agreement": 0.997,
+       "page_path_coverage": 0.964,
+       "page_path_users": 152,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -8290,9 +7944,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard",
        "okr": false,
-       "page_path_agreement": 0.967,
-       "page_path_coverage": 0.972,
-       "page_path_users": 147,
+       "page_path_agreement": 0.969,
+       "page_path_coverage": 0.97,
+       "page_path_users": 138,
        "proposed_display_name": "Home - Path to Victory: Exit Understand Path to Victory",
        "proposed_fires_on": "Home (/dashboard)",
        "proposed_surface": "home",
@@ -8548,9 +8202,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/profile",
        "okr": false,
-       "page_path_agreement": 0.926,
-       "page_path_coverage": 0.959,
-       "page_path_users": 54,
+       "page_path_agreement": 0.941,
+       "page_path_coverage": 0.971,
+       "page_path_users": 53,
        "proposed_display_name": "Profile - Office Details: Office Completed",
        "proposed_fires_on": "Profile (/dashboard/profile)",
        "proposed_surface": "profile",
@@ -8592,8 +8246,8 @@
        "live_routes": "/dashboard/profile",
        "okr": false,
        "page_path_agreement": 0.922,
-       "page_path_coverage": 0.951,
-       "page_path_users": 134,
+       "page_path_coverage": 0.956,
+       "page_path_users": 139,
        "proposed_display_name": "Profile - Office Details: Office Searched",
        "proposed_fires_on": "Profile (/dashboard/profile)",
        "proposed_surface": "profile",
@@ -8634,9 +8288,9 @@
        "confidence": "proposed",
        "live_routes": "/serve/welcome, /win/welcome",
        "okr": false,
-       "page_path_agreement": 0.85,
-       "page_path_coverage": 0.87,
-       "page_path_users": 48,
+       "page_path_agreement": 0.836,
+       "page_path_coverage": 0.869,
+       "page_path_users": 45,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -8720,8 +8374,8 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/profile",
        "okr": false,
-       "page_path_agreement": 0.913,
-       "page_path_coverage": 0.986,
+       "page_path_agreement": 0.931,
+       "page_path_coverage": 1.0,
        "page_path_users": 39,
        "proposed_display_name": "Profile - Office Details: Click Next",
        "proposed_fires_on": "Profile (/dashboard/profile)",
@@ -8763,9 +8417,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/profile",
        "okr": false,
-       "page_path_agreement": 0.894,
-       "page_path_coverage": 0.975,
-       "page_path_users": 65,
+       "page_path_agreement": 0.901,
+       "page_path_coverage": 0.98,
+       "page_path_users": 67,
        "proposed_display_name": "Profile - Office Details: Office Selected",
        "proposed_fires_on": "Profile (/dashboard/profile)",
        "proposed_surface": "profile",
@@ -8849,9 +8503,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/door-knocking, /volunteer/door-knocking/[turfId]",
        "okr": true,
-       "page_path_agreement": 0.34,
-       "page_path_coverage": 0.791,
-       "page_path_users": 16,
+       "page_path_agreement": 0.446,
+       "page_path_coverage": 0.824,
+       "page_path_users": 20,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -8892,9 +8546,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/door-knocking",
        "okr": false,
-       "page_path_agreement": 0.951,
-       "page_path_coverage": 0.532,
-       "page_path_users": 63,
+       "page_path_agreement": 0.96,
+       "page_path_coverage": 0.56,
+       "page_path_users": 73,
        "proposed_display_name": "Door knocking - Door Knocking List Created",
        "proposed_fires_on": "Door knocking (/dashboard/door-knocking)",
        "proposed_surface": "door-knocking",
@@ -9107,9 +8761,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/door-knocking, /volunteer/door-knocking/[turfId]",
        "okr": false,
-       "page_path_agreement": 0.879,
-       "page_path_coverage": 0.946,
-       "page_path_users": 37,
+       "page_path_agreement": 0.832,
+       "page_path_coverage": 0.951,
+       "page_path_users": 45,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -9150,9 +8804,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/door-knocking, /volunteer/door-knocking/[turfId]",
        "okr": false,
-       "page_path_agreement": 0.353,
-       "page_path_coverage": 0.81,
-       "page_path_users": 10,
+       "page_path_agreement": 0.364,
+       "page_path_coverage": 0.759,
+       "page_path_users": 13,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -9193,9 +8847,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/door-knocking, /volunteer/door-knocking/[turfId]",
        "okr": false,
-       "page_path_agreement": 0.721,
-       "page_path_coverage": 0.951,
-       "page_path_users": 68,
+       "page_path_agreement": 0.683,
+       "page_path_coverage": 0.957,
+       "page_path_users": 81,
        "proposed_display_name": "",
        "proposed_fires_on": "",
        "proposed_surface": "",
@@ -9236,9 +8890,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/questions",
        "okr": false,
-       "page_path_agreement": 0.614,
-       "page_path_coverage": 0.978,
-       "page_path_users": 18,
+       "page_path_agreement": 0.595,
+       "page_path_coverage": 0.977,
+       "page_path_users": 16,
        "proposed_display_name": "Additional Questions - Running Against: Click Add New",
        "proposed_fires_on": "Additional Questions (/dashboard/questions)",
        "proposed_surface": "additional-questions",
@@ -9322,9 +8976,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/questions",
        "okr": false,
-       "page_path_agreement": 0.85,
-       "page_path_coverage": 0.952,
-       "page_path_users": 21,
+       "page_path_agreement": 0.833,
+       "page_path_coverage": 0.947,
+       "page_path_users": 19,
        "proposed_display_name": "Additional Questions - Running Against: Click Save",
        "proposed_fires_on": "Additional Questions (/dashboard/questions)",
        "proposed_surface": "additional-questions",
@@ -9365,9 +9019,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/questions",
        "okr": false,
-       "page_path_agreement": 0.6,
+       "page_path_agreement": 0.576,
        "page_path_coverage": 1.0,
-       "page_path_users": 11,
+       "page_path_users": 9,
        "proposed_display_name": "Additional Questions - Running Against: Submit Add New",
        "proposed_fires_on": "Additional Questions (/dashboard/questions)",
        "proposed_surface": "additional-questions",
@@ -9451,9 +9105,9 @@
        "confidence": "proposed",
        "live_routes": "/dashboard/profile",
        "okr": false,
-       "page_path_agreement": 0.976,
+       "page_path_agreement": 0.975,
        "page_path_coverage": 0.976,
-       "page_path_users": 65,
+       "page_path_users": 66,
        "proposed_display_name": "Profile - Personal Info: Click Upload",
        "proposed_fires_on": "Profile (/dashboard/profile)",
        "proposed_surface": "profile",
@@ -9478,7 +9132,7 @@
    "queue": "surface"
   }
  ],
- "run_date": "2026-10-12",
+ "run_date": "2026-10-16",
  "series_weeks": [
   "2026-08-10",
   "2026-08-17",

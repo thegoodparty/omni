@@ -213,6 +213,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'dev-env',
   'version',
   'queue',
+  // 404s outside mock mode (non-prod only); prod traffic is by definition
+  // not ours, same posture as test-fixtures.
+  'vendor-mocks/geoapify',
 ]
 
 /**
@@ -367,7 +370,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     name: 'Health check probe failures',
     type: 'metric',
     expr: '1 - (sum(rate(probe_all_success_sum{job="gp-api-$ENV-health"}[5m])) / sum(rate(probe_all_success_count{job="gp-api-$ENV-health"}[5m])))',
-    threshold: 0.1,
+    threshold: 0.3,
     for: '2m',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',

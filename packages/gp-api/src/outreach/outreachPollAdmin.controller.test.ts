@@ -254,14 +254,6 @@ describe('POST :id/approve', () => {
     expect(row.approvedBy).toBe('other@goodparty.org')
   })
 
-  it('400s an expansion approval until expansions land', async () => {
-    const result = await approve(poll.id, { expansionId: 'exp-1' })
-
-    expect(result.status).toBe(400)
-    expect((await readPoll(poll.id)).approvedAt).toBeNull()
-    expect(sendMessage).not.toHaveBeenCalled()
-  })
-
   it('409s a denied poll', async () => {
     expect((await deny(poll.id)).status).toBe(201)
 
@@ -276,6 +268,170 @@ describe('POST :id/approve', () => {
 
     expect((await approve(unpaid.id)).status).toBe(409)
     expect(sendMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST :id/approve with expansionId', () => {
+  let sent: Outreach
+  let expansionId: string
+
+  const readExpansion = () =>
+    service.prisma.outreachPollExpansion.findUniqueOrThrow({
+      where: { id: expansionId },
+    })
+
+  beforeEach(async () => {
+    sent = await createPoll({
+      status: OutreachStatus.completed,
+      approvedAt: subDays(new Date(), 5),
+    })
+    const expansion = await service.prisma.outreachPollExpansion.create({
+      data: {
+        outreachId: sent.id,
+        sendSeq: 2,
+        textCount: 90,
+        status: OutreachStatus.pending,
+      },
+    })
+    expansionId = expansion.id
+  })
+
+  it('lists an awaiting expansion in the queue beside the polls', async () => {
+    const result = await service.client.get(`${BASE}/queue`)
+
+    expect(result.data.items).toHaveLength(2)
+    expect(
+      result.data.items.find(
+        (item: { kind: string }) => item.kind === 'expansion',
+      ),
+    ).toMatchObject({
+      kind: 'expansion',
+      outreachId: sent.id,
+      expansionId,
+      textCount: 90,
+      question: QUESTION,
+      approvalStatus: 'awaiting_review',
+    })
+  })
+
+  it('does not list an expansion that has not been paid for', async () => {
+    await service.prisma.outreachPollExpansion.update({
+      where: { id: expansionId },
+      data: { status: OutreachStatus.pending_payment },
+    })
+
+    const result = await service.client.get(`${BASE}/queue`)
+
+    expect(
+      result.data.items.filter(
+        (item: { kind: string }) => item.kind === 'expansion',
+      ),
+    ).toEqual([])
+  })
+
+  it('claims the expansion, enqueues its own sendSeq and reopens the spine', async () => {
+    sendMessage.mockClear()
+    const result = await approve(sent.id, { expansionId })
+
+    expect(result.status).toBe(201)
+    expect(result.data).toMatchObject({
+      kind: 'expansion',
+      expansionId,
+      approvalStatus: 'approved',
+    })
+    const expansion = await readExpansion()
+    expect(expansion.approvedAt).not.toBeNull()
+    expect(expansion.approvedBy).toBe('staffer@goodparty.org')
+    expect(expansion.status).toBe(OutreachStatus.pending)
+    expect((await readPoll(sent.id)).status).toBe(OutreachStatus.in_progress)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        type: QueueType.OUTREACH_TEXT_SEND,
+        data: { outreachId: sent.id, sendSeq: 2 },
+      },
+      `${MessageGroup.outreachTextSend}-${sent.id}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${sent.id}-2`,
+      },
+    )
+  })
+
+  it('leaves the spine alone when it is already in progress', async () => {
+    await service.prisma.outreach.update({
+      where: { id: sent.id },
+      data: { status: OutreachStatus.in_progress },
+    })
+
+    expect((await approve(sent.id, { expansionId })).status).toBe(201)
+
+    expect((await readPoll(sent.id)).status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('enqueues once and 409s the other of two concurrent approvals', async () => {
+    sendMessage.mockClear()
+    const results = await Promise.all([
+      approve(sent.id, { expansionId }),
+      approve(sent.id, { expansionId }),
+    ])
+
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('reverts the expansion claim and the reopened spine when the enqueue fails', async () => {
+    sendMessage.mockRejectedValueOnce(new Error('Service Unavailable'))
+
+    expect((await approve(sent.id, { expansionId })).status).toBe(500)
+
+    const expansion = await readExpansion()
+    expect(expansion.approvedAt).toBeNull()
+    expect(expansion.approvedBy).toBeNull()
+    expect((await readPoll(sent.id)).status).toBe(OutreachStatus.completed)
+    expect((await approve(sent.id, { expansionId })).status).toBe(201)
+  })
+
+  it('reverts only its own claim, never a different approval stamp', async () => {
+    const otherClaim = subDays(new Date(), 1)
+    sendMessage.mockImplementationOnce(async () => {
+      await service.prisma.outreachPollExpansion.update({
+        where: { id: expansionId },
+        data: { approvedAt: otherClaim, approvedBy: 'other@goodparty.org' },
+      })
+      throw new Error('Service Unavailable')
+    })
+
+    expect((await approve(sent.id, { expansionId })).status).toBe(500)
+
+    const expansion = await readExpansion()
+    expect(expansion.approvedAt).toEqual(otherClaim)
+    expect(expansion.approvedBy).toBe('other@goodparty.org')
+  })
+
+  it('never touches the spine approval', async () => {
+    const before = await readPoll(sent.id)
+
+    await approve(sent.id, { expansionId })
+
+    const after = await readPoll(sent.id)
+    expect(after.approvedAt).toEqual(before.approvedAt)
+    expect(after.approvedBy).toEqual(before.approvedBy)
+  })
+
+  it('409s an expansion that has not been paid for', async () => {
+    await service.prisma.outreachPollExpansion.update({
+      where: { id: expansionId },
+      data: { status: OutreachStatus.pending_payment },
+    })
+    sendMessage.mockClear()
+
+    expect((await approve(sent.id, { expansionId })).status).toBe(409)
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('404s an expansion id that belongs to another poll', async () => {
+    expect((await approve(poll.id, { expansionId })).status).toBe(404)
   })
 })
 

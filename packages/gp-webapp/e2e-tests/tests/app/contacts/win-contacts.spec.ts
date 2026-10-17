@@ -81,9 +81,12 @@ test.describe('Win Contacts', () => {
     await expect(
       channelPicker.getByRole('heading', { name: 'Choose a channel' }),
     ).toBeVisible({ timeout: 15_000 })
+    // Robocall, not SMS: the SMS row turns into a disabled, link-less row once
+    // the candidate's election is inside the texting cutoff, which would make
+    // this assertion depend on the calendar.
     await expect(
-      channelPicker.getByRole('link', { name: /^SMS/ }),
-    ).toHaveAttribute('href', /compose=text&source=voter_data$/)
+      channelPicker.getByRole('link', { name: /^Robocall/ }),
+    ).toHaveAttribute('href', /compose=robocall&source=voter_data$/)
     await channelPicker.getByRole('button', { name: 'Close' }).click()
     await expect(channelPicker).toBeHidden({ timeout: 10_000 })
 

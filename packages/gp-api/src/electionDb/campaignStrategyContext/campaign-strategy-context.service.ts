@@ -106,7 +106,9 @@ export class CampaignStrategyContextService extends createElectionDbBase(
     return {
       candidate_count: candidates.length,
       candidate_office: this.composeCandidateOffice(
+        race.Position?.name ?? null,
         race.positionNames,
+        race.officialOfficeName,
         race.normalizedPositionName,
       ),
       candidates,
@@ -223,14 +225,22 @@ export class CampaignStrategyContextService extends createElectionDbBase(
     return Math.floor(projectedTurnout / 2) + 1
   }
 
+  // The race's own Position name comes first. positionNames lists every seat
+  // that shares the position's geography (e.g. Town Council Positions 1-5), so
+  // its first entry is often a sibling seat. Sending that name made the
+  // opposition agent research the wrong seat's candidates. Use the array only
+  // when it holds a single name.
   private composeCandidateOffice(
+    positionName: string | null,
     positionNames: string[] | null | undefined,
+    officialOfficeName: string | null,
     normalizedPositionName: string | null | undefined,
   ): string | null {
-    if (positionNames && positionNames.length > 0) {
-      return positionNames[0] ?? null
+    if (positionName) return positionName
+    if (positionNames && positionNames.length === 1 && positionNames[0]) {
+      return positionNames[0]
     }
-    return normalizedPositionName ?? null
+    return officialOfficeName ?? normalizedPositionName ?? null
   }
 
   private toIsoDate(date: Date | null): string | null {

@@ -177,10 +177,6 @@ export const EVENTS = {
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
-    KnowYourConstituentsViewed:
-      'Serve Onboarding - Know Your Constituents Viewed',
-    KnowYourConstituentsCompleted:
-      'Serve Onboarding - Know Your Constituents Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
   },
@@ -417,6 +413,12 @@ export const EVENTS = {
       IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
       SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
     },
+    // The SMS compliance cutoff notice shown before purchase in the Pro
+    // wizard. Both carry `source`; Completed fires on continue to payment.
+    SmsCutoff: {
+      NoticeViewed: 'Pro Upgrade - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Pro Upgrade - SMS Cutoff Notice Completed',
+    },
   },
   // Candidate questions flow. The event string is snake_case, predating the
   // 'Product Area - Action' convention; the name is kept exactly as ingested so
@@ -457,9 +459,10 @@ export const EVENTS = {
     // justify building self-serve remediation.
     VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
     // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
-    // once per drawer open with { context, source: 'message' | 'history' }
-    // (a bar submit opens with a message; a history pick opens a past
-    // conversation); MessageSent fires per user send ({ context }) — the
+    // once per drawer open with
+    // { context, source: 'message' | 'history' | 'toolbar' } (a bar submit
+    // opens with a message; a history pick opens a past conversation; the
+    // paperclip or mic opens a fresh one); MessageSent fires per user send ({ context }) — the
     // initial bar submit and every composer follow-up — so open-to-send
     // drop-off is visible.
     AssistantChatOpened: 'Contacts - Assistant Chat Opened',
@@ -673,6 +676,14 @@ export const EVENTS = {
     Flow: {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
+    },
+    // The SMS compliance cutoff notice that replaces a texting or compliance
+    // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
+    // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
+    // Completed carries `surface` and the `channel` picked instead.
+    SmsCutoff: {
+      NoticeViewed: 'Outreach - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Outreach - SMS Cutoff Notice Completed',
     },
   },
   CandidateWebsite: {

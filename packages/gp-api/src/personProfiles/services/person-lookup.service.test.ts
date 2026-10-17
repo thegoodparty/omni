@@ -154,12 +154,12 @@ describe('PersonLookupService', () => {
     }
 
     it('builds the public /people URL the marketing site serves', async () => {
-      batchOf([person({ slug: 'jordan-reyes' })])
+      // election-api mints the slug with the 8-hex id suffix already on it;
+      // the URL is /people/<slug> verbatim, nothing appended.
+      batchOf([person({ slug: 'jordan-reyes-a1b2c3d4' })])
 
       const identities = await service.resolveIdentities([PERSON_ID])
 
-      // The 8-hex id suffix is what actually resolves the page — slugs are not
-      // unique — so a URL missing it points at the wrong person or nobody.
       expect(identities.get(PERSON_ID)).toEqual({
         fullName: 'Jordan Reyes',
         profileUrl: `${process.env.WEBAPP_ROOT_URL}/people/jordan-reyes-a1b2c3d4`,

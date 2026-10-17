@@ -236,15 +236,16 @@ describe('PurchaseService', () => {
         metadata: { campaignId: mockCampaign.id },
       })
 
-      // Promo codes are disabled on a hold: a Stripe promo would shrink the
-      // PaymentIntent amount and corrupt the recorded hold ceiling.
+      // A hold takes promo codes like any checkout, and the session carries
+      // the hold decision for a code that leaves it no PaymentIntent.
       expect(
         mockStripeService.createCustomCheckoutSession,
       ).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           manualCapture: true,
-          allowPromoCodes: false,
+          allowPromoCodes: true,
+          metadata: expect.objectContaining({ winSmsHoldBilling: 'true' }),
         }),
       )
       // ENTRY: evaluated once for the paying user against the managed flag,
@@ -276,7 +277,12 @@ describe('PurchaseService', () => {
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
-          metadata: { contactCount: 3000, outreachType: 'p2p' },
+          // A client cannot mark its own checkout a hold.
+          metadata: {
+            contactCount: 3000,
+            outreachType: 'p2p',
+            winSmsHoldBilling: 'true',
+          },
         },
         metadata: { campaignId: mockCampaign.id },
       })
@@ -289,6 +295,7 @@ describe('PurchaseService', () => {
         expect.objectContaining({
           manualCapture: false,
           allowPromoCodes: true,
+          metadata: expect.objectContaining({ winSmsHoldBilling: undefined }),
         }),
       )
     })

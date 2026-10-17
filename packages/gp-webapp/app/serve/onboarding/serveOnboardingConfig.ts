@@ -38,9 +38,23 @@ export type ServeStepId =
   | 'office'
   | 'term-dates'
   | 'confirm'
-  | 'constituents'
+  | ServeStoryStepId
   | 'priorities'
   | 'pledge'
+
+// The district story serve-citizen-panels shows after the term: one
+// persistent map that changes mode on each step.
+export const SERVE_STORY_STEPS = [
+  'story-represent',
+  'story-loudest',
+  'story-sample',
+  'story-grow',
+] as const
+
+export type ServeStoryStepId = (typeof SERVE_STORY_STEPS)[number]
+
+export const isServeStoryStep = (step: ServeStepId): step is ServeStoryStepId =>
+  (SERVE_STORY_STEPS as readonly string[]).includes(step)
 
 export type ServeBranch = 'prefill' | 'net-new'
 
@@ -63,7 +77,7 @@ const PREFILL_STEPS: ServeStepId[] = [
   'inOffice',
   'party',
   'confirm',
-  'constituents',
+  ...SERVE_STORY_STEPS,
   'priorities',
   'pledge',
 ]
@@ -74,20 +88,25 @@ const NET_NEW_STEPS: ServeStepId[] = [
   'party',
   'office',
   'term-dates',
-  'constituents',
+  ...SERVE_STORY_STEPS,
   'priorities',
   'pledge',
 ]
 
-// The `priorities` step ships behind the serve-citizen-panels flag; without it
-// the flow goes from `constituents` straight to `pledge`.
+// The district story and the `priorities` step are serve-citizen-panels
+// only. Without the flag the flow goes from the term straight to `pledge`.
 export const getServeBranchSteps = (
   branch: ServeBranch,
-  withPriorities = false,
+  citizenPanels = false,
 ): ServeStepId[] => {
   const steps = branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
-  return withPriorities ? steps : steps.filter((s) => s !== 'priorities')
+  if (citizenPanels) return steps
+  return steps.filter((s) => !isServeStoryStep(s) && s !== 'priorities')
 }
+
+// The first step after the office and term are settled.
+export const firstStepAfterTerm = (citizenPanels = false): ServeStepId =>
+  citizenPanels ? SERVE_STORY_STEPS[0] : 'pledge'
 
 /**
  * Which of the data-collecting answers are already persisted on the EO/org
@@ -155,20 +174,22 @@ export const resolveServeBranch = ({
  *    reviewed/edited on the `confirm` hub, so an incomplete pair resumes there;
  *    in the net-new branch they are their own steps.
  *
- * Never returns `pledge`: a completed office is redirected away before the flow
- * renders, and the pledge is the completion action the user must always take.
+ * With every answer saved it resumes at the first step after the term: the
+ * pledge itself with serve-citizen-panels off. A completed office is redirected
+ * away before the flow renders, so the pledge is always still to take.
  */
 export const computeServeResumeStep = (
   branch: ServeBranch,
   { hasParty, hasOffice, hasDates }: ServeResumeState,
+  citizenPanels = false,
 ): ServeStepId => {
   if (!hasParty) return 'welcome'
   if (branch === 'prefill') {
-    return hasOffice && hasDates ? 'constituents' : 'confirm'
+    return hasOffice && hasDates ? firstStepAfterTerm(citizenPanels) : 'confirm'
   }
   if (!hasOffice) return 'office'
   if (!hasDates) return 'term-dates'
-  return 'constituents'
+  return firstStepAfterTerm(citizenPanels)
 }
 
 /**
@@ -194,7 +215,7 @@ const maxDataSufficientStep = (
 /**
  * Resume target that honors the persisted step checkpoint (written on every
  * "Continue") so a returning user lands on the EXACT most recent step — even
- * steps with no data field (`inOffice`, `constituents`) that the data-derived
+ * steps with no data field (`inOffice`, the district story) that the data-derived
  * `computeServeResumeStep` cannot pinpoint.
  *
  *  - No checkpoint (legacy rows / sales prefills provisioned before this
@@ -209,12 +230,14 @@ export const resolveServeResumeStep = (
   branch: ServeBranch,
   checkpoint: ServeStepId | null | undefined,
   dataState: ServeResumeState,
-  withPriorities = false,
+  citizenPanels = false,
 ): ServeStepId => {
-  if (!checkpoint) return computeServeResumeStep(branch, dataState)
-  const steps = getServeBranchSteps(branch, withPriorities)
+  if (!checkpoint) {
+    return computeServeResumeStep(branch, dataState, citizenPanels)
+  }
+  const steps = getServeBranchSteps(branch, citizenPanels)
   if (!steps.includes(checkpoint)) {
-    return computeServeResumeStep(branch, dataState)
+    return computeServeResumeStep(branch, dataState, citizenPanels)
   }
   const furthestSafe = maxDataSufficientStep(branch, dataState)
   return steps.indexOf(checkpoint) > steps.indexOf(furthestSafe)
@@ -268,9 +291,9 @@ export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
 export const getServeProgress = (
   branch: ServeBranch,
   step: ServeStepId,
-  withPriorities = false,
+  citizenPanels = false,
 ): { current: number; total: number } => {
-  const steps = getServeBranchSteps(branch, withPriorities)
+  const steps = getServeBranchSteps(branch, citizenPanels)
   const total = steps.length
   let index = steps.indexOf(step)
   if (index === -1) {
@@ -286,7 +309,10 @@ export interface ServeStepCopy {
   whyWeAsk?: string
 }
 
-export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
+export const SERVE_STEP_COPY: Record<
+  Exclude<ServeStepId, ServeStoryStepId>,
+  ServeStepCopy
+> = {
   welcome: {
     title: 'Meet your virtual chief of staff in 5 minutes',
     description:
@@ -327,17 +353,10 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     whyWeAsk:
       'These details ensure we pull the right information and data to help you serve your community',
   },
-  constituents: {
-    title: "Here's everything to know about your constituents",
-    description:
-      'We crunch constituent data and local news to prioritize the most important issues for your office.',
-    whyWeAsk:
-      "Understanding your constituents' makeup and concerns helps you prioritize where to focus and how to communicate.",
-  },
   priorities: {
-    title: 'What issues are you prioritizing solving right now?',
+    title: 'Turn what you ran on into what you work on',
     description:
-      'These can be issues you ran on, or community issues that have surfaced since taking office.',
+      'Your priorities, shaped by what residents tell you. Your Chief of Staff keeps each one moving.',
     whyWeAsk:
       'Your priorities shape your briefings and the questions we suggest asking your constituents.',
   },
@@ -355,13 +374,74 @@ export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
   'welcome' | 'pledge'
 > = {
   welcome: {
-    title: 'Hear from your whole community, not just the loudest voices',
+    title: 'Hear from your whole community, not only the loudest voices',
     description:
       "Tell us what office you hold and where. We'll help you listen, act, and report back.",
   },
   pledge: {
     title: 'Take our pledge to get started',
     description: SERVE_STEP_COPY.pledge.description,
+  },
+}
+
+export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
+
+// The district story's copy. Titles are split so the accent words can be
+// colored without a second string to keep in sync.
+export interface ServeStoryTitle {
+  lead: string
+  accent: string
+  tail: string
+}
+
+export const SERVE_STORY_COPY = {
+  represent: {
+    title: (people: string): ServeStoryTitle => ({
+      lead: 'You represent',
+      accent: people,
+      tail: 'people',
+    }),
+    titleWithoutCount: 'You represent every resident of your district',
+    description: (perDot: string, place: string): string =>
+      `Every dot is about ${perDot} residents of ${place}. Each of them counts on you to speak for them.`,
+    descriptionWithoutCount: (place: string): string =>
+      `Every dot is a group of residents of ${place}. Each of them counts on you to speak for them.`,
+    defaultPlace: 'your district',
+  },
+  loudest: {
+    title: {
+      lead: "Until now, you've heard from the",
+      accent: 'loudest voices',
+      tail: 'only',
+    } satisfies ServeStoryTitle,
+    description:
+      'The people who make it to a meeting or send an email. Most residents never do.',
+    heardFrom: 'Heard from',
+    notHeardFrom: 'Not heard from yet',
+  },
+  sample: {
+    title: (answers: number): ServeStoryTitle => ({
+      lead: 'With about',
+      accent: `${answers} answers`,
+      tail: ", you'll know where your community stands",
+    }),
+    description:
+      'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
+    howWeGotIt: 'How we got this number',
+    explanation: (answers: number): string =>
+      `We picked ${answers} so that when residents split close to evenly, you know their view within about 10 points either way. Accuracy depends on how many people answer, not how many live in your district.`,
+  },
+  grow: {
+    title: "We'll help you build and grow the list of people you hear from",
+    description:
+      'Listen to the people first. Then prioritize, act, and tell them what you did.',
+    loop: [
+      { title: 'Listen', desc: 'Text, call or knock' },
+      { title: 'Prioritize', desc: 'See what matters most' },
+      { title: 'Act', desc: 'Bring it to your vote' },
+      { title: 'Communicate', desc: 'Tell them what you did' },
+    ],
+    again: 'Then listen again. Each round, your panel grows.',
   },
 }
 
@@ -397,8 +477,8 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
 export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: UsersRoundIcon,
-    title: 'Build a civic panel you can ask before you vote',
-    desc: 'Invite residents who agree to give feedback, then hear from a random slice of them on each decision.',
+    title: 'Ask residents before you vote',
+    desc: "We'll help you build and grow the list of people you hear from, picked from every corner of your district.",
   },
   {
     icon: MegaphoneIcon,
@@ -413,7 +493,7 @@ export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: CalendarCheckIcon,
     title: 'Walk into every meeting prepared',
-    desc: "Get a briefing before each meeting on what's on the agenda and what residents think.",
+    desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
   },
 ]
 

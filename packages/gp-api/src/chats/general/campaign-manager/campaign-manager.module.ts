@@ -12,6 +12,7 @@ import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -52,7 +53,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 // shared ChatStoreService (greeting seeding), Organizations/Elections for the
 // reused constituent-data tool's district resolution, and
 // CampaignStory/Websites/CampaignStrategy for the Campaign Story intake (story +
-// website bio/issues + plan generation).
+// website bio/issues + plan generation), and PersonProfiles for the public
+// profile's publish gate and canonical address.
 
 @Module({
   imports: [
@@ -65,6 +67,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     CampaignStrategyModule,
     ContactsModule,
     VotersModule,
+    PersonProfilesModule,
   ],
   providers: [
     CampaignManagerHandler,

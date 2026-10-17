@@ -224,8 +224,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
   A Serve text proposal may carry `purpose` (contracts' Serve SMS purposes;
-  the Chief of Staff only ever sets `build_citizens_panel`, for the civic
-  panel invite). `SmsFlow` then opens on it as `initialPurpose`, past the
+  only Chief of Staff cards from before the panel plan carry one,
+  `build_citizens_panel`, the old single invite text; the chat now builds the
+  panel from the plan and proposes no invite). `SmsFlow` then opens on it as `initialPurpose`, past the
   picker, with the seeded message kept (a script otherwise opens on
   `custom`) and the JOIN line locked on, the way the outreach page's panel
   deep link opens it.
@@ -248,7 +249,9 @@ there is the agent's to say, once, in its message; no card repeats it.
   passes only with an approved registration (`useTextOutreachGate`'s
   compliance modal). Phone banking and door knocking take a free campaign
   to their own pitch (`phone-bank`, `door`); social is free and opens for
-  anyone. Outreach Pro gating is fully rolled out, so the card
+  anyone. Once gp-api reports the campaign's SMS compliance window closed
+  (`useSmsCompliance`), `textAvailable` is false on Win and an unsent text
+  card renders nothing. Outreach Pro gating is fully rolled out, so the card
   does not read the `outreach-pro-gating-v2` flag. A text's button waits
   until the campaign and registration have loaded; the other channels wait
   for the campaign alone (`winResolved`). The card's
@@ -301,15 +304,42 @@ products use this one mechanism: the Campaign Manager's starter cards
 passed by the Serve home's `DashboardContent` under the meet card's intro and
 on a new chat). A card does one of three things: `message` sends a question
 as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
-message such as the civic panel build), and `onSelect` runs anything else
-(open a flow). A card label with a `description` renders as a card, without
+message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
+`onSelect` runs anything else (open a flow or a page, as Draft an ordinance
+does). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve
 home uses it for What's a civic panel?: with no panel yet the answer ends on
-Build my panel, which sends the build message into the same conversation.
+Build my panel, which sends the same hidden build turn.
+
+## The civic panel in the Chief of Staff chat
+
+The chat builds the panel on the panel page's plan (gp-api's contacts
+AGENTS.md, "Building the panel starts on the Chief of Staff home"). Two
+no-arg tools are widgets in `chief-of-staff/components/chat/civicPanelWidgets.tsx`,
+registered on `ChiefOfStaffChatBody`'s registry:
+
+- **`ask_panel_weekly_time`** renders `ClarifyQuestionWidget` with the panel
+  page's own question and answers (`citizensPanelCopy`: "How much time can
+  you give each week?", 1, 2, 3, or 4 or more hours a week, plus the usual
+  write-your-own). `isQuestionTool` (`clarifyWidget.tsx`) counts it as a
+  clarify question, so only the open one takes input, an answered one
+  reloads checked, and prose asking it right above is dropped.
+- **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
+  the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
+  holds no state of its own: the Next line, members of the goal, the panel
+  page's button for that step (none while waiting on replies), and See your
+  plan. The button opens the step's own flow through the panel page's
+  `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
+  calls over the chat, doors on the door knocking page, calls or walks
+  underway on their caller page or walk. A refused call's null args render
+  nothing.
+
+A `save_panel_weekly_time` result drops the plan query and the home's cards,
+so the card and the People first card follow the new plan at once.
 
 ## Reference wrappers — copy the closest
 

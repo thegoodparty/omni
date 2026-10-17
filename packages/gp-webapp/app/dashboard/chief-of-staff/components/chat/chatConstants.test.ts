@@ -49,6 +49,7 @@ describe('toolStatusLabel', () => {
       'list_precincts',
       'crud_saved_filters',
       'record_check_reminder',
+      'save_panel_weekly_time',
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
     }

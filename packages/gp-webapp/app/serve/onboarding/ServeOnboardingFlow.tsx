@@ -16,13 +16,13 @@ import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
-import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
 import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
 import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import ServeOfficePicker from './ServeOfficePicker'
+import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
 import {
   buildDisabledRanges,
   CALENDAR_END,
@@ -43,6 +43,8 @@ import {
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  firstStepAfterTerm,
+  isServeStoryStep,
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
@@ -51,12 +53,14 @@ import {
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
+  SERVE_CITIZEN_PANELS_PLEDGE_BUTTON,
   SERVE_CITIZEN_PANELS_STEP_COPY,
   SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
   SERVE_STEP_COPY,
   SERVE_WELCOME_VALUE_PROPS,
   type InOfficeStatus,
+  SERVE_STORY_STEPS,
   type ServeBranch,
   type ServeStepId,
 } from './serveOnboardingConfig'
@@ -77,7 +81,6 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
   confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
   'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
-  constituents: SERVE_ONBOARDING_EVENTS.KnowYourConstituentsViewed,
   pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
 }
 
@@ -97,6 +100,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // advancing through the net-new order.
   const [returnToConfirm, setReturnToConfirm] = useState(false)
   const [switchToCampaign, setSwitchToCampaign] = useState(false)
+  // The district story's intro plays once a session, not on every visit.
+  const [storyIntroPlayed, setStoryIntroPlayed] = useState(false)
 
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
   // Mirror of `currentEO` for synchronous reads inside async save handlers, so
@@ -116,7 +121,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [orgPositionId, setOrgPositionId] = useState<string | undefined>(
     undefined,
   )
-  const [orgState, setOrgState] = useState<string | undefined>(undefined)
   // True once the office is on the EO org server-side, which is what the
   // community issues search reads. A pick that is not saved yet does not count.
   const [officeOnOrg, setOfficeOnOrg] = useState(false)
@@ -226,7 +230,6 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               prefillPositionId = org.position.brPositionId
               officePrefilled = true
             }
-            if (org.position?.state) setOrgState(org.position.state)
           }
         }
         if (officePrefilled) setOfficeOnOrg(true)
@@ -509,17 +512,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       : officeLabel
 
   // Both the freshly-picked office id and the prefilled org position id are
-  // BallotReady position ids. The constituents step routes exclusively through
-  // orgPositionId so voter-issues / contacts-stats derive the L2 district from
-  // the EO org's position pointer (param-less) — the same path the Win flow
-  // uses — instead of campaign-scoped resolution an EO has no campaign for.
-  const constituentsPositionId = office?.positionId ?? orgPositionId
+  // BallotReady position ids. The district story routes exclusively through
+  // orgPositionId so contacts-stats derives the L2 district from the EO org's
+  // position pointer (param-less) — the same path the Win flow uses — instead
+  // of campaign-scoped resolution an EO has no campaign for.
+  const storyPositionId = office?.positionId ?? orgPositionId
 
   const progress = getServeProgress(branch, step, citizenPanels)
-  const afterConstituents: ServeStepId = citizenPanels ? 'priorities' : 'pledge'
+  const afterTerm = firstStepAfterTerm(citizenPanels)
 
   // Tracks which BR position id we've already written to the EO org so a
-  // back-and-forth through the constituents step doesn't re-PATCH needlessly.
+  // back-and-forth through the district story doesn't re-PATCH needlessly.
   const patchedOfficeRef = useRef<string | undefined>(undefined)
 
   // Create-on-first-answer: a truly net-new user has no ElectedOffice to write
@@ -947,7 +950,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       }
       case 'term-dates': {
-        const target = returnToConfirm ? 'confirm' : 'constituents'
+        const target = returnToConfirm ? 'confirm' : afterTerm
         void persistAndAdvance(
           {
             targetStep: target,
@@ -956,36 +959,42 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               termEndDate: toApiDate(termEndDate),
             },
             // Carry the office pointer forward to the EO org before the
-            // constituents step (idempotent if already patched) so its
-            // org-derived voter sections can resolve a district. Skipped on the
-            // confirm detour, which only edits dates.
-            ...(target === 'constituents' ? { office: officePayload() } : {}),
+            // district story (idempotent if already patched) so its
+            // org-derived district data can resolve. Skipped on the confirm
+            // detour, which only edits dates.
+            ...(returnToConfirm ? {} : { office: officePayload() }),
           },
           // Continue is gated on valid dates here, so the confirm detour returns
           // straight to the (now satisfiable) hub via enterConfirmHub.
-          returnToConfirm ? enterConfirmHub : () => setStep('constituents'),
+          returnToConfirm ? enterConfirmHub : () => setStep(afterTerm),
           'serveOnboarding.persistTermDatesProgress',
         )
         return
       }
       case 'confirm':
         void persistAndAdvance(
-          { targetStep: 'constituents', office: officePayload() },
-          () => setStep('constituents'),
+          { targetStep: afterTerm, office: officePayload() },
+          () => setStep(afterTerm),
           'serveOnboarding.persistOfficeProgress',
         )
         return
-      case 'constituents':
-        trackServeOnboarding(
-          SERVE_ONBOARDING_EVENTS.KnowYourConstituentsCompleted,
-          { branch, electedOfficeId: currentEO?.id },
-        )
-        void persistAndAdvance(
-          { targetStep: afterConstituents },
-          () => setStep(afterConstituents),
-          'serveOnboarding.checkpoint.constituents',
+      case 'story-represent':
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow': {
+        // The story collects nothing, so it moves on at once and saves the
+        // checkpoint behind it: waiting on the save would hold the next
+        // step's motion.
+        const next =
+          SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) + 1] ?? 'priorities'
+        setStep(next)
+        saveProgress({ targetStep: next }).catch((err: Error) =>
+          reportErrorToSentry(err, {
+            context: 'serveOnboarding.checkpoint.story',
+          }),
         )
         return
+      }
       case 'priorities':
         void savePrioritiesAndAdvance()
         return
@@ -1028,11 +1037,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'confirm':
         setStep('party')
         return
-      case 'constituents':
+      case 'story-represent':
         setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         return
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow':
+        setStep(SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) - 1]!)
+        return
       case 'priorities':
-        setStep('constituents')
+        setStep('story-grow')
         return
       case 'pledge':
         if (citizenPanels) {
@@ -1042,7 +1056,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           setOtherPriorityDescription('')
           setStep('priorities')
         } else {
-          setStep('constituents')
+          setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         }
         return
       default:
@@ -1111,7 +1125,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // The current step's explainer copy. When present it renders in the right
   // rail on wide viewports and stacks below the content on narrow ones — the
   // same responsive treatment as the Win flow's "Why this matters" aside.
-  const whyThisMatters = SERVE_STEP_COPY[step].whyWeAsk
+  const whyThisMatters = isServeStoryStep(step)
+    ? undefined
+    : SERVE_STEP_COPY[step].whyWeAsk
 
   return (
     <div className="min-h-screen bg-base-surface pb-28 text-foreground">
@@ -1177,12 +1193,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 onChangeDates={goToDatesFromConfirm}
               />
             )}
-            {step === 'constituents' && (
-              <ConstituentsStep
-                orgPositionId={constituentsPositionId}
-                office={officeDisplayLabel}
-                city={office?.city}
-                state={office?.state ?? orgState}
+            {isServeStoryStep(step) && (
+              <DistrictStoryStep
+                step={step}
+                eoId={currentEO?.id}
+                positionId={storyPositionId}
+                place={office?.city}
+                introPlayed={storyIntroPlayed}
+                onIntroPlayed={() => setStoryIntroPlayed(true)}
               />
             )}
             {citizenPanels && step === 'priorities' && (
@@ -1235,7 +1253,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             disabled={!canContinue || saving}
             loading={saving}
           >
-            {step === 'pledge' ? 'Agree & Continue' : 'Continue'}
+            {step !== 'pledge'
+              ? 'Continue'
+              : citizenPanels
+                ? SERVE_CITIZEN_PANELS_PLEDGE_BUTTON
+                : 'Agree & Continue'}
           </Button>
         </div>
       </div>
@@ -1597,57 +1619,6 @@ const ConfirmStep = ({
           />
         </div>
       </Panel>
-    </div>
-  )
-}
-
-const ConstituentsStep = ({
-  orgPositionId,
-  office,
-  city,
-  state,
-}: {
-  orgPositionId?: string
-  office: string
-  city?: string
-  state?: string
-}): React.JSX.Element => {
-  const copy = SERVE_STEP_COPY.constituents
-  // The local-news endpoint requires a 2-letter state code (the query schema
-  // rejects anything else with a 400). Only enable the section when we have a
-  // valid code so a missing/full-name state never fires a doomed request.
-  const hasValidState = /^[A-Za-z]{2}$/.test(state ?? '')
-  return (
-    <div>
-      <h1
-        className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-        style={{ fontFamily: 'var(--font-geist)' }}
-      >
-        {copy.title}
-      </h1>
-      <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-        We crunch constituent data and local news to prioritize the most
-        important issues for{' '}
-        <span className="font-semibold text-foreground">{office}</span>.
-      </p>
-
-      <div className="mt-8">
-        {/* Reuse the Win flow's demographics step, but override its
-            candidate-facing "voter" copy with constituent wording for the
-            elected-official audience. Defaults keep the Win flow unchanged. */}
-        <VoterDemographicsStep
-          orgPositionId={orgPositionId}
-          office={office}
-          city={city}
-          state={state}
-          showLocalNewsSources={hasValidState}
-          demographicsHeading="Constituent Demographics"
-          totalLabel="Total Constituents"
-          ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
-          topIssuesHeading="Top issues for your constituents"
-          topIssuesDescription="The issues constituents in your district care about most right now."
-        />
-      </div>
     </div>
   )
 }

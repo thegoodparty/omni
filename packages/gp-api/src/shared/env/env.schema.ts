@@ -293,7 +293,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     default: 'https://api-na1.callhub.io',
   },
   CALLHUB_HTTP_TIMEOUT: { tier: 'optional', default: '30000' },
-  CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '10' },
+  CALLHUB_VB_CALLS_PER_MINUTE: { tier: 'optional', default: '120' },
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
@@ -354,6 +354,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   SESSIONS_FLUSH_INTERVAL_MS: { tier: 'optional' },
   TEST_SEND_COOLDOWN_MS: { tier: 'optional' },
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },
+  // Routes vendor HTTP clients at in-process mocks instead of live APIs.
+  // Accepted values: 'live' | 'mock'. Default logic lives in
+  // appEnvironment.util.ts — absent (local/test) or 'preview' → mock,
+  // 'dev' → live, 'prod' → always live (never overridable).
+  VENDOR_MODE: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

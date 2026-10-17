@@ -66,11 +66,15 @@ const robocallSendLaunchSpacingMs = () =>
 // A flat buffer added on top of the (rate-haircut) completion estimate before the
 // sweep frees (ABORTs) a dialed run's CallHub campaign — slack for vendor lag,
 // clock skew, and the final contact's own call duration. The SCALING safety is
-// the rate divisor below; this is the fixed floor on top. Env-overridable; NEVER
-// set it so short that the completion floor biases toward an early abort. Read at
-// call time.
+// the rate divisor below; this is the fixed floor on top. Lowered 180 → 30 on
+// 2026-10-15: at the full-pool 120/min rate the flat 180 dominated the ceiling
+// and over-held the pool for hours on a fast dial, re-stacking the serial queue.
+// The ÷2 divisor already covers a proportional (up-to-2x) slowdown — which scales
+// with list size — so a flat 30 need only cover startup/tail slack and never
+// mis-frees a large run. Env-overridable; NEVER set it so short that the
+// completion floor biases toward an early abort. Read at call time.
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 180)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
 
 // The MONEY-SAFE floor's scaling margin. The dial-completion estimate assumes
 // CallHub places calls at the configured rate, but the real dial can run SLOWER
@@ -80,13 +84,17 @@ const robocallDialEstimateBufferMinutes = () =>
 // estimate (under-delivery + full charge). To err LONG, the completion ceiling is
 // walked at `configuredCallsPerMinute / divisor` — modeling a dial up to `divisor`
 // times slower, correctly through the daily 09:00-21:00 window — so the floor only
-// reports done when the campaign is SURELY finished. 3 covers a dial a third of
-// the configured rate; raise it to free later and safer, lower to free sooner. For
-// a large audience the ceiling can exceed the 48h settlement floor, in which case
-// the completion sweep settles first and the early free simply does not fire
-// (correct, just not faster). Env-overridable; read at call time.
+// reports done when the campaign is SURELY finished. 2 covers a dial half the
+// configured rate; raise it to free later and safer, lower to free sooner. Started
+// at 3, lowered to 2 (2026-10-15): at 3 a big list held the pool ~3x its real dial
+// time, and with the serial queue dialing one at a time that stacked into multi-day
+// backlogs that pushed sends overdue; observed real slowdowns are ~1.5-2x, so 2
+// keeps a safe margin while freeing the pool roughly a third sooner. For a large
+// audience the ceiling can exceed the 48h settlement floor, in which case the
+// completion sweep settles first and the early free simply does not fire (correct,
+// just not faster). Env-overridable; read at call time.
 const robocallDialSafetyRateDivisor = () =>
-  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 3))
+  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
 
 // A `dialing` row whose dialingStartedAt is older than this is DEADLOCKED and is
 // force-failed (via the existing failSend path), so a never-resolving dialing row

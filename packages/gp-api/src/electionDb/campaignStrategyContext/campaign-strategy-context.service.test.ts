@@ -38,6 +38,7 @@ type RaceRow = {
   }>
   Position: {
     id: string
+    name: string
     district: {
       id: string
       registeredVoters: number | null
@@ -86,6 +87,7 @@ const baseRace = (overrides: Partial<RaceRow> = {}): RaceRow => ({
   ],
   Position: {
     id: 'pos-uuid-1',
+    name: 'Example City Council - District 1',
     district: {
       id: 'dist-uuid-1',
       registeredVoters: 18000,
@@ -306,7 +308,13 @@ describe('CampaignStrategyContextService', () => {
 
   it('returns null voter-stats fields when the position has no district attached', async () => {
     raceFindFirst.mockResolvedValue(
-      baseRace({ Position: { id: 'pos-uuid-1', district: null } }),
+      baseRace({
+        Position: {
+          id: 'pos-uuid-1',
+          name: 'Example City Council - District 1',
+          district: null,
+        },
+      }),
     )
 
     const result = await service.getCampaignStrategyContext(baseRequest())
@@ -325,6 +333,7 @@ describe('CampaignStrategyContextService', () => {
       baseRace({
         Position: {
           id: 'pos-uuid-1',
+          name: 'Example City Council - District 1',
           district: {
             id: 'dist-uuid-1',
             registeredVoters: null,
@@ -348,6 +357,7 @@ describe('CampaignStrategyContextService', () => {
       baseRace({
         Position: {
           id: 'pos-uuid-1',
+          name: 'Example City Council - District 1',
           district: {
             id: 'dist-uuid-1',
             registeredVoters: 18000,
@@ -601,10 +611,12 @@ describe('CampaignStrategyContextService', () => {
     expect(result.primary_election_date).toBeNull()
   })
 
-  it('falls back to normalizedPositionName for candidate_office when positionNames is empty', async () => {
+  it('falls back to normalizedPositionName for candidate_office when nothing more specific is set', async () => {
     raceFindFirst.mockResolvedValue(
       baseRace({
+        Position: null,
         positionNames: [],
+        officialOfficeName: null,
         normalizedPositionName: 'City Legislature',
       }),
     )
@@ -612,6 +624,46 @@ describe('CampaignStrategyContextService', () => {
     const result = await service.getCampaignStrategyContext(baseRequest())
 
     expect(result.candidate_office).toBe('City Legislature')
+  })
+
+  it("uses the race's own position name when positionNames lists sibling seats", async () => {
+    // positionNames holds every seat sharing the geography, sorted, so the
+    // first entry is a different seat for Positions 2-5.
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        positionNames: [
+          'Example Town Council - Position 1',
+          'Example Town Council - Position 2',
+          'Example Town Council - Position 3',
+        ],
+        Position: {
+          id: 'pos-uuid-1',
+          name: 'Example Town Council - Position 2',
+          district: null,
+        },
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.candidate_office).toBe('Example Town Council - Position 2')
+  })
+
+  it('prefers officialOfficeName over an ambiguous positionNames list when the race has no position', async () => {
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        Position: null,
+        positionNames: [
+          'Example Town Council - Position 1',
+          'Example Town Council - Position 2',
+        ],
+        officialOfficeName: 'Example Town Council - Position 2',
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.candidate_office).toBe('Example Town Council - Position 2')
   })
 
   it('skips sibling-date lookup when the race has no positionId', async () => {

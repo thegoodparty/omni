@@ -160,13 +160,16 @@ export class PersonLookupService {
 
   /**
    * Batch-resolves personIds to the name and public URL of their page, for the
-   * admin takedown log. The removal table stores nothing but the civics UUID,
-   * which is unreadable to the operator reviewing what has been taken down —
-   * they need to see whose page it is and be able to open it.
+   * admin takedown log and for the Campaign Manager's prompt. The removal
+   * table stores nothing but the civics UUID, which is unreadable to the
+   * operator reviewing what has been taken down — they need to see whose page
+   * it is and be able to open it. The Campaign Manager hands the URL to the
+   * candidate once a day per person (PublicProfileAddressService caches it).
    *
    * Best-effort: a failed read degrades a row to its personId rather than
    * failing the whole list, which is the operator's only view of active
-   * takedowns.
+   * takedowns, and leaves the Campaign Manager without an address for
+   * that turn.
    */
   async resolveIdentities(
     personIds: string[],
@@ -202,12 +205,14 @@ export class PersonLookupService {
     return identities
   }
 
-  // Mirrors the public route the marketing site serves:
-  // /people/<base-slug>-<first 8 hex of the person id>. The suffix is what
-  // actually resolves the page (slugs are not unique), so both halves matter.
+  // Mirrors the public route the marketing site serves: /people/<slug>,
+  // verbatim. The slug is minted with the 8-hex id suffix already on it
+  // (see Person.slug in prisma-election/schema/person.prisma), so nothing is
+  // appended here. Appending the suffix again, as this once did, produced a
+  // URL the site only resolved by redirect.
   private profileUrl(person: PersonIdentityRow): string | null {
     if (!person.slug) return null
-    return `${WEBAPP_ROOT}/people/${person.slug}-${person.id.slice(0, 8)}`
+    return `${WEBAPP_ROOT}/people/${person.slug}`
   }
 
   private extractSlug(query: string): string | null {

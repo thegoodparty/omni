@@ -20,7 +20,11 @@ export const SERVE_ONBOARDING_STEPS = [
   'office',
   'term-dates',
   'confirm',
-  'constituents',
+  'story-represent',
+  'story-loudest',
+  'story-sample',
+  'story-grow',
+  'priorities',
   'pledge',
 ] as const
 const ZServeOnboardingStep = z

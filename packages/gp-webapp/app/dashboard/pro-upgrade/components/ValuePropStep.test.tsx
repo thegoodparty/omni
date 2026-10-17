@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { CampaignContext } from '@shared/hooks/CampaignProvider'
+import type { Campaign } from 'helpers/types'
 import { router } from 'helpers/test-utils/router-mocking'
 import ValuePropStep from './ValuePropStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
@@ -103,5 +105,33 @@ describe('ValuePropStep', () => {
     expect(exit).toHaveBeenCalledTimes(1)
     expect(router.push).not.toHaveBeenCalled()
     expect(goToNextStep).not.toHaveBeenCalled()
+  })
+
+  it('drops the texting rows and their value claim once texting has closed', () => {
+    render(
+      <CampaignContext.Provider
+        value={[{ smsCompliance: 'closed' } as Campaign]}
+      >
+        <ValuePropStep />
+      </CampaignContext.Provider>,
+    )
+
+    for (const label of [
+      'Campaign plan',
+      'Dedicated campaign expert',
+      'Voter data & list building',
+      'Robocalls and phone banking',
+      'Door knocking',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+    for (const label of [
+      '10DLC compliance',
+      'Texts and robocalls',
+      'Up to 5,000 free texts',
+      'Get $300 of value for $10/mo.',
+    ]) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
   })
 })

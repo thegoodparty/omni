@@ -295,6 +295,37 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('SMS')).toBeInTheDocument()
   })
 
+  // Polls were left off the clickable list, so a paid poll sat in history as
+  // plain content with nowhere to read what it asked. Flag off on purpose, for
+  // the same reason as SMS above.
+  it('opens a poll row into a drawer that shows the question', async () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 41,
+        date: '2026-08-20',
+        outreachType: 'poll',
+        name: 'Budget poll',
+        status: 'pending',
+        message: 'Hi there, this is Dana. Should we fund the pool? Reply STOP',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const row = within(desktopTable()).getByText('Budget poll').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+
+    await user.click(row as HTMLElement)
+
+    const drawer = await screen.findByRole('dialog')
+    expect(
+      within(drawer).getByText(/Should we fund the pool\?/),
+    ).toBeInTheDocument()
+    expect(
+      within(drawer).queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders a clean empty state with no rows', () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
@@ -685,7 +716,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
         status: 200,
         data: {
           outreachId: 501,
-          recipientCount: 3334,
+          recipientCount: 8000,
           excludedOptedOutCount: 0,
           excludedDuplicateCount: 0,
         },
@@ -704,7 +735,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
     const proceed = await screen.findByRole('button', {
-      name: 'Continue (3,334)',
+      name: 'Continue (8,000)',
     })
     expect(proceed).toBeEnabled()
     expect(screen.queryByText('Explain a recent decision')).toBeNull()
@@ -721,7 +752,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect(saved[0]).toMatchObject({
       name: 'Civic panel invite',
       hasCellPhone: true,
-      sample: { size: 3334 },
+      sample: { size: 8000 },
     })
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),
@@ -750,7 +781,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
       0,
     )
-    expect(screen.getByText('3,334')).toBeInTheDocument()
+    expect(screen.getByText('8,000')).toBeInTheDocument()
     expect(screen.getByText('$0.035')).toBeInTheDocument()
     await waitFor(() => expect(created).toHaveLength(1))
     expect(created[0]).toMatchObject({ voterFileFilterId: 88 })
@@ -771,7 +802,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
 
     render(<ConstituentOutreachPage outreaches={[]} />)
 
-    await screen.findByRole('button', { name: 'Continue (3,334)' })
+    await screen.findByRole('button', { name: 'Continue (8,000)' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(

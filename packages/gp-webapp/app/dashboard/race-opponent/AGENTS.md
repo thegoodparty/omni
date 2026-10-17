@@ -178,6 +178,10 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   ends at the roster). Fires the two ENG-10651 events (see Analytics below):
   viewed once per mount when cards render (ref-guarded against the 5s poll),
   clicked on each CTA press before the `router.push`.
+- **Texting cutoff.** Once gp-api reports `smsCompliance === 'closed'`
+  (`useSmsCompliance`), `StandoutActionsSection` drops its "Send SMS to
+  voters" button (the cards stay) and `ContrastCard` drops "Route to
+  Texting". Nothing else changes and no notice is shown.
 
 ## Status polling — one poller, it is the source of truth
 

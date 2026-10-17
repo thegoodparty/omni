@@ -3,6 +3,7 @@ import {
   ComplianceStageSchema,
   PeerlyCvVerificationStatusSchema,
   PinDeliveryMethodSchema,
+  SmsComplianceWindowSchema,
 } from './enums'
 import { DomainStatusSchema } from '../generated/enums'
 
@@ -61,6 +62,13 @@ export const ComplianceStateOutputSchema = z.object({
   // Slack alert). Empty reasons with a null failedAt when not held.
   cvValidationFailedAt: z.string().datetime({ offset: true }).nullable(),
   cvValidationFailureReasons: z.array(z.string()),
+  // The SMS compliance cutoff window. Optional so a response without it reads
+  // as `open`. smsCutoffDate is the last open day and generalElectionDate the
+  // campaign's details.electionDate, both ISO dates, null when there is no
+  // election date.
+  smsCompliance: SmsComplianceWindowSchema.optional(),
+  smsCutoffDate: z.string().nullable().optional(),
+  generalElectionDate: z.string().nullable().optional(),
 })
 
 export type ComplianceStateOutput = z.infer<typeof ComplianceStateOutputSchema>

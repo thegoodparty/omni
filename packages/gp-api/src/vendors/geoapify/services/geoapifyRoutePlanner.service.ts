@@ -2,6 +2,11 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
+import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
+import {
+  RoutePlannerResponseSchema,
+  RoutingResponseSchema,
+} from '../schemas/geoapify.schema'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -154,7 +159,10 @@ export class GeoapifyRoutePlannerService {
     fetchGeometry?: boolean
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
-    const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
+    const planner = new sdk.RoutePlanner({
+      apiKey: this.apiKey(),
+      baseUrl: vendorBaseUrl('geoapify', 'https://api.geoapify.com'),
+    })
     planner.setMode(args.mode)
     const agent = new sdk.Agent()
     if (args.agent.start_location) {
@@ -195,6 +203,14 @@ export class GeoapifyRoutePlannerService {
       throw new BadGatewayException('Route optimization failed')
     }
     recordGeoapifyCall('route_planner', 'success')
+
+    const parseResult = RoutePlannerResponseSchema.safeParse(result.getRaw())
+    if (!parseResult.success) {
+      this.logger.warn(
+        { err: parseResult.error },
+        'Geoapify routeplanner response failed schema validation (observe)',
+      )
+    }
 
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
@@ -303,7 +319,9 @@ export class GeoapifyRoutePlannerService {
     if (args.waypoints.length < 2) {
       return { geometry: null, legs: null, billedWaypoints: 0 }
     }
-    const url = new URL('https://api.geoapify.com/v1/routing')
+    const url = new URL(
+      `${vendorBaseUrl('geoapify', 'https://api.geoapify.com')}/v1/routing`,
+    )
     url.searchParams.set(
       'waypoints',
       args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
@@ -332,6 +350,14 @@ export class GeoapifyRoutePlannerService {
     }
     recordGeoapifyCall('routing', 'success')
     const billedWaypoints = args.waypoints.length
+
+    const routingParse = RoutingResponseSchema.safeParse(body)
+    if (!routingParse.success) {
+      this.logger.warn(
+        { err: routingParse.error },
+        'Geoapify routing response failed schema validation (observe)',
+      )
+    }
 
     const feature =
       typeof body === 'object' &&

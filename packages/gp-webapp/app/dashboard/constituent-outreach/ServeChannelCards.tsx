@@ -4,6 +4,7 @@
 // entry into the 'use client' ratchet is needed for it.
 import { ChannelCard } from '@styleguide'
 import {
+  ClipboardListIcon,
   DoorOpenIcon,
   HeadsetIcon,
   MessageSquareIcon,
@@ -58,6 +59,14 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     icon: <MessageSquareIcon />,
     iconClassName: 'bg-info-light',
   },
+  // Behind `serve-self-serve-polls`, switched off the same way SMS is: the
+  // page passes a handler only once the flag has resolved on.
+  {
+    key: 'poll',
+    label: 'Poll / Survey',
+    icon: <ClipboardListIcon />,
+    iconClassName: 'bg-brand-bright-yellow-200',
+  },
   {
     key: 'phoneBanking',
     label: 'Phone banking',
@@ -68,7 +77,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     key: 'doorKnocking',
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconClassName: 'bg-primary-light',
+    iconClassName: 'bg-brand-halo-green-200',
   },
 ]
 
@@ -81,6 +90,8 @@ interface ServeChannelCardsProps {
   // outside the 'use client' ratchet. Undefined means "no SMS on this
   // render" — flag off, or still resolving.
   onSmsClick?: () => void
+  // Same contract for the Poll / Survey card and `serve-self-serve-polls`.
+  onPollClick?: () => void
 }
 
 const ServeChannelCards = ({
@@ -88,10 +99,12 @@ const ServeChannelCards = ({
   onPhoneBankingClick,
   onDoorKnockingClick,
   onSmsClick,
+  onPollClick,
 }: ServeChannelCardsProps): React.JSX.Element => {
   const handlers: Record<string, (() => void) | undefined> = {
     socialMedia: onSocialClick,
     sms: onSmsClick,
+    poll: onPollClick,
     phoneBanking: onPhoneBankingClick,
     doorKnocking: onDoorKnockingClick,
   }
@@ -120,9 +133,11 @@ const ServeChannelCards = ({
           interpolated one. */}
       <div
         className={
-          channels.length > 3
-            ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
-            : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
+          channels.length > 4
+            ? 'grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-5'
+            : channels.length > 3
+              ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
+              : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
         }
       >
         {channels.map((channel) => (

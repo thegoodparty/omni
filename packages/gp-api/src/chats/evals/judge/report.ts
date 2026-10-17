@@ -25,6 +25,7 @@ import {
   type ControlPosition,
   type ControlReading,
   type DimensionScore,
+  type OrientedFlag,
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
@@ -292,6 +293,9 @@ const HANDLING_CLASSES: Readonly<Record<HandlingClass, string>> = {
   sharedFailure: 'shared failure',
   regression: 'regression (the base handled it, the candidate did not)',
   improvement: 'improvement (the candidate handled it, the base did not)',
+  unsettled:
+    'unsettled (the arms differ, but one order said yes, so it is not ' +
+    'counted as a change)',
 }
 
 const armText = (h: CaseHandling, arm: ArmHandling): string =>
@@ -310,10 +314,12 @@ const handlingLines = (score: AgentScore): string[] => {
   return [
     `Condition handling: ${count('bothHandled')} both handled, ` +
       `${count('sharedFailure')} shared failure(s), ${count('regression')} ` +
-      `regression(s), ${count('improvement')} improvement(s), over ` +
-      `${handling.length} case pair(s). Judged per run against each case's ` +
-      'handledWhen; partly, and a value that changes with the order, count ' +
-      'as not handled. Not part of the verdict above.',
+      `regression(s), ${count('improvement')} improvement(s), ` +
+      `${count('unsettled')} unsettled, over ${handling.length} case ` +
+      "pair(s). Judged per run against each case's handledWhen; partly, " +
+      'and a value that changes with the order, count as not handled. A ' +
+      'regression or improvement needs the arm that fell short to do so in ' +
+      'every order it was read. Not part of the verdict above.',
     ...(notGraded === 0
       ? []
       : [
@@ -550,12 +556,26 @@ const agentSection = (
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
 
-  // A flag seen only on the candidate is stated first whatever the verdict.
+  // A candidate-only flag is stated first whatever the verdict, but only once
+  // its type repeats across cases (one case for restricted_data): one-case
+  // flags fired on unchanged code. See "The report headlines a flag only
+  // when it repeats" in README.md.
   const candidateFlags = score.flags.filter((f) => f.arm === 'candidate')
   const baseFlagTypes = new Set(
     score.flags.filter((f) => f.arm === 'base').map((f) => f.type),
   )
-  const newFlags = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
+  const candidateOnly = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
+  const casesByType = new Map<OrientedFlag['type'], Set<string>>()
+  for (const flag of candidateOnly) {
+    casesByType.set(
+      flag.type,
+      (casesByType.get(flag.type) ?? new Set()).add(flag.caseId),
+    )
+  }
+  const newFlags = candidateOnly.filter(
+    (f) =>
+      f.type === 'restricted_data' || (casesByType.get(f.type)?.size ?? 0) >= 2,
+  )
   if (newFlags.length > 0) {
     lines.push(
       `> **${newFlags.length} flag(s) raised on the candidate only ` +

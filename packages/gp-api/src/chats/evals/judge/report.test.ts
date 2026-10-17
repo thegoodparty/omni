@@ -153,12 +153,10 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
-  // The real registry, pinned. race_opponent_summary was wired on Melecia's
-  // real bench, so it is the one wired agent outside the parenthetical.
-  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
-    expect(coverageLines()[0]).toBe(
-      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
-    )
+  // The real registry, pinned. Every case list carries a real bench or core
+  // checks, so no wired agent is counted as on placeholder inputs.
+  it('reads 3 of 20 wired, none on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe('**Coverage: 3 of 20 agents wired.**')
   })
 
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
@@ -166,7 +164,7 @@ describe('the coverage line', () => {
   // like coverage and is not.
   it('counts the wired agents against the judgeable ones', () => {
     expect(coverageLines(REGISTRY)[0]).toBe(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+      '**Coverage: 1 of 2 agents wired.**',
     )
   })
 
@@ -184,14 +182,16 @@ describe('the coverage line', () => {
   })
 
   // Wired and placeholder differ here, so the parenthetical cannot be
-  // printing the wired count by mistake.
+  // printing the wired count by mistake. No real list is a placeholder, so
+  // the placeholder is a wired agent whose list will not load, which coverage
+  // counts as one.
   it('counts placeholder inputs apart from wired', () => {
     const mixed: readonly AgentEntry[] = [
       ...REGISTRY,
       {
         agentId: 'race_opponent_summary',
         shape: 'background',
-        cases: 'race_opponent_summary.json',
+        cases: 'no-such-list.json',
         status: 'wired',
       },
     ]
@@ -210,9 +210,7 @@ describe('the coverage line', () => {
   // so this prints even when the sweep produced nothing at all.
   it('prints even when no agent was judged', () => {
     const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
     expect(report).toContain('No agent produced a verdict')
   })
 })
@@ -544,7 +542,7 @@ describe('condition handling', () => {
     })
     expect(report).toContain(
       'Condition handling: 0 both handled, 1 shared failure(s), 0 ' +
-        'regression(s), 0 improvement(s), over 1 case pair(s).',
+        'regression(s), 0 improvement(s), 0 unsettled, over 1 case pair(s).',
     )
     expect(report).toContain(
       '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
@@ -637,6 +635,55 @@ describe('qualifiers', () => {
     expect(report).not.toContain('raised on the candidate only')
   })
 
+  it('lists but does not headline a flag type seen on one case', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            {
+              arm: 'candidate',
+              type: 'fabricated_source',
+              explanation: 'x',
+              loc: undefined,
+              caseId: 'cos-case-0',
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).not.toContain('raised on the candidate only')
+    expect(report).toContain(
+      'Flags (cases affected): 1 on candidate fabricated_source.',
+    )
+  })
+
+  it('headlines a flag type the candidate repeats across cases', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const flag = {
+      arm: 'candidate' as const,
+      type: 'fabricated_source' as const,
+      explanation: 'x',
+      loc: undefined,
+    }
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            { ...flag, caseId: 'cos-case-0' },
+            { ...flag, caseId: 'cos-case-1' },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain(
+      '2 flag(s) raised on the candidate only (counted once per case):** ' +
+        'fabricated_source',
+    )
+  })
+
   it('names a regression without changing the verdict', async () => {
     const score = await pipeline(sweepRecords(25))
     const report = renderReport({
@@ -662,9 +709,7 @@ describe('refusals', () => {
     })
     expect(report).toContain('### ordinance_flow — refused')
     expect(report).toContain('both arms hashed to the same config digest')
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
   })
 })
 

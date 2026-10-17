@@ -224,14 +224,13 @@ export class PurchaseService {
       amount,
       productName,
       productDescription,
-      // Promo codes are disabled on a manual-capture hold: a Stripe promo
-      // applied at checkout shrinks the PaymentIntent amount, which recordHold
-      // would stamp as authorizedAmountInCents — breaking the hold invariant
-      // (the hold must be the FULL undiscounted amount so a later capture,
-      // clamped to the hold, can never silently undercharge). Every
-      // immediate-capture checkout (flag off, all non-TEXT purchases) keeps
-      // promo-code support.
-      allowPromoCodes: !manualCapture,
+      // A hold checkout takes promo codes too. Stripe takes the discount off
+      // the hold itself, and recordHold stamps it from the completed session
+      // (OutreachP2pSms.promoDiscountInCents) so capture takes it off the
+      // final count as well. A code that covers the whole hold completes the
+      // session with no PaymentIntent at all, which recordHold records as a
+      // covered send.
+      allowPromoCodes: true,
       returnUrl,
       manualCapture,
       metadata: {
@@ -239,6 +238,11 @@ export class PurchaseService {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         ...(dto.metadata as Record<string, unknown>),
         ...metadata,
+        // The hold decision, stamped server-side so the webhook can tell a
+        // hold checkout a promo code covered in full (no PaymentIntent, so no
+        // capture_method to read) from an immediate one. Undefined drops any
+        // client-sent value, since the session metadata starts from dto's.
+        winSmsHoldBilling: manualCapture ? 'true' : undefined,
       },
     }
 
@@ -291,11 +295,12 @@ export class PurchaseService {
     // delayed-notification methods (e.g. ACH bank debit) Stripe fires
     // checkout.session.completed with payment_status still 'unpaid'; the funds
     // settle later and emit checkout.session.async_payment_succeeded, which
-    // re-invokes this handler with payment_status 'paid'. The third value,
-    // 'no_payment_required', is a session a promotion code covered in full:
-    // nothing settles later, so it is fulfilled now (Stripe's own rule is
-    // "fulfill unless unpaid"). It carries no PaymentIntent, so the marker
-    // below is skipped and the handlers' own claims are the only guard.
+    // re-invokes this handler with payment_status 'paid'. A session a
+    // promotion code covered in full reads 'paid' (or 'no_payment_required')
+    // with no PaymentIntent: nothing settles later, so it is fulfilled now
+    // (Stripe's own rule is "fulfill unless unpaid"). With no PaymentIntent
+    // the marker below is skipped and the handlers' own claims are the only
+    // guard.
     if (session.payment_status === 'unpaid') {
       // A Win SMS hold-billing checkout authorizes a manual-capture hold, which
       // completes the session 'unpaid' because the funds are HELD, not captured

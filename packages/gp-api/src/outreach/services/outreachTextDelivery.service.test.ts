@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { OutreachStatus, OutreachType } from '@/generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  PollAudienceKind,
+} from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { useTestService } from '@/test-service'
@@ -256,7 +260,23 @@ describe('OutreachTextDeliveryService', () => {
     findContactsForFilter.mockResolvedValue(
       peoplePage([person('p-2', '5551230002')]),
     )
-    await resetToPending(outreach.id)
+    await service.prisma.outreachPoll.create({
+      data: {
+        outreachId: outreach.id,
+        topic: 'roads',
+        audienceKind: PollAudienceKind.sample,
+        biasOverridden: false,
+      },
+    })
+    await service.prisma.outreachPollExpansion.create({
+      data: {
+        outreachId: outreach.id,
+        sendSeq: 2,
+        textCount: 1,
+        status: OutreachStatus.pending,
+        approvedAt: new Date(),
+      },
+    })
     const second = await delivery.requestSend(
       input(outreach.id, {
         audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
@@ -265,6 +285,16 @@ describe('OutreachTextDeliveryService', () => {
     )
 
     expect(second.sendKey).toBe(`Some/${outreach.id}-2.csv`)
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+    expect(
+      (
+        await service.prisma.outreachPollExpansion.findUniqueOrThrow({
+          where: {
+            outreachId_sendSeq: { outreachId: outreach.id, sendSeq: 2 },
+          },
+        })
+      ).status,
+    ).toBe(OutreachStatus.in_progress)
     expect(findContactsForFilter).toHaveBeenCalledTimes(2)
     expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
       'p-1',

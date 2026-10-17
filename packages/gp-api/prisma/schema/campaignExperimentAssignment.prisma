@@ -1,0 +1,20 @@
+// A campaign's arm in an experiment whose arm changes data rather than UI
+// (which voters a saved list or outreach resolves to). Stored once, then read
+// from here, so an Amplitude outage or a later targeting change can't move a
+// campaign between arms mid-cycle. Arm is text, validated in code per flag, so
+// a new experiment needs no migration.
+model CampaignExperimentAssignment {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId  Int      @map("campaign_id")
+  flagKey     String   @map("flag_key")
+  arm         String
+  // The user the arm was resolved for (the campaign owner at the time).
+  ownerUserId Int      @map("owner_user_id")
+
+  @@unique([campaignId, flagKey])
+  @@index([flagKey, arm])
+  @@map("campaign_experiment_assignment")
+}

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import {
+  answersNeeded,
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
@@ -22,6 +23,7 @@ import {
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
@@ -65,6 +67,7 @@ import {
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
+import { buildSizePanelAskTool } from '../chat-tools/sizePanelAsk.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -155,6 +158,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly features?: FeaturesService,
     @Optional()
     private readonly reportBack?: OutreachReportBackService,
+    @Optional()
+    private readonly priorityResults?: PriorityResultsService,
   ) {}
 
   // ONE conversation per priority, for the life of the priority. The ordinance
@@ -226,6 +231,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    // One census read serves both the panel sizing and the good read.
+    const population =
+      outreachFeedbackEnabled && this.priorityResults
+        ? await this.priorityResults.districtPopulation(ctx.organization)
+        : null
+    const panelAnswersNeeded = outreachFeedbackEnabled
+      ? answersNeeded(population)
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -234,20 +247,34 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             { priorityId: ctx.priorityId },
           )
         : undefined
+    const readStatus =
+      outreachFeedbackEnabled && this.priorityResults
+        ? (
+            await this.priorityResults.readStatuses(
+              ctx.organizationSlug,
+              [ctx.priorityId],
+              population,
+            )
+          ).get(ctx.priorityId)
+        : undefined
     if (!resolved) {
       return {
         ...ctx,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
+        panelAnswersNeeded,
         reportBacks,
+        readStatus,
       }
     }
     return {
       ...ctx,
       outreachFeedbackEnabled,
       civicPanelMembers,
+      panelAnswersNeeded,
       reportBacks,
+      readStatus,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -435,6 +462,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     }
 
     if (ctx.outreachFeedbackEnabled) {
+      if (ctx.panelAnswersNeeded !== undefined) {
+        tools.size_panel_ask = buildSizePanelAskTool(ctx.panelAnswersNeeded)
+      }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,
@@ -513,6 +543,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
         citizenPanels: ctx.outreachFeedbackEnabled === true,
+        state: ctx.state,
       })
       Object.assign(tools, crmTools)
     }

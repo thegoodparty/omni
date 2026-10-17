@@ -121,11 +121,17 @@ There's also a **90-second server-side timeout** per stream. If the LLM hangs, t
   "messages": [
     { "id": "...", "role": "user", "content": "...", "createdAt": "2026-05-14T..." },
     { "id": "...", "role": "assistant", "content": "...", "createdAt": "..." }
-  ]
+  ],
+  "usage": {
+    "complete": true,
+    "byModel": [{ "model": "claude-sonnet-4-6", "inputTokens": 1200, "outputTokens": 340 }]
+  }
 }
 ```
 
 Messages are ordered by `createdAt` ascending. Returns 404 if the conversation has been soft-deleted. Returns 404 (not 403) for cross-user access — no existence leak.
+
+`usage` (on this route and `GET /v1/chats/:conversationId`) sums every assistant turn's tokens by the model that answered, and is written before the turn's `done` frame, so a GET right after `done` includes it. A reply written without an LLM call (the Campaign Manager greeting, canned replies) counts as 0 tokens with no model row; `complete` is false when any assistant turn has unknown usage (an interrupted turn, or a failed usage write), so treat the totals as a floor.
 
 An assistant message the caller has rated also carries `feedback: { feedback, comment }`. The field is absent when they haven't rated it, and only ever reflects the caller's own rating — one user never sees another's.
 

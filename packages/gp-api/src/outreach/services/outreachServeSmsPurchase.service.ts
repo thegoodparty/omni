@@ -86,7 +86,12 @@ export class OutreachServeSmsPurchaseHandlerService
    * been paid for.
    */
   async validatePurchase(rawMetadata: unknown): Promise<void> {
-    await this.loadPayableDraft(this.parseMetadata(rawMetadata))
+    const metadata = this.parseMetadata(rawMetadata)
+    if (metadata.expansionId) {
+      await this.loadPayableExpansion(metadata)
+      return
+    }
+    await this.loadPayableDraft(metadata)
   }
 
   /**
@@ -100,8 +105,11 @@ export class OutreachServeSmsPurchaseHandlerService
    * cannot drift.
    */
   async calculateAmount(rawMetadata: unknown): Promise<number> {
-    const draft = await this.loadPayableDraft(this.parseMetadata(rawMetadata))
-    return calcTextAmountInCents(draft.textCount)
+    const metadata = this.parseMetadata(rawMetadata)
+    const payable = metadata.expansionId
+      ? await this.loadPayableExpansion(metadata)
+      : await this.loadPayableDraft(metadata)
+    return calcTextAmountInCents(payable.textCount)
   }
 
   getProductName(): string {
@@ -139,7 +147,12 @@ export class OutreachServeSmsPurchaseHandlerService
     sessionId: string,
     rawMetadata: unknown,
   ): Promise<void> {
-    const { outreachId, organizationSlug } = this.parseMetadata(rawMetadata)
+    const metadata = this.parseMetadata(rawMetadata)
+    if (metadata.expansionId) {
+      await this.executeExpansionPostPurchase(sessionId, metadata)
+      return
+    }
+    const { outreachId, organizationSlug } = metadata
 
     // Read before the claim purely to carry `textCount` into it — the claim is
     // a filtered `updateMany` and cannot read the row it writes. Deliberately
@@ -261,6 +274,201 @@ export class OutreachServeSmsPurchaseHandlerService
     // above: the send stands even if this write fails, and the throw makes
     // Stripe redeliver, which lands in the lost-claim branch and records it.
     await this.priorityStatus.recordOutreachSent(outreachId)
+  }
+
+  // A paid expansion stops at `pending` like the poll it belongs to, and the
+  // parent poll is never written: its status and approval are the first
+  // send's, not this one's.
+  private async executeExpansionPostPurchase(
+    sessionId: string,
+    { outreachId, organizationSlug, expansionId }: ServeSmsPurchaseMetadata,
+  ): Promise<void> {
+    if (!expansionId) return
+    const claimed = await this.client.outreachPollExpansion.updateMany({
+      where: {
+        id: expansionId,
+        outreachId,
+        status: OutreachStatus.pending_payment,
+        poll: { outreach: this.expansionParentWhere(organizationSlug) },
+      },
+      data: {
+        status: OutreachStatus.pending,
+        ...(sessionId.startsWith('cs_')
+          ? { stripeCheckoutSessionId: sessionId }
+          : {}),
+      },
+    })
+
+    if (claimed.count === 0) {
+      await this.confirmExpansionClaimed(
+        outreachId,
+        organizationSlug,
+        expansionId,
+      )
+      return
+    }
+
+    this.logger.info(
+      { outreachId, expansionId, organizationSlug, sessionId },
+      'Serve poll expansion claimed after payment; held for review',
+    )
+    await this.notifyExpansionAwaitingReview(
+      outreachId,
+      organizationSlug,
+      expansionId,
+    )
+  }
+
+  // Same reasoning as `confirmClaimed`: a lost claim proves nothing, so
+  // decide from the row. An expansion has no enqueue to repeat, so every
+  // state past `pending_payment` that is not dead means the winner finished.
+  private async confirmExpansionClaimed(
+    outreachId: number,
+    organizationSlug: string,
+    expansionId: string,
+  ): Promise<void> {
+    const row = await this.client.outreachPollExpansion.findFirst({
+      where: {
+        id: expansionId,
+        outreachId,
+        poll: { outreach: this.expansionParentWhere(organizationSlug) },
+      },
+      select: { status: true },
+    })
+
+    if (!row) {
+      throw new BadRequestException(
+        `Poll expansion ${expansionId} not found for this organization`,
+      )
+    }
+
+    if (row.status === OutreachStatus.pending_payment) {
+      throw new Error(
+        `Poll expansion ${expansionId} is still pending_payment after a ` +
+          'lost claim',
+      )
+    }
+
+    if (
+      row.status === OutreachStatus.canceled ||
+      row.status === OutreachStatus.denied
+    ) {
+      this.logger.error(
+        { outreachId, expansionId, organizationSlug, status: row.status },
+        'Poll expansion payment completed against a dead expansion; ' +
+          'nothing sent',
+      )
+      throw new BadRequestException(
+        `Poll expansion ${expansionId} is ${row.status}; refusing to send`,
+      )
+    }
+  }
+
+  private expansionParentWhere(
+    organizationSlug: string,
+  ): Prisma.OutreachWhereInput {
+    return {
+      organizationSlug,
+      campaignId: null,
+      outreachType: OutreachType.poll,
+    }
+  }
+
+  private async loadPayableExpansion({
+    outreachId,
+    organizationSlug,
+    expansionId,
+  }: ServeSmsPurchaseMetadata): Promise<{ textCount: number }> {
+    const expansion = await this.client.outreachPollExpansion.findFirst({
+      where: {
+        id: expansionId,
+        outreachId,
+        poll: { outreach: this.expansionParentWhere(organizationSlug) },
+      },
+      select: { status: true, textCount: true },
+    })
+
+    if (!expansion) {
+      throw new BadRequestException(
+        `No poll expansion ${expansionId} for this organization`,
+      )
+    }
+
+    if (expansion.status !== OutreachStatus.pending_payment) {
+      throw new BadRequestException(
+        `Poll expansion ${expansionId} is not awaiting payment ` +
+          `(status ${expansion.status})`,
+      )
+    }
+
+    return { textCount: expansion.textCount }
+  }
+
+  private async notifyExpansionAwaitingReview(
+    outreachId: number,
+    organizationSlug: string,
+    expansionId: string,
+  ): Promise<void> {
+    try {
+      const expansion = await this.client.outreachPollExpansion.findUnique({
+        where: { id: expansionId },
+        select: {
+          sendSeq: true,
+          textCount: true,
+          poll: {
+            select: {
+              outreach: {
+                select: {
+                  message: true,
+                  organization: {
+                    select: {
+                      owner: { select: { firstName: true, lastName: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+      const owner = expansion?.poll.outreach.organization?.owner
+      const official = [owner?.firstName, owner?.lastName]
+        .filter(Boolean)
+        .join(' ')
+
+      await this.slack.message(
+        {
+          blocks: [
+            {
+              type: SlackMessageType.HEADER,
+              text: {
+                type: SlackMessageType.PLAIN_TEXT,
+                text: 'Poll expansion awaiting review',
+                emoji: true,
+              },
+            },
+            {
+              type: SlackMessageType.SECTION,
+              text: {
+                type: SlackMessageType.MRKDWN,
+                text:
+                  `*Organization*: ${organizationSlug}` +
+                  (official ? ` (${official})` : '') +
+                  `\n*Poll*: ${outreachId}, send ${expansion?.sendSeq ?? 'unknown'}` +
+                  `\n*Recipients*: ${expansion?.textCount ?? 'unknown'}` +
+                  `\n*Message*: ${expansion?.poll.outreach.message ?? 'unknown'}`,
+              },
+            },
+          ],
+        },
+        SlackChannel.botTevynApi,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, expansionId, organizationSlug },
+        'Serve poll expansion review notice failed',
+      )
+    }
   }
 
   private async notifyPollAwaitingReview(

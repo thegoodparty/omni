@@ -78,6 +78,30 @@ const queueWhere = (status: PollApprovalStatus): Prisma.OutreachWhereInput => {
   }
 }
 
+const expansionQueueWhere = (
+  status: PollApprovalStatus,
+): Prisma.OutreachPollExpansionWhereInput => {
+  switch (status) {
+    case 'awaiting_review':
+      return {
+        status: OutreachStatus.pending,
+        approvedAt: null,
+        deniedAt: null,
+      }
+    case 'approved':
+      return {
+        approvedAt: { not: null },
+        status: { in: [OutreachStatus.pending, OutreachStatus.in_progress] },
+      }
+    case 'denied':
+      return { deniedAt: { not: null } }
+    case 'sent':
+      return { status: OutreachStatus.completed }
+    case 'canceled':
+      return { status: OutreachStatus.canceled }
+  }
+}
+
 const approvalStatusOf = (row: {
   status: OutreachStatus | null
   approvedAt: Date | null
@@ -108,16 +132,60 @@ export class OutreachPollAdminService extends createPrismaBase(
   }
 
   async listQueue(status: PollApprovalStatus): Promise<PollQueueItem[]> {
-    const rows = await this.model.findMany({
-      where: queueWhere(status),
-      include: pollInclude,
-      orderBy: {
-        createdAt: status === 'awaiting_review' ? 'asc' : 'desc',
-      },
-    })
-    const offices = await this.officesFor(rows)
-    return rows.map((row) =>
+    const direction = status === 'awaiting_review' ? 'asc' : 'desc'
+    const [rows, expansions] = await Promise.all([
+      this.model.findMany({
+        where: queueWhere(status),
+        include: pollInclude,
+        orderBy: { createdAt: direction },
+      }),
+      this.client.outreachPollExpansion.findMany({
+        where: expansionQueueWhere(status),
+        orderBy: { createdAt: direction },
+      }),
+    ])
+    const rowIds = new Set(rows.map((row) => row.id))
+    const parentIds = [
+      ...new Set(
+        expansions
+          .map((expansion) => expansion.outreachId)
+          .filter((id) => !rowIds.has(id)),
+      ),
+    ]
+    const parents = [
+      ...rows,
+      ...(parentIds.length === 0
+        ? []
+        : await this.model.findMany({
+            where: { id: { in: parentIds } },
+            include: pollInclude,
+          })),
+    ]
+    const offices = await this.officesFor(parents)
+    const parentById = new Map(parents.map((parent) => [parent.id, parent]))
+
+    const spines = rows.map((row) =>
       this.toQueueItem(row, offices.get(row.organizationSlug ?? '')),
+    )
+    const followOns = expansions.flatMap((expansion) => {
+      const parent = parentById.get(expansion.outreachId)
+      return parent
+        ? [
+            this.toExpansionItem(
+              parent,
+              expansion,
+              this.questionOf(
+                parent,
+                offices.get(parent.organizationSlug ?? ''),
+              ),
+            ),
+          ]
+        : []
+    })
+    return [...spines, ...followOns].sort((a, b) =>
+      direction === 'asc'
+        ? a.createdAt.getTime() - b.createdAt.getTime()
+        : b.createdAt.getTime() - a.createdAt.getTime(),
     )
   }
 
@@ -139,7 +207,7 @@ export class OutreachPollAdminService extends createPrismaBase(
     input: ApprovePollRequest,
   ): Promise<PollQueueItem> {
     if (input.expansionId) {
-      throw new BadRequestException('Expansion approval is not available yet')
+      return this.approveExpansion(outreachId, input.expansionId, input)
     }
 
     const claimedAt = new Date()
@@ -186,6 +254,111 @@ export class OutreachPollAdminService extends createPrismaBase(
     const row = await this.findPoll(outreachId)
     const offices = await this.officesFor([row])
     return this.toQueueItem(row, offices.get(row.organizationSlug ?? ''))
+  }
+
+  /**
+   * The expansion's own claim, enqueue and revert, the same shape as the
+   * first send's. The claim also reopens a `completed` spine to
+   * `in_progress`, because the results uploader only lists `in_progress`
+   * sends and the expansion's replies could never be uploaded otherwise;
+   * the next committed ingest moves it back to `completed`.
+   */
+  private async approveExpansion(
+    outreachId: number,
+    expansionId: string,
+    input: ApprovePollRequest,
+  ): Promise<PollQueueItem> {
+    const existing = await this.client.outreachPollExpansion.findFirst({
+      where: { id: expansionId, outreachId },
+      select: { sendSeq: true },
+    })
+    if (!existing) {
+      await this.findPoll(outreachId)
+      throw new NotFoundException('Expansion not found')
+    }
+    const { sendSeq } = existing
+
+    const claimedAt = new Date()
+    const claim = await this.client.$transaction(async (tx) => {
+      const claimed = await tx.outreachPollExpansion.updateMany({
+        where: {
+          id: expansionId,
+          outreachId,
+          ...expansionQueueWhere('awaiting_review'),
+        },
+        data: { approvedAt: claimedAt, approvedBy: input.approvedBy },
+      })
+      if (claimed.count === 0) return { claimed: false, reopened: false }
+      const reopened = await tx.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.completed },
+        data: { status: OutreachStatus.in_progress },
+      })
+      return { claimed: true, reopened: reopened.count > 0 }
+    })
+    if (!claim.claimed) {
+      throw new ConflictException(
+        'This expansion is not awaiting review any more',
+      )
+    }
+
+    try {
+      await this.enqueueSend(outreachId, sendSeq)
+    } catch (error) {
+      // Scoped to the timestamp this call wrote, so it can only clear its own
+      // claim. The spine goes back only if this call is what reopened it.
+      await this.client.$transaction(async (tx) => {
+        await tx.outreachPollExpansion.updateMany({
+          where: { id: expansionId, approvedAt: claimedAt },
+          data: { approvedAt: null, approvedBy: null },
+        })
+        if (claim.reopened) {
+          await tx.outreach.updateMany({
+            where: { id: outreachId, status: OutreachStatus.in_progress },
+            data: { status: OutreachStatus.completed },
+          })
+        }
+      })
+      this.logger.error(
+        { err: error, outreachId, expansionId, sendSeq },
+        'Expansion approval could not enqueue the send; approval reverted',
+      )
+      throw error
+    }
+
+    this.logger.info(
+      { outreachId, expansionId, sendSeq, approvedBy: input.approvedBy },
+      'Poll expansion approved and its send enqueued',
+    )
+    const row = await this.findPoll(outreachId)
+    const expansion = row.pollDetails?.expansions.find(
+      (candidate) => candidate.id === expansionId,
+    )
+    if (!expansion) {
+      throw new NotFoundException('Expansion not found')
+    }
+    const offices = await this.officesFor([row])
+    return this.toExpansionItem(
+      row,
+      expansion,
+      this.questionOf(row, offices.get(row.organizationSlug ?? '')),
+    )
+  }
+
+  private async enqueueSend(
+    outreachId: number,
+    sendSeq: number,
+  ): Promise<void> {
+    await this.queueProducer.sendMessage(
+      {
+        type: QueueType.OUTREACH_TEXT_SEND,
+        data: { outreachId, sendSeq },
+      },
+      `${MessageGroup.outreachTextSend}-${outreachId}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-${sendSeq}`,
+      },
+    )
   }
 
   // No refund and no notice to the official, the same as the SMS console's

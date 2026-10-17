@@ -9,6 +9,7 @@ type OutreachType =
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
+  | 'poll'
 type OutreachStatus =
   | 'pending'
   | 'approved'

@@ -65,10 +65,13 @@ describe('the authored chat case lists', () => {
   it.each(AUTHORED)('%s parses through the real loader', (agentId) => {
     const list = loadCaseList(requireAgent(agentId))
     expect(list.shape).toBe('chat')
-    // A verdict from a list nobody has driven a turn against is a claim about
-    // the pipeline, not about the agent, and this flag is what carries that.
-    expect(list.placeholder).toBe(true)
-    expect(list.note).toContain('PLACEHOLDER')
+    // Synthetic questions with core checks: the checked cases test the agent,
+    // so the list does not claim to be a placeholder.
+    expect(list.placeholder).toBe(false)
+    expect(list.note).toContain('CORE CHECKS')
+    expect(
+      list.cases.filter((c) => 'handledWhen' in c && c.handledWhen).length,
+    ).toBeGreaterThanOrEqual(3)
     expect(list.cases).toHaveLength(CASES_PER_LIST)
 
     // Ids name stored records, so a duplicate would overwrite rather than

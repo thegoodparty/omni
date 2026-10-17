@@ -4,6 +4,8 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import type { Campaign } from 'helpers/types'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import GuidanceStep from './GuidanceStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -235,6 +237,89 @@ describe('GuidanceStep', () => {
       render(<GuidanceStep />)
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ProUpgrade.Compliance.GuidanceViewed,
+      )
+    })
+  })
+
+  describe('SMS compliance window', () => {
+    const smsCampaign = (smsCompliance: 'closing' | 'closed') =>
+      ({
+        smsCompliance,
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      }) as Campaign
+    const cutoff = formatSmsCutoffDate('2026-10-15')
+    const closedReason = `The ${cutoff} deadline to get verified for texting has passed.`
+
+    it('keeps the purchase-only rows minus the PIN wait under a closed banner', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
+      expect(
+        screen.getByRole('heading', {
+          name: "Let's gather a few things to unlock Pro",
+        }),
+      ).toBeInTheDocument()
+      const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+      expect(rows).toEqual([
+        'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
+        'Your filing detailsThe committee name and filing link or document from your election authority',
+        'Contact detailsThe email, phone or address exactly as it appears on your filing',
+        'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
+      ])
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
+        {
+          source: 'generic',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
+    })
+
+    it('keeps the default screen and its four items under a closed banner', () => {
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
+      expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    })
+
+    it('continues to the filing-status step when closed and records the banner as completed', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      render(<GuidanceStep />)
+
+      screen.getByRole('button', { name: 'Continue' }).click()
+
+      expect(goToStep).toHaveBeenCalledWith('status')
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeCompleted,
+        {
+          source: 'generic',
+          cutoffDate: '2026-10-15',
+          generalElectionDate: '2026-11-03',
+        },
+      )
+    })
+
+    it('keeps every row and adds the cutoff date while closing', () => {
+      enablePurchaseOnly()
+      mockUseCampaign.mockReturnValue([smsCampaign('closing')])
+      render(<GuidanceStep />)
+
+      expect(
+        screen.getByText(
+          `In order to send SMS, you must finish these steps by ${cutoff}.`,
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getAllByRole('listitem')).toHaveLength(5)
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.SmsCutoff.NoticeViewed,
+        expect.anything(),
       )
     })
   })

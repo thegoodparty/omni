@@ -11,6 +11,9 @@ any script that needs a dev user in a known product state.
 | `DELETE /v1/test-fixtures/users`                      | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                 |
 | `POST /v1/test-fixtures/users/:id/session`            | Re-mint the 1h session token for runs longer than an hour                                          |
 | `POST /v1/test-fixtures/organizations/:slug/activity` | Fill an existing org with weeks of outreach on every channel (see below)                           |
+| `POST /v1/test-fixtures/vendor-mocks/actions`         | Apply a mock action (e.g. `geoapify.route.fail`) to vendor mock records for a campaign             |
+| `GET /v1/test-fixtures/vendor-mocks/records`          | List `VendorMockRecord` rows for a campaign (query: `?campaignId=N`)                               |
+| `POST /v1/test-fixtures/jobs/:name/run`               | Run a named background job on demand — allowlist is empty in M1, extended by later milestones      |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a

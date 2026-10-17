@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
+import { panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -13,7 +14,17 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import {
+  composeAppendix,
+  handoffDraftBackstop,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
+import {
+  ADVICE_SIGNALS,
+  SECTION_MARK_SIGNAL,
+} from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   buildConstituentDataScope,
   ConstituentTablesByDataset,
@@ -46,18 +57,16 @@ import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
-import {
-  buildChiefOfStaffOutreachProposalTool,
-  buildPresentOutreachProposalTool,
-} from '../chat-tools/presentOutreachProposal.tool'
-import { buildSizePanelInviteTool } from '../chat-tools/sizePanelInvite.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import { buildCivicPanelPlanTools } from './services/civicPanelPlan.tools'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
-import { SERVE_SMS_FLAG } from '@/shared/util/serveSmsFlag.util'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
@@ -66,6 +75,10 @@ import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
 // fails closed if any of these is not claude-routed.
+const COS_LEGAL_SIGNALS = ADVICE_SIGNALS.filter(
+  (re) => re !== SECTION_MARK_SIGNAL,
+)
+
 export const CHIEF_OF_STAFF_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
@@ -122,6 +135,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly features?: FeaturesService,
     @Optional()
     private readonly reportBack?: OutreachReportBackService,
+    @Optional()
+    private readonly priorityResults?: PriorityResultsService,
+    @Optional()
+    private readonly civicPanelPlans?: CivicPanelBuildPlanService,
   ) {}
 
   async loadContext(
@@ -153,21 +170,28 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    const civicPanel =
-      outreachFeedbackEnabled && this.features
-        ? await this.contextService.civicPanelBuildState(
-            ctx.organizationSlug,
-            await this.features.isFeatureEnabled({
-              user: userId,
-              feature: SERVE_SMS_FLAG,
-            }),
-          )
-        : undefined
+    const civicPanel = outreachFeedbackEnabled
+      ? await this.contextService.civicPanelBuildState(
+          ctx.organizationSlug,
+          panelGoalMembers(
+            this.contacts
+              ? await this.contacts.getDistrictPopulation(ctx.organization)
+              : null,
+          ),
+        )
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
             ctx.organizationSlug,
             ctx.electedOfficeId,
+          )
+        : undefined
+    const priorityReads =
+      outreachFeedbackEnabled && this.priorityResults
+        ? await this.priorityResults.readStatuses(
+            ctx.organizationSlug,
+            ctx.priorities.map((priority) => priority.id),
           )
         : undefined
     if (!resolved) {
@@ -177,6 +201,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         outreachFeedbackEnabled,
         civicPanel,
         reportBacks,
+        priorityReads,
       }
     }
     const districtFilters = this.districtResolver
@@ -190,6 +215,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       outreachFeedbackEnabled,
       civicPanel,
       reportBacks,
+      priorityReads,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters,
@@ -209,11 +235,17 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return this.assembleTools(ctx)
   }
 
-  // Tier-1 deterministic backstop: if a turn gave professional-domain advice
-  // (legal/medical/financial/HR) but skipped the disclaimer the prompt asks
-  // for, append it. See professionalAdviceCheck.ts.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text)
+  // Finish-time backstops for the lines the prompt asks for. The bare section
+  // sign is left out of the legal signals, as the briefing chat does: this
+  // chat summarizes the same agendas and briefings, where a section number in
+  // a summary is not a legal reading. The small-count and handoff lines are
+  // decided from the turn's tool events, not the text.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'chief_of_staff', COS_LEGAL_SIGNALS),
+      smallCountBackstop(text, 'chief_of_staff', turn.toolEvents),
+      handoffDraftBackstop(text, 'chief_of_staff', turn.toolEvents),
+    ])
   }
 
   private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
@@ -367,21 +399,28 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         filterConsumers: registeredFilterConsumers(crmTools),
         peopleDataset: ctx.peopleDataset,
         citizenPanels: ctx.outreachFeedbackEnabled === true,
+        state: ctx.state,
       })
       Object.assign(tools, crmTools)
       // A proposal is sent against a saved list, so it is offered only where
       // the list behind it can be built.
       if (this.voterFileFilters) {
-        // The panel invite is a text, so it is offered only where one can
-        // be sent: serve-citizen-panels and serve-sms-outreach both on.
-        const panelInvite =
-          ctx.civicPanel?.textingEnabled === true ? ctx.civicPanel : null
-        tools.present_outreach_proposal = panelInvite
-          ? buildChiefOfStaffOutreachProposalTool(panelInvite)
-          : buildPresentOutreachProposalTool()
+        tools.present_outreach_proposal = buildPresentOutreachProposalTool()
         tools.size_outreach_sample = buildSizeOutreachSampleTool()
-        if (panelInvite) tools.size_panel_invite = buildSizePanelInviteTool()
       }
+    }
+
+    // The panel is built from the same plan as the panel page, behind
+    // serve-citizen-panels (civicPanel is only read with it on).
+    if (ctx.civicPanel && this.civicPanelPlans) {
+      Object.assign(
+        tools,
+        buildCivicPanelPlanTools({
+          plans: this.civicPanelPlans,
+          organization: ctx.organization,
+          hasPlan: ctx.civicPanel.hasPlan,
+        }),
+      )
     }
 
     tools.compose_handoff = buildComposeHandoffTool('serve_social')

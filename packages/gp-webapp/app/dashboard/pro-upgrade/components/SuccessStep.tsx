@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, ProBadge, Spinner } from '@styleguide'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   CheckCircleIcon,
   CheckIcon,
   ClipboardListIcon,
+  InfoIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
@@ -24,8 +26,11 @@ import {
 import {
   PIN_NOTICE_BODY,
   PIN_NOTICE_TITLE,
+  SMS_CUTOFF_COPY,
   SUBMITTED_BODY,
+  formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfettiField } from './ConfettiField'
 import { ProReceiptCard } from './ProReceiptCard'
@@ -100,16 +105,23 @@ const SuccessStep = (): React.JSX.Element => {
   // texting entry point: both end on verification.
   const verificationNext = channel === 'sms' || channel === null
 
+  // gp-api's word is final once the window has closed: whatever the filing
+  // says, texting will not open for this race, so a banner replaces the
+  // verification row in either flag state.
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsCutoff = verificationNext && smsCompliance === 'closed'
+
   // Whether this campaign's filing is already in: the wizard collects it
   // before payment now, but an already-Pro candidate who never submitted is
   // routed here too, and still has verification ahead of them.
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
-    enabled: purchaseOnly && verificationNext,
+    enabled: purchaseOnly && verificationNext && !smsCutoff,
   })
   const filingSubmitted =
     verificationNext &&
+    !smsCutoff &&
     getTcrComplianceStatusCompletions(tcrCompliance).filingComplete
 
   const handleContinue = (): void => {
@@ -124,9 +136,9 @@ const SuccessStep = (): React.JSX.Element => {
     complete()
   }
 
-  if (purchaseOnly) {
+  if (purchaseOnly || smsCutoff) {
     // A disabled query stays pending, so only the verification launches wait.
-    if (verificationNext && tcrPending) {
+    if (verificationNext && !smsCutoff && tcrPending) {
       return (
         <div className="flex flex-1 items-center justify-center py-16">
           <Spinner />
@@ -153,9 +165,11 @@ const SuccessStep = (): React.JSX.Element => {
             <p className="text-[15px] leading-relaxed text-base-muted-foreground">
               {nextStep
                 ? `Payment successful. Your next step is to ${nextStep.noun}.`
-                : filingSubmitted
-                  ? SUBMITTED_BODY
-                  : VERIFICATION_BODY}
+                : smsCutoff
+                  ? SMS_CUTOFF_COPY.successClosedBody
+                  : filingSubmitted
+                    ? SUBMITTED_BODY
+                    : VERIFICATION_BODY}
             </p>
           </div>
         </div>
@@ -184,40 +198,63 @@ const SuccessStep = (): React.JSX.Element => {
               </ul>
             </div>
           </div>
-          <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
-            {nextStep ? (
-              <ClipboardListIcon
-                className="mt-0.5 size-[18px] shrink-0 text-primary"
-                aria-hidden
-              />
-            ) : (
-              <ShieldCheckIcon
-                className="mt-0.5 size-[18px] shrink-0 text-primary"
-                aria-hidden
-              />
-            )}
-            <div className="flex min-w-0 flex-col gap-2">
-              <p className="font-semibold">
-                {nextStep
-                  ? `Still to do: ${nextStep.noun}`
-                  : filingSubmitted
-                    ? PIN_NOTICE_TITLE
-                    : 'Still to do: verification'}
-              </p>
-              <p className="text-sm text-base-muted-foreground">
-                {nextStep
-                  ? nextStep.body
-                  : filingSubmitted
-                    ? PIN_NOTICE_BODY
-                    : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
-              </p>
+          {!smsCutoff && (
+            <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
+              {nextStep ? (
+                <ClipboardListIcon
+                  className="mt-0.5 size-[18px] shrink-0 text-primary"
+                  aria-hidden
+                />
+              ) : (
+                <ShieldCheckIcon
+                  className="mt-0.5 size-[18px] shrink-0 text-primary"
+                  aria-hidden
+                />
+              )}
+              <div className="flex min-w-0 flex-col gap-2">
+                <p className="font-semibold">
+                  {nextStep
+                    ? `Still to do: ${nextStep.noun}`
+                    : filingSubmitted
+                      ? PIN_NOTICE_TITLE
+                      : 'Still to do: verification'}
+                </p>
+                <p className="text-sm text-base-muted-foreground">
+                  {nextStep
+                    ? nextStep.body
+                    : filingSubmitted
+                      ? PIN_NOTICE_BODY
+                      : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+
+        {smsCutoff && (
+          <Alert variant="info" icon={<InfoIcon />}>
+            <AlertTitle>
+              {SMS_CUTOFF_COPY.closedReason(
+                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+              )}
+            </AlertTitle>
+          </Alert>
+        )}
 
         <ProReceiptCard enabled={Boolean(data?.isPro)} />
 
-        {!nextStep && filingSubmitted ? (
+        {smsCutoff ? (
+          <StepFooter align="center">
+            <Button
+              size="large"
+              className="w-full sm:w-auto sm:min-w-[360px]"
+              onClick={handleContinue}
+              disabled={!data?.isPro && !pollExpired}
+            >
+              {SMS_CUTOFF_COPY.goToDashboard}
+            </Button>
+          </StepFooter>
+        ) : !nextStep && filingSubmitted ? (
           // Nothing is left to do here, so the one action is the way on
           // (design: the pending screen's single centered button).
           <StepFooter align="center">

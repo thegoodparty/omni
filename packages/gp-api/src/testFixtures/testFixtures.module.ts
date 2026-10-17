@@ -1,6 +1,7 @@
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { Module } from '@nestjs/common'
 import { ActivitySeedModule } from './activitySeed.module'
 import { TestFixturesController } from './testFixtures.controller'
@@ -14,6 +15,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
     ElectionsModule,
     OrganizationsModule,
     StateTransitionsModule,
+    VendorMocksModule,
   ],
   controllers: [TestFixturesController],
   providers: [TestFixturesService],

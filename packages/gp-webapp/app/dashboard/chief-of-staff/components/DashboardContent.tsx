@@ -1,13 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_BUILD_CHAT_PARAM,
-  CIVIC_PANEL_BUILD_CHAT_VALUE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
@@ -16,7 +14,7 @@ import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanel
 import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
-import { chiefOfStaffArchiveHref, chiefOfStaffHref } from '../routes'
+import { chiefOfStaffArchiveHref } from '../routes'
 import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
@@ -47,6 +45,7 @@ const ORDINANCE_NEW_HREF = '/dashboard/ordinances/new'
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [initialConversationId, setInitialConversationId] = useState<
     string | null
   >(null)
@@ -62,14 +61,7 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  // The build card's Build my panel links back here with the param, so the
-  // official stays on the home: the chat opens on the conversation that
-  // builds the panel, started by a turn they never see.
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const buildPanelParam =
-    searchParams?.get(CIVIC_PANEL_BUILD_CHAT_PARAM) ===
-    CIVIC_PANEL_BUILD_CHAT_VALUE
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
   // The panel's members pick the civic panel step: build one, or ask it.
@@ -80,35 +72,33 @@ export default function DashboardContent(): React.JSX.Element {
   })
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
 
-  useEffect(() => {
-    if (!buildPanelParam || !panelsReady) return
-    router.replace(chiefOfStaffHref(), { scroll: false })
-    if (!panelsEnabled) return
-    setOpenerKey(null)
-    setInitialConversationId(null)
-    setPendingKickoff(BUILD_CITIZENS_PANEL_MESSAGE)
-    setChatOpen(true)
-  }, [buildPanelParam, panelsReady, panelsEnabled, router])
-
   const openNewChat = () => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
+  const openWithFile = (file: File) => {
+    openNewChat()
+    setPendingFile(file)
+  }
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(id)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
+    setPendingFile(undefined)
     setOpenerKey(key)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const discussCard = (message: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(message)
     setOpenerKey(null)
     setInitialConversationId(null)
@@ -176,19 +166,23 @@ export default function DashboardContent(): React.JSX.Element {
         firstName={firstName}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
-        showAttachIcon
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
         onOpenChange={(next) => {
           setChatOpen(next)
           // A later plain reopen (the footer bar) must never resend it.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={initialConversationId}
         opener={opener}
         openerKey={openerKey}
         pendingKickoff={pendingKickoff}
+        pendingFile={pendingFile}
         defaultIntro={pendingKickoff ? NO_INTRO : intro}
         suggestions={suggestions}
         showSuggestionsAfterKickoff={explaining}

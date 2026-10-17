@@ -18,6 +18,7 @@ import { formatISO, isBefore, parseISO } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { maskPinDeliveryDestination } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
+import { smsComplianceWindow } from '../../util/eligibility.util'
 
 const DOMAIN_REGISTERED_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -114,6 +115,11 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       cvValidationFailureReasons:
         tcrCompliance?.cvValidationFailureReasons ?? [],
       ...cvState,
+      ...smsComplianceWindow({
+        electionDate: campaign.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
     }
   }
 

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -6,6 +7,7 @@ import {
 } from 'src/helpers/navigation.helper'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { seedEinAndFiled } from 'src/helpers/pro-upgrade.helper'
 
 // Scoped to non-Pro (read-only cached user, no paid user minted); the
 // Pro/banner-hidden inverse is asserted in the Pro happy-path spec, per
@@ -53,5 +55,26 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
     await page.getByRole('button', { name: 'Get Pro' }).click()
     await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/)
     await expect(page).toHaveURL(/\/dashboard\/pro-upgrade\/value-prop$/)
+  })
+})
+
+// Inside the SMS compliance cutoff gp-api still saves filing details, so the
+// default order keeps its filing steps: a free candidate who answered the
+// filing question and saved an EIN resumes on filing details, not payment.
+// Stops there, so no Stripe. Isolated: it moves the election date.
+test('keeps a free candidate inside the SMS cutoff on the filing steps', async ({
+  page,
+}) => {
+  await blockSlowScripts(page)
+  const { client } = await authenticateTestUser(page, { isolated: true })
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 10), 'yyyy-MM-dd') },
+  })
+  await seedEinAndFiled(client)
+
+  await page.goto('/dashboard/pro-upgrade')
+  await NavigationHelper.dismissOverlays(page)
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-details$/, {
+    timeout: 60_000,
   })
 })

@@ -38,8 +38,8 @@ import {
   CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
 import {
-  CLARIFY_TOOL,
   clarifyWidgetTool,
+  isQuestionTool,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
@@ -63,6 +63,10 @@ import {
   type ChatSuggestion,
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
+import {
+  civicPanelWidgetTools,
+  SAVE_PANEL_WEEKLY_TIME_TOOL,
+} from './civicPanelWidgets'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
@@ -162,6 +166,12 @@ interface Props {
    * a surface with a request already in hand should send only this.
    */
   pendingMessage?: string
+  /**
+   * One-shot file to attach on open: the user picked it from a chat bar's
+   * paperclip before this surface was open. Ignored where the scope takes no
+   * attachments.
+   */
+  pendingFile?: File
   /**
    * Fires once per VISIBLE message the user sends — the composer, a quick
    * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
@@ -265,6 +275,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
+  ...civicPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -328,6 +339,7 @@ function ChiefOfStaffChatThread({
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   pendingMessage,
+  pendingFile,
   onMessageSent,
   composerRef,
   disclaimer,
@@ -555,6 +567,19 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
+          })
+        }
+        // A saved weekly time made or changed the panel's plan, which the
+        // home's panel card and the next step card both follow.
+        if (
+          event.type === 'tool_result' &&
+          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ['civic-panel-plan', orgSlug],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false
@@ -863,6 +888,39 @@ function ChiefOfStaffChatThread({
       analyticsLabel,
     ],
   )
+
+  // The paperclip on a chat bar picks the file before this body exists, so it
+  // arrives as a prop. Waits out a load or create so it lands on the resolved
+  // conversation, and latches on the File so a re-render cannot upload twice.
+  const attachedPendingRef = useRef<File | undefined>(undefined)
+  useEffect(() => {
+    if (!pendingFile) {
+      attachedPendingRef.current = undefined
+      return
+    }
+    if (!active || !attachmentsEnabled) return
+    if (attachedPendingRef.current === pendingFile) return
+    if (loading || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    attachedPendingRef.current = pendingFile
+    if (isSupportedAttachmentFile(pendingFile)) {
+      void handleAttachFile(pendingFile)
+    } else {
+      toast.error(
+        `Can't attach ${pendingFile.name}. Use a PDF, DOCX, TXT, JPEG, or PNG.`,
+      )
+    }
+  }, [
+    active,
+    attachmentsEnabled,
+    pendingFile,
+    loading,
+    conversationId,
+    conversationIdOverride,
+    handleAttachFile,
+  ])
 
   const handleAttachLink = useCallback(
     async (url: string): Promise<void> => {
@@ -1354,7 +1412,7 @@ function ChiefOfStaffChatThread({
       const message = visibleMessages[i]
       if (!message) continue
       if (message.role === 'user') return null
-      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if ((message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return message.id
       }
     }
@@ -1366,7 +1424,7 @@ function ChiefOfStaffChatThread({
     const answers: Record<string, string> = {}
     visibleMessages.forEach((message, index) => {
       if (message.role === 'user') return
-      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if (!(message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return
       }
       const reply = visibleMessages

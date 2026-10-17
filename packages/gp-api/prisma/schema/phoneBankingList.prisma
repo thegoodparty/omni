@@ -14,6 +14,8 @@ enum PhoneBankingPurpose {
   explain_decision
   community_input
   share_resource
+  // Serve-only: the civic panel invite, the same slug as the Serve text's.
+  build_citizens_panel
 }
 
 model PhoneBankingList {
@@ -40,6 +42,7 @@ model PhoneBankingList {
   entries                         PhoneBankingListEntry[]
   outreach                        Outreach?
   contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
+  civicPanelBuildSteps            CivicPanelBuildStep[]
 
   @@index([organizationSlug])
   @@map("phone_banking_list")

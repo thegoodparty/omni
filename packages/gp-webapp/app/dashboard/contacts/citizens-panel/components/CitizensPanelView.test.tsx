@@ -13,7 +13,6 @@ const SUMMARY = {
 
 const REPRESENTATION: CivicPanelRepresentation = {
   representation: {
-    source: 'sample',
     respondentCount: 40,
     groups: [
       {
@@ -27,6 +26,13 @@ const REPRESENTATION: CivicPanelRepresentation = {
   },
 }
 
+// Every panel here has a plan, so the cases below are about the members.
+const PLAN = {
+  plan: null,
+  next: null,
+  progress: { members: 40, goal: 240, answersNeeded: 96, expectedAnswers: 16 },
+}
+
 beforeEach(() => {
   testQueryClient.clear()
   vi.clearAllMocks()
@@ -35,7 +41,11 @@ beforeEach(() => {
 describe('CitizensPanelView', () => {
   it('compares the members with the district', () => {
     render(
-      <CitizensPanelView summary={SUMMARY} representation={REPRESENTATION} />,
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={PLAN}
+      />,
     )
 
     expect(screen.getByText('25')).toBeInTheDocument()
@@ -57,6 +67,7 @@ describe('CitizensPanelView', () => {
           lastOutreachAt: null,
         }}
         representation={{ representation: null }}
+        plan={PLAN}
       />,
     )
 
@@ -77,6 +88,7 @@ describe('CitizensPanelView', () => {
           lastOutreachAt: null,
         }}
         representation={{ representation: null }}
+        plan={PLAN}
       />,
     )
 
@@ -88,39 +100,27 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByText(/Once your panel has/)).not.toBeInTheDocument()
   })
 
-  it('links who can be asked now into a new list already filtered to them', () => {
-    render(
-      <CitizensPanelView summary={SUMMARY} representation={REPRESENTATION} />,
-    )
-
-    expect(
-      screen.getByRole('link', { name: 'Make a list of who can be asked now' }),
-    ).toHaveAttribute('href', '/dashboard/contacts?newList=askableNow')
-  })
-
-  it('offers no such list when nobody can be asked now', () => {
+  it('offers no list of who can be asked now', () => {
     render(
       <CitizensPanelView
-        summary={{
-          members: 12,
-          reachedRecently: 12,
-          askableNow: 0,
-          lastOutreachAt: null,
-        }}
+        summary={SUMMARY}
         representation={REPRESENTATION}
+        plan={PLAN}
       />,
     )
 
     expect(
-      screen.queryByRole('link', {
-        name: 'Make a list of who can be asked now',
-      }),
+      screen.queryByRole('link', { name: /who can be asked now/ }),
     ).not.toBeInTheDocument()
   })
 
   it('opens the built-in panel list, saving nothing', () => {
     render(
-      <CitizensPanelView summary={SUMMARY} representation={REPRESENTATION} />,
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={PLAN}
+      />,
     )
 
     expect(screen.getByRole('link', { name: 'See members' })).toHaveAttribute(
@@ -129,7 +129,7 @@ describe('CitizensPanelView', () => {
     )
   })
 
-  it('points to the Chief of Staff when nobody has joined yet', () => {
+  it('asks the hours question when nobody has joined and there is no plan', () => {
     render(
       <CitizensPanelView
         summary={{
@@ -139,12 +139,15 @@ describe('CitizensPanelView', () => {
           lastOutreachAt: null,
         }}
         representation={{ representation: null }}
+        plan={PLAN}
       />,
     )
 
     expect(
-      screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute('href', '/dashboard/chief-of-staff')
+      screen.getByRole('heading', {
+        name: 'How much time can you give each week?',
+      }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'See members' }),
     ).not.toBeInTheDocument()

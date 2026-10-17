@@ -14,6 +14,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { ContrastRecord, ContrastRouteTarget } from 'gpApi/api-endpoints'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 // Sourced-or-silent: a contrast is only renderable when every one of its six
 // content fields is present and non-empty — especially sourceUrl. A contrast
@@ -42,6 +43,7 @@ const ContrastCard = ({ contrast, onChange }: Props): React.JSX.Element => {
   const [saving, setSaving] = useState(false)
   const [routing, setRouting] = useState<ContrastRouteTarget | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
   const isUsed = contrast.status === 'used'
 
@@ -228,16 +230,18 @@ const ContrastCard = ({ contrast, onChange }: Props): React.JSX.Element => {
             >
               Route to Story
             </Button>
-            <Button
-              variant="outline"
-              icon={<MessageSquareIcon />}
-              onClick={() => route('texting')}
-              loading={routing === 'texting'}
-              loadingText="Routing…"
-              disabled={isUsed || routing !== null}
-            >
-              Route to Texting
-            </Button>
+            {!smsClosed && (
+              <Button
+                variant="outline"
+                icon={<MessageSquareIcon />}
+                onClick={() => route('texting')}
+                loading={routing === 'texting'}
+                loadingText="Routing…"
+                disabled={isUsed || routing !== null}
+              >
+                Route to Texting
+              </Button>
+            )}
           </div>
         </div>
       )}

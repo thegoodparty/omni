@@ -10,6 +10,7 @@ import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
   proUpgradeHref,
   type ProUpgradeSource,
@@ -57,6 +58,8 @@ export function ProUpgradeModal({
     | { viability?: { score?: number } }
     | undefined
   const viablityScore = vendorP2v?.viability?.score || 0
+  const { smsCompliance } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
 
   let title: string,
     description: string,
@@ -73,10 +76,16 @@ export function ProUpgradeModal({
         <>
           Create targeted <span className="font-bold">voter lists</span>
         </>,
-        <>
-          Send <span className="font-bold">texts and voicemails</span>{' '}
-          (pay-as-you-go)
-        </>,
+        smsClosed ? (
+          <>
+            Send <span className="font-bold">voicemails</span> (pay-as-you-go)
+          </>
+        ) : (
+          <>
+            Send <span className="font-bold">texts and voicemails</span>{' '}
+            (pay-as-you-go)
+          </>
+        ),
         <>
           Secure votes with powerful{' '}
           <span className="font-bold">canvassing tools</span>
@@ -97,10 +106,17 @@ export function ProUpgradeModal({
           <span className="font-bold">Custom voter segmentation</span> for
           targeting
         </>,
-        <>
-          <span className="font-bold">Text, voice and door-knocking</span> tools
-          for outreach
-        </>,
+        smsClosed ? (
+          <>
+            <span className="font-bold">Voice and door-knocking</span> tools for
+            outreach
+          </>
+        ) : (
+          <>
+            <span className="font-bold">Text, voice and door-knocking</span>{' '}
+            tools for outreach
+          </>
+        ),
       ]
       highlight = null
       cta = 'Upgrade for $10/month'
@@ -109,13 +125,22 @@ export function ProUpgradeModal({
       title = 'Boost your campaign with Pro'
       description = 'Join GoodParty.org Pro today to get:'
       items = [
-        <>
-          {FREE_TEXTS_OFFER.COUNT.toLocaleString()}{' '}
-          <span className="font-bold">free text messages</span>
-        </>,
+        smsClosed ? (
+          <>
+            <span className="font-bold">Voice and door-knocking</span> tools for
+            outreach
+          </>
+        ) : (
+          <>
+            {FREE_TEXTS_OFFER.COUNT.toLocaleString()}{' '}
+            <span className="font-bold">free text messages</span>
+          </>
+        ),
         <>One-on-one access to political analysts</>,
       ]
-      highlight = 'Upgrade today to claim your free benefits.'
+      highlight = smsClosed
+        ? 'Start today for just $10/month.'
+        : 'Upgrade today to claim your free benefits.'
       cta = 'Upgrade for $10/month'
       break
     case VARIANTS.Third:

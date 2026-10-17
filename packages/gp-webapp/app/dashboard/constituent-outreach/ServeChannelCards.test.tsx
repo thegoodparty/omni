@@ -28,6 +28,24 @@ const renderCards = ({ withSms = false }: { withSms?: boolean } = {}) => {
   }
 }
 
+describe('ServeChannelCards poll card', () => {
+  it('shows Poll / Survey only when a poll handler is given, and opens it', async () => {
+    const onPollClick = vi.fn()
+    const base = {
+      onSocialClick: vi.fn(),
+      onPhoneBankingClick: vi.fn(),
+      onDoorKnockingClick: vi.fn(),
+    }
+    const { unmount } = render(<ServeChannelCards {...base} />)
+    expect(screen.queryByText('Poll / Survey')).not.toBeInTheDocument()
+    unmount()
+
+    render(<ServeChannelCards {...base} onPollClick={onPollClick} />)
+    await userEvent.click(screen.getByText('Poll / Survey'))
+    expect(onPollClick).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('ServeChannelCards', () => {
   // Three without an SMS handler, because door knocking is wired for Serve as
   // of 3.0: every turf now gets an `Outreach` envelope, so an elected

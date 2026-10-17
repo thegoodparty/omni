@@ -10,7 +10,7 @@ import {
   shapePartCount,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { UNSENT_OUTREACH_STATUSES } from '@/dashboardCards/services/dashboardCards.service'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'

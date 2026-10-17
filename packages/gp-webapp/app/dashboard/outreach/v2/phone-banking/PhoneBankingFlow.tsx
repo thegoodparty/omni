@@ -17,6 +17,7 @@ import {
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
+  BUILD_CITIZENS_PANEL_PURPOSE,
   COMMUNITY_INPUT_PURPOSE,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
@@ -76,7 +77,7 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
-import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { outreachLandingStep } from '../landingStep'
 
 type StepId =
@@ -190,7 +191,9 @@ const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
 // The purpose union across every surface the flow can render — same
 // convention as SocialFlow's SocialFlowPurpose.
-type PhoneBankingFlowPurpose = PhoneBankingPurpose | ServePhoneBankingPurpose
+export type PhoneBankingFlowPurpose =
+  | PhoneBankingPurpose
+  | ServePhoneBankingPurpose
 
 interface PhoneBankingFlowDraftInput {
   purpose: PhoneBankingFlowPurpose
@@ -319,6 +322,9 @@ interface PhoneBankingFlowProps {
   // A script already written, from a chat card's outreach proposal. Opens on
   // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
   initialScript?: string
+  // Opens past the purpose picker on this purpose and drafts for it, as an
+  // entry that already answered it (a civic panel plan's call step).
+  initialPurpose?: PhoneBankingFlowPurpose
   // The list name a chat card proposal already knows, so the script step does
   // not stop on an empty required field. Editable like any typed name.
   initialName?: string
@@ -352,6 +358,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   preselectedRecommendedVariant,
   initialScript,
+  initialPurpose,
   initialName,
   proposedAudience,
   proposalLink,
@@ -378,12 +385,10 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
-  // The question-asking card is offered only where issue capture is on. The
-  // filter is here, not in the surface's vocabulary, so an effort already on
-  // that purpose keeps its labels and its question step when the flag goes off.
-  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  // The civic panel invite is offered behind the panel's flag, as on texts.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
   const offeredPurposes = surface.purposes.filter(
-    ({ id }) => issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE,
+    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
   )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's
@@ -532,10 +537,12 @@ export const PhoneBankingFlow = ({
     // tap on the card would.
     // A seeded script wins over a carried purpose: the words are already
     // chosen, so drafting for a purpose would throw them away.
-    const carriedPurpose =
-      !initialScript && preselectedRecommendedVariant
-        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-        : null
+    const carriedPurpose = initialScript
+      ? null
+      : (initialPurpose ??
+        (preselectedRecommendedVariant
+          ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+          : null))
     // The list is not resolved yet, so this lands on the who step at most;
     // the preselection below moves on to the script once it resolves.
     setStepId(
@@ -597,6 +604,7 @@ export const PhoneBankingFlow = ({
     draftMutate,
     preselectedRecommendedVariant,
     initialScript,
+    initialPurpose,
     initialName,
   ])
 
@@ -624,12 +632,16 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
-      // A caller that handed over the script as well as the list (a chat
-      // card's proposal) lands on the script, but only once the list really
-      // resolved: a script with no audience behind it would strand the
-      // official on a step whose Continue cannot pass.
+      // A caller that handed over the script, or a purpose to draft one for
+      // (a civic panel plan's call step), as well as the list lands on the
+      // script, but only once the list really resolved: a script with no
+      // audience behind it would strand the official on a step whose
+      // Continue cannot pass. An event invite stays on its details step.
       const landing = outreachLandingStep({
-        purposeSettled: false,
+        purposeSettled:
+          !initialScript &&
+          initialPurpose !== undefined &&
+          !isEventInvite(initialPurpose),
         audienceSettled: true,
         messageSettled: Boolean(initialScript),
       })
@@ -642,6 +654,7 @@ export const PhoneBankingFlow = ({
     audienceListsFetching,
     selectAudienceList,
     initialScript,
+    initialPurpose,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead

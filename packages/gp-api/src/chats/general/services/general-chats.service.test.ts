@@ -653,6 +653,8 @@ describe('GeneralChatsService', () => {
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
       expect(chatStream.stream).not.toHaveBeenCalled()
       expect(store.setTitleIfUnset).not.toHaveBeenCalled()
@@ -715,12 +717,16 @@ describe('GeneralChatsService', () => {
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
       expect(chatStore.appendMessage).toHaveBeenNthCalledWith(2, {
         conversationId: 'c1',
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
     },
   )

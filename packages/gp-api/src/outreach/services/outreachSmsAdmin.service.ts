@@ -380,10 +380,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   /**
    * Admin cancel runs the candidate's own unwind (vendor delete, refund,
-   * promo restore) with staff attribution. The past-send-time guard
-   * inside cancelOutreach applies to staff too — a mid-send vendor
-   * delete is a mess regardless of who clicks — but only for a booked
-   * send; an unbooked row past its date never sends and stays cancelable.
+   * promo restore) with staff attribution. Staff may cancel any unsent
+   * campaign, booked or past its send time: they unbook canvassers through
+   * this console, not Peerly, so cancelOutreach skips the candidate's
+   * send-time refusals for them and the console warns instead.
    */
   async cancel(
     outreachId: number,
@@ -1170,44 +1170,54 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         campaigns.set(row.campaignId, row.campaign)
       }
     }
-    // Parallel + cached per company: the old serial loop paid two HubSpot
-    // round trips per campaign on every queue view — with a full queue,
-    // the dominant page cost (QA 2026-09-09). Each read is single-flighted
-    // and bounded like the Peerly reads, so a stalling CRM can't hold the
-    // queue either.
-    await Promise.all(
-      [...campaigns].map(async ([campaignId, campaign]) => {
-        const hubspotId = campaign?.data?.hubspotId
-        if (!hubspotId) {
-          byCampaign.set(campaignId, null)
-          return
-        }
-        const owner = await this.boundedRead(
-          this.singleFlightCached(
-            this.ownerCache,
-            this.ownerInFlight,
-            hubspotId,
-            (value) => !value.ok,
-            async () => {
-              try {
-                const name =
-                  await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
-                return { ok: true, name: name?.trim() ? name.trim() : null }
-              } catch (err) {
-                this.logger.warn(
-                  { err, campaignId },
-                  'Admin queue: HubSpot owner read failed; rendering ' +
-                    'unassigned',
-                )
-                return { ok: false, name: null }
-              }
-            },
-            ownerCacheTtlMs(),
-          ),
-        )
-        byCampaign.set(campaignId, owner?.name ?? null)
-      }),
+    // One batched HubSpot read per view, cached + single-flighted per
+    // company: a read per company blew through HubSpot's 190 requests/10s
+    // limit on a cold queue, and every 429 rendered as Unassigned for the
+    // full owner TTL. A cache miss's produce only queues its id; the batch
+    // is released after the synchronous loop, so it holds exactly the ids
+    // whose produce ran. Don't pre-check ownerCache here instead:
+    // singleFlightCached sweeps expired entries itself, and an id it
+    // treats as a miss but the batch skipped would read as failed.
+    const toRead: string[] = []
+    let releaseBatch!: (read: Promise<Map<string, string | null>>) => void
+    const batch = new Promise<Map<string, string | null>>((resolve) => {
+      releaseBatch = resolve
+    }).catch((err: Error) => {
+      this.logger.warn(
+        { err, companyCount: toRead.length },
+        'Admin queue: HubSpot owner read failed; rendering unassigned',
+      )
+      return null
+    })
+    const reads = [...campaigns].map(([campaignId, campaign]) => {
+      const hubspotId = campaign?.data?.hubspotId
+      if (!hubspotId) return Promise.resolve({ campaignId, owner: null })
+      return this.boundedRead(
+        this.singleFlightCached(
+          this.ownerCache,
+          this.ownerInFlight,
+          hubspotId,
+          (value) => !value.ok,
+          () => {
+            toRead.push(hubspotId)
+            return batch.then((names) =>
+              names?.has(hubspotId)
+                ? { ok: true, name: names.get(hubspotId) ?? null }
+                : { ok: false, name: null },
+            )
+          },
+          ownerCacheTtlMs(),
+        ),
+      ).then((owner) => ({ campaignId, owner }))
+    })
+    releaseBatch(
+      toRead.length > 0
+        ? this.crmCampaigns.getCrmCompanyOwnerNames(toRead)
+        : Promise.resolve(new Map<string, string | null>()),
     )
+    for (const { campaignId, owner } of await Promise.all(reads)) {
+      byCampaign.set(campaignId, owner?.name ?? null)
+    }
     return byCampaign
   }
 

@@ -137,6 +137,8 @@ const winCtx = (): CampaignManagerContext => ({
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -153,6 +155,7 @@ const winCtx = (): CampaignManagerContext => ({
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
 })
 
 describe('constituent data table per people dataset', () => {

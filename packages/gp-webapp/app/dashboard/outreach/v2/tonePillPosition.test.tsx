@@ -28,7 +28,6 @@ describe('tone pills sit above the message', () => {
         onAddRequiredBack={vi.fn()}
         message="Hi {first_name}, it's Sarah."
         onMessageChange={vi.fn()}
-        protectedParts={[]}
         mergeTagChannel="peerly"
         hasWrittenBody
         composedLength={28}
