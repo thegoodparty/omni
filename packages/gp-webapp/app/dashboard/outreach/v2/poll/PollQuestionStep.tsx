@@ -13,6 +13,7 @@ import {
   Card,
   FilterPill,
   FilterPillGroup,
+  Label,
 } from '@styleguide'
 import {
   Loader2Icon,
@@ -140,16 +141,12 @@ export const PollQuestionStep = ({
       <div className="space-y-3">
         <Card className="gap-0 p-4">
           <div className="mb-4 space-y-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              {SERVE_POLL_QUESTION_COPY.imageLabel}
-            </span>
+            <Label>{SERVE_POLL_QUESTION_COPY.imageLabel}</Label>
             <PollImageUpload imageUrl={imageUrl} onUploaded={onImageUploaded} />
           </div>
 
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">
-              {SERVE_POLL_QUESTION_COPY.questionLabel}
-            </span>
+            <Label>{SERVE_POLL_QUESTION_COPY.questionLabel}</Label>
             <span className="text-xs text-muted-foreground">
               {SERVE_POLL_QUESTION_COPY.count(
                 composedLength,
