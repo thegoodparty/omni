@@ -960,7 +960,7 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
     restoreClock = undefined
   })
 
-  it('400s a filter it cannot resolve in time instead of uploading after the gateway has hung up', async () => {
+  it('hands a filter it cannot resolve in time to the queued build instead of uploading after the gateway has hung up', async () => {
     await seedWinCampaign()
     const upload = stubPeerlyUpload()
 
@@ -991,24 +991,70 @@ describe('POST /v1/p2p/phone-list (INC-101 resolution deadline)', () => {
         })
       }) as never)
 
+    const enqueue = vi
+      .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+      .mockResolvedValue(undefined as never)
+
     const result = await service.client.post(
       '/v1/p2p/phone-list',
       { name: 'Whole county' },
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
-    expect(result.status).toBe(400)
-    expect(result.data.message).toMatch(/too many to build a phone list/)
+    // ENG-11328: a large recommended list used to 400 here. It is now handed
+    // to the queued build, which has no deadline, and the client polls the
+    // buildId (token null), the same contract as the async path.
+    expect(result.status).toBe(201)
+    expect(result.data.token).toBeNull()
+    expect(enqueue).toHaveBeenCalledTimes(1)
     // Two pages, not 82: the official is told in about 4.5s.
     expect(findPeople).toHaveBeenCalledTimes(2)
-    // The harm this closes. Nothing reached Peerly, so there is no list the
-    // official was never handed a token for — the row created on accept is
-    // marked failed instead of acquiring a token.
+    // Nothing reached Peerly in-request, and the row stays queued (not
+    // failed) for the handler to claim.
     expect(upload).not.toHaveBeenCalled()
     expect(await service.prisma.peerlyPhoneList.count()).toBe(1)
     expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
-      buildStatus: 'failed',
+      id: result.data.buildId,
+      buildStatus: 'queued',
       token: null,
+    })
+  })
+
+  it('marks the row failed when handing the build to the queue throws', async () => {
+    await seedWinCampaign()
+    stubPeerlyUpload()
+    let now = 0
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    restoreClock = () => clock.mockRestore()
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockImplementation(((dto: { page: number }) => {
+      now += 200_000
+      return Promise.resolve({
+        people: Array.from({ length: 1000 }, (_, i) =>
+          personPayload({
+            id: `00000000-0000-0000-${String(dto.page).padStart(4, '0')}-${String(i).padStart(12, '0')}`,
+            cellPhone: `555${String(dto.page).padStart(3, '0')}${String(i).padStart(4, '0')}`,
+          }),
+        ),
+        pagination: { totalResults: 82_000, hasNextPage: true },
+      })
+    }) as never)
+    vi.spyOn(
+      service.app.get(QueueProducerService),
+      'sendMessage',
+    ).mockRejectedValue(new Error('sqs down'))
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Whole county' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBeGreaterThanOrEqual(500)
+    expect(await service.prisma.peerlyPhoneList.findFirst()).toMatchObject({
+      buildStatus: 'failed',
     })
   })
 })

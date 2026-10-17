@@ -9,6 +9,7 @@ import { ContactsService } from '../services/contacts.service'
 import {
   AudienceResolutionSummary,
   PhoneAudiencePerson,
+  ResolutionBudgetExceededException,
   resolveFilterAudience,
 } from './audienceResolution.util'
 
@@ -571,7 +572,9 @@ describe('resolveFilterAudience', () => {
           },
         ),
       ),
-    ).rejects.toThrow(new BadRequestException('82000 is too many, try 57000'))
+    ).rejects.toThrow(
+      new ResolutionBudgetExceededException('82000 is too many, try 57000'),
+    )
 
     expect(findContactsForFilter).toHaveBeenCalledTimes(2)
     expect(elapsedMs()).toBe(4500)

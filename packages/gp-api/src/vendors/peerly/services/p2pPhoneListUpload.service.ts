@@ -22,6 +22,7 @@ import {
   MAX_INTERACTIVE_RESOLUTION_MS,
   PhoneAudiencePerson,
   resolveFilterAudience,
+  ResolutionBudgetExceededException,
 } from '@/contacts/utils/audienceResolution.util'
 import { csvEscape } from '@/shared/util/csv.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
@@ -226,18 +227,39 @@ export class P2pPhoneListUploadService {
       requestSnapshot: { ...request },
     })
 
-    const token = await this.runBuild({
-      buildId: build.id,
-      campaignId: campaign.id,
-      organization,
-      peerlyIdentityId: tcrCompliance.peerlyIdentityId,
-      listName,
-      resolvedFilterInput,
-      excludePersonIds,
-      isInteractive: true,
-    })
-
-    return { token, listName, buildId: build.id }
+    try {
+      const token = await this.runBuild({
+        buildId: build.id,
+        campaignId: campaign.id,
+        organization,
+        peerlyIdentityId: tcrCompliance.peerlyIdentityId,
+        listName,
+        resolvedFilterInput,
+        excludePersonIds,
+        isInteractive: true,
+      })
+      return { token, listName, buildId: build.id }
+    } catch (error) {
+      // An audience too big to resolve inside the request (a recommended
+      // list can run past 30,000 contacts) is not a failure: the queued build
+      // has no deadline, and the row is still `queued` because runBuild
+      // leaves it alone for this error. Hand it over; the caller polls the
+      // buildId exactly as it does for the async path (token null).
+      if (!(error instanceof ResolutionBudgetExceededException)) throw error
+      try {
+        await this.enqueueBuild(build.id, 0)
+      } catch (enqueueError) {
+        // The stale-building reaper only looks at `building` rows, so a
+        // `queued` row with a dead enqueue would otherwise sit forever.
+        await this.markBuildFailed(build.id, enqueueError)
+        throw enqueueError
+      }
+      this.logger.info(
+        { buildId: build.id, campaignId: campaign.id },
+        'P2P phone list too large to build interactively; enqueued',
+      )
+      return { token: null, listName, buildId: build.id }
+    }
   }
 
   // Queue handler for QueueType.P2P_PHONE_LIST_BUILD (dispatched from
@@ -658,6 +680,10 @@ export class P2pPhoneListUploadService {
       // vendor/internal detail (a people-api message, a stack-bearing
       // Error) this endpoint has never put in a client-facing response,
       // and a future poller reading buildError is still a client.
+      if (isInteractive && error instanceof ResolutionBudgetExceededException) {
+        // Not a rejection: uploadPhoneList re-queues this still-queued row.
+        throw error
+      }
       if (error instanceof HttpException) {
         this.logger.warn(
           { error },
