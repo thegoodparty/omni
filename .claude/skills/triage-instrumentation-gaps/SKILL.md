@@ -124,6 +124,9 @@ judgments: 12
 ## surface
 - accept: Profile - Running Against: Click Save
   reason: <why>
+- accept: Campaign Story - Rewrite Accepted
+  reason: <why>
+  area: Your Story
 ```
 
 Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
@@ -835,7 +838,7 @@ earlier session, or a `relabels:` row a PR merged) need no ruling: go straight t
 
 | Verb      | What you do |
 | --------- | ----------- |
-| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. |
+| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. When the console handoff carries an `area:` line (the event fires from several areas and the reviewer picked one), add `--area "<area>"`. Without it the dispose refuses a multi-area row. |
 | `dismiss` | `uv run surface_drift.py dispose "<event>" --as dismissed --reason "<why>"`. It stays quiet until the event's areas change. |
 | `defer`   | `uv run surface_drift.py dispose "<event>" --as open`. |
 
