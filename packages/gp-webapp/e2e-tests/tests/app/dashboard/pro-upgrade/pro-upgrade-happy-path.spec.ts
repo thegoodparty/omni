@@ -1,4 +1,4 @@
-import { addYears, format } from 'date-fns'
+import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
 import {
   blockSlowScripts,
@@ -59,6 +59,18 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // never reuse the per-worker cached user. Default race (Cheyenne City Council
   // - Ward 1) is a local office, matching the manual run.
   const { user, client } = await authenticateTestUser(page, { isolated: true })
+
+  // Move the election out of the 19-day texting cutoff so the success step
+  // keeps its legacy "Welcome to Pro!" copy (SuccessStep.tsx:139,164 switches
+  // to the no-exclamation purchase-only/cutoff variant once gp-api reports
+  // smsCompliance='closed', which happened as the live Cheyenne election
+  // crossed the cutoff on 2026-10-16). Same guard the sibling v2 specs
+  // (pro-upgrade-v2-happy-path/entry/step-resume) apply after
+  // authenticateTestUser; the closed path stays covered by
+  // pro-upgrade-v2-cutoff.spec.ts.
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+  })
 
   // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
   // the wizard.
