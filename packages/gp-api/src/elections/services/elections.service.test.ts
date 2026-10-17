@@ -378,6 +378,32 @@ describe('ElectionsService', () => {
       )
     })
 
+    it('falls back to timeframe=future when election-api rejects all', async () => {
+      mockHttpGet
+        .mockReturnValueOnce(throwError(() => makeAxiosError(400, 'bad')))
+        .mockReturnValueOnce(of({ data: [], status: 200 }))
+
+      await service.searchPositions({ zip: '90210', timeframe: 'all' })
+
+      expect(mockHttpGet).toHaveBeenLastCalledWith(
+        expect.stringContaining('/v1/positions/search'),
+        expect.objectContaining({
+          params: { zip: '90210', timeframe: 'future' },
+        }),
+      )
+    })
+
+    it('re-throws a 500 even when timeframe=all', async () => {
+      mockHttpGet.mockReturnValueOnce(
+        throwError(() => makeAxiosError(500, 'internal server error')),
+      )
+
+      await expect(
+        service.searchPositions({ zip: '90210', timeframe: 'all' }),
+      ).rejects.toMatchObject({ status: 502 })
+      expect(mockHttpGet).toHaveBeenCalledTimes(1)
+    })
+
     it('forwards name-only queries', async () => {
       mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
 

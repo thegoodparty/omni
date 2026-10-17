@@ -36,6 +36,15 @@ import {
   VoterIssueLevel,
 } from '../types/elections.types'
 
+class UpstreamBadGatewayException extends BadGatewayException {
+  constructor(
+    message: string,
+    readonly upstreamStatus?: number,
+  ) {
+    super(message)
+  }
+}
+
 @Injectable()
 export class ElectionsService {
   private static readonly BASE_URL = process.env.ELECTION_API_URL
@@ -115,7 +124,10 @@ export class ElectionsService {
           throw new NotFoundException(apiMessage ?? finalMessage)
         }
         this.logger.error(finalMessage)
-        throw new BadGatewayException(finalMessage)
+        throw new UpstreamBadGatewayException(
+          finalMessage,
+          error.response?.status,
+        )
       }
       const finalMessage = `${baseMessage}: ${String(error)}`
       this.logger.error(`Election API GET ${fullUrl} failed: ${String(error)}`)
@@ -260,12 +272,34 @@ export class ElectionsService {
     name?: string
     officeType?: string[]
     displayOfficeLevels?: string[]
-    timeframe?: 'future' | 'past'
+    timeframe?: 'future' | 'past' | 'all'
   }): Promise<RaceListItem[]> {
-    const result = await this.electionApiGet<RaceListItem[], typeof query>(
-      'positions/search',
-      query,
-    )
+    let result: RaceListItem[] | null
+    try {
+      result = await this.electionApiGet<RaceListItem[], typeof query>(
+        'positions/search',
+        query,
+      )
+    } catch (error) {
+      // Deploy-order safety: an election-api that predates timeframe=all
+      // rejects it. Degrade to the previous 'future' behavior instead of
+      // failing the picker. Remove once election-api with 'all' is everywhere.
+      // Only an upstream 400/422 means "unknown param"; 5xx and network
+      // faults must propagate rather than silently return a subset.
+      if (
+        query.timeframe !== 'all' ||
+        !(error instanceof UpstreamBadGatewayException) ||
+        (error.upstreamStatus !== 400 && error.upstreamStatus !== 422)
+      )
+        throw error
+      this.logger.warn(
+        'Election API rejected timeframe=all; retrying with timeframe=future',
+      )
+      result = await this.electionApiGet<RaceListItem[], typeof query>(
+        'positions/search',
+        { ...query, timeframe: 'future' },
+      )
+    }
     return RaceListItemArraySchema.parse(result ?? [])
   }
 
