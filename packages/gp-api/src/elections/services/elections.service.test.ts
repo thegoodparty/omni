@@ -236,6 +236,38 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('election-api GET retry', () => {
+    const pool = () =>
+      makeAxiosError(500, 'Timed out fetching a new connection from the pool')
+
+    it('retries once on a 5xx and returns the second response', async () => {
+      mockHttpGet
+        .mockReturnValueOnce(throwError(pool))
+        .mockReturnValueOnce(of({ data: makePosition(), status: 200 }))
+
+      await expect(service.getPositionById('p1')).resolves.toBeTruthy()
+      expect(mockHttpGet).toHaveBeenCalledTimes(2)
+    })
+
+    it('surfaces a 502 when the retry also fails', async () => {
+      mockHttpGet.mockReturnValue(throwError(pool))
+
+      await expect(service.getPositionById('p1')).rejects.toMatchObject({
+        status: 502,
+      })
+      expect(mockHttpGet).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry a 404', async () => {
+      mockHttpGet.mockReturnValue(throwError(() => makeAxiosError(404, 'nope')))
+
+      await expect(service.getPositionById('p1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+      expect(mockHttpGet).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('getPositionByBallotReadyId', () => {
     it('returns position with district when includeDistrict is true', async () => {
       const position = makePosition()

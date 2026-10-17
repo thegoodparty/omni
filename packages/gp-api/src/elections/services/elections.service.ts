@@ -56,6 +56,8 @@ export class ElectionsService {
     }
   }
 
+  private static readonly GET_RETRY_DELAY_MS = 500
+
   private async electionApiGet<Res, Q extends object>(
     path: string,
     query?: Q,
@@ -75,21 +77,39 @@ export class ElectionsService {
     this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
     try {
       const headers = await this.tokenService.authHeader()
-      const { data, status } = (await lastValueFrom(
-        this.httpService.get(fullUrl, {
-          headers,
-          params: query,
-          paramsSerializer: (params) =>
-            Object.entries(params)
-              .filter(([, v]) => v !== undefined && v !== null)
-              .flatMap(([k, v]) =>
-                Array.isArray(v)
-                  ? v.map((item) => `${k}=${encodeURIComponent(String(item))}`)
-                  : [`${k}=${encodeURIComponent(String(v))}`],
-              )
-              .join('&'),
-        }),
-      )) as { data: Res; status: number }
+      const request = () =>
+        lastValueFrom(
+          this.httpService.get(fullUrl, {
+            headers,
+            params: query,
+            paramsSerializer: (params) =>
+              Object.entries(params)
+                .filter(([, v]) => v !== undefined && v !== null)
+                .flatMap(([k, v]) =>
+                  Array.isArray(v)
+                    ? v.map(
+                        (item) => `${k}=${encodeURIComponent(String(item))}`,
+                      )
+                    : [`${k}=${encodeURIComponent(String(v))}`],
+                )
+                .join('&'),
+          }),
+        ) as Promise<{ data: Res; status: number }>
+      // GETs are idempotent: retry once on an election-api 5xx. Its Prisma
+      // pool exhaustion (P2024) is bursty and clears within moments, so one
+      // short-delayed retry absorbs it instead of surfacing a 502.
+      const { data, status } = await request().catch(async (error: unknown) => {
+        if (!isAxiosError(error) || (error.response?.status ?? 0) < 500) {
+          throw error
+        }
+        this.logger.warn(
+          `Election API GET ${path} responded ${error.response?.status}; retrying once`,
+        )
+        await new Promise((resolve) =>
+          setTimeout(resolve, ElectionsService.GET_RETRY_DELAY_MS),
+        )
+        return request()
+      })
       if (status >= 200 && status < 300) return data
       this.logger.warn(`Election API GET ${path}} responded ${status}`)
       return null
