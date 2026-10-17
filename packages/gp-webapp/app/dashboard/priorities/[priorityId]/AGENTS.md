@@ -250,17 +250,17 @@ place, `priorityReadStatus`
 | `status`               | Rule                                                                                            |
 | ---------------------- | ----------------------------------------------------------------------------------------------- |
 | `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)                   |
-| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census                |
+| `notYetRepresentative` | a weighted group (age band, gender, tenure, tract) is more than 10 points off the census        |
 | `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed`             |
 | `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this                 |
 | `enoughAnswers`        | the census could not be read and answers meet `needed`; `good`, but no claim about who answered |
 
 The answers are raked to the district's census marginals
 (`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
-ACS adults 18 to 64 and 65 and over, owner and renter households, and adults
-per census tract. Small groups pool, weights are capped at 0.2x to 5x the
-average, and an unknown value sits out its dimension. Gender is wired as a
-dimension and joins once the census marts publish sex by age. Race is never
+ACS adults 18 to 64 and 65 and over, adult men and women (census sex, against
+the voter file's `M`/`F`), owner and renter households, and adults per census
+tract. Small groups pool, weights are capped at 0.2x to 5x the average, and an
+unknown value, such as a blank gender, sits out its dimension. Race is never
 weighted. `underrepresented` names the one or two groups whose raw share
 trails the census most, by at least 5 points
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
@@ -349,8 +349,8 @@ behind one line and a Get answers button. After, it shows everything below.
 - **The census figures are ACS 2024 5-year estimates** that gp-api reads
   from `mart_gp_api` (`CENSUS_COMPOSITION_SOURCE`, shared with the civic
   panel page). Age is shares of adults (18 to 64, 65 and over), since
-  everyone who answers is an adult. There is no gender row: the census
-  marts carry none. When the district's figures cannot be read, the
+  everyone who answers is an adult. There is no gender row: gender is
+  weighted (above) but not drawn as a bar. When the district's figures cannot be read, the
   comparison arrives with no `groups`, and `RepresentationBars` says the
   figures are not available instead of drawing bars.
 - **Themes are pooled across every send.** "Top themes" reads the

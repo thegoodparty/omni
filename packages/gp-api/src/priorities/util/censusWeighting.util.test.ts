@@ -60,13 +60,29 @@ describe('weightingTargets', () => {
     expect(Object.keys(targets)).toEqual(['age'])
   })
 
-  it('takes gender once the marts publish it', () => {
+  it('reads gender from the adult census sex totals', () => {
     const targets = weightingTargets({
-      district: DISTRICT,
+      district: {
+        ...DISTRICT,
+        populationMale18Plus: 480,
+        populationFemale18Plus: 520,
+      },
       tractAdults: TRACTS,
-      genderShares: { male: 0.48, female: 0.52 },
     })
+    expect(targets.gender?.male).toBeCloseTo(0.48)
     expect(targets.gender?.female).toBeCloseTo(0.52)
+  })
+
+  it('leaves gender out when the census suppressed either sex', () => {
+    const targets = weightingTargets({
+      district: {
+        ...DISTRICT,
+        populationMale18Plus: null,
+        populationFemale18Plus: 520,
+      },
+      tractAdults: TRACTS,
+    })
+    expect(targets.gender).toBeUndefined()
   })
 })
 
@@ -129,6 +145,28 @@ describe('weighToCensus', () => {
     )
     expect(pooled?.censusShare).toBeCloseTo(0.7)
     expect(result.largestGap).toBeGreaterThan(0.1)
+  })
+
+  it('weights a sample that skews female to the census sex split, leaving blank Gender out', () => {
+    const result = weighToCensus(
+      [
+        cell({ count: 70, gender: 'female' }),
+        cell({ count: 30, gender: 'male' }),
+        cell({ count: 10, gender: null }),
+      ],
+      {
+        district: {
+          ...DISTRICT,
+          populationMale18Plus: 490,
+          populationFemale18Plus: 510,
+        },
+        tractAdults: new Map(),
+      },
+    )
+    const women = result.gaps.find((gap) => gap.value === 'female')
+    expect(women?.unweightedShare).toBeCloseTo(0.7)
+    expect(women?.share).toBeCloseTo(0.51, 2)
+    expect(women?.censusShare).toBeCloseTo(0.51)
   })
 
   it('lets a respondent outside every known tract sit out neighborhood', () => {

@@ -10,6 +10,7 @@ import {
   type RakingTargets,
 } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
+import { adultSexShares } from './censusSexAge.util'
 
 // A value with fewer answers than this pools with the other small ones, so
 // no handful of people carries a whole group's weight.
@@ -61,8 +62,6 @@ const tenureTargets = (district: AcsCounts): Record<string, number> | null => {
 export interface WeightingCensus {
   district: AcsCounts
   tractAdults: Map<string, number>
-  // Adult shares by gender, once the marts publish sex by age.
-  genderShares?: { male: number; female: number } | null
 }
 
 // The census marginals each answer is weighted to. A dimension the census
@@ -75,10 +74,10 @@ export const weightingTargets = (census: WeightingCensus): RakingTargets => {
   if (tenure) targets.tenure = tenure
   const tract = shares(Object.fromEntries(census.tractAdults))
   if (tract) targets.tract = tract
-  if (census.genderShares) {
-    const gender = shares(census.genderShares)
-    if (gender) targets.gender = gender
-  }
+  // Census sex among adults. Respondents' Gender is the voter file's M or F,
+  // and a blank one sits this dimension out.
+  const gender = adultSexShares(census.district)
+  if (gender) targets.gender = { ...gender }
   return targets
 }
 
