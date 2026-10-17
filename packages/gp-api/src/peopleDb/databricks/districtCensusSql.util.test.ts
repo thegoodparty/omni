@@ -101,7 +101,9 @@ describe('buildDistrictCompositionSql', () => {
     )
     expect(selected).toContain('d.households_income_under_10k')
     expect(selected).toContain('d.households_income_200k_plus')
-    expect(ACS_COUNT_KEYS).toHaveLength(34)
+    expect(selected).toContain('d.population_male_18_to_24')
+    expect(selected).toContain('d.population_female_18_plus')
+    expect(ACS_COUNT_KEYS).toHaveLength(48)
   })
 })
 
