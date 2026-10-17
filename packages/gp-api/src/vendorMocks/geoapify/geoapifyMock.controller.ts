@@ -59,11 +59,46 @@ const parseWaypointParam = (raw: string): [number, number][] =>
 export class GeoapifyMockController {
   constructor(private readonly vendorMockRecord: VendorMockRecordService) {}
 
-  @Post(['v1/routeplanner', 'org/:organizationSlug/v1/routeplanner'])
-  async routePlanner(
-    @Param('organizationSlug') organizationSlug: string | undefined,
+  @Post('v1/routeplanner')
+  routePlanner(
     @Query('apiKey') apiKey: string | undefined,
     @Body() rawBody: RoutePlannerRequest,
+  ) {
+    return this.planRoute(undefined, apiKey, rawBody)
+  }
+
+  @Post('org/:organizationSlug/v1/routeplanner')
+  scopedRoutePlanner(
+    @Param('organizationSlug') organizationSlug: string,
+    @Query('apiKey') apiKey: string | undefined,
+    @Body() rawBody: RoutePlannerRequest,
+  ) {
+    return this.planRoute(organizationSlug, apiKey, rawBody)
+  }
+
+  @Get('v1/routing')
+  routing(
+    @Query('waypoints') waypointsParam: string | undefined,
+    @Query('mode') mode: string | undefined,
+    @Query('apiKey') apiKey: string | undefined,
+  ) {
+    return this.route(undefined, waypointsParam, mode, apiKey)
+  }
+
+  @Get('org/:organizationSlug/v1/routing')
+  scopedRouting(
+    @Param('organizationSlug') organizationSlug: string,
+    @Query('waypoints') waypointsParam: string | undefined,
+    @Query('mode') mode: string | undefined,
+    @Query('apiKey') apiKey: string | undefined,
+  ) {
+    return this.route(organizationSlug, waypointsParam, mode, apiKey)
+  }
+
+  private async planRoute(
+    organizationSlug: string | undefined,
+    apiKey: string | undefined,
+    rawBody: RoutePlannerRequest,
   ) {
     this.assertMockMode()
     this.assertApiKey(apiKey)
@@ -141,12 +176,11 @@ export class GeoapifyMockController {
     }
   }
 
-  @Get(['v1/routing', 'org/:organizationSlug/v1/routing'])
-  async routing(
-    @Param('organizationSlug') organizationSlug: string | undefined,
-    @Query('waypoints') waypointsParam: string | undefined,
-    @Query('mode') mode: string | undefined,
-    @Query('apiKey') apiKey: string | undefined,
+  private async route(
+    organizationSlug: string | undefined,
+    waypointsParam: string | undefined,
+    mode: string | undefined,
+    apiKey: string | undefined,
   ) {
     this.assertMockMode()
     this.assertApiKey(apiKey)
