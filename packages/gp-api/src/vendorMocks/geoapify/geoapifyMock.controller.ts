@@ -70,15 +70,13 @@ export class GeoapifyMockController {
     const jobs = body.jobs ?? []
     const agents = body.agents ?? []
 
-    // Check for a 'routeFail' flag. kind filter prevents routing_request
-    // records from masking a flag seeded on a routeplanner_request row.
-    // orderBy ensures we inspect the most recently seeded/updated record
-    // when multiple matching rows exist.
+    // Check for a 'routeFail' flag. orderBy ensures we inspect the most
+    // recently seeded/updated record when multiple matching rows exist.
     const failRecord = await this.vendorMockRecord.findFirst({
       where: {
         vendor: VendorMockVendor.geoapify,
         campaignId: null,
-        kind: 'routeplanner_request',
+        kind: 'routing_request',
       },
       orderBy: { updatedAt: Prisma.SortOrder.desc },
     })
@@ -205,6 +203,26 @@ export class GeoapifyMockController {
         },
       ],
     }
+  }
+
+  // Lets E2E tests arm Geoapify mock flags without admin credentials.
+  // Only reachable in mock mode; the controller is already @PublicAccess().
+  @Post('test/actions')
+  async testAction(@Body() body: { action: string }) {
+    this.assertMockMode()
+    if (body.action !== 'route.fail') {
+      throw new BadRequestException(
+        `Unknown action: ${body.action}`,
+      )
+    }
+    await this.vendorMockRecord.upsert(
+      VendorMockVendor.geoapify,
+      'routing_request',
+      'sentinel',
+      { routeFail: true },
+      undefined,
+    )
+    return { ok: true }
   }
 
   // 404 rather than 403 — the surface does not advertise itself outside mock mode.

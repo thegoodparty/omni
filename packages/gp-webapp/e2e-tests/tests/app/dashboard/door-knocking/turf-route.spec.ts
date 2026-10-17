@@ -3,7 +3,6 @@ import {
   setupElectedOfficeUser,
   setupProCampaignUser,
 } from 'src/helpers/organizations'
-import { mockAction, mockRecords } from 'src/helpers/vendor-mocks.helper'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // A convex polygon inside Cheyenne WY Ward 1 — the fixture district used by
@@ -31,16 +30,10 @@ const FIXTURE_GEO_POLY = {
 // ---------------------------------------------------------------------------
 
 test.describe('Win — turf route via Geoapify mock', () => {
-  test('happy path: route builds, mockRecords captures request, knock records, turf completes', async ({
+  test('happy path: route builds, knock records, turf completes', async ({
     page,
   }) => {
     const { client } = await setupProCampaignUser(page)
-
-    // Resolve campaign ID for mock-records assertions.
-    const { data: campaign } = await client.get<{ id: number }>(
-      '/v1/campaigns/mine',
-    )
-    const campaignId = campaign.id
 
     // 1. Create a voter file filter (no Geoapify involved).
     const { data: list } = await withGatewayRetry(
@@ -67,20 +60,19 @@ test.describe('Win — turf route via Geoapify mock', () => {
         }),
     )
 
-    // 3. Assert the mock captured a routeplanner request (Story M1-4 records endpoint).
-    const records = await mockRecords(client, campaignId)
-    const routeRecord = records.records.find(
-      (r) => r.kind === 'routeplanner_request',
-    )
-    expect(routeRecord).toBeTruthy()
+    // 3. Confirm the mock routed the turf (routeSeconds is non-null).
+    const { data: routedTurf } = await client.get<{
+      routeSeconds: number | null
+    }>(`/v1/door-knocking/turfs/${turf.id}`)
+    expect(routedTurf.routeSeconds).not.toBeNull()
 
     // 4. Navigate directly to the walk surface for this pre-routed turf.
     await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
 
     // 5. Wait for the route skeleton to disappear — confirms route payload arrived.
-    await expect(page.locator('[data-testid="walk-view-loading"]')).toBeHidden({
-      timeout: 15_000,
-    })
+    await expect(
+      page.locator('[data-testid="walk-view-loading"]'),
+    ).toBeHidden({ timeout: 15_000 })
 
     // 6. Expand the walk sheet (may start at peek snap).
     const grip = page.getByRole('button', { name: /Expand the route/ })
@@ -89,15 +81,30 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }
 
     // 7. At least one stop must be visible.
-    await expect(page.getByRole('button', { name: /Stop 1/ })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: /Stop 1/ }),
+    ).toBeVisible()
 
-    // 8. Open the first stop → PersonSheet surfaces the knock form.
+    // 8. Expand Stop 1 and open PersonSheet for the first resident.
+    //    For a house: the first sub-button is a resident row (opens PersonSheet).
+    //    For a multi-unit stop: it is a door row (needs one more click).
     await page.getByRole('button', { name: /Stop 1/ }).click()
+    const stopLi = page
+      .locator('li')
+      .filter({ has: page.getByRole('button', { name: /Stop 1/ }) })
+    await stopLi.getByRole('button').nth(1).click()
+    if (
+      !(await page
+        .getByRole('button', { name: 'Close person details' })
+        .isVisible())
+    ) {
+      await stopLi.getByRole('button').nth(2).click()
+    }
 
     // 9. Record a knock: Answered → Engaged → support Yes → will vote Yes.
     await page.getByRole('radio', { name: 'Answered' }).click()
     await page.getByRole('radio', { name: 'Engaged' }).click()
-    // Support question appears after "Engaged"; "Will they vote?" appears after support.
+    // Support question appears after "Engaged"; "Will they vote?" after support.
     await page.getByRole('radio', { name: 'Yes' }).first().click()
     await page.getByRole('radio', { name: 'Yes' }).last().click()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -105,81 +112,97 @@ test.describe('Win — turf route via Geoapify mock', () => {
       page.getByRole('button', { name: 'Save', exact: true }),
     ).toBeHidden()
 
-    // 10. Mark route done.
+    // 10. Close PersonSheet if still open (auto-closes when no residents remain;
+    //     stays open to advance to the next resident in the same stop).
+    const closePersonDetails = page.getByRole('button', {
+      name: 'Close person details',
+    })
+    if (await closePersonDetails.isVisible()) {
+      await closePersonDetails.click()
+    }
+
+    // 11. Mark route done.
     await page
       .getByRole('button', { name: 'Mark this route done', exact: true })
       .click()
     await expect(
       page.getByRole('heading', { name: 'Mark this route done?' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Mark done', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Mark done', exact: true })
+      .click()
 
-    // 11. Assert the Outreach row is 'completed' via the API.
-    const { data: done } = await client.get<{
-      outreach: { status: string } | null
-    }>(`/v1/door-knocking/turfs/${turf.id}`)
-    expect(done.outreach?.status).toBe('completed')
+    // 12. Assert the turf is marked completed via the API.
+    const { data: done } = await client.get<{ completed: boolean }>(
+      `/v1/door-knocking/turfs/${turf.id}`,
+    )
+    expect(done.completed).toBe(true)
   })
 
-  test('failure: geoapify.route.fail causes error copy, no successful route record', async ({
-    page,
-  }) => {
-    const { client } = await setupProCampaignUser(page)
+  test(
+    'failure: geoapify.route.fail causes error copy, no successful route',
+    async ({ page }) => {
+      const { client } = await setupProCampaignUser(page)
 
-    const { data: campaign } = await client.get<{ id: number }>(
-      '/v1/campaigns/mine',
-    )
-    const campaignId = campaign.id
+      // Create a voter file filter.
+      const { data: list } = await withGatewayRetry(
+        'POST /v1/voters/voter-file/filter',
+        () =>
+          client.post<{ id: number }>('/v1/voters/voter-file/filter', {
+            name: 'E2E mock route fail list',
+          }),
+      )
 
-    // Create a voter file filter.
-    const { data: list } = await withGatewayRetry(
-      'POST /v1/voters/voter-file/filter',
-      () =>
-        client.post<{ id: number }>('/v1/voters/voter-file/filter', {
-          name: 'E2E mock route fail list',
+      // Create an UNROUTED turf (no mode/loop) — no Geoapify call yet.
+      const { data: turf } = await withGatewayRetry(
+        'POST /v1/door-knocking/turfs (unrouted)',
+        () =>
+          client.post<{ id: number }>('/v1/door-knocking/turfs', {
+            voterFileFilterId: list.id,
+            name: 'E2E mock route fail turf',
+            color: '#ef4444',
+            geoPoly: FIXTURE_GEO_POLY,
+            purpose: 'introduce_myself',
+            // Omitting mode/loop: turf is saved without buying a route.
+          }),
+      )
+
+      // Arm the failure flag via the Geoapify mock controller's test endpoint.
+      // The controller is @PublicAccess() and only reachable with VENDOR_MODE=mock,
+      // so no admin credentials are required.
+      await client.post('/v1/vendor-mocks/geoapify/test/actions', {
+        action: 'route.fail',
+      })
+
+      // Navigate to the walk surface — StartKnockingDialog appears (no route).
+      await page.goto(
+        `/dashboard/door-knocking?walkTurfId=${turf.id}`,
+      )
+
+      await expect(
+        page.getByRole('heading', {
+          name: 'How are you getting there?',
         }),
-    )
+      ).toBeVisible()
 
-    // Create an UNROUTED turf (no mode/loop) — no Geoapify call yet.
-    const { data: turf } = await withGatewayRetry(
-      'POST /v1/door-knocking/turfs (unrouted)',
-      () =>
-        client.post<{ id: number }>('/v1/door-knocking/turfs', {
-          voterFileFilterId: list.id,
-          name: 'E2E mock route fail turf',
-          color: '#ef4444',
-          geoPoly: FIXTURE_GEO_POLY,
-          purpose: 'introduce_myself',
-          // Omitting mode/loop: turf is saved without buying a route.
-        }),
-    )
+      // Select walking mode and request the route.
+      await page.getByRole('radio', { name: 'Walking' }).click()
+      await page
+        .getByRole('button', { name: 'Build route', exact: true })
+        .click()
 
-    // Arm the failure flag before the route is purchased.
-    await mockAction(client, campaignId, 'geoapify.route.fail')
+      // The Geoapify mock returns an error → the dialog must surface it.
+      await expect(page.getByRole('alert')).toContainText(
+        "We couldn't plan this route. Try again in a moment.",
+      )
 
-    // Navigate to the walk surface — StartKnockingDialog appears (no route yet).
-    await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
-
-    await expect(
-      page.getByRole('heading', { name: 'How are you getting there?' }),
-    ).toBeVisible()
-
-    // Select walking mode and request the route.
-    await page.getByRole('radio', { name: 'Walking' }).click()
-    await page.getByRole('button', { name: 'Build route', exact: true }).click()
-
-    // The Geoapify mock returns an error → the dialog must surface it.
-    await expect(page.getByRole('alert')).toContainText(
-      "We couldn't plan this route. Try again in a moment.",
-    )
-
-    // No successful routeplanner record should exist.
-    const records = await mockRecords(client, campaignId)
-    const successRecord = records.records.find(
-      (r) => r.kind === 'routeplanner_request',
-    )
-    expect(successRecord).toBeUndefined()
-  })
+      // routeSeconds stays null because the route attempt failed.
+      const { data: turfAfter } = await client.get<{
+        routeSeconds: number | null
+      }>(`/v1/door-knocking/turfs/${turf.id}`)
+      expect(turfAfter.routeSeconds).toBeNull()
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -187,74 +210,100 @@ test.describe('Win — turf route via Geoapify mock', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Serve — turf route via Geoapify mock', () => {
-  test('happy path: route builds and knock records for elected official', async ({
-    page,
-  }) => {
-    const { client } = await setupElectedOfficeUser(page)
+  test(
+    'happy path: route builds and knock records for elected official',
+    async ({ page }) => {
+      const { client } = await setupElectedOfficeUser(page)
 
-    // Create a voter file filter.
-    const { data: list } = await withGatewayRetry(
-      'POST /v1/voters/voter-file/filter',
-      () =>
-        client.post<{ id: number }>('/v1/voters/voter-file/filter', {
-          name: 'E2E mock route list (serve)',
-        }),
-    )
+      // Create a voter file filter.
+      const { data: list } = await withGatewayRetry(
+        'POST /v1/voters/voter-file/filter',
+        () =>
+          client.post<{ id: number }>('/v1/voters/voter-file/filter', {
+            name: 'E2E mock route list (serve)',
+          }),
+      )
 
-    // Create a routed Serve turf — hits the Geoapify mock under VENDOR_MODE=mock.
-    const { data: turf } = await withGatewayRetry(
-      'POST /v1/door-knocking/serve/turfs',
-      () =>
-        client.post<{ id: number }>('/v1/door-knocking/serve/turfs', {
-          voterFileFilterId: list.id,
-          name: 'E2E turf route test (serve)',
-          color: '#3b82f6',
-          geoPoly: FIXTURE_GEO_POLY,
-          mode: 'walk',
-          loop: false,
-          purpose: 'introduce_myself',
-        }),
-    )
+      // Create a routed Serve turf — hits the Geoapify mock under VENDOR_MODE=mock.
+      const { data: turf } = await withGatewayRetry(
+        'POST /v1/door-knocking/serve/turfs',
+        () =>
+          client.post<{ id: number }>('/v1/door-knocking/serve/turfs', {
+            voterFileFilterId: list.id,
+            name: 'E2E turf route test (serve)',
+            color: '#3b82f6',
+            geoPoly: FIXTURE_GEO_POLY,
+            mode: 'walk',
+            loop: false,
+            purpose: 'introduce_myself',
+          }),
+      )
 
-    // Navigate to the walk surface.
-    await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
+      // Navigate to the walk surface.
+      await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
 
-    // Wait for route skeleton to disappear.
-    await expect(page.locator('[data-testid="walk-view-loading"]')).toBeHidden({
-      timeout: 15_000,
-    })
+      // Wait for route skeleton to disappear.
+      await expect(
+        page.locator('[data-testid="walk-view-loading"]'),
+      ).toBeHidden({ timeout: 15_000 })
 
-    // Expand the walk sheet if needed.
-    const grip = page.getByRole('button', { name: /Expand the route/ })
-    if (await grip.isVisible()) {
-      await grip.click()
-    }
+      // Expand the walk sheet if needed.
+      const grip = page.getByRole('button', { name: /Expand the route/ })
+      if (await grip.isVisible()) {
+        await grip.click()
+      }
 
-    await expect(page.getByRole('button', { name: /Stop 1/ })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: /Stop 1/ }),
+      ).toBeVisible()
 
-    // Open the first stop.
-    await page.getByRole('button', { name: /Stop 1/ }).click()
+      // Open Stop 1 and click through to PersonSheet.
+      await page.getByRole('button', { name: /Stop 1/ }).click()
+      const stopLi = page
+        .locator('li')
+        .filter({ has: page.getByRole('button', { name: /Stop 1/ }) })
+      await stopLi.getByRole('button').nth(1).click()
+      if (
+        !(await page
+          .getByRole('button', { name: 'Close person details' })
+          .isVisible())
+      ) {
+        await stopLi.getByRole('button').nth(2).click()
+      }
 
-    // Record a knock for Serve: Answered → Engaged → follow-up Yes.
-    await page.getByRole('radio', { name: 'Answered' }).click()
-    await page.getByRole('radio', { name: 'Engaged' }).click()
-    // Serve shows "Do they need follow-up?" instead of support/will-vote.
-    await page.getByRole('radio', { name: 'Yes' }).click()
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(
-      page.getByRole('button', { name: 'Save', exact: true }),
-    ).toBeHidden()
+      // Record a knock for Serve: Answered → Engaged → follow-up Yes.
+      await page.getByRole('radio', { name: 'Answered' }).click()
+      await page.getByRole('radio', { name: 'Engaged' }).click()
+      // Serve shows "Do they need follow-up?" instead of support/will-vote.
+      await page.getByRole('radio', { name: 'Yes' }).click()
+      await page
+        .getByRole('button', { name: 'Save', exact: true })
+        .click()
+      await expect(
+        page.getByRole('button', { name: 'Save', exact: true }),
+      ).toBeHidden()
 
-    // Mark route done.
-    await page
-      .getByRole('button', { name: 'Mark this route done', exact: true })
-      .click()
-    await page.getByRole('button', { name: 'Mark done', exact: true }).click()
+      // Close PersonSheet if still open before marking the route done.
+      const closePersonDetails = page.getByRole('button', {
+        name: 'Close person details',
+      })
+      if (await closePersonDetails.isVisible()) {
+        await closePersonDetails.click()
+      }
 
-    // Assert Outreach row is completed.
-    const { data: done } = await client.get<{
-      outreach: { status: string } | null
-    }>(`/v1/door-knocking/turfs/${turf.id}`)
-    expect(done.outreach?.status).toBe('completed')
-  })
+      // Mark route done.
+      await page
+        .getByRole('button', { name: 'Mark this route done', exact: true })
+        .click()
+      await page
+        .getByRole('button', { name: 'Mark done', exact: true })
+        .click()
+
+      // Assert turf is completed.
+      const { data: done } = await client.get<{ completed: boolean }>(
+        `/v1/door-knocking/turfs/${turf.id}`,
+      )
+      expect(done.completed).toBe(true)
+    },
+  )
 })
