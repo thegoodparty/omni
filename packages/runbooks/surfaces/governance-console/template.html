@@ -1600,8 +1600,8 @@
   const isProof = (text) => PROOF_SHAPES.some((shape) => shape.test(String(text).trim()))
 
   const PROOF_PLACEHOLDER =
-    'Code-removal proof: the deleting commit, PR or URL. Or "no removal: <why this ' +
-    'Govern write is not a retirement>".'
+    'Proof the code is gone: #1234, a commit sha, or a PR/commit URL. ' +
+    'Not a retirement? Write "no removal: <why>".'
 
   let onJudgmentChange = () => {}
 
@@ -1916,6 +1916,7 @@
       saveJudgments()
       reason.value = ''
       proof.value = ''
+      proof.dataset.typed = ''
       paintSummary()
       onJudgmentChange()
     }
@@ -1956,12 +1957,19 @@
       onSelect: (events) => {
         picked = events
         const n = events.length
-        tally.textContent = n
-          ? (n === 1 ? '1 event selected' : n + ' events selected') + ', rule on just these:'
-          : ''
-        bar.hidden = !n
-        reason.hidden = !n
-        if (!n) proof.hidden = true
+        // Every event picked is the whole cause, which the cause-level boxes below
+        // already rule on. A second set of boxes there only asks which one counts.
+        const total = new Set((item.evidence || []).map((r) => r.event_type)).size
+        const subset = n > 0 && n < total
+        tally.textContent = !n
+          ? ''
+          : subset
+            ? (n === 1 ? '1 event selected' : n + ' events selected') +
+              ', rule on just these:'
+            : 'All ' + n + ' events selected. That is the whole cause, so rule on it below.'
+        bar.hidden = !subset
+        reason.hidden = !subset
+        if (!subset) proof.hidden = true
         // The PRs that removed just these events, shown in the box as it opens. Only
         // while the box holds nothing typed by hand, so a reviewer's own proof stands.
         if (!proof.dataset.typed) {
@@ -1973,8 +1981,10 @@
             if (refs.indexOf(ref) < 0) refs.push(ref)
           })
           proof.value = refs.join(', ')
-          if (refs.length) proof.hidden = false
         }
+        // Hiding the whole-cause case must not lose proof typed before it: coming back
+        // to a subset shows the box again with what is in it.
+        if (subset && proof.value) proof.hidden = false
       },
     }
   }
@@ -2034,7 +2044,8 @@
     if (caveat) add(body, caveat)
 
     const rows = item.evidence || []
-    const selectable = item.queue === 'flags' && rows.length > 1
+    const selectable =
+      item.queue === 'flags' && new Set(rows.map((r) => r.event_type)).size > 1
     const picker = selectable ? renderEventVerdicts(item, row, summary) : null
     const evidence = renderEvidence(rows, {
       selectable,
