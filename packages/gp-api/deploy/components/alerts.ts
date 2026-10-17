@@ -514,9 +514,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The robocall send + settlement chain (staging, dial, capture,
     // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
     // on every exceptional path a human must look at: a permanently-failed send
-    // (`send_failed`, hold voided), a delivered run we could NOT capture
-    // (`uncollectable` — money may be owed), a CallHub response-schema mismatch
-    // stranding a delivered run, a dial commit-miss (the campaign may be dialing
+    // (`send_failed`, hold voided), a delivered run we could NOT collect
+    // (a fresh-charge decline — money may be owed; a merely lapsed hold is
+    // recovered by the fresh-charge sweep and only warns), a CallHub
+    // response-schema mismatch stranding a delivered run, a dial commit-miss (the campaign may be dialing
     // with no `dialed` record), an audio ETag mismatch refused at staging, or an
     // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
     // single line filter catches every path. They should almost never fire; each
@@ -535,7 +536,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     keepFiringFor: '1h',
     message: [
       'A robocall send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money- or delivery-integrity event that needs a human.',
-      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
+      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / fresh-charge decline / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run whose fresh charge declined, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
     ].join('\n\n'),
     notify: 'win-bugs',
