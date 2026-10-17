@@ -40,7 +40,10 @@ src/electionDb/
 ```
 
 Controllers do **not** live here. The HTTP surface these services back is in
-`src/elections/`, namespaced under `/v1/elections/*` and guarded with `M2MOnly`.
+`src/elections/`, namespaced under `/v1/elections/*`. The routes gp-marketing
+reads are `@PublicAccess()` + `ServiceReadGuard`, not `M2MOnly`: gp-marketing
+sends a JWT-format machine token, which `SessionGuard` only turns into
+`serviceReader`, never `m2mToken`, so `M2MOnly` would 403 it.
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
 

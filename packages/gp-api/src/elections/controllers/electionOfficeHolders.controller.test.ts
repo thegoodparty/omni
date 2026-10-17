@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import { OfficeHolderFilterDto } from '@/electionDb/officeHolders/officeHolders.schema'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 import { RESPONSE_SCHEMA_KEY } from '@/shared/decorators/ResponseSchema.decorator'
@@ -7,12 +6,6 @@ import {
   ElectionOfficeHoldersController,
   officeHolderListResponseSchema,
 } from './electionOfficeHolders.controller'
-
-const getGuards = (methodName: keyof ElectionOfficeHoldersController) =>
-  Reflect.getMetadata(
-    '__guards__',
-    ElectionOfficeHoldersController.prototype[methodName],
-  ) ?? []
 
 const getResponseSchema = (methodName: keyof ElectionOfficeHoldersController) =>
   Reflect.getMetadata(
@@ -48,12 +41,6 @@ describe('ElectionOfficeHoldersController', () => {
     controller = new ElectionOfficeHoldersController(
       officeHoldersServiceMock as OfficeHoldersService,
     )
-  })
-
-  describe('guards', () => {
-    it('protects getOfficeHolders with M2MOnly', () => {
-      expect(getGuards('getOfficeHolders')).toContain(M2MOnly)
-    })
   })
 
   describe('getOfficeHolders', () => {

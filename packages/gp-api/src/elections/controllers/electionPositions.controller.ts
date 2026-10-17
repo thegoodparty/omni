@@ -9,7 +9,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import {
   GetPositionByBrIdQueryDTO,
   GetPositionByIdParamsDTO,
@@ -50,7 +51,8 @@ export const positionResponseSchema = z.object({
 export class ElectionPositionsController {
   constructor(private readonly positions: PositionsService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get(':id')
   @ResponseSchema(positionResponseSchema)
   async getPositionById(

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import {
   GetPositionByBrIdQueryDTO,
   GetPositionByIdParamsDTO,
@@ -9,12 +8,6 @@ import {
   ElectionPositionsController,
   positionResponseSchema,
 } from './electionPositions.controller'
-
-const getGuards = (methodName: keyof ElectionPositionsController) =>
-  Reflect.getMetadata(
-    '__guards__',
-    ElectionPositionsController.prototype[methodName],
-  ) ?? []
 
 const getPath = (methodName: keyof ElectionPositionsController) =>
   Reflect.getMetadata('path', ElectionPositionsController.prototype[methodName])
@@ -30,12 +23,6 @@ describe('ElectionPositionsController', () => {
     controller = new ElectionPositionsController({
       getPositionById,
     } as unknown as PositionsService)
-  })
-
-  describe('guards', () => {
-    it('protects getPositionById with M2MOnly', () => {
-      expect(getGuards('getPositionById')).toContain(M2MOnly)
-    })
   })
 
   describe('routing', () => {

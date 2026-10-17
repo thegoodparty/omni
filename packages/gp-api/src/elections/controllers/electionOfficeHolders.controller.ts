@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { OfficeHolderFilterDto } from '@/electionDb/officeHolders/officeHolders.schema'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 import { PositionLevel } from '@/generated/election-prisma'
@@ -81,7 +82,8 @@ export const officeHolderListResponseSchema = z.array(
 export class ElectionOfficeHoldersController {
   constructor(private readonly officeHoldersService: OfficeHoldersService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get()
   @ResponseSchema(officeHolderListResponseSchema)
   async getOfficeHolders(@Query() filterDto: OfficeHolderFilterDto) {

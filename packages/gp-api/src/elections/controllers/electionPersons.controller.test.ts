@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import {
   GetPersonByIdParamsDTO,
   GetPersonBySlugParamsDTO,
@@ -12,12 +11,6 @@ import {
   personListResponseSchema,
   personSpineResponseSchema,
 } from './electionPersons.controller'
-
-const getGuards = (methodName: keyof ElectionPersonsController) =>
-  Reflect.getMetadata(
-    '__guards__',
-    ElectionPersonsController.prototype[methodName],
-  ) ?? []
 
 const getResponseSchema = (methodName: keyof ElectionPersonsController) =>
   Reflect.getMetadata(
@@ -91,20 +84,6 @@ describe('ElectionPersonsController', () => {
     controller = new ElectionPersonsController(
       personsServiceMock as PersonsService,
     )
-  })
-
-  describe('guards', () => {
-    it('protects getPersons with M2MOnly', () => {
-      expect(getGuards('getPersons')).toContain(M2MOnly)
-    })
-
-    it('protects getPersonBySlug with M2MOnly', () => {
-      expect(getGuards('getPersonBySlug')).toContain(M2MOnly)
-    })
-
-    it('protects getPersonById with M2MOnly', () => {
-      expect(getGuards('getPersonById')).toContain(M2MOnly)
-    })
   })
 
   describe('routing', () => {

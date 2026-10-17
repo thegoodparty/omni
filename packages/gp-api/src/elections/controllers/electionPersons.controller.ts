@@ -9,7 +9,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import {
   GetPersonByIdParamsDTO,
   GetPersonBySlugParamsDTO,
@@ -145,7 +146,8 @@ export const personSpineResponseSchema = personScalarsSchema.extend({
 export class ElectionPersonsController {
   constructor(private readonly personsService: PersonsService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get()
   @ResponseSchema(personListResponseSchema)
   async getPersons(@Query() filterDto: PersonFilterDto) {
@@ -153,14 +155,16 @@ export class ElectionPersonsController {
   }
 
   // Declared before :personId so the literal segment isn't captured as an id.
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get('by-slug/:slug')
   @ResponseSchema(personSpineResponseSchema)
   async getPersonBySlug(@Param() params: GetPersonBySlugParamsDTO) {
     return this.personsService.getPersonBySlug(params.slug)
   }
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get(':personId')
   @ResponseSchema(personSpineResponseSchema)
   async getPersonById(@Param() params: GetPersonByIdParamsDTO) {

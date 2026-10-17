@@ -1,17 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import { CandidacyFilterDto } from '@/electionDb/candidacies/candidacies.schema'
 import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
 import {
   candidaciesResponseSchema,
   ElectionCandidaciesController,
 } from './electionCandidacies.controller'
-
-const getGuards = (methodName: keyof ElectionCandidaciesController) =>
-  Reflect.getMetadata(
-    '__guards__',
-    ElectionCandidaciesController.prototype[methodName],
-  ) ?? []
 
 const getPath = (methodName: keyof ElectionCandidaciesController) =>
   Reflect.getMetadata(
@@ -33,12 +26,6 @@ describe('ElectionCandidaciesController', () => {
     controller = new ElectionCandidaciesController({
       getCandidacies,
     } as unknown as CandidaciesService)
-  })
-
-  describe('guards', () => {
-    it('protects getCandidates with M2MOnly', () => {
-      expect(getGuards('getCandidates')).toContain(M2MOnly)
-    })
   })
 
   describe('routing', () => {

@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import {
   MostElectionsDto,
   PlaceFilterDto,
@@ -116,14 +117,16 @@ export const mostElectionsResponseSchema = z.array(
 export class ElectionPlacesController {
   constructor(private readonly placesService: PlacesService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get()
   @ResponseSchema(placesResponseSchema)
   async getPlaces(@Query() filterDto: PlaceFilterDto) {
     return this.placesService.getPlaces(filterDto)
   }
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get('most-elections')
   @ResponseSchema(mostElectionsResponseSchema)
   async getPlacesWithMostElections(

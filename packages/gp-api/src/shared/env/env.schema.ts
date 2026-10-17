@@ -270,6 +270,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MAILGUN_API_KEY: { tier: 'optional' },
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },
   TRACK_MAILGUN_EMAILS: { tier: 'optional', default: 'false' },
+  PCT_DISTRICTZIP_TO_ZIP_THRESHOLD: { tier: 'optional', default: '0.005' },
 
   AI_MODELS: { tier: 'optional' },
   AI_FALLBACK_MODEL: { tier: 'optional' },

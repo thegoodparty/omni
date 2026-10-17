@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { RaceFilterDto } from '@/electionDb/races/races.schema'
 import { RacesService } from '@/electionDb/races/races.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -123,7 +124,8 @@ export const racesResponseSchema = z.array(raceSchema)
 export class ElectionRacesController {
   constructor(private readonly racesService: RacesService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get()
   @ResponseSchema(racesResponseSchema)
   async getRaces(@Query() filterDto: RaceFilterDto) {

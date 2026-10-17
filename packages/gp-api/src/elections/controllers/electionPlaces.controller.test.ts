@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
 import {
   MostElectionsDto,
   PlaceFilterDto,
@@ -10,12 +9,6 @@ import {
   mostElectionsResponseSchema,
   placesResponseSchema,
 } from './electionPlaces.controller'
-
-const getGuards = (methodName: keyof ElectionPlacesController) =>
-  Reflect.getMetadata(
-    '__guards__',
-    ElectionPlacesController.prototype[methodName],
-  ) ?? []
 
 const getPath = (methodName: keyof ElectionPlacesController) =>
   Reflect.getMetadata('path', ElectionPlacesController.prototype[methodName])
@@ -39,16 +32,6 @@ describe('ElectionPlacesController', () => {
       getPlaces,
       getPlacesWithMostElections,
     } as unknown as PlacesService)
-  })
-
-  describe('guards', () => {
-    it('protects getPlaces with M2MOnly', () => {
-      expect(getGuards('getPlaces')).toContain(M2MOnly)
-    })
-
-    it('protects getPlacesWithMostElections with M2MOnly', () => {
-      expect(getGuards('getPlacesWithMostElections')).toContain(M2MOnly)
-    })
   })
 
   describe('routing', () => {

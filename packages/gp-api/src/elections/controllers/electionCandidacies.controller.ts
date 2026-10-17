@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
-import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { CandidacyFilterDto } from '@/electionDb/candidacies/candidacies.schema'
 import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -128,7 +129,8 @@ export const candidaciesResponseSchema = z.array(candidacySchema)
 export class ElectionCandidaciesController {
   constructor(private readonly candidaciesService: CandidaciesService) {}
 
-  @UseGuards(M2MOnly)
+  @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @Get()
   @ResponseSchema(candidaciesResponseSchema)
   async getCandidates(@Query() filterDto: CandidacyFilterDto) {
