@@ -1,3 +1,4 @@
+import { parseElectionYear } from '@/shared/district/parseElectionYear'
 import type { Metadata } from 'next'
 import { getElectedOfficeOrNotFound } from '@/app/dashboard/elected-offices/getElectedOfficeOrNotFound'
 import { getCampaign } from '@/app/dashboard/campaigns/actions'
@@ -31,7 +32,7 @@ export default async function EditElectedOfficeDetailPage({
 
   const state = relatedCampaign?.details?.state ?? ''
   const electionYear = relatedCampaign?.details?.electionDate
-    ? Number(relatedCampaign.details.electionDate.split('-')[0])
+    ? parseElectionYear(relatedCampaign.details.electionDate)
     : 0
 
   return (
