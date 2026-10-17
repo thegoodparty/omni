@@ -33,6 +33,10 @@ import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSch
 // — see PRO_FILTERING_REQUIRED_MESSAGE in contacts.service.ts.
 export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
 
+// A drawn boundary can freeze tens of thousands of member rows inside the
+// transaction; Prisma's 5s default expired mid-write and surfaced as a 503.
+const FILTER_WRITE_TRANSACTION_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
 const ACTIVITY_CONDITIONS_INCLUDE = {
   activityConditions: true,
 } as const satisfies Prisma.VoterFileFilterInclude
@@ -275,7 +279,7 @@ export class VoterFileFilterService extends createPrismaBase(
         await this.sampleMembers.writeMembers(tx, created.id, sampleMemberIds)
       }
       return created
-    })
+    }, FILTER_WRITE_TRANSACTION_OPTIONS)
     if (!rest.proposalKey) return write
     // Two presses of one card can both miss the read above, from two tabs or
     // a reload racing the first press. The loser trips the unique key; the
@@ -440,7 +444,7 @@ export class VoterFileFilterService extends createPrismaBase(
         },
         include: ACTIVITY_CONDITIONS_INCLUDE,
       })
-    })
+    }, FILTER_WRITE_TRANSACTION_OPTIONS)
   }
 
   async deleteByIdAndOrganizationSlug(
