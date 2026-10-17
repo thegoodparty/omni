@@ -83,7 +83,11 @@ Auth state is enforced globally via three guards registered in order. Most route
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated
   subject from `req.user`.
-- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` — no opt-in needed. It logs `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
+- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` or whose `@UseGuards()` names `AdminOrM2MGuard` or `M2MOnly` — no opt-in needed. It writes one `Admin route accessed` log line (that log is the audit store; there is no table) with the endpoint, method, IP, user agent and body, plus `authSource`:
+  - `session`: `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user.
+  - `m2m`: `machineId` is the verified token's Clerk `subject` (the `mch_` machine). `suppliedActorEmail` is the `actorEmail` the caller put in the body or query string (gp-admin names the staff member that way); nothing verifies it, and it is `null` when none was sent.
+
+  It logs before pipes and the handler run, so a request that then fails validation is still recorded. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
 - **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
   phone attribute.** Enabling the real attribute would force SMS
