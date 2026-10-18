@@ -21,7 +21,7 @@ dependencies = [
     "requests",
     "rouge-score>=0.1.2",
     "seaborn>=0.13.0",
-    "sentence-transformers>=3.0.0",
+    "sentence-transformers>=6.1.0",
 ]
 
 [dependency-groups]
