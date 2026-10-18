@@ -88,7 +88,7 @@ cannot import both. So a sweep is three invocations:
 | ---- | ----------------------------------------------------------------------------- | ------------------------------ |
 | 1    | `JUDGE_ARM=base npx vitest run src/chats/evals/judge/sweep.eval.test.ts`      | the **base** worktree          |
 | 2    | `JUDGE_ARM=candidate npx vitest run src/chats/evals/judge/sweep.eval.test.ts` | the **candidate** worktree     |
-| 3    | `npx tsx src/chats/evals/judge/sweep.ts`                                      | either — it only reads records |
+| 3    | `npx tsx src/chats/evals/judge/sweep.ts`                                      | the **candidate** worktree     |
 
 Steps 1 and 2 must be vitest: `useTestService()` registers
 `beforeAll`/`beforeEach`/`afterAll` to stand up the Postgres container and the
@@ -98,6 +98,22 @@ vitest file cannot be invoked from a workflow step cleanly.
 
 `.github/workflows/judge.yml` drives all three. The arms meet in the record
 store and nowhere else.
+
+**Step 3 is not checkout-neutral**, which is easy to assume because it reads
+the records rather than driving an agent. It also reads the checkout it runs
+in: the agent registry, each agent's case list (`CASES_DIR` resolves from the
+module's own directory, and a case's `condition`, `handledWhen`, dimensions
+and `scored` flag all come from there) and the background agent's
+output-contract manifest (`CANDIDATE_ROOT`, resolved the same way). Two of
+those reads exist to compare the candidate's copy against the base ref's:
+`readBaseControls` and `readOutputContracts`. So it runs in the **candidate**
+worktree, with `JUDGE_BASE_DIR` pointing at the other one. Grade from any
+third checkout and both comparisons compare a tree with itself: a branch that
+changes a manifest's required fields is judged against the old contract with
+no disclosure line, and a branch that edits a case's condition is judged
+without it and the report says nothing. See the note above the sweep job's
+`steps:` in `judge.yml` for why the hardening that would want a third
+checkout does not pay for itself here.
 
 **Configuration comes from the environment, not argv**, because a test file has
 no argv. Every value is Zod-validated up front and a missing one is a sentence

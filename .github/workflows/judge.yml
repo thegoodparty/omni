@@ -1460,6 +1460,72 @@ jobs:
       # the run's own URL. `run_attempt` is in it because a re-run is a
       # different sweep that must not read the first one's records.
       SWEEP_ID: judge-${{ github.run_id }}-${{ github.run_attempt }}
+    # WHY THE JUDGE MACHINERY RUNS THE BRANCH'S OWN CODE, which reads as an
+    # oversight and is not. This job holds the Anthropic key, the Databricks
+    # credentials and the role's session credentials, and it runs the
+    # candidate checkout in six steps. Three of those are pure judge
+    # machinery that needs nothing from the branch to do its job: the schema
+    # preflight, the mart resolver and the judging step. Moving them to a
+    # checkout of `main` so that only merged code ever holds a key is the
+    # obvious idea, it has been worked through, and it does not hold up. The
+    # reasons are here rather than left to be rediscovered.
+    #
+    # THE ARMS CANNOT MOVE, BY CONSTRUCTION, AND THAT SETTLES THE REST.
+    # "Capture the candidate arm" IS the branch's code: running it is the
+    # question the sweep exists to answer. It is handed the real Anthropic
+    # key (under JUDGE_ANTHROPIC_API_KEY), DATABRICKS_CLIENT_ID and
+    # DATABRICKS_CLIENT_SECRET, and `.env.test` stubs neither Databricks name,
+    # so the real values reach branch code there whatever the other steps do.
+    # The role's credentials are worse than per-step: configure-aws-credentials
+    # exports them into the JOB environment, so every step after it holds them
+    # whether its own `env:` names them or not. Every secret the three
+    # machinery steps carry is therefore already carried by a step that cannot
+    # be moved, so moving them would cut the number of invocations and not the
+    # exposure. judgeWorkflow.test.ts pins that equality, so a later change
+    # cannot claim a boundary it does not create.
+    #
+    # THE JUDGING STEP IS NOT CHECKOUT-NEUTRAL. `sweep.ts` reads three things
+    # from the checkout it runs in, not only the stored records: the agent
+    # registry, each agent's case list (`CASES_DIR` resolves from the module's
+    # own directory, and a case's condition, handling sentence, dimensions and
+    # `scored` flag all come from there) and the output-contract manifest
+    # (`CANDIDATE_ROOT`, resolved the same way). Two of those exist precisely
+    # to compare the candidate's copy against the base ref's: `readBaseControls`
+    # and `readOutputContracts`. Run from `main`, on a PR whose base IS `main`,
+    # both comparisons compare a tree with itself and can only ever agree. A
+    # branch that changes a manifest's required fields would be judged against
+    # the old contract with no "produced under different output contracts"
+    # line, and a branch that edits a case's condition would be judged without
+    # it and nothing in the report would say so. It would also put `main`'s
+    # record parser in front of records the branch wrote, which is a
+    # forward-compatibility requirement nothing in the judge has today.
+    #
+    # THE PREFLIGHT HAS TO BE THE BRANCH'S COPY. Its contract is that the
+    # schema the judging step is about to send is one the API accepts, and the
+    # judging step sends the branch's. From `main` it would validate a schema
+    # this sweep never sends, and it would duplicate judge-schema-check.yml,
+    # which already makes the same call on `main` after every judge change. A
+    # branch that changes the verdict schema is the one case #2534 is about and
+    # the one case a main-side preflight would stop covering.
+    #
+    # THE MART RESOLVER COULD MOVE, AND IT IS NOT WORTH THE MOVE. The base
+    # worktree below is a full install of `origin/<base ref>`, which for a PR
+    # that targets `main` is a reviewed checkout of `main`, so running the
+    # resolver there would cost no extra wall clock. It would buy nothing: the
+    # candidate arm a few steps later holds the same two Databricks secrets. It
+    # would cost the early annotation, which is the whole reason this step sits
+    # before the base install, plus a second code path for a base ref that is
+    # not `main`.
+    #
+    # WHAT WOULD ACTUALLY HELP IS A JOB BOUNDARY, not a second checkout inside
+    # this one. There is no boundary within a job: `setup-node-workspace` runs
+    # `npm ci` from the branch's own lockfile, with its own lifecycle scripts,
+    # as the same user, before any of these steps. A grading job of its own
+    # that never checks out or installs the candidate would be a real boundary
+    # and is reachable, because the records are already in S3 under SWEEP_ID.
+    # It needs the case lists and the manifests handed to it as DATA from a
+    # checkout that is never installed, which is a change to `sweep.ts` rather
+    # than to this file.
     steps:
       # First, before the checkout and the workspace build. Without it the
       # missing key surfaces minutes in, several frames deep inside the SDK, on
@@ -1552,7 +1618,10 @@ jobs:
       #
       # Before the base worktree and its second `npm ci`, so an unresolvable
       # mart is annotated in the first two minutes of the job rather than
-      # twenty in.
+      # twenty in. That position is also why it is not run from the base
+      # worktree, which on a PR targeting `main` is a reviewed checkout of
+      # `main` that is already installed: see the note above `steps:` for why
+      # the move would buy nothing anyway.
       #
       # IT DOES NOT FAIL THE SWEEP. Most agents never touch the mart, so
       # killing a live sweep over an unpinnable table would be the wrong
@@ -1637,6 +1706,12 @@ jobs:
       # Run from the checkout the judging step uses, with the key the judging
       # step already holds, so it adds no new place a key can be read from. A
       # branch that predates the check has no entry to run and skips it.
+      #
+      # THE BRANCH'S COPY, NOT MAIN'S, and that is the point rather than an
+      # accident: the schema it asks about has to be the one the judging step
+      # is about to send. judge-schema-check.yml is the main-side counterpart
+      # and makes the same call on every push that touches the judge. The note
+      # above `steps:` has the rest of the reasoning.
       - name: Check the model API accepts the judge's schema
         working-directory: ${{ env.WORKSPACE }}
         env:
@@ -2029,6 +2104,12 @@ jobs:
       # which is the failure a vitest suite produces by self-skipping every
       # test: that PASSES, and without the manifest check this job would go
       # green having judged nothing.
+      #
+      # IT READS THIS CHECKOUT, NOT ONLY THE RECORDS, which is what ties it to
+      # the candidate: the agent registry, every case's condition, handling
+      # sentence, dimensions and `scored` flag, and the output-contract
+      # manifest it compares against JUDGE_BASE_DIR's. The note above `steps:`
+      # spells out what moving it to `main` would silently change.
       - name: Judge both arms
         id: judging
         # RUNS EVEN WHEN AN ARM CAPTURE FAILED, because by the time it did the

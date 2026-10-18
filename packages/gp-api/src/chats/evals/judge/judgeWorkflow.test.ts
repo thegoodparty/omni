@@ -77,6 +77,12 @@ const envValue = (body: string, name: string): string | null =>
     envBlockOf(body),
   )?.[1] ?? null
 
+// WHOSE CODE A STEP RUNS, which is a different question from which secrets
+// it holds and is answered by one line. Null when the step sets none, which
+// on this workflow means the repository root rather than a workspace.
+const workingDirOf = (body: string): string | null =>
+  /^ {8}working-directory: (.*)$/m.exec(body)?.[1] ?? null
+
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
 
@@ -2014,6 +2020,20 @@ describe('judge.yml checks the judge schema before spending', () => {
     )
   })
 
+  // THE SAME CHECKOUT AS THE JUDGING STEP, because the schema the preflight
+  // clears has to be the schema the judging step then sends. Point the
+  // preflight at a checkout of `main` and it clears a schema this sweep never
+  // sends, which is the one failure (#2534) it exists to catch, on exactly
+  // the branches that change the verdict schema. judge-schema-check.yml is
+  // where the main-side call already lives.
+  it('runs in the same checkout as the judging step', () => {
+    const judging = steps.find((step) => step.name === 'Judge both arms')
+    expect(workingDirOf(preflight?.body ?? '')).toBe('${{ env.WORKSPACE }}')
+    expect(workingDirOf(judging?.body ?? '')).toBe(
+      workingDirOf(preflight?.body ?? ''),
+    )
+  })
+
   it('points at an entry that exists', () => {
     const entry = /^ {2}PREFLIGHT_ENTRY: (.+)$/m.exec(yaml)?.[1]
     expect(entry).toBe('src/chats/evals/judge/schemaPreflight.ts')
@@ -2037,6 +2057,79 @@ describe('judge.yml checks the judge schema before spending', () => {
       },
     )
     expect(stdout).toContain('predates the schema preflight')
+  })
+})
+
+// MOVING A JUDGE MACHINERY STEP TO A CHECKOUT OF `main` CLOSES NOTHING, and
+// this is what holds that true rather than leaving it to be re-reasoned. The
+// schema preflight, the mart resolver and the judging step are pure judge
+// machinery, they carry real secrets, and they run the branch's own code, so
+// the obvious hardening is to run them from `main` instead. It would not move
+// the exposure: `Capture the candidate arm` IS the branch's code, by
+// construction, and it is handed every one of the same secrets. A change that
+// moves a machinery step is free to land, but it cannot be read as closing a
+// hole while the arm still holds the key, and this fails if it ever is.
+// judge.yml's note above the sweep job's `steps:` carries the full argument.
+describe('judge.yml gains nothing by moving machinery to main', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const MACHINERY = [
+    "Check the model API accepts the judge's schema",
+    "Resolve the voter mart's Delta version",
+    'Judge both arms',
+  ]
+  const CANDIDATE_ARM = 'Capture the candidate arm'
+
+  const stepNamed = (name: string): Step => {
+    const step = steps.find((one) => one.name === name)
+    if (step === undefined) {
+      throw new Error(`judge.yml has no step named "${name}"`)
+    }
+    return step
+  }
+
+  // Entries only, never the prose around them. This file's `env:` blocks
+  // carry comments at the entry indent, and a sentence that names a secret
+  // is not a step that holds one. Same trap `setsEnv` above is anchored
+  // against.
+  const secretsOf = (body: string): Set<string> =>
+    new Set(
+      [
+        ...envBlockOf(body).matchAll(
+          /^ {10}\w+: \$\{\{ secrets\.(\w+) \}\}$/gm,
+        ),
+      ].flatMap((match) => (match[1] === undefined ? [] : [match[1]])),
+    )
+
+  it.each(MACHINERY)('%s holds no secret the arm does not', (name) => {
+    const held = secretsOf(stepNamed(name).body)
+    // Guards the scan: a step that reads as holding nothing would make the
+    // containment below vacuously true.
+    expect(held.size).toBeGreaterThan(0)
+    const arm = secretsOf(stepNamed(CANDIDATE_ARM).body)
+    for (const secret of held) expect([...arm]).toContain(secret)
+  })
+
+  // The arm runs the candidate workspace, which is the question the sweep
+  // exists to answer and therefore the one step that can never move.
+  it('captures the candidate arm from the candidate checkout', () => {
+    expect(workingDirOf(stepNamed(CANDIDATE_ARM).body)).toBe(
+      '${{ env.WORKSPACE }}',
+    )
+  })
+
+  // AND THE JUDGING STEP READS THAT CHECKOUT TOO, not only the records.
+  // `sweep.ts` resolves the agent registry, every case's condition, handling
+  // sentence, dimensions and `scored` flag, and the output-contract manifest
+  // from its own module location, and two of those reads exist to compare the
+  // candidate's copy with JUDGE_BASE_DIR's. Graded from `main` on a PR based
+  // on `main`, both comparisons compare a tree with itself.
+  it('judges from the candidate checkout, base worktree beside it', () => {
+    const judging = stepNamed('Judge both arms')
+    expect(workingDirOf(judging.body)).toBe('${{ env.WORKSPACE }}')
+    expect(envValue(judging.body, 'JUDGE_BASE_DIR')).toBe(
+      '${{ steps.base.outputs.dir }}',
+    )
   })
 })
 
