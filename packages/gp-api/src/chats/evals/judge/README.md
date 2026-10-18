@@ -373,15 +373,33 @@ one this case seeded, so `accountState.district` works on briefing chat the
 way it does on the other Serve scopes.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
-every run this harness makes, but **that is now a deployment gap rather than a
-seeding one.** The one gate that lived in our own database — a missing
-`organization.positionId`, which `resolveByOrgSlug` refuses on before it asks
-anything else — is seeded. The two that remain are not rows anyone could seed:
-the position itself lives in election-api, read over HTTP, and the provider
-factory returns null without a Databricks credential. Both are absent locally
-and in CI, so the pair registers the moment a credentialed deployment drives
-this same seed, which `runners/seedChatOrg.tools.integration.test.ts` proves
-against the real handler and the real resolver.
+every run this harness makes, and **the district gate is the reason, on both
+of its halves.** The half that lives in our own database is seeded:
+`runners/seedChatOrg.ts` sets `organization.positionId`, which
+`resolveByOrgSlug` refuses on before it asks anything else. The other half is
+not a row anyone could seed, and it is where the sweep stops. The id seeded is
+synthetic, `JUDGE_POSITION_ID = 'judge-position-1'`, and the position it names
+exists only as the `JUDGE_POSITION` constant beside it. Exactly two files
+install that constant, both integration tests, and each does it by re-spying
+`ElectionsService.getPositionById`:
+`runners/seedChatOrg.tools.integration.test.ts` and
+`runners/chat.integration.test.ts`. `sweep.eval.test.ts`, the arm that
+actually drives judged turns, installs nothing, so it inherits the default
+`src/test-service.ts` pins deliberately, `getPositionById` resolving to null
+because the ids these suites invent do not exist upstream. So
+`resolveByOrgSlug` returns null on a real sweep, `districtFilters` is null,
+and the pair registers on no scope whatever credentials the process holds. The
+Databricks credential is a second gate behind this one, not the binding one.
+
+**A credentialed deployment does not fix that, it fails harder.** No
+election-api has a `judge-position-1`, and
+`src/elections/services/elections.service.ts` rethrows a 404 as
+`NotFoundException` rather than returning null, so the lookup propagates out of
+`loadContext` and fails the whole turn rather than quietly dropping two tools
+from the list. What would register the pair is seeding a position id the target
+election-api really resolves, with the Databricks credential alongside it.
+Until then the two integration tests prove the handler and the resolver wire up
+correctly when a position is supplied, not that any environment supplies one.
 
 A question that needs state nobody seeded produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
@@ -590,11 +608,13 @@ open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
 `district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and the provider factory returns null without a
-Databricks credential — so the pair is unregistered locally and in CI whatever
-`positionId` says, and the digest is identical either way. The same deployment
-gap the case-list notes already record. What is ours is the row, and the runner
-asserts it.
+constituent-data pair, and no run this harness makes resolves a district to
+gate on: the seeded `positionId` is the synthetic `judge-position-1`, the
+sweep arm stubs no election-api reply for it, and `resolveByOrgSlug` therefore
+returns null. So the pair is unregistered whatever `positionId` says, and the
+digest is identical either way. The Databricks credential the provider factory
+returns null without is a second gate behind that one, never reached. What is
+ours is the row, and the runner asserts it.
 
 **Every refusal happens before a turn is driven.** A chat turn costs real
 money, so: the schema refuses an undefined state or an unimplemented failure
