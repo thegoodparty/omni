@@ -179,12 +179,12 @@ describe('the constituent-data tools a seeded Serve scope registers', () => {
       const ctx = await handler.loadContext(conversationId, service.user.id)
       // The gate itself, so a failure says which half broke: the resolver
       // produced server-bound filters, and they are the district the seeded
-      // id names rather than some other org's. Both halves read WA — a state
+      // id names rather than some other org's. Both halves read WY — a state
       // and a district from two different sources would bind a scope that
       // matches nothing.
       expect(ctx.districtFilters).toEqual([
-        { column: 'state_postal_code', value: 'WA' },
-        { column: 'City Council', value: 'Judge City Council District 1' },
+        { column: 'state_postal_code', value: 'WY' },
+        { column: 'City_Ward', value: 'CHEYENNE CITY WARD 1' },
       ])
       return handler.buildTools(ctx)
     })
@@ -229,8 +229,8 @@ describe('the constituent-data tools a seeded Serve scope registers', () => {
     const tools = await withConstituentDeps(handler, async () => {
       const ctx = await handler.loadContext(conversationId, service.user.id)
       expect(ctx.districtFilters).toEqual([
-        { column: 'state_postal_code', value: 'WA' },
-        { column: 'City Council', value: 'Judge City Council District 1' },
+        { column: 'state_postal_code', value: 'WY' },
+        { column: 'City_Ward', value: 'CHEYENNE CITY WARD 1' },
       ])
       return handler.buildTools(ctx)
     })

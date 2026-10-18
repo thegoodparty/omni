@@ -393,29 +393,37 @@ every run this harness makes, and **the district gate is the reason, on both
 of its halves.** The half that lives in our own database is seeded:
 `runners/seedChatOrg.ts` sets `organization.positionId`, which
 `resolveByOrgSlug` refuses on before it asks anything else. The other half is
-not a row anyone could seed, and it is where the sweep stops. The id seeded is
-synthetic, `JUDGE_POSITION_ID = 'judge-position-1'`, and the position it names
-exists only as the `JUDGE_POSITION` constant beside it. Exactly two files
-install that constant, both integration tests, and each does it by re-spying
-`ElectionsService.getPositionById`:
+an election-api lookup, and the id seeded is now one a real election-api
+answers: `JUDGE_POSITION_ID` is Cheyenne City Council Ward 1's internal
+position id, the same office `JUDGE_FIXTURE_RACE`, `src/testFixtures`'
+`DEFAULT_RACE` and the gp-webapp e2e serve helpers all name. `JUDGE_POSITION`
+beside it is that deployed reply copied field for field, so a stub and a live
+lookup agree. It is the INTERNAL id rather than the BallotReady one because
+`DistrictResolverService` hands `organization.positionId` straight to
+`getPositionById`, whose election-api route parses the param as `z.guid()`,
+and because that is what production persists.
+
+**What still stops the sweep arm is the stub, not the id.** Exactly two files
+install `JUDGE_POSITION`, both integration tests, and each does it by
+re-spying `ElectionsService.getPositionById`:
 `runners/seedChatOrg.tools.integration.test.ts` and
 `runners/chat.integration.test.ts`. `sweep.eval.test.ts`, the arm that
-actually drives judged turns, installs nothing, so it inherits the default
-`src/test-service.ts` pins deliberately, `getPositionById` resolving to null
-because the ids these suites invent do not exist upstream. So
-`resolveByOrgSlug` returns null on a real sweep, `districtFilters` is null,
-and the pair registers on no scope whatever credentials the process holds. The
-Databricks credential is a second gate behind this one, not the binding one.
+actually drives judged turns, installs nothing, and `useTestService()` pins
+`getPositionById` to null unconditionally for every suite it boots, including
+one running inside a credentialed deployment. So `resolveByOrgSlug` returns
+null on a real sweep, `districtFilters` is null, and the pair registers on no
+scope whatever credentials the process holds. The Databricks credential is a
+third gate behind that, not the binding one.
 
-**A credentialed deployment does not fix that, it fails harder.** No
-election-api has a `judge-position-1`, and
+What the real id buys is that a credentialed run no longer fails HARDER than
+an uncredentialed one. A synthetic id 404s, and
 `src/elections/services/elections.service.ts` rethrows a 404 as
-`NotFoundException` rather than returning null, so the lookup propagates out of
-`loadContext` and fails the whole turn rather than quietly dropping two tools
-from the list. What would register the pair is seeding a position id the target
-election-api really resolves, with the Databricks credential alongside it.
-Until then the two integration tests prove the handler and the resolver wire up
-correctly when a position is supplied, not that any environment supplies one.
+`NotFoundException`, so the lookup propagated out of `loadContext` and failed
+the whole turn rather than quietly dropping two tools. What would register the
+pair now is letting the sweep arm's `getPositionById` reach election-api, with
+the Databricks credential alongside it. Until then the two integration tests
+prove the handler and the resolver wire up correctly when a position is
+supplied, not that any environment supplies one.
 
 A question that needs state nobody seeded produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
@@ -625,8 +633,8 @@ can produce, and the verdict would be about an agent we do not ship.
 
 `district` is the one whose effect cannot be measured here. It gates only the
 constituent-data pair, and no run this harness makes resolves a district to
-gate on: the seeded `positionId` is the synthetic `judge-position-1`, the
-sweep arm stubs no election-api reply for it, and `resolveByOrgSlug` therefore
+gate on: the seeded `positionId` is real, but `useTestService()` pins
+`getPositionById` to null for the sweep arm, and `resolveByOrgSlug` therefore
 returns null. So the pair is unregistered whatever `positionId` says, and the
 digest is identical either way. The Databricks credential the provider factory
 returns null without is a second gate behind that one, never reached. What is
