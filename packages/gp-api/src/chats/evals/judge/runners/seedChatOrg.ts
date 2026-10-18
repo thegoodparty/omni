@@ -267,6 +267,11 @@ const CHAT_AGENT_SCOPES: Record<string, ChatScope> = {
   briefing_annotation: ChatScope.briefing_annotation,
 }
 
+// The same registry as a list, so a caller that reaches this seeder over HTTP
+// is refused by a request schema rather than by chatScopeFor's throw — which
+// would otherwise leave a mistyped agent id as a 500.
+export const CHAT_AGENT_IDS: readonly string[] = Object.keys(CHAT_AGENT_SCOPES)
+
 export const chatScopeFor = (agentId: string): ChatScope => {
   const scope = CHAT_AGENT_SCOPES[agentId]
   if (!scope) {
@@ -293,18 +298,37 @@ const slugify = (value: string): string => {
   return `${readable}-${digest}`
 }
 
+// THE ONE HANDLE that tells a judge fixture organization from a real one.
+// Every slug this file mints carries it, and removeChatOrgFixture will not
+// look at a row without it — so it is a deletion boundary rather than a
+// naming convention, and it is a constant rather than a literal spelled out
+// at each of the three places that depend on it.
+export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
+
 // Derived, not randomised, and a pure function of its two arguments so that
 // attempt i of both arms seeds the same slug. A slug that differed between
 // arms would reach the system prompt and make every configDigest differ,
 // permanently disarming the orchestrator's identical-config refusal.
 export const chatOrgSlug = (agentId: string, slugKey: string): string =>
-  `judge-${slugify(`${agentId}-${slugKey}`)}`
+  `${JUDGE_ORG_SLUG_PREFIX}${slugify(`${agentId}-${slugKey}`)}`
 
 const snapshotFor = (title: string) => ({
   title,
   summary: `Judge fixture for ${title}.`,
 })
 
+// THE IN-PROCESS SEAM, and the only thing on it is the guard. A vitest arm
+// drives the app in its own process against a throwaway database, so it goes
+// on seeding behind assertTestProcess exactly as it did.
+//
+// The rows themselves moved one function down so a DEPLOYED non-prod arm can
+// write the same ones over HTTP, where this process check cannot hold: a
+// preview runs the PR's image with NODE_ENV=production and no VITEST, and the
+// arm has no Prisma client of its own to reach its database with. The gates
+// that replace it there are the endpoint's, not this one's — see
+// src/testFixtures/testFixturesJudge.controller.ts — and keeping them apart
+// is the point: neither path can borrow the other's permission.
+//
 // `slugKey` is the caller's case id: unique per case within one run, and the
 // same on both arms.
 export const seedChatOrg = async (
@@ -318,6 +342,19 @@ export const seedChatOrg = async (
   // deletes (see seedBriefing). A judge-prefixed organization owned by a real
   // user is not something to create outside a throwaway database.
   assertTestProcess('seedChatOrg')
+  return seedChatOrgRows(prisma, userId, agentId, slugKey, options)
+}
+
+// The rows a case needs, and nothing about who may ask for them. Unchanged
+// from what seedChatOrg wrote before the split, which is what keeps the
+// in-process arm seeding byte-identical state.
+export const seedChatOrgRows = async (
+  prisma: PrismaClient,
+  userId: number,
+  agentId: string,
+  slugKey: string,
+  options: SeedChatOrgOptions = {},
+): Promise<SeededChatOrg> => {
   const scope = chatScopeFor(agentId)
   const organizationSlug = chatOrgSlug(agentId, slugKey)
   // Omitted rather than nulled when a case asked for no district: a missing
@@ -485,7 +522,10 @@ const seedBriefing = async (
   await prisma.meetingBriefing.deleteMany({
     where: {
       meetingDate,
-      electedOffice: { userId, organizationSlug: { startsWith: 'judge-' } },
+      electedOffice: {
+        userId,
+        organizationSlug: { startsWith: JUDGE_ORG_SLUG_PREFIX },
+      },
     },
   })
   // MeetingBriefing requires the run that produced it.
@@ -527,3 +567,87 @@ const seedBriefing = async (
       : TOP_LEVEL_ANCHOR,
   }
 }
+
+// A remote preview database is several round trips away and this is a dozen
+// of them, which is close enough to Prisma's 5s default to lose a teardown to
+// it on a slow link.
+const TEARDOWN_TRANSACTION_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
+
+// REMOVES A CASE'S FIXTURE, AND CANNOT BE AIMED AT ANYTHING ELSE. There is no
+// argument that reaches a real organization: the slug is matched on the judge
+// prefix AND on the caller's own user id in the same where clause, so a slug
+// without the prefix matches nothing, and a judge slug owned by somebody else
+// matches nothing either. Narrowing happens in the query rather than in a
+// check above it, because a check can be skipped by the next caller and a
+// where clause cannot.
+//
+// Returns whether a fixture was there to remove, so a sweep may call it twice
+// — on a retry, or after a teardown that already ran — without an error that
+// says nothing went wrong.
+export const removeChatOrgFixture = (
+  prisma: PrismaClient,
+  userId: number,
+  organizationSlug: string,
+): Promise<boolean> =>
+  prisma.$transaction(async (tx) => {
+    const organization = await tx.organization.findFirst({
+      where: {
+        slug: {
+          equals: organizationSlug,
+          startsWith: JUDGE_ORG_SLUG_PREFIX,
+        },
+        ownerId: userId,
+      },
+      select: { slug: true },
+    })
+    if (organization === null) return false
+
+    const office = await tx.electedOffice.findUnique({
+      where: { organizationSlug },
+      select: { id: true },
+    })
+    if (office !== null) {
+      const briefings = await tx.meetingBriefing.findMany({
+        where: { electedOfficeId: office.id },
+        select: { id: true },
+      })
+      // An annotation names its briefing in a plain string column rather than
+      // a foreign key, so nothing cascades it, and the note is a row the
+      // annotation points AT rather than one that hangs off it — so the note
+      // outlives the annotation unless it goes too.
+      const annotations = await tx.annotation.findMany({
+        where: {
+          authorUserId: userId,
+          resourceType: AnnotationResourceType.briefing,
+          resourceId: { in: briefings.map(({ id }) => id) },
+        },
+        select: { id: true, noteId: true },
+      })
+      await tx.annotation.deleteMany({
+        where: { id: { in: annotations.map(({ id }) => id) } },
+      })
+      await tx.annotationNote.deleteMany({
+        where: {
+          id: { in: annotations.flatMap(({ noteId }) => noteId ?? []) },
+        },
+      })
+      // MeetingBriefing RESTRICTS the delete of its ExperimentRun, and
+      // deleting the organization cascades into both tables in an order
+      // Postgres does not fix. Removing the briefings up here is what keeps
+      // the cascade below off that restriction.
+      await tx.meetingBriefing.deleteMany({
+        where: { electedOfficeId: office.id },
+      })
+    }
+
+    // No foreign key ties a conversation to its organization, so the rows a
+    // driven turn wrote would outlive the fixture they were about.
+    await tx.chatConversation.deleteMany({
+      where: { ownerUserId: userId, organizationSlug },
+    })
+    // Everything left goes with the organization: the campaign, the elected
+    // office and through it the ordinance, the priority and nothing else, the
+    // ordinance code record, and the experiment run.
+    await tx.organization.delete({ where: { slug: organizationSlug } })
+    return true
+  }, TEARDOWN_TRANSACTION_OPTIONS)

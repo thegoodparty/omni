@@ -5,11 +5,13 @@ any script that needs a dev user in a known product state.
 
 ## Endpoints (all 404 outside dev/preview)
 
-Two auth tiers. Most routes live in `TestFixturesController` and require
+Three auth tiers. Most routes live in `TestFixturesController` and require
 `AdminOrM2MGuard`. The vendor-mock routes live in
 `TestFixturesVendorMocksController` and require only a normal signed-in session
 plus campaign ownership — so Playwright E2E specs can call them using the test
-user's own token without admin credentials.
+user's own token without admin credentials. The judge chat-case routes live in
+`TestFixturesJudgeController` and require only a normal signed-in session,
+scoping every row to the caller (see below).
 
 | Route                                                 | Auth                  | Purpose                                                                                            |
 | ----------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
@@ -20,6 +22,8 @@ user's own token without admin credentials.
 | `POST /v1/test-fixtures/vendor-mocks/actions`         | session + ownership   | Apply a mock action (e.g. `geoapify.route.fail`) to vendor mock records for a campaign             |
 | `GET /v1/test-fixtures/vendor-mocks/records`          | session + ownership   | List `VendorMockRecord` rows for a campaign (query: `?campaignId=N`)                               |
 | `POST /v1/test-fixtures/jobs/:name/run`               | `AdminOrM2MGuard`     | Run a named background job on demand — allowlist is empty in M1, extended by later milestones      |
+| `POST /v1/test-fixtures/judge-chat-cases`             | session               | Stage one Universal Judge chat case for the caller (see below)                                     |
+| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`     | session               | Remove one, and only one the caller owns under a `judge-` slug                                     |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a
@@ -64,6 +68,32 @@ seed on the new org (not with `free-win`, which has nothing to show). A
 seeded `serve` fixture is bound to the default race's seat instead of the
 custom position, because the custom position has no district to sample.
 Locally, `npm run seed:activity` drives both (`docs/development.md`).
+
+## Judge chat cases
+
+`TestFixturesJudgeController` + `JudgeChatFixtureService` stage the Universal
+Judge's chat fixture for an arm that drives a **deployed PR preview over
+HTTP** and so has no Prisma client of its own. They decide nothing about the
+fixture: `seedChatOrgRows` in
+`src/chats/evals/judge/runners/seedChatOrg.ts` is the same function the
+in-process vitest arm calls, so both arms seed the same rows.
+
+`POST` takes `{ agentId, slugKey, accountState? }` and answers the
+`SeededChatOrg` the in-process arm gets. The **slug is derived**
+(`chatOrgSlug`), never passed, which is what keeps attempt i of both arms on
+one organization and keeps a caller from naming one. Setup is idempotent by
+tearing the same slug down first — the seeder creates rather than upserts, and
+the in-process arm wants that collision.
+
+`DELETE` is scoped twice over: the request schema refuses a slug without the
+`judge-` prefix, and the delete itself matches on that prefix **and** the
+caller's own `ownerId` in one where clause. There is no request that reaches
+a real organization. It answers `{ organizationSlug, removed }` rather than
+404ing, so a retried teardown and somebody else's judge slug look the same.
+
+Teardown that never runs (a cancelled sweep) leaves rows that
+`organization.slug startsWith 'judge-'` finds — the handle is on the row
+itself, so nothing extra is needed to sweep them.
 
 ## Gotchas
 
