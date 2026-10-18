@@ -50,10 +50,10 @@ refused, with the reason.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
-judge sweep, x1.5 and rounded up: about $9 for `chief_of_staff`, and $3 to $12
+judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $3 to $12
 for a measured background agent at the default 3 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
-turn ($37.50 for 8 cases at 3 attempts), $8 a background run ($48 at 3 cases).
+turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($48 at 3 cases).
 Each agent is priced at the highest of the PR's, the base ref's and the default
 branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
@@ -909,6 +909,14 @@ each one.
   control is, because one read is the whole evidence for it. That adds one
   judge call per such case, and its swapped pair counts toward position
   consistency like any other scored pair.
+
+All five chat lists carry a `control` as their last case: a plain, central
+request for that scope with nothing planted on it, answerable against what
+`runners/seedChatOrg.ts` seeds. A difference the judge reports on it is the
+judge's own noise, and every other verdict in that agent's section is read
+against it. A chat list has no case cap, so none of them needs
+`JUDGE_BACKGROUND_EXTRA_CASES`; the both-refs rule still applies, so each one
+takes effect from the sweep after the PR that adds it merges.
 
 ## The judge sees each background agent's output contract
 

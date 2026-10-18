@@ -1654,17 +1654,17 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([900, 900, 4900])
+    expect(cents).toEqual([1000, 900, 4900])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=67\.00$/m)
+    expect(result.outputs).toMatch(/^usd=68\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
     const row = (id: string, shape: string, price: string) =>
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1000)))
     expect(result.comment).toMatch(
       row('race_opponent_summary', 'background', dollars(900)),
     )
@@ -1812,7 +1812,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
-    expect(worst('ordinance_flow')).toBe(3750)
+    expect(worst('ordinance_flow')).toBe(4250)
     expect(worst('self_research')).toBe(4900)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
@@ -1823,15 +1823,15 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=124\.00$/m)
+    expect(result.outputs).toMatch(/^usd=134\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
     const label = '\\(old branch, worst case\\)'
     const row = (id: string, price: string) =>
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
-    expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
+    expect(result.comment).toMatch(row('chief_of_staff', '42\\.50'))
+    expect(result.comment).toMatch(row('ordinance_flow', '42\\.50'))
     expect(result.comment).toMatch(row('self_research', '49\\.00'))
   })
 })
