@@ -5,8 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { User } from '@/generated/prisma'
-import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
+import { JUDGE_FIXTURE_EMAIL } from '../judgeTelemetry.util'
 
 // Judge-only, non-prod-only access to the turn telemetry read.
 //
@@ -30,7 +30,7 @@ export class JudgeTelemetryAccessGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<{ user?: User }>()
-    if (request.user?.email !== JUDGE_FIXTURE.email) {
+    if (request.user?.email !== JUDGE_FIXTURE_EMAIL) {
       throw new NotFoundException()
     }
     return true

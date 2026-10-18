@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JUDGE_ORG_SLUG_PREFIX as RUNNER_PREFIX } from '@/chats/evals/judge/runners/background'
+import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
 import { chatOrgSlug } from '@/chats/evals/judge/runners/seedChatOrg'
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 
@@ -26,6 +27,7 @@ import {
   judgeToolNames,
   judgeToolQueries,
   judgeToolSteps,
+  JUDGE_FIXTURE_EMAIL,
   JUDGE_ORG_SLUG_PREFIX,
   PROMPT_HASH_VERSION,
 } from './judgeTelemetry.util'
@@ -40,6 +42,17 @@ describe('JUDGE_ORG_SLUG_PREFIX', () => {
   // would stop being recognised silently, so fail here instead.
   it('matches the prefix the sweep runner dispatches on', () => {
     expect(JUDGE_ORG_SLUG_PREFIX).toBe(RUNNER_PREFIX)
+  })
+})
+
+describe('JUDGE_FIXTURE_EMAIL', () => {
+  // Copied rather than imported because the guard that reads it ships in the
+  // production build and `src/chats/evals/**` does not, so importing the
+  // harness there resolves in vitest and then throws MODULE_NOT_FOUND in the
+  // container. This test is the only thing keeping the copy honest, and it
+  // can import the harness freely because it never ships.
+  it('matches the account the judge fixture seeds', () => {
+    expect(JUDGE_FIXTURE_EMAIL).toBe(JUDGE_FIXTURE.email)
   })
 })
 

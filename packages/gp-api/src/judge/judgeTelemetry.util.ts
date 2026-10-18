@@ -9,6 +9,16 @@ import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 // asserts the two never drift.
 export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 
+// A copy of the judge account's address for the same reason as the prefix
+// above, and this one is load-bearing rather than cosmetic: tsconfig.build
+// and .swcrc.build drop `src/chats/evals/**` from the production build, so a
+// module under `src/judge/` that imports the harness compiles and tests
+// clean and then fails at `require` time in the container, which ECS sees as
+// a crash-looping task rather than as a build error. judgeTelemetry.util.
+// test.ts asserts this equals JUDGE_FIXTURE.email, from the test side of
+// that boundary, where importing the harness is fine.
+export const JUDGE_FIXTURE_EMAIL = 'judge-sweep@example.com'
+
 // Names the implementation that produced `promptHash`. A reader compares two
 // hashes only when their versions match, so bump this on any change to what
 // is hashed or to how.
