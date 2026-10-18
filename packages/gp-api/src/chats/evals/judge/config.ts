@@ -57,7 +57,7 @@ export interface JudgeGates {
   // branch. That measurement is what set the original floor of 20, and it
   // still stands.
   //
-  // LOWERED TO 8 BECAUSE THE CASE LISTS CHANGED, not because the variance
+  // LOWERED TO 7 BECAUSE THE CASE LISTS CHANGED, not because the variance
   // did. The 20 was calibrated against lists written to exercise the
   // pipeline. All five chat lists now carry `placeholder: false`, and three
   // to five cases in each carry a `condition` and a `handledWhen` written
@@ -70,10 +70,19 @@ export interface JudgeGates {
   // evidence. It is one constant with no migration and no stored data
   // behind it, so reverting is an edit to this line.
   //
-  // SAID PLAINLY: this trades confidence for usefulness. It is not a claim
-  // that eight cases is statistically sufficient. A chat list is exactly
-  // eight, so it clears the floor with nothing to spare and one excluded
-  // case gates it again.
+  // 7 IS SET AGAINST THE LIST LENGTH, NOT DERIVED FROM A SAMPLE SIZE.
+  // Every chat list is exactly eight cases, and `cases` here counts only
+  // the caseIds that produced a scored pair, so a floor of 8 would have no
+  // slack at all: one excluded case, one tool error, one stream failure and
+  // the verdict reverts to CAN'T SAY with nothing about the branch having
+  // changed. Seven buys one case of headroom and still means most of the
+  // list graded.
+  //
+  // SO MOVE IT WITH THE LISTS. Grow a chat list to nine cases or more and
+  // the headroom argument is obsolete, and 7 starts meaning a smaller and
+  // smaller share of the evidence: revisit it upward at that point rather
+  // than leaving it. Said plainly, this trades confidence for usefulness
+  // and is not a claim that seven cases is statistically sufficient.
   minCases: number
   // δ, the practical margin. An effect smaller than this is real but not
   // worth acting on, and it reports as CAN'T SAY with that said explicitly.
@@ -217,10 +226,10 @@ export interface JudgeConfig {
   //
   // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
   // is 3 pairs, still under `gates.minCases`, so every background verdict
-  // comes back gated: "below the floor of 8, so the comparison measures the
+  // comes back gated: "below the floor of 7, so the comparison measures the
   // agent's own variance more than the branch". That is the gate working, not
   // a bug: the verdict is directional rather than conclusive. The floor came
-  // down from 20 to 8 for what the chat lists became, NOT to clear this
+  // down from 20 to 7 for what the chat lists became, NOT to clear this
   // budget, and it is deliberately not taken to 3, because a gate moved to
   // fit the evidence stops being a gate.
   background: ShapeBudget
@@ -249,7 +258,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     temperature: 0,
   },
   gates: {
-    minCases: 8,
+    minCases: 7,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
     minSwappedPairs: 10,

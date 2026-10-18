@@ -1510,7 +1510,7 @@ describe('the case dimension rows', () => {
   it('prints no interval below the case floor', async () => {
     const report = renderReport({ agents: [await withCaseDimension(1)] })
     const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
-    expect(row).toContain('too few cases for an interval (1 of 8)')
+    expect(row).toContain('too few cases for an interval (1 of 7)')
     expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
   })
 

@@ -42,9 +42,10 @@ Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. The PR thread says the sweep started but
 not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. A verdict needs 8 cases to count as evidence. A chat list is
-exactly eight, so it can now land a real verdict; a background agent is
-capped at three cases a sweep, so it still comes back CAN'T SAY. Under the
+**CAN'T SAY**. A verdict needs 7 cases to count as evidence. A chat list is
+eight cases, so it can now land a real verdict with one case of headroom; a
+background agent is capped at three cases a sweep, so it still comes back
+CAN'T SAY. Under the
 floor it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
@@ -425,10 +426,10 @@ says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
 **Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
-is 8.** So a corpus verdict over a full chat list can now resolve BETTER,
-WORSE or SAME, with nothing to spare: one excluded case puts it back under
-the floor. A background sweep reads only its first `background.maxCases`
-cases, which is three, so background verdicts stay gated.
+is 7.** So a corpus verdict over a full chat list can now resolve BETTER,
+WORSE or SAME, with one case of headroom. A background sweep reads only its
+first `background.maxCases` cases, which is three, so background verdicts
+stay gated.
 Eight is one clean baseline plus seven single-axis variations, which is what
 one change can author honestly across twenty agents.
 
@@ -438,10 +439,18 @@ changed; the lists have. They now carry `placeholder: false` and three to
 five checked cases apiece, written from each agent's own prompt and
 confirmed on a no-change sweep, so the floor is being applied to lists that
 test the agent rather than to lists that exercised the pipeline. **This is a
-deliberate trade of confidence for usefulness, not a claim that eight cases
+deliberate trade of confidence for usefulness, not a claim that seven cases
 is enough.** A tool that always answers CAN'T SAY does not get read, and the
 measured delta was always printed beside the refusal, so the change moves
 the label and not the evidence.
+
+**7 is set against the list length, not derived from a sample size.** A chat
+list is eight cases, and `cases` counts only the caseIds that produced a
+scored pair, so a floor of 8 would have no slack: one excluded case, one
+tool error or one stream failure would revert the verdict to CAN'T SAY with
+nothing about the branch having changed. Seven buys one case of headroom and
+still means most of the list graded. Grow a chat list to nine cases or more
+and that argument is obsolete, so revisit the floor upward with it.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a

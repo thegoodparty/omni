@@ -526,7 +526,7 @@ describe("cannot_determine and CAN'T SAY", () => {
   })
 
   // THE BACKGROUND BUDGET LANDS UNDER THE FLOOR — checked against the gate
-  // itself rather than restated as `3 < 8`. The number of judgments is
+  // itself rather than restated as `3 < 7`. The number of judgments is
   // DERIVED from the budget, and every one of them is a unanimous win, so the
   // gate is the only thing standing between this and a confident BETTER. A
   // budget change that clears the floor turns this red, which is the point:
@@ -543,7 +543,7 @@ describe("cannot_determine and CAN'T SAY", () => {
     })
     expect(result.overall.delta).toBe(1)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 8/)
+    expect(result.labelNote).toMatch(/below the floor of 7/)
   })
 
   it('gates below the case-count floor whatever the delta says', () => {
@@ -555,7 +555,7 @@ describe("cannot_determine and CAN'T SAY", () => {
     })
     expect(result.overall.delta).toBe(1)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 8/)
+    expect(result.labelNote).toMatch(/below the floor of 7/)
   })
 
   // An ungraded judgment is a judge failure. It has to be countable apart
