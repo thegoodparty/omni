@@ -18,8 +18,16 @@ export const IS_PROD_DEPLOY = OTEL_SERVICE_ENVIRONMENT === 'prod'
 // `!IS_PROD_DEPLOY`: an absent or unexpected OTEL_SERVICE_ENVIRONMENT
 // ('production', 'staging', undefined, a typo) is not in this list, so a
 // test-only affordance gated on it DENIES rather than silently ungating prod.
-export const IS_NON_PROD_DEPLOY =
-  OTEL_SERVICE_ENVIRONMENT === 'preview' || OTEL_SERVICE_ENVIRONMENT === 'dev'
+//
+// Pure (env-free) so a gate built on it can be tested against the values that
+// matter ('prod', an absent one, a typo) without module-reset gymnastics,
+// the way resolveAppRoot and resolveVendorMode below already are.
+export const isNonProdDeploy = (
+  otelServiceEnvironment: string | undefined,
+): boolean =>
+  otelServiceEnvironment === 'preview' || otelServiceEnvironment === 'dev'
+
+export const IS_NON_PROD_DEPLOY = isNonProdDeploy(OTEL_SERVICE_ENVIRONMENT)
 
 // Canonical prod user-facing app origin. In prod the webapp (Clerk-protected
 // app routes such as /serve/welcome, /reset-password, /set-password) is served
