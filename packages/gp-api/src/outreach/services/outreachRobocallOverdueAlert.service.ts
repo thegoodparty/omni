@@ -10,6 +10,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Every 15 minutes, offset :12 — a slot no OTHER robocall cron uses as its own
 // base. It may coincide with the every-10 capture (:12,:42) or staging (:27,:57)
@@ -72,7 +73,7 @@ export class OutreachRobocallOverdueAlertService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepOverdueAlerts(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const overdueCutoff = subMinutes(now, ROBOCALL_OVERDUE_GRACE_MINUTES)

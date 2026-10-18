@@ -15,6 +15,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Every 15 minutes, offset :11 — distinct from the overdue sweep (:12,:27,…) and
 // the send sweep (:04,:14,…). This sweep makes NO CallHub or Stripe call (it
@@ -67,7 +68,7 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepBacklogAlerts(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const bufferMinutes = robocallDialEstimateBufferMinutes()

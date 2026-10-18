@@ -4,6 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // A Stripe-only slot free of the other robocall crons (capture :02, send :04,
 // fresh-charge :05, staging :07, hold-recovery :08, completion :09, cleanup :00).
@@ -41,7 +42,7 @@ export class OutreachRobocallHoldReconcileService {
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepOrphanedHolds(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const orphans = await this.orphans.findUnvoided()
     for (const orphan of orphans) {

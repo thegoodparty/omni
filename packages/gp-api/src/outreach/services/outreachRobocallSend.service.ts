@@ -26,6 +26,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -212,7 +213,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallSend(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
 

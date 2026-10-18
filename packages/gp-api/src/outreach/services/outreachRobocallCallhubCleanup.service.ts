@@ -4,6 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // A slot away from the CallHub-heavy staging (:07) / send (:04) bursts, since
 // this also talks to the rate-limited CallHub API. Orphans are rare, so cadence
@@ -39,7 +40,7 @@ export class OutreachRobocallCallhubCleanupService {
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepOrphanedCampaigns(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const orphans = await this.orphans.findUnaborted()
     for (const orphan of orphans) {

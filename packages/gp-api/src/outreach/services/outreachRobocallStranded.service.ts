@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Every 15 minutes on the only minute-of-hour slots no other robocall cron
 // touches (send :04.., capture :02.., staging :07.., reconcile :03.., recovery
@@ -46,7 +47,7 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedAuthorized(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const candidates = await this.model.findMany({

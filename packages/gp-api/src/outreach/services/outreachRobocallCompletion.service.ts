@@ -9,6 +9,7 @@ import {
 } from '@/shared/util/robocallHold.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Every 10 minutes, offset :09 so the sweep neither joins the top-of-hour herd
 // nor collides with the sibling robocall crons (send :04,…, staging :07,…) or
@@ -49,7 +50,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallCompletion(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const runWindowElapsed = subHours(now, ROBOCALL_RUN_HOURS)

@@ -12,6 +12,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
 // on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
@@ -68,7 +69,7 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepDeferredHolds(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     // Entered the window, still future: a card was chosen at schedule time (both
@@ -148,7 +149,7 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepExpiredDeferred(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const candidates = await this.model.findMany({

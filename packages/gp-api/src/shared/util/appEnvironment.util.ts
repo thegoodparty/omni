@@ -117,6 +117,11 @@ if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
   throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
 }
 
+// Cron gates that must run in prod AND in mock mode (so E2E tests can drive
+// them via run-job). Deliberately false on local without VENDOR_MODE=mock so
+// sweeps do not fire on developer laptops.
+export const VENDOR_CRONS_ENABLED = IS_PROD_DEPLOY || VENDOR_MODE === 'mock'
+
 // The organization rides in the mock's path, never in a live URL, so the mock
 // can keep one caller's fixture state (a seeded failure, its request records)
 // apart from every other test running against the same deploy.

@@ -19,6 +19,7 @@ import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // How far ahead of the scheduled send a draft becomes eligible to stage. The
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
@@ -116,7 +117,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallStaging(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const staleCutoff = subMinutes(now, ROBOCALL_STAGING_STALE_MINUTES)

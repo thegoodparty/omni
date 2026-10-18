@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_HOLD_PENDING_STALE_MINUTES } from '@/shared/util/robocallHold.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // A free slot in the 6-per-hour robocall family (send :04, staging :07,
 // completion :09, capture :02) — :08 is a Stripe-search-only sweep, no CallHub
@@ -48,7 +49,7 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStaleHoldPending(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const staleCutoff = subMinutes(
       new Date(),

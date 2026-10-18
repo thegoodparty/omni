@@ -14,6 +14,7 @@ import {
 } from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from '@/shared/util/appEnvironment.util'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -68,7 +69,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepCaptures(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse
