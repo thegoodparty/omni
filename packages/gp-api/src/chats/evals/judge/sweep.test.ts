@@ -627,13 +627,13 @@ describe('judgeSweep', () => {
   // non-zero exit would turn the judge into a required check nobody asked
   // for.
   //
-  // Three cases is below the default floor of 20, so the corpus verdict is
+  // Three cases is below the default floor of 8, so the corpus verdict is
   // CAN'T SAY however the judge voted — which is the point: a non-verdict is
   // reported, not failed.
   it("exits zero on a CAN'T SAY, which is not a failure", async () => {
     const result = await run(await seeded(cases(3)))
     const score = result.report.agents[0]
-    // Judged, and still CAN'T SAY: three cases is below the floor of 20, so
+    // Judged, and still CAN'T SAY: three cases is below the floor of 8, so
     // the gate overrides a unanimous result rather than the judge failing.
     expect(score?.exclusions.ungraded).toBe(0)
     expect(score?.label).toBe("CAN'T SAY")

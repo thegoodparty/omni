@@ -42,8 +42,10 @@ Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. The PR thread says the sweep started but
 not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
-has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
+**CAN'T SAY**. A verdict needs 8 cases to count as evidence. A chat list is
+exactly eight, so it can now land a real verdict; a background agent is
+capped at three cases a sweep, so it still comes back CAN'T SAY. Under the
+floor it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
@@ -423,14 +425,23 @@ says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
 **Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
-is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
-the judge voted — the floor was set from measured agent non-determinism (three
-identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
-short measures that rather than the branch.
+is 8.** So a corpus verdict over a full chat list can now resolve BETTER,
+WORSE or SAME, with nothing to spare: one excluded case puts it back under
+the floor. A background sweep reads only its first `background.maxCases`
+cases, which is three, so background verdicts stay gated.
 Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across twenty agents. **Whether to grow every
-list to 20 or to lower the floor is still open.** Do not read the shortfall as
-a decision either way.
+one change can author honestly across twenty agents.
+
+The floor was 20, set from measured agent non-determinism (three identical
+Chief of Staff turns gave 6, 4 and 2 tool steps). That measurement has not
+changed; the lists have. They now carry `placeholder: false` and three to
+five checked cases apiece, written from each agent's own prompt and
+confirmed on a no-change sweep, so the floor is being applied to lists that
+test the agent rather than to lists that exercised the pipeline. **This is a
+deliberate trade of confidence for usefulness, not a claim that eight cases
+is enough.** A tool that always answers CAN'T SAY does not get read, and the
+measured delta was always printed beside the refusal, so the change moves
+the label and not the evidence.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
@@ -787,10 +798,13 @@ condition, not a sample, so one read of it is the whole evidence for that
 condition, and a judge call costs cents against a run's dollars. An order
 flip then shows as disagreement rather than as one confident wrong call.
 Chat keeps the one-in-five subsample (`orderSwap.fraction`). The
-position-consistency gate never fires for a background agent: CI walks at
-most `maxCases` (3) scored cases at up to 3 attempts, so at most 9 swapped
-pairs, under `minSwappedPairs` (10). The rate is reported with its
-denominator and gates nothing. Controls are swapped too but stay out of it.
+position-consistency gate fires for neither shape. A background agent walks
+at most `maxCases` (3) scored cases at up to 3 attempts, so at most 9
+swapped pairs; a chat agent walks 8 cases at 3 attempts, which is 24 pairs
+and `ceil(24 / 5)` = 5 swapped. Both are under `minSwappedPairs` (10), so
+the rate is reported with its denominator and gates nothing. Reaching 10 on
+chat wants 16 cases, or a larger `orderSwap.fraction`. Controls are swapped
+too but stay out of it.
 
 **A list may set its own attempts.** A background case list can carry
 `attemptsPerCase` in its header, up to `MAX_LIST_ATTEMPTS_PER_CASE` (3) in

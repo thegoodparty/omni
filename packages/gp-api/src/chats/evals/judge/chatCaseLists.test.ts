@@ -28,8 +28,10 @@ const AUTHORED = [
 // authored.
 const AUTHORED_BACKGROUND_COUNT = 15
 
-// One baseline plus seven single-axis variations. Well under gates.minCases,
-// which is deliberate and recorded in every list's `note`.
+// One baseline plus seven single-axis variations. Exactly gates.minCases,
+// which is deliberate and recorded in every list's `note`: a full chat list
+// clears the case-count gate with nothing to spare, so a list that lost a
+// case would silently put every verdict back to CAN'T SAY.
 const CASES_PER_LIST = 8
 
 // Registry entries that name a file, narrowed so the file name is a string.

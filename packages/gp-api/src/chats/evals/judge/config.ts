@@ -54,7 +54,26 @@ export interface JudgeGates {
   // because agents are not deterministic: three Chief of Staff turns on
   // identical seeded state gave 6, 4 and 2 tool steps and replies of 1831,
   // 1135 and 1137 characters. A handful of cases measures that, not the
-  // branch.
+  // branch. That measurement is what set the original floor of 20, and it
+  // still stands.
+  //
+  // LOWERED TO 8 BECAUSE THE CASE LISTS CHANGED, not because the variance
+  // did. The 20 was calibrated against lists written to exercise the
+  // pipeline. All five chat lists now carry `placeholder: false`, and three
+  // to five cases in each carry a `condition` and a `handledWhen` written
+  // from the agent's own prompt and confirmed on a no-change sweep. The
+  // floor now applies to lists written to test the agent.
+  //
+  // A PERMANENT CAN'T SAY IS WORSE THAN AN IMPERFECT VERDICT, because
+  // nobody reads a tool that never answers. The measured delta was always
+  // printed beside the refusal, so this moves the label and not the
+  // evidence. It is one constant with no migration and no stored data
+  // behind it, so reverting is an edit to this line.
+  //
+  // SAID PLAINLY: this trades confidence for usefulness. It is not a claim
+  // that eight cases is statistically sufficient. A chat list is exactly
+  // eight, so it clears the floor with nothing to spare and one excluded
+  // case gates it again.
   minCases: number
   // δ, the practical margin. An effect smaller than this is real but not
   // worth acting on, and it reports as CAN'T SAY with that said explicitly.
@@ -71,10 +90,19 @@ export interface JudgeGates {
   // have failed a whole sweep on. Below this many, the rate is reported with
   // its denominator and gates nothing.
   //
-  // 10 is a floor on sample size, not a statistical guarantee. It is chosen to
-  // be reachable at the scale this config designs for — minCases 20 at
-  // attemptsPerCase 3 is 60 pairs, so 12 swapped — while excluding the
-  // handful that a placeholder case list produces.
+  // 10 is a floor on sample size, not a statistical guarantee. IT IS NO
+  // LONGER REACHABLE AT THE SCALE THIS CONFIG DESIGNS FOR. `selectSwapped`
+  // takes every stride-th pair at stride = round(1 / fraction) = 5, so the
+  // swapped count is ceil(pairs / 5). A chat list is 8 cases at
+  // attemptsPerCase 3, which is 24 pairs and 5 swapped; it took minCases 20
+  // to reach 60 pairs and 12 swapped. So THE POSITION-CONSISTENCY GATE IS
+  // DORMANT ON BOTH SHAPES now: background runs 3 cases at 1 attempt and
+  // swaps all 3. Reaching 10 wants 16 chat cases, or a larger
+  // `orderSwap.fraction`.
+  //
+  // Left at 10 anyway. The rate still prints with its denominator and says
+  // it is not being applied (consistencyLine in report.ts), and lowering a
+  // second gate to fit the same short lists is how a gate stops being one.
   minSwappedPairs: number
   // Share of judgments allowed to come back cannot_determine.
   cannotDetermineCeiling: number
@@ -188,12 +216,13 @@ export interface JudgeConfig {
   // list. See ShapeBudget for why they are not the same numbers.
   //
   // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
-  // is 3 pairs, well under `gates.minCases`, so every background verdict
-  // comes back gated — "below the floor of 20, so the comparison measures the
+  // is 3 pairs, still under `gates.minCases`, so every background verdict
+  // comes back gated: "below the floor of 8, so the comparison measures the
   // agent's own variance more than the branch". That is the gate working, not
-  // a bug: the verdict is directional rather than conclusive. The floor is
-  // deliberately NOT lowered to match, because a gate moved to fit the
-  // evidence stops being a gate.
+  // a bug: the verdict is directional rather than conclusive. The floor came
+  // down from 20 to 8 for what the chat lists became, NOT to clear this
+  // budget, and it is deliberately not taken to 3, because a gate moved to
+  // fit the evidence stops being a gate.
   background: ShapeBudget
   // The dimension set the judge is asked for and scoring aggregates.
   //
@@ -220,7 +249,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     temperature: 0,
   },
   gates: {
-    minCases: 20,
+    minCases: 8,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
     minSwappedPairs: 10,

@@ -38,7 +38,9 @@ const AUTHORED = [
   'trending_issues',
 ] as const
 
-// One baseline plus seven variations. Well under gates.minCases, which is
+// One baseline plus seven variations. A sweep scores only the first
+// config.background.maxCases of them, which is three and well under
+// gates.minCases, so background verdicts stay gated on case count. That is
 // deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
 
