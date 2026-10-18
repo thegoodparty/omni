@@ -138,6 +138,8 @@ naming it.
 | `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN`    | 1, 2  | The credentials for staging and dispatching a background agent, under these names for the same reason as the key above: `.env.test` stubs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, so credentials exported under the SDK's own names arrive as a stub key, and AWS refuses it. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else; the app under test keeps the stubs. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `JUDGE_CLERK_SECRET_KEY` / `JUDGE_CLERK_USER_ID` / `JUDGE_CLERK_TTL_SECONDS`             | mint  | The Clerk backend key, the judge user's `user_…` id, and how long the minted session token lives (default 4h, floor 10m, ceiling 12h). Read by `judgeClerkSession.ts` in a **step of its own, from a checkout of `main`**, and by nothing else. That key mints a session for ANY user in the dev instance, so it must never sit in a step that runs the pull request's own code — which is the whole reason this is a separate step rather than something an arm does. There is no default user id: the account is created in the dev Clerk instance by hand, and a missing one is a sentence naming the variable. See [A chat arm against a deployed gp-api signs in as a real Clerk user](#a-chat-arm-against-a-deployed-gp-api-signs-in-as-a-real-clerk-user). |
+| `JUDGE_CLERK_SESSION_TOKEN` / `JUDGE_CLERK_SESSION_EXPIRES_AT`                           | 1, 2  | What the mint step hands the arms, and all an arm ever gets: a short-lived JWT and when it dies. An arm holds no Clerk secret, so a token that runs out there is a sentence naming the mint step and the TTL, not a re-mint. The token is registered with `::add-mask::` before it reaches `$GITHUB_OUTPUT`, and `scrubReason` redacts it by value and any JWT by shape, so it cannot ride a skip reason into a manifest or a public job summary. |
 | `AI_MODELS`                                                                              | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `JUDGE_CANDIDATE_REF`                                                                    | 1, 2  | Optional. The head ref name, for readability.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `JUDGE_PR_NUMBER`                                                                        | all   | Optional.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -1176,6 +1178,98 @@ against it, and the seed refuses an organization that has gained a campaign.
 
 The feed is office-agnostic on purpose: each case names a different real place
 in its own params, and every case reads the same rows on both arms.
+
+## A chat arm against a deployed gp-api signs in as a real Clerk user
+
+The background path never reaches Clerk: the broker signs its own token and
+`judgeFixtureIdentity.ts` names a `clerkId` no Clerk user has. A chat arm
+driving a **deployed** gp-api over HTTP has no such seam. `SessionGuard`
+refuses an agent token on anything but the MCP controller, so the arm needs a
+session token Clerk itself issued, for a user gp-api can find.
+
+`judgeClerkSession.ts` mints one, with the two calls the webapp's E2E helper
+makes (`mintApiToken` in `e2e-tests/tests/utils/headless-user.ts`):
+`sessions.createSession({ userId })`, then `sessions.getToken(id, undefined,
+ttl)`. A browser-minted token lives 60 seconds, which is why neither place
+uses one.
+
+**The Clerk secret key never enters a step that runs branch code**, and that
+is the whole reason this is a piece of its own rather than something the arm
+does. The key mints a session for any user in the dev instance. The previews
+migration exists to stop unreviewed code holding credentials, and a Clerk key
+in an arm step would reproduce that exposure with a different vendor. So the
+mint runs in a step of its own, from a checkout of `main`, and the only thing
+passed onward is the short-lived JWT.
+
+**An arm therefore cannot re-mint, and says so.** `createJudgeSession` takes
+an optional minter. The mint step has one; an arm does not, and a token that
+runs out there throws a sentence naming the mint step and
+`JUDGE_CLERK_TTL_SECONDS` rather than failing somewhere inside an HTTP
+client. Given a minter — a local run that exports the key — it re-mints
+within five minutes of expiry and after a 401.
+
+**A re-mint and a real permissions problem are never the same shape.** A
+re-mint is a `[judge-clerk]` log line. A 401 on a token minted less than a
+minute ago is not expiry, so it throws instead: a judge user with no role, or
+a Clerk instance the target does not trust, would otherwise hide behind a
+loop that mints forever and never gets in.
+
+**The token is never printed.** It goes to a file the mint step names on
+argv, never to stdout or stderr, and never into an error message — the
+validation sentences name variables and never values. The caller registers it
+with `::add-mask::` before copying it into `$GITHUB_OUTPUT`, the way
+`verify-vercel-registrar-token.yml` does, so the one place the value reaches
+a log stream is the line Actions redacts at source. On the arm side
+`scrubReason` redacts `JUDGE_CLERK_SESSION_TOKEN` by value and any JWT by
+shape, so it cannot ride a skip reason into a manifest, into S3, or into a
+public job summary.
+
+**One-time setup, by hand.** There is no judge Clerk user yet and no default
+id: a hardcoded one would either name nobody or, worse, name somebody.
+Someone has to create the account in the **dev** Clerk instance, point the
+dev-database fixture at it (`judgeFixtureIdentity.ts`'s `clerkUserId` has to
+become the real id, and `scripts/seed-judge-fixture.ts` re-run), and put the
+`user_…` value in `JUDGE_CLERK_USER_ID`. Until that exists the mint step
+fails with one sentence naming the variable.
+
+`judge.yml` does not call this yet. Wiring it is a `sweep`-job step after the
+base arm's workspace is installed and before either arm runs, in the shape
+`judgeIdentifiers.ts` already uses — into a file first, so a mint that failed
+part way leaves no half of it in the outputs — plus the mask. **It runs from
+the base worktree, not from `${{ env.WORKSPACE }}`**: that directory is
+`origin/<base ref>`, which on a PR targeting `main` is a reviewed checkout of
+`main`, and running the branch's copy of this file with the key in its
+environment would give away the thing the step exists to protect.
+
+```yaml
+- name: Mint the judge's Clerk session
+  id: clerk
+  working-directory: ${{ steps.base.outputs.dir }}/packages/gp-api
+  env:
+    JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+    JUDGE_CLERK_USER_ID: ${{ vars.JUDGE_CLERK_USER_ID }}
+  run: |
+    set -euo pipefail
+    out="$RUNNER_TEMP/judge-clerk"
+    npx tsx src/chats/evals/judge/judgeClerkSession.ts "$out"
+    echo "::add-mask::$(sed -n 's/^judge_session_token=//p' "$out")"
+    cat "$out" >> "$GITHUB_OUTPUT"
+    rm -f "$out"
+```
+
+Both arm steps then carry `JUDGE_CLERK_SESSION_TOKEN:
+${{ steps.clerk.outputs.judge_session_token }}` and
+`JUDGE_CLERK_SESSION_EXPIRES_AT:
+${{ steps.clerk.outputs.judge_session_expires_at }}`, and nothing else from
+Clerk.
+
+The base worktree is the best boundary available inside this job and it is
+not a perfect one: `setup-node-workspace` has already run `npm ci` from the
+branch's lockfile, with the branch's lifecycle scripts, as the same user, as
+the note above the sweep job's `steps:` says. A grading-style job of its own
+that never checks out or installs the candidate is the real boundary, and
+this step is shaped to move into one unchanged — it reads two variables and
+writes two outputs.
 
 ## Two refusals, and they are not the same one
 
