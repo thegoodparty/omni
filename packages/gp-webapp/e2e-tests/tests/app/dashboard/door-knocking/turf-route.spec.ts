@@ -134,6 +134,9 @@ test.describe('Win — turf route via Geoapify mock', () => {
     if (await closePersonDetails.isVisible()) {
       await closePersonDetails.click()
     }
+    // Wait for the PersonSheet to fully close before attempting to click the
+    // route-done button — if the overlay still covers it the click is swallowed.
+    await expect(closePersonDetails).toBeHidden()
 
     // 11. Mark route done.
     await page
@@ -143,12 +146,25 @@ test.describe('Win — turf route via Geoapify mock', () => {
       page.getByRole('heading', { name: 'Mark this route done?' }),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Mark done', exact: true }).click()
+    // Wait for the confirmation dialog to close before polling the API —
+    // the server mutation may not have landed yet.
+    await expect(
+      page.getByRole('heading', { name: 'Mark this route done?' }),
+    ).toBeHidden()
 
     // 12. Assert the turf is marked completed via the API.
-    const { data: done } = await client.get<{ completed: boolean }>(
-      `/v1/door-knocking/turfs/${turf.id}`,
-    )
-    expect(done.completed).toBe(true)
+    // Use expect.poll so we retry until the completion mutation has landed.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await client.get<{ completed: boolean }>(
+            `/v1/door-knocking/turfs/${turf.id}`,
+          )
+          return data.completed
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true)
   })
 
   test('failure: geoapify.route.fail causes error copy, no successful route', async ({
@@ -297,17 +313,34 @@ test.describe('Serve — turf route via Geoapify mock', () => {
     if (await closePersonDetails.isVisible()) {
       await closePersonDetails.click()
     }
+    // Wait for the PersonSheet to fully close before attempting to click the
+    // route-done button.
+    await expect(closePersonDetails).toBeHidden()
 
     // Mark route done.
     await page
       .getByRole('button', { name: 'Mark this route done', exact: true })
       .click()
+    await expect(
+      page.getByRole('heading', { name: 'Mark this route done?' }),
+    ).toBeVisible()
     await page.getByRole('button', { name: 'Mark done', exact: true }).click()
+    // Wait for the confirmation dialog to close before polling the API.
+    await expect(
+      page.getByRole('heading', { name: 'Mark this route done?' }),
+    ).toBeHidden()
 
-    // Assert turf is completed.
-    const { data: done } = await client.get<{ completed: boolean }>(
-      `/v1/door-knocking/turfs/${turf.id}`,
-    )
-    expect(done.completed).toBe(true)
+    // Assert turf is completed — poll until the mutation lands.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await client.get<{ completed: boolean }>(
+            `/v1/door-knocking/turfs/${turf.id}`,
+          )
+          return data.completed
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true)
   })
 })
