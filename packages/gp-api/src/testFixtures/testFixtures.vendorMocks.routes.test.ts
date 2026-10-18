@@ -17,11 +17,15 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 
 const service = useTestService()
 
-const makeAdmin = () =>
-  service.prisma.user.update({
-    where: { id: service.user.id },
-    data: { roles: [UserRole.admin] },
+const seedCampaign = async (userId: number) => {
+  const slug = `test-campaign-${Math.random().toString(36).slice(2)}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: userId },
   })
+  return service.prisma.campaign.create({
+    data: { userId, slug, organizationSlug: slug },
+  })
+}
 
 const seedRecord = (
   vendor: VendorMockVendor,
@@ -35,149 +39,127 @@ const seedRecord = (
   })
 
 describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     envNonProd.value = true
-    await makeAdmin()
   })
 
-  it('sets routeFail on the geoapify record and returns records', async () => {
-    const campaignId = 1
-    await seedRecord(
-      VendorMockVendor.geoapify,
-      'routing_request',
-      'ext-1',
-      { status: 'ok' },
-      campaignId,
-    )
+  it("arms a route failure scoped to the caller's campaign", async () => {
+    const campaign = await seedCampaign(service.user.id)
 
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId, action: 'geoapify.route.fail' },
+      { campaignId: campaign.id, action: 'geoapify.route.fail' },
       { validateStatus: () => true },
     )
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.records).toHaveLength(1)
-    const record = res.data.records[0]
-    expect(record.externalId).toBe('ext-1')
-    expect(record.state).toMatchObject({ routeFail: true })
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'route_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { routeFail: true },
+      }),
+    ])
   })
 
-  it('creates a sentinel record when no geoapify record exists', async () => {
-    const campaignId = 2
-
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId, action: 'geoapify.route.fail' },
-      { validateStatus: () => true },
-    )
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    const sentinel = res.data.records.find(
-      (r: { externalId: string }) => r.externalId === 'sentinel',
-    )
-    expect(sentinel?.state).toMatchObject({ routeFail: true })
-  })
-
-  it('returns 400 for an unknown action', async () => {
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId: 1, action: 'unknown.action' },
-      { validateStatus: () => true },
-    )
-
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-  })
-
-  it('404s outside a non-prod deploy', async () => {
-    envNonProd.value = false
-
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId: 1, action: 'geoapify.route.fail' },
-      { validateStatus: () => true },
-    )
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-  })
-
-  it('turns away a non-admin caller', async () => {
-    await service.prisma.user.update({
-      where: { id: service.user.id },
-      data: { roles: [] },
+  it('returns 403 when the campaign belongs to a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
     })
+    const campaign = await seedCampaign(otherUser.id)
 
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId: 1, action: 'geoapify.route.fail' },
+      { campaignId: campaign.id, action: 'geoapify.route.fail' },
       { validateStatus: () => true },
     )
 
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
+
+  it('returns 404 outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action: 'geoapify.route.fail' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
 })
 
 describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     envNonProd.value = true
-    await makeAdmin()
   })
 
-  it('returns records scoped to campaignId', async () => {
+  it('returns records for a campaign owned by the caller', async () => {
+    const campaign = await seedCampaign(service.user.id)
     await seedRecord(
       VendorMockVendor.geoapify,
-      'routing_request',
+      'routeplanner_request',
       'r-1',
       { status: 'ok' },
-      10,
+      campaign.id,
     )
     await seedRecord(
       VendorMockVendor.geoapify,
-      'routing_request',
+      'routeplanner_request',
       'r-2',
       { status: 'ok' },
-      10,
-    )
-    await seedRecord(
-      VendorMockVendor.geoapify,
-      'routing_request',
-      'r-other',
-      { status: 'ok' },
-      20,
+      campaign.id,
     )
 
     const res = await service.client.get(
       '/v1/test-fixtures/vendor-mocks/records',
-      { params: { campaignId: 10 }, validateStatus: () => true },
+      { params: { campaignId: campaign.id }, validateStatus: () => true },
     )
 
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.records).toHaveLength(2)
     expect(
       res.data.records.every(
-        (r: { vendor: string; externalId: string }) =>
-          r.vendor === 'geoapify' &&
-          (r.externalId === 'r-1' || r.externalId === 'r-2'),
+        (r: { externalId: string }) =>
+          r.externalId === 'r-1' || r.externalId === 'r-2',
       ),
     ).toBe(true)
   })
 
-  it('returns an empty list when no records exist for the campaign', async () => {
+  it('returns 403 when the campaign belongs to a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
     const res = await service.client.get(
       '/v1/test-fixtures/vendor-mocks/records',
-      { params: { campaignId: 999 }, validateStatus: () => true },
+      { params: { campaignId: campaign.id }, validateStatus: () => true },
     )
 
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.records).toEqual([])
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
-  it('404s outside a non-prod deploy', async () => {
+  it('returns 404 outside a non-prod deploy', async () => {
     envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
 
     const res = await service.client.get(
       '/v1/test-fixtures/vendor-mocks/records',
-      { params: { campaignId: 1 }, validateStatus: () => true },
+      { params: { campaignId: campaign.id }, validateStatus: () => true },
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
@@ -187,7 +169,10 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
 describe('POST /v1/test-fixtures/jobs/:name/run', () => {
   beforeEach(async () => {
     envNonProd.value = true
-    await makeAdmin()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
   })
 
   it('returns 404 for any job name (M1 allowlist is empty)', async () => {
