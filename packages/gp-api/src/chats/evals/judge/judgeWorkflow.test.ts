@@ -1930,6 +1930,88 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   })
 })
 
+// ONE LIVE SWEEP AT A TIME, ACROSS THE WHOLE REPOSITORY. Keyed per PR, as it
+// first was, two PRs judged at once put two sweeps out at up to twelve
+// background runs per arm each, against a dev scheduler cap that is shared
+// with everything else running there. Past that cap a run waits outside its
+// own timeout: the sweep's poll gives up as an infra error and the task still
+// launches and bills with nothing reading its result. `maxInFlight` in
+// config.ts asks for this guard by name.
+//
+// Three properties, and the group is useless without all three: the live key
+// is a constant, so it is one slot for the repository and not one per PR; it
+// queues rather than cancels, because a sweep that is running has already
+// spent and cannot be resumed (SWEEP_ID carries `run_attempt` so a re-run
+// reads none of the first run's records); and a plan-only run must stay out
+// of it, because a plan spends nothing and has no business waiting an hour.
+describe('judge.yml runs one live sweep at a time', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const planJob = yaml.slice(
+    yaml.indexOf('\n  plan:\n'),
+    yaml.indexOf('\n  sweep:\n'),
+  )
+  const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:\n'))
+
+  // A job's `concurrency:` sits at four spaces and its keys at six, with a
+  // folded `>-` group continuing at eight. Collapsed to one line so the
+  // assertions read the expression and not the wrapping.
+  const concurrencyOf = (job: string): string =>
+    (/^ {4}concurrency:\n((?: {6,}\S.*\n)+)/m.exec(job)?.[1] ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const sweepGroup = concurrencyOf(sweepJob)
+
+  it('finds a concurrency group on both jobs', () => {
+    expect(sweepGroup).not.toBe('')
+    expect(concurrencyOf(planJob)).not.toBe('')
+  })
+
+  it('keys a live sweep on one constant, not on the PR', () => {
+    expect(sweepGroup).toContain("'universal-judge-live-sweep'")
+    expect(sweepGroup).not.toContain('inputs.pr_number')
+  })
+
+  it('queues the second sweep rather than cancelling the first', () => {
+    expect(sweepGroup).toContain('cancel-in-progress: false')
+    // The reason it cannot cancel: a re-run reads none of the cancelled
+    // run's records, so the money it spent buys nothing.
+    expect(sweepJob).toMatch(
+      /^ {6}SWEEP_ID: judge-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/m,
+    )
+  })
+
+  // BOTH HALVES. The `if:` is what normally keeps a plan-only run out, but
+  // whether a job skipped by `if:` still takes a place in its concurrency
+  // group is documented neither way — so the group itself also has to gate
+  // on `live`, and its other arm has to be unique per run.
+  it('leaves a plan-only run out of the group entirely', () => {
+    expect(sweepJob).toMatch(/^ {6}&& inputs\.live == true$/m)
+    expect(sweepGroup).toContain('inputs.live == true &&')
+    expect(sweepGroup).toContain('github.run_id')
+  })
+
+  it('never makes a plan wait behind a sweep', () => {
+    const plan = concurrencyOf(planJob)
+    expect(plan).toContain('judge-plan-')
+    expect(plan).toContain('cancel-in-progress: true')
+    expect(plan).not.toContain('universal-judge-live-sweep')
+  })
+
+  // `jobs.<job_id>.concurrency` is evaluated before a job runs, so it reaches
+  // `github`, `inputs`, `vars`, `needs`, `strategy` and `matrix` and nothing
+  // else. A group written against `env` or `steps` is not an error anyone
+  // sees: it resolves empty, every live sweep lands in the same degenerate
+  // key by accident or none of them do, and the guard silently stops being
+  // one. `needs` is available but deliberately unused here.
+  it('builds the group from contexts a job group can actually read', () => {
+    const contexts = [...sweepGroup.matchAll(/\b([a-z]+)\.[a-z_]+/g)].map(
+      (match) => match[1],
+    )
+    expect([...new Set(contexts)].sort()).toEqual(['github', 'inputs'])
+  })
+})
+
 // GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
 // `${{` anywhere, even inside a shell comment, is evaluated as one expression,
 // and past 21,000 characters the whole workflow fails to parse: every
