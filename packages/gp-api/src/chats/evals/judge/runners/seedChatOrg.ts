@@ -47,8 +47,8 @@ import { assertTestProcess } from './chatSeam'
 // agent is honest about a capability it was never given. The three that were
 // costing whole tool families, and what each one buys:
 //
-//   organization.positionId    the district gate, and only half of it: see
-//                              JUDGE_POSITION below.
+//   organization.positionId    the district gate, whose other half is an
+//                              election-api lookup: see JUDGE_POSITION below.
 //   campaign.isPro + details   the voter-file family and
 //                              get_ballot_requirements.
 //   the anchor's ordinance     the five steps past clarify, each of which
@@ -162,7 +162,8 @@ export const seedOptionsFor = (
   }
 }
 
-// THE DISTRICT GATE IS HALF OURS AND HALF NOT, and this is the half that is.
+// THE DISTRICT GATE IS HALF OURS AND HALF NOT. This is the half that is, and
+// the id it seeds is chosen so the other half can answer.
 //
 // `organization.positionId` does not point at a row in this database. It holds
 // an election-api position id, and DistrictResolverService resolves it with an
@@ -172,35 +173,59 @@ export const seedOptionsFor = (
 // positionId BEFORE it asks election-api at all, which is why districtFilters
 // was null no matter what else was configured.
 //
-// JUDGE_POSITION is that reply, exported rather than written out at each call
-// site so the seeded id and the stubbed position cannot drift apart. A test
-// re-spies ElectionsService.getPositionById with it, which is what
-// test-service asks a suite needing a real position to do. A deployment that
-// can reach election-api needs no stub, and one that cannot cannot be given a
-// district by any amount of seeding.
+// SO THE ID SEEDED IS A REAL ONE, which is the only thing that makes the
+// other half reachable. Cheyenne City Council Ward 1 is the office the rest
+// of the repo already standardises on: JUDGE_FIXTURE_RACE in
+// ../sweepFixture.ts, DEFAULT_RACE in src/testFixtures, and the gp-webapp
+// e2e serve helpers all name zip 82001 and this office, and it carries a
+// district in every environment. A synthetic id could not be resolved by any
+// deployment: election-api 404s it, and elections.service.ts rethrows that
+// 404 as a NotFoundException out of loadContext, so the turn failed outright
+// rather than quietly dropping two tools.
+//
+// IT IS ELECTION-API'S INTERNAL ID, NOT THE BALLOTREADY ONE. The column is
+// ambiguous across the codebase and ElectionsService.resolveInternalPositionId
+// exists for that ambiguity, but DistrictResolverService does not call it: it
+// hands `org.positionId` straight to getPositionById, and election-api parses
+// that route's param as `z.guid()`. A BallotReady gid there is a 400, which
+// electionApiGet raises as a BadGatewayException, which is worse than the
+// null it replaces. Production stores the internal id too: campaigns.service
+// and OrganizationsService.resolveOrgData both resolve a
+// ballotReadyPositionId through getPositionByBallotReadyId and persist
+// `position.id`. The BallotReady id is kept beside it because that is the
+// handle a human looks the office up by, and it is what the e2e helpers pass
+// to the API.
+//
+// JUDGE_POSITION is the reply election-api really gives for that id, copied
+// from it field for field and exported rather than written out at each call
+// site, so a stubbed test and a deployed run cannot disagree about what was
+// seeded. A test re-spies ElectionsService.getPositionById with it, which is
+// what test-service asks a suite needing a real position to do, and what the
+// in-process arm needs because it holds no M2M token for election-api.
 //
 // NO `overrideDistrictId` on purpose. resolveDistrict takes
 // `overrideDistrict ?? position.district`, so an override id would beat this
 // position's own district — and it would be answered by useTestService's
 // getDistrict stub, whose district is in IL while the state still came from
-// the position, in WA. The mandatory filters would then bind a WA state to an
+// the position, in WY. The mandatory filters would then bind a WY state to an
 // IL district: a scope that matches nothing, assembled from two sources that
 // were never meant to be read together. The district travels with the
 // position, which is also the ordinary production path.
-const JUDGE_POSITION_ID = 'judge-position-1'
+const JUDGE_POSITION_ID = 'b74cd40c-add5-812a-7c3e-3701cd348558'
+const JUDGE_BR_POSITION_ID = 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw'
 
 export const JUDGE_POSITION: PositionWithOptionalDistrict = {
   id: JUDGE_POSITION_ID,
-  brPositionId: 'br-judge-position-1',
-  brDatabaseId: 'br-db-judge-position-1',
-  state: 'WA',
-  name: 'Council Member',
+  brPositionId: JUDGE_BR_POSITION_ID,
+  brDatabaseId: '173270',
+  state: 'WY',
+  name: 'Cheyenne City Council - Ward 1',
   level: 'CITY',
   district: {
-    id: 'judge-district-1',
-    state: 'WA',
-    L2DistrictType: 'City Council',
-    L2DistrictName: 'Judge City Council District 1',
+    id: '0e5bafca-93a9-86a5-2522-f373979720df',
+    state: 'WY',
+    L2DistrictType: 'City_Ward',
+    L2DistrictName: 'CHEYENNE CITY WARD 1',
   },
 }
 
