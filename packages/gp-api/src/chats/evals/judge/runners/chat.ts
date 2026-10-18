@@ -508,7 +508,13 @@ const driveCase = async (
       streamErrored: events.some((event) => event.type === 'error'),
     }
     outcomes.push(turn)
-    trace.push(...buildTrace(events, capture.outcomes.slice(outcomesBefore)))
+    trace.push(
+      ...buildTrace(
+        events,
+        capture.outcomes.slice(outcomesBefore),
+        done !== undefined,
+      ),
+    )
 
     // Per turn, because the capture's usage promise is replaced by the next
     // turn's. Read here and accumulated, rather than once at the end, which
