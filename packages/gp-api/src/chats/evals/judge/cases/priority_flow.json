@@ -41,6 +41,11 @@
     {
       "caseId": "vague-keeps-punting",
       "question": "ok so this one keeps coming up and i keep punting on it, honestly what do i even do here"
+    },
+    {
+      "caseId": "control",
+      "scored": false,
+      "question": "What are my realistic options on this one, including doing nothing?"
     }
   ]
 }

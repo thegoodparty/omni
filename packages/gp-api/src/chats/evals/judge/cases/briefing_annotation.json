@@ -49,6 +49,11 @@
       "accountState": {
         "district": true
       }
+    },
+    {
+      "caseId": "control",
+      "scored": false,
+      "question": "Give me a quick rundown of this meeting before I head in. What are the big items?"
     }
   ]
 }

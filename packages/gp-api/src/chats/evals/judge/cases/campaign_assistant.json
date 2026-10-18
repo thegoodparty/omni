@@ -43,6 +43,11 @@
     {
       "caseId": "vague-still-deciding",
       "question": "I am not sure yet if I want to run. What would it take?"
+    },
+    {
+      "caseId": "control",
+      "scored": false,
+      "question": "Help me write a short introduction I can use when I knock on a voter's door."
     }
   ]
 }

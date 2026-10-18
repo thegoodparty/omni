@@ -41,6 +41,11 @@
     {
       "caseId": "judgement-call-tradeoff",
       "question": "Is a covered-parking mandate worth the construction cost for small builders, or should we exempt anything under 10 units?"
+    },
+    {
+      "caseId": "control",
+      "scored": false,
+      "question": "Before we go further, give me a plain-language summary of what this ordinance is meant to do."
     }
   ]
 }

@@ -45,6 +45,11 @@
     {
       "caseId": "rambling-multipart-request",
       "question": "ok so this morning was a mess, anyway the thing i actually need before 2pm is three quick things, whats on my priority list right now, how many people we have on file, and can you check whether the state has any new snow-removal grant money this year. thanks"
+    },
+    {
+      "caseId": "control",
+      "scored": false,
+      "question": "A constituent wrote in frustrated that the pothole on their street still hasn't been fixed after two months. How should I respond?"
     }
   ]
 }
