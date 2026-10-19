@@ -5,9 +5,10 @@ import { ElectionDbService } from './electionDb.service'
 // vi.hoisted, not a plain const: vi.mock is lifted above the imports, so a
 // factory closing over a normally-declared binding would read it before
 // initialization.
-const { connect, disconnect } = vi.hoisted(() => ({
+const { connect, disconnect, clientOptions } = vi.hoisted(() => ({
   connect: vi.fn(),
   disconnect: vi.fn(),
+  clientOptions: vi.fn(),
 }))
 
 // Only PrismaClient is replaced; the real `Prisma` namespace is kept so the
@@ -21,6 +22,9 @@ vi.mock('@/generated/election-prisma', async () => {
   return {
     ...actual,
     PrismaClient: class {
+      constructor(options: unknown) {
+        clientOptions(options)
+      }
       $connect = connect
       $disconnect = disconnect
       $on = vi.fn()
@@ -37,8 +41,18 @@ describe('ElectionDbService', () => {
     connect.mockReset()
     connect.mockResolvedValue(undefined)
     disconnect.mockReset()
+    clientOptions.mockReset()
     process.env.ELECTION_DATABASE_URL = DB_URL
     service = new ElectionDbService()
+  })
+
+  it('sheds a saturated pool after 5s rather than queueing for 20s', async () => {
+    await service.onModuleInit()
+    const options = clientOptions.mock.calls[0][0] as {
+      datasources: { db: { url: string } }
+    }
+    const url = new URL(options.datasources.db.url)
+    expect(url.searchParams.get('pool_timeout')).toBe('5')
   })
 
   it('throws rather than handing back an uninitialized client', () => {
