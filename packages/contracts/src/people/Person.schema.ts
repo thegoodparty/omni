@@ -145,7 +145,7 @@ export const PersonSchema = z.object({
   // from Haystaq's within-state percentile scores, so it is relative to the
   // person's state rather than a probability.
   earlyVoteStatus: z
-    .enum(['Very likely', 'Likely', 'Unlikely', 'Very unlikely'])
+    .enum(['Very Likely', 'Likely', 'Unlikely', 'Very Unlikely'])
     .nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])

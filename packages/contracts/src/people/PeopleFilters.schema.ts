@@ -69,10 +69,10 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   // Likelihood of voting before Election Day (early in person or by mail).
   // Like voterStatus, a selection that includes 'Unknown' also matches NULL.
   earlyVoteStatus: [
-    'Very likely',
+    'Very Likely',
     'Likely',
     'Unlikely',
-    'Very unlikely',
+    'Very Unlikely',
     'Unknown',
   ] as const,
   politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,

@@ -1,6 +1,7 @@
 import type { Person } from '@goodparty_org/contracts'
 import { BaseDbPerson } from '../voter.select'
 import { classifyPoliticalParty } from './politicalParty.rules'
+import { earlyVoteStatusFromMart } from '../earlyVoteStatus'
 
 // people-api is the producer of this shape; the canonical definition lives in
 // @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
@@ -149,33 +150,6 @@ export const mapVoterStatus = (
   return value
 }
 
-// Same contract as voterStatus: the sentinel 'Unknown' and anything outside
-// the enum map to null.
-const EARLY_VOTE_STATUS_VALUES = [
-  'Very likely',
-  'Likely',
-  'Unlikely',
-  'Very unlikely',
-] as const satisfies ReadonlyArray<
-  NonNullable<PersonOutputFormat['earlyVoteStatus']>
->
-
-const EARLY_VOTE_STATUS_SET: ReadonlySet<string> = new Set(
-  EARLY_VOTE_STATUS_VALUES,
-)
-
-const isEarlyVoteStatus = (
-  value: string,
-): value is NonNullable<PersonOutputFormat['earlyVoteStatus']> =>
-  EARLY_VOTE_STATUS_SET.has(value)
-
-export const mapEarlyVoteStatus = (
-  value: string | null | undefined,
-): PersonOutputFormat['earlyVoteStatus'] => {
-  if (!value || !isEarlyVoteStatus(value)) return null
-  return value
-}
-
 export function transformToPersonOutput(
   person: BaseDbPerson,
 ): PersonOutputFormat {
@@ -190,7 +164,7 @@ export function transformToPersonOutput(
     age: mapAge(person),
     politicalParty: mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
-    earlyVoteStatus: mapEarlyVoteStatus(person.Early_Vote_Status),
+    earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
     registeredVoter: 'Yes',
     state: person.State,
     address: {

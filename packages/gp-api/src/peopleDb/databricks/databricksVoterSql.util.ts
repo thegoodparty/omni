@@ -14,6 +14,7 @@ import {
 } from '../affinityColumns.const'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
+import { earlyVoteStatusToMart } from '../earlyVoteStatus'
 import {
   ALL_KNOWN_PARTY_VALUES,
   POLITICAL_PARTY_EXACT_VALUES,
@@ -649,7 +650,20 @@ export const buildVoterFiltersSql = (
         break
       }
       case 'earlyVoteStatus': {
-        const statusClause = buildFieldFilter(bag, 'Early_Vote_Status', op)
+        // Filter values arrive in the product's Title Case; the column is
+        // sentence case (earlyVoteStatus.ts).
+        const martOp: FilterOperator | undefined =
+          op?.operator === 'in'
+            ? {
+                ...op,
+                values: op.values?.map((value) =>
+                  earlyVoteStatusToMart(String(value)),
+                ),
+              }
+            : op?.operator === 'eq' && op.value !== undefined
+              ? { ...op, value: earlyVoteStatusToMart(String(op.value)) }
+              : op
+        const statusClause = buildFieldFilter(bag, 'Early_Vote_Status', martOp)
         // Consumer-only constituents carry no score at all; they are Unknown
         // too, as with Voter_Status above.
         const selectsUnknown =
