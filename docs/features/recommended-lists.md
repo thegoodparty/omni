@@ -159,10 +159,10 @@ carry an answer. `unsure` rolls up to `undecided`.
 | Intent           | Variant                 | `voterStatus`                | Other filters                                                                  |
 | ---------------- | ----------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
 | Introduce myself | `introNeverIded`        | reliable †                   | `supportStatus` = unknown                                                      |
-| Persuade         | `persuadeAffinity`      | reliable †                   | `affinity` = true, early vote likely ‡                                         |
-| Persuade         | `persuadeIdeology`      | reliable †                   | `ideology` = target bucket, early vote likely ‡                                |
+| Persuade         | `persuadeAffinity`      | reliable †                   | `affinity` = true                                                              |
+| Persuade         | `persuadeIdeology`      | reliable †                   | `ideology` = target bucket                                                     |
 | Persuade         | `persuadeUndecided`     | reliable †                   | `supportStatus` = undecided                                                    |
-| Invite to event  | `eventSupporters`       | —                            | `supportStatus` = supporter, early vote likely ‡                               |
+| Invite to event  | `eventSupporters`       | —                            | `supportStatus` = supporter                                                    |
 | Invite to event  | `eventAffinity`         | high                         | `affinity` = true, `supportStatus` in (supporter, undecided, unknown, refused) |
 | Invite to event  | `eventIdeology`         | high                         | `ideology` = target bucket, same support exclusion                             |
 | Early voting     | `earlyVoteSupporters`   | —                            | `supportStatus` = supporter                                                    |
