@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
+  CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   isCivicPanelBuildCard,
@@ -39,6 +40,7 @@ import {
   ONBOARDING_CARD_ORDER,
 } from './onboardingCardsConfig'
 import type { DashboardCardType, OnboardingCardKey } from '../data/contracts'
+import { civicPanelHref } from '../../contacts/citizens-panel/citizensPanelCopy'
 
 // Same timing as the Campaign Manager's stack: the confetti bursts, then a
 // done card lifts off the top while a skipped one drops down and out.
@@ -67,6 +69,25 @@ type DeckCard = {
   // The build card, or the card for the panel plan's next step that takes
   // its place once it is done: same headline, same place in the deck.
   peopleFirst: boolean
+  // Tells the civic_panel cards apart in analytics.
+  variant: CardVariant
+}
+
+type CardVariant =
+  | 'panel_build'
+  | 'panel_step'
+  | 'priority_next_step'
+  | 'report_back'
+  | 'other'
+
+const cardVariant = (
+  card: Parameters<typeof isCivicPanelBuildCard>[0],
+): CardVariant => {
+  if (isCivicPanelBuildCard(card)) return 'panel_build'
+  if (isCivicPanelStepCard(card)) return 'panel_step'
+  if (card.type === 'civic_panel') return 'priority_next_step'
+  if (card.type === 'report_back') return 'report_back'
+  return 'other'
 }
 
 const HEADLINES: Record<DeckKind, string> = {
@@ -163,10 +184,14 @@ const TaskStack = ({
     summary: card.summary,
     dueDate: card.dueDate,
     ctaLabel: card.ctaLabel,
-    ctaHref: card.ctaHref,
+    ctaHref:
+      card.ctaHref === CIVIC_PANEL_PAGE_HREF
+        ? civicPanelHref('chief_of_staff_home')
+        : card.ctaHref,
     onboardingKey: null,
     buildsPanel: isCivicPanelBuildCard(card),
     peopleFirst: isCivicPanelBuildCard(card) || isCivicPanelStepCard(card),
+    variant: cardVariant(card),
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
     onboarding?.some((c) => c.key === key && c.status === 'active'),
@@ -181,6 +206,7 @@ const TaskStack = ({
     onboardingKey: key,
     buildsPanel: false,
     peopleFirst: false,
+    variant: 'other' as const,
   }))
   // A new official meets their Chief of Staff before anything else, then
   // builds the panel, then sets priorities.
@@ -243,6 +269,7 @@ const TaskStack = ({
   const cardProps = {
     cardId: front.id,
     cardType: front.kind,
+    cardVariant: front.variant,
     stackSize: deck.length,
   }
   const start = () =>
@@ -260,6 +287,7 @@ const TaskStack = ({
     trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
       ...cardProps,
       action: 'skip',
+      skipChoice: putOff ? 'snooze' : 'dismiss',
     })
     setLeaving({ card: front, stage: 'exit', direction: 'down' })
     if (front.onboardingKey) skipOnboarding.mutate(front.onboardingKey)
@@ -427,7 +455,13 @@ const TaskStack = ({
                     variant="ghost"
                     size="medium"
                     className={QUIET_ON_PHONE}
-                    onClick={() => onDiscussCard(EXPLAIN_CIVIC_PANEL_MESSAGE)}
+                    onClick={() => {
+                      trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
+                        ...cardProps,
+                        action: 'explain',
+                      })
+                      onDiscussCard(EXPLAIN_CIVIC_PANEL_MESSAGE)
+                    }}
                   >
                     What&apos;s a civic panel?
                   </Button>

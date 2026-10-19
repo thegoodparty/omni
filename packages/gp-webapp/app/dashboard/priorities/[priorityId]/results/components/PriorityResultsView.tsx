@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
@@ -7,6 +8,7 @@ import {
 } from '@goodparty_org/contracts'
 import { Button, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
@@ -14,6 +16,7 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
+import { WEIGHTING_STATUS } from '../../underHeardAnalytics'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
@@ -65,6 +68,19 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  useEffect(() => {
+    trackEvent(EVENTS.Priorities.ResultsViewed, {
+      priorityId,
+      heldBack: !readStatus.good,
+      weightingStatus: WEIGHTING_STATUS[readStatus.status],
+      answers: readStatus.answers,
+      answersNeeded: readStatus.needed,
+      respondentCount: respondents.total,
+      joinedCivicPanel: respondents.joinedCivicPanel,
+      representationShown: results.representation !== null,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorityId])
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">

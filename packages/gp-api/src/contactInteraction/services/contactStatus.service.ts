@@ -7,6 +7,9 @@ import {
   User,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { retryIf } from '@/shared/util/retry-if'
 
@@ -57,11 +60,35 @@ export class ContactStatusService extends createPrismaBase(
   // corrupting the append-only history. `FOR UPDATE` locks the current-state
   // row for the transaction's lifetime, serializing concurrent writers so
   // each sees the previous writer's committed value.
+  constructor(private readonly analytics: AnalyticsService) {
+    super()
+  }
+
   async changeStatus(input: ChangeStatusInput) {
-    return retryIf(() => this.attemptChangeStatus(input), {
+    const event = await retryIf(() => this.attemptChangeStatus(input), {
       shouldRetry: (err) => err instanceof CurrentStatusRaceError,
       retries: 1,
     })
+    // Every way onto or off the civic panel (a JOIN, LEAVE or STOP reply, a
+    // call or door answer, the official's own edit) writes through here.
+    if (event && event.field === ContactStatusField.civic_panel) {
+      await trackForOffice(
+        this.client,
+        this.analytics,
+        { organizationSlug: event.organizationSlug },
+        [
+          [
+            EVENTS.CivicPanel.MembershipChanged,
+            {
+              fromStatus: event.fromValue,
+              toStatus: event.toValue,
+              source: event.source,
+            },
+          ],
+        ],
+      )
+    }
+    return event
   }
 
   private async attemptChangeStatus(input: ChangeStatusInput) {

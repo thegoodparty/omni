@@ -96,6 +96,7 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
+import { trackUnderHeardTargeted } from '../underHeardAnalytics'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -217,6 +218,7 @@ const PriorityWorkspaceBody = ({
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
   const getAnswersRef = useRef(getAnswersOnOpen)
+  const openedReadRef = useRef(initialReadStatus)
   const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
     initialReadStatus,
   )
@@ -434,12 +436,25 @@ const PriorityWorkspaceBody = ({
 
   // Get answers asks the agent for a proposal; the official sends it from
   // the card, so this never sends anything to constituents itself.
-  const requestAnswers = useCallback((): void => {
-    // A second click before the button disables would queue it twice.
-    if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
-    pendingSent.current.push(GET_ANSWERS_MESSAGE)
-    setSentTick((tick) => tick + 1)
-  }, [])
+  const requestAnswers = useCallback(
+    (source: 'strip' | 'rail'): void => {
+      // A second click before the button disables would queue it twice.
+      if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
+      trackEvent(EVENTS.Priorities.MessageSent, {
+        priorityId,
+        via: 'get_answers',
+        source,
+      })
+      trackUnderHeardTargeted(
+        priorityId,
+        readStatus?.underrepresented ?? [],
+        source,
+      )
+      pendingSent.current.push(GET_ANSWERS_MESSAGE)
+      setSentTick((tick) => tick + 1)
+    },
+    [priorityId, readStatus],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -462,6 +477,19 @@ const PriorityWorkspaceBody = ({
           priorityId,
           currentStep: initialCurrentStep,
           isNewConversation: history.length === 0,
+          entry:
+            reportBackRef.current !== null
+              ? 'report_back'
+              : getAnswersRef.current
+                ? 'get_answers'
+                : 'direct',
+          ...(openedReadRef.current
+            ? {
+                goodRead: openedReadRef.current.good,
+                answers: openedReadRef.current.answers,
+                answersNeeded: openedReadRef.current.needed,
+              }
+            : {}),
         })
         // A report back card's turn is the opener on a fresh thread, and
         // otherwise waits its turn behind anything in flight, once per send.
@@ -477,7 +505,22 @@ const PriorityWorkspaceBody = ({
         const reportBackTurn =
           reportBackId === null ? null : reportBackMessage(reportBackId)
         const getAnswersTurn = getAnswers ? GET_ANSWERS_MESSAGE : null
+        const trackGetAnswers = () => {
+          trackEvent(EVENTS.Priorities.MessageSent, {
+            priorityId,
+            via: 'get_answers',
+            source: 'results_page',
+          })
+          trackUnderHeardTargeted(
+            priorityId,
+            openedReadRef.current?.underrepresented ?? [],
+            'results_page',
+          )
+        }
         if (history.length === 0) {
+          if (reportBackTurn === null && getAnswersTurn !== null) {
+            trackGetAnswers()
+          }
           sendRef.current(reportBackTurn ?? getAnswersTurn ?? KICKOFF, {
             hidden: true,
             idOverride: id,
@@ -503,6 +546,7 @@ const PriorityWorkspaceBody = ({
           getAnswersTurn !== null &&
           !sinceOfficial.some((m) => m.content === getAnswersTurn)
         ) {
+          trackGetAnswers()
           pendingSent.current.push(getAnswersTurn)
           setSentTick((tick) => tick + 1)
         }
@@ -704,7 +748,7 @@ const PriorityWorkspaceBody = ({
               <ReadStatusStrip
                 priorityId={priorityId}
                 readStatus={readStatus}
-                onGetAnswers={requestAnswers}
+                onGetAnswers={() => requestAnswers('strip')}
                 getAnswersDisabled={getAnswersDisabled}
               />
             ) : (
@@ -836,7 +880,7 @@ const PriorityWorkspaceBody = ({
             <ReadStatusRailBlock
               priorityId={priorityId}
               readStatus={readStatus}
-              onGetAnswers={requestAnswers}
+              onGetAnswers={() => requestAnswers('rail')}
               getAnswersDisabled={getAnswersDisabled}
             />
             <h2 className="text-base font-semibold text-foreground">

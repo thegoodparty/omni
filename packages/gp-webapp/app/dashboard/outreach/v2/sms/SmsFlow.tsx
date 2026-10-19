@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CITIZENS_PANEL_PATH } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
+import { civicPanelHref } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -552,7 +552,7 @@ export const SuccessScreen = ({
       )}
       {seedsPanel ? (
         <Button asChild size="large" className="w-full">
-          <Link href={CITIZENS_PANEL_PATH} onClick={onDone}>
+          <Link href={civicPanelHref('outreach')} onClick={onDone}>
             {SERVE_PANEL_SEED_SUCCESS_COPY.action}
           </Link>
         </Button>
@@ -1211,6 +1211,7 @@ export const SmsFlow = ({
     draftOutreachId,
     audience,
     tracker,
+    purpose,
     ...(proposalLink && !resumeDraft && { proposalLink }),
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
@@ -1865,6 +1866,11 @@ export const SmsFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
+        ...(purpose ? { purpose } : {}),
+        ...(proposalLink?.priorityId
+          ? { priorityId: proposalLink.priorityId }
+          : {}),
+        ...(surface.isServe ? { asksToJoinCivicPanel: asksToJoin } : {}),
       }),
     })
     await onScheduled()

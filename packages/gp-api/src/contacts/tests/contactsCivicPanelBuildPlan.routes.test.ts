@@ -7,6 +7,7 @@ import type {
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -1255,5 +1256,187 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
     const res = await skip(mine, stepOf(plan, 'text').id)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('civic panel analytics', () => {
+  const spyTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    onTestFinished(() => track.mockRestore())
+    return track
+  }
+
+  it('tracks the plan made, its hours changed, a skip and a step ticked done', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    stubPools(LARGE)
+
+    const plan = await createPlan(slug, 1)
+    await changeHours(slug, 1)
+    await changeHours(slug, 3)
+    await skip(slug, stepOf(plan, 'text').id)
+    await skip(slug, stepOf(plan, 'text').id)
+    await mark(slug, stepOf(plan, 'phone_banking').id, true)
+    await mark(slug, stepOf(plan, 'phone_banking').id, true)
+
+    const calls = (event: string) =>
+      track.mock.calls.filter(([, name]) => name === event)
+    expect(calls('Civic Panel - Plan Created')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Plan Created',
+        {
+          organizationSlug: slug,
+          planId: plan.data.plan?.id,
+          hoursPerWeek: 1,
+          goalMembers: 240,
+          membersAtStart: 0,
+          stepCount: 3,
+          textSteps: 1,
+          callSteps: 1,
+          doorSteps: 1,
+          surface: 'panel_page',
+        },
+      ],
+    ])
+    // Saving the same hours changes nothing, so only the move to 3 counts.
+    expect(calls('Civic Panel - Plan Updated')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Plan Updated',
+        {
+          organizationSlug: slug,
+          planId: plan.data.plan?.id,
+          fromHours: 1,
+          toHours: 3,
+          surface: 'panel_page',
+        },
+      ],
+    ])
+    expect(calls('Civic Panel - Step Skipped')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Skipped',
+        {
+          organizationSlug: slug,
+          stepId: stepOf(plan, 'text').id,
+          channel: 'text',
+          wave: 1,
+        },
+      ],
+    ])
+    expect(calls('Civic Panel - Step Completed')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Completed',
+        {
+          organizationSlug: slug,
+          stepId: stepOf(plan, 'phone_banking').id,
+          channel: 'phone_banking',
+          wave: 1,
+          how: 'marked',
+        },
+      ],
+    ])
+  })
+
+  it('reports a ticked step done once, even when its walk finishes after', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    stubDoors(60)
+    const plan = await createPlan(slug, 1)
+    const doors = stepOf(plan, 'door_knocking')
+    const { data: list } = await prepare(slug, doors.id)
+    if (!list.area) throw new Error('a door step draws an area')
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: list.voterFileFilterId,
+        name: 'Civic panel doors',
+        color: '#000000',
+        geoPoly: list.area,
+      },
+    })
+    const envelope = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingTurfId: turf.id,
+        status: OutreachStatus.in_progress,
+      },
+    })
+    await readPlan(slug)
+    const track = spyTrack()
+
+    await mark(slug, doors.id, true)
+    await service.prisma.outreach.update({
+      where: { id: envelope.id },
+      data: { status: OutreachStatus.completed },
+    })
+    await readPlan(slug)
+
+    const completed = track.mock.calls.filter(
+      ([, name]) => name === 'Civic Panel - Step Completed',
+    )
+    expect(completed).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Completed',
+        {
+          organizationSlug: slug,
+          stepId: doors.id,
+          channel: 'door_knocking',
+          wave: 1,
+          how: 'marked',
+        },
+      ],
+    ])
+  })
+
+  it('tracks a member joining and the goal reached, never who joined', async () => {
+    stubPopulation(2_000)
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    await createPlan(slug, 1)
+    const track = spyTrack()
+    for (let i = 0; i < 230; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    await readPlan(slug)
+    await readPlan(slug)
+
+    const joined = track.mock.calls.filter(
+      ([, name]) => name === 'Civic Panel - Membership Changed',
+    )
+    expect(joined).toHaveLength(230)
+    expect(joined[0]).toEqual([
+      service.user.id,
+      'Civic Panel - Membership Changed',
+      {
+        organizationSlug: slug,
+        fromStatus: CivicPanelStatus.left,
+        toStatus: CivicPanelStatus.member,
+        source: ContactStatusSource.manual,
+      },
+    ])
+    expect(
+      track.mock.calls.filter(
+        ([, name]) => name === 'Civic Panel - Goal Reached',
+      ),
+    ).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Goal Reached',
+        expect.objectContaining({
+          organizationSlug: slug,
+          members: 230,
+          goalMembers: 230,
+          waves: 1,
+        }),
+      ],
+    ])
   })
 })

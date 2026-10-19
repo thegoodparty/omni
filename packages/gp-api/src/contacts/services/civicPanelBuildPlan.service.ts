@@ -31,6 +31,12 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import {
+  EVENTS,
+  type SegmentTrackEventProperties,
+} from 'src/vendors/segment/segment.types'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -108,6 +114,9 @@ type PlanRow = Prisma.CivicPanelBuildPlanGetPayload<{
 
 type Office = { id: string; organizationSlug: string }
 
+// Where the official answered the weekly time question.
+export type CivicPanelPlanSurface = 'panel_page' | 'chief_of_staff'
+
 // A panel's census read is kept this long per set of members, so the plan
 // page, its cards and the Chief of Staff do not each re-read the warehouse.
 const MIX_CACHE_MS = 15 * 60 * 1000
@@ -183,10 +192,23 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     private readonly contactStatusService: ContactStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly analytics: AnalyticsService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
   ) {
     super()
+  }
+
+  private track(
+    office: Office,
+    events: [string, SegmentTrackEventProperties][],
+  ): Promise<void> {
+    return trackForOffice(
+      this.client,
+      this.analytics,
+      { id: office.id },
+      events,
+    )
   }
 
   private readonly mixes = new Map<
@@ -197,6 +219,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   async create(
     organization: Organization,
     hoursPerWeek: number,
+    surface: CivicPanelPlanSurface,
   ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
     if (await this.findActive(office.id)) {
@@ -222,8 +245,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         'Everyone we can reach has already been invited',
       )
     }
+    let planId: string
     try {
-      await this.client.$transaction(async (tx) => {
+      planId = await this.client.$transaction(async (tx) => {
         await this.lockOffice(tx, office.id)
         const active = await tx.civicPanelBuildPlan.findFirst({
           where: {
@@ -235,7 +259,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         if (active) {
           throw new ConflictException('This office already has a panel plan')
         }
-        await tx.civicPanelBuildPlan.create({
+        const plan = await tx.civicPanelBuildPlan.create({
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
@@ -243,7 +267,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
+          select: { id: true },
         })
+        return plan.id
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -251,6 +277,24 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       }
       throw error
     }
+    const stepsOn = (channel: CivicPanelBuildChannel) =>
+      steps.filter((step) => step.channel === channel).length
+    await this.track(office, [
+      [
+        EVENTS.CivicPanel.PlanCreated,
+        {
+          planId,
+          hoursPerWeek,
+          goalMembers,
+          membersAtStart: members,
+          stepCount: steps.length,
+          textSteps: stepsOn(CivicPanelBuildChannel.text),
+          callSteps: stepsOn(CivicPanelBuildChannel.phone_banking),
+          doorSteps: stepsOn(CivicPanelBuildChannel.door_knocking),
+          surface,
+        },
+      ],
+    ])
     return this.read(organization)
   }
 
@@ -260,8 +304,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   async updateHours(
     organization: Organization,
     hoursPerWeek: number,
+    surface: CivicPanelPlanSurface,
   ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
+    const before = await this.findActive(office.id)
     const updated = await this.model.updateMany({
       where: {
         electedOfficeId: office.id,
@@ -271,6 +317,19 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     })
     if (updated.count === 0) {
       throw new NotFoundException('This office has no panel plan to change')
+    }
+    if (before && before.hoursPerWeek !== hoursPerWeek) {
+      await this.track(office, [
+        [
+          EVENTS.CivicPanel.PlanUpdated,
+          {
+            planId: before.id,
+            fromHours: before.hoursPerWeek,
+            toHours: hoursPerWeek,
+            surface,
+          },
+        ],
+      ])
     }
     return this.read(organization)
   }
@@ -303,10 +362,18 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This step has already started')
     }
     if (!step.skippedAt) {
-      await this.client.civicPanelBuildStep.updateMany({
+      const skipped = await this.client.civicPanelBuildStep.updateMany({
         where: { id: step.id, startedAt: null, skippedAt: null },
         data: { skippedAt: new Date() },
       })
+      if (skipped.count > 0) {
+        await this.track(office, [
+          [
+            EVENTS.CivicPanel.StepSkipped,
+            { stepId: step.id, channel: step.channel, wave: step.wave },
+          ],
+        ])
+      }
     }
     return this.read(organization)
   }
@@ -323,9 +390,12 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       where: { id: stepId, plan: { electedOfficeId: office.id } },
       select: {
         id: true,
+        wave: true,
         channel: true,
         skippedAt: true,
         startedAt: true,
+        completedAt: true,
+        markedDone: true,
         plan: { select: { status: true } },
       },
     })
@@ -345,6 +415,21 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       where: { id: step.id },
       data: { markedDone: done, markedAt: new Date() },
     })
+    // A step's completion is reported once: here, or by the read when its
+    // list finished first.
+    if (done && step.markedDone !== true && !step.completedAt) {
+      await this.track(office, [
+        [
+          EVENTS.CivicPanel.StepCompleted,
+          {
+            stepId: step.id,
+            channel: step.channel,
+            wave: step.wave,
+            how: 'marked',
+          },
+        ],
+      ])
+    }
     return this.read(organization)
   }
 
@@ -573,16 +658,35 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       ) {
         continue
       }
-      await this.syncStep(organization, step, step.voterFileFilterId, now)
+      await this.syncStep(
+        organization,
+        office,
+        step,
+        step.voterFileFilterId,
+        now,
+      )
     }
     if (members >= plan.goalMembers) {
-      await this.model.updateMany({
+      const closed = await this.model.updateMany({
         where: { id: plan.id, status: CivicPanelBuildPlanStatus.active },
         data: {
           status: CivicPanelBuildPlanStatus.completed,
           completedAt: now,
         },
       })
+      if (closed.count > 0) {
+        await this.track(office, [
+          [
+            EVENTS.CivicPanel.GoalReached,
+            {
+              planId: plan.id,
+              members,
+              goalMembers: plan.goalMembers,
+              waves: Math.max(1, ...plan.steps.map((s) => s.wave)),
+            },
+          ],
+        ])
+      }
       return
     }
     const synced = await this.client.civicPanelBuildStep.findMany({
@@ -646,6 +750,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   // done, when.
   private async syncStep(
     organization: Organization,
+    office: Office,
     step: StepRow,
     voterFileFilterId: number,
     now: Date,
@@ -666,10 +771,37 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         : before !== after
     })
     if (!changed) return
-    await this.client.civicPanelBuildStep.update({
-      where: { id: step.id },
+    // Conditional on the start and finish this read saw, so of two reads
+    // racing over the same step only one records (and reports) the change.
+    const written = await this.client.civicPanelBuildStep.updateMany({
+      where: {
+        id: step.id,
+        startedAt: step.startedAt,
+        completedAt: step.completedAt,
+      },
       data,
     })
+    if (written.count === 0) return
+    const events: [string, SegmentTrackEventProperties][] = []
+    const base = { stepId: step.id, channel: step.channel, wave: step.wave }
+    if (!step.startedAt && data.startedAt) {
+      events.push([EVENTS.CivicPanel.StepStarted, base])
+    }
+    // A ticked or unticked step reads off the official's mark, so its list
+    // finishing is not a completion (mark reported the tick).
+    if (!step.completedAt && data.completedAt && step.markedDone === null) {
+      events.push([
+        EVENTS.CivicPanel.StepCompleted,
+        {
+          ...base,
+          how:
+            data.completedAt.getTime() === now.getTime()
+              ? 'finished'
+              : 'window_ended',
+        },
+      ])
+    }
+    await this.track(office, events)
   }
 
   private async textTimeline(

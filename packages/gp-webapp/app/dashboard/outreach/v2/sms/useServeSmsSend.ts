@@ -1,5 +1,6 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { format } from 'date-fns'
+import { findCivicPanelJoinLine } from '@goodparty_org/contracts'
 import type {
   ProposalLink,
   RecommendedList,
@@ -118,6 +119,7 @@ export interface UseServeSmsSendInput {
   // event unjoinable to its task the moment the hub wires one up, and
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
+  purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
   create: ServeSmsCreateFn | undefined
@@ -154,6 +156,7 @@ export const useServeSmsSend = ({
   draftOutreachId,
   audience,
   tracker,
+  purpose,
   proposalLink,
   reportBackForOutreachId,
   create,
@@ -273,6 +276,12 @@ export const useServeSmsSend = ({
             // the same way on both products.
             audienceSource: 'savedList',
             ...(tracker ? { tracker } : {}),
+            ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
+            asksToJoinCivicPanel:
+              findCivicPanelJoinLine(composedMessage) !== null,
           }),
         })
       } catch {
@@ -299,6 +308,7 @@ export const useServeSmsSend = ({
     composedMessage,
     name,
     image,
+    purpose,
     create,
     setDraftOutreachId,
     setDraftCreateError,

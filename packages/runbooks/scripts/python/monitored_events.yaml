@@ -73,7 +73,6 @@ events:
   - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
   # Serve net-new onboarding (magic link + OTP, PR #198; first seen 2026-06)
   - {event: "Serve Onboarding - Pledge Completed",      product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Serve Onboarding - Know Your Constituents Completed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Office Completed",      product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Net New Completed",     product: serve, family: serve, floor: null, owner: TBD}
 
@@ -794,7 +793,6 @@ dismissed:
   - {event: "Community Issues - List Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Community Issues - Issue Detail Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Serve Onboarding - Pledge Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
-  - {event: "Serve Onboarding - Know Your Constituents Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Serve Onboarding - Welcome Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Serve Onboarding - Term Dates Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Serve Onboarding - Party Designation Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}

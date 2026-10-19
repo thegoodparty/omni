@@ -1,6 +1,16 @@
 import { CIVIC_PANEL_SEGMENT } from '@goodparty_org/contracts'
 
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
+
+// Where the official came to the panel page from, for its Panel Viewed event.
+export const CIVIC_PANEL_ENTRY_PARAM = 'from'
+export type CivicPanelEntry =
+  | 'chief_of_staff_home'
+  | 'chief_of_staff_chat'
+  | 'contacts'
+  | 'outreach'
+export const civicPanelHref = (from: CivicPanelEntry): string =>
+  `${CITIZENS_PANEL_PATH}?${CIVIC_PANEL_ENTRY_PARAM}=${from}`
 // The built-in list under Constituent lists. The segment doubles as the list
 // id in the path, the way "all" does for All constituents.
 export const CITIZENS_PANEL_LIST_PATH = `/dashboard/contacts/lists/${CIVIC_PANEL_SEGMENT}`
