@@ -158,6 +158,8 @@ export const SmsReviewStep = ({
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  // A send the offer fully covers is never a hold: gp-api prices it $0, and
+  // the flow waits for the built list before it opens checkout for one.
   const isFree =
     checkoutSession?.amount === 0 ||
     (hasFreeTextsOffer &&
