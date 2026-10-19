@@ -3,7 +3,7 @@ title: The civic panel's opinion model runs in gp-api as TypeScript, not as a wa
 status: active
 decided_by: [agent]
 date: 2026-10-19
-code: ['#2962']
+code: ['#2969']
 scope:
   - packages/gp-api/src/priorities/util/mrp.util.ts
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts

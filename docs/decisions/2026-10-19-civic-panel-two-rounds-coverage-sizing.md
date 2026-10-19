@@ -3,7 +3,7 @@ title: Civic panel outreach runs in two rounds set up once, sized for coverage, 
 status: active
 decided_by: [samuelgoodparty]
 date: 2026-10-19
-code: ['#2962']
+code: ['#2969']
 scope:
   - docs/features/civic-panel-mrp.md
   - packages/gp-api/src/priorities/util/mrp.util.ts
