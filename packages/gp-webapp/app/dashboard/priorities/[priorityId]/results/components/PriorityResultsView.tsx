@@ -16,6 +16,7 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
+import { WEIGHTING_STATUS } from '../../underHeardAnalytics'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
@@ -71,6 +72,7 @@ export const PriorityResultsView = ({
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
       heldBack: !readStatus.good,
+      weightingStatus: WEIGHTING_STATUS[readStatus.status],
       answers: readStatus.answers,
       answersNeeded: readStatus.needed,
       respondentCount: respondents.total,

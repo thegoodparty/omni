@@ -25,6 +25,12 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `priorities`, then `pledge` (button "Meet your Chief of Staff", lands on the
   Chief of Staff home).
 
+Each story step has its own `Viewed` / `Completed` pair, named for what it
+tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
+Voices, Where Your Community Stands, Build And Grow Your List), and
+`priorities` fires Priorities Viewed / Completed with shown and selected
+counts.
+
 Every Continue writes the step id to `ElectedOffice.onboardingStep`. gp-api
 validates it against `SERVE_ONBOARDING_STEPS`
 (`gp-api/src/electedOffice/schemas/electedOffice.schema.ts`); a new step id

@@ -96,6 +96,7 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
+import { trackUnderHeardTargeted } from '../underHeardAnalytics'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -217,6 +218,7 @@ const PriorityWorkspaceBody = ({
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
   const getAnswersRef = useRef(getAnswersOnOpen)
+  const openedReadRef = useRef(initialReadStatus)
   const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
     initialReadStatus,
   )
@@ -443,10 +445,15 @@ const PriorityWorkspaceBody = ({
         via: 'get_answers',
         source,
       })
+      trackUnderHeardTargeted(
+        priorityId,
+        readStatus?.underrepresented ?? [],
+        source,
+      )
       pendingSent.current.push(GET_ANSWERS_MESSAGE)
       setSentTick((tick) => tick + 1)
     },
-    [priorityId],
+    [priorityId, readStatus],
   )
 
   useEffect(() => {
@@ -476,21 +483,14 @@ const PriorityWorkspaceBody = ({
               : getAnswersRef.current
                 ? 'get_answers'
                 : 'direct',
-          ...(initialReadStatus
+          ...(openedReadRef.current
             ? {
-                goodRead: initialReadStatus.good,
-                answers: initialReadStatus.answers,
-                answersNeeded: initialReadStatus.needed,
+                goodRead: openedReadRef.current.good,
+                answers: openedReadRef.current.answers,
+                answersNeeded: openedReadRef.current.needed,
               }
             : {}),
         })
-        if (getAnswersRef.current) {
-          trackEvent(EVENTS.Priorities.MessageSent, {
-            priorityId,
-            via: 'get_answers',
-            source: 'results_page',
-          })
-        }
         // A report back card's turn is the opener on a fresh thread, and
         // otherwise waits its turn behind anything in flight, once per send.
         const reportBackId = reportBackRef.current
@@ -505,7 +505,22 @@ const PriorityWorkspaceBody = ({
         const reportBackTurn =
           reportBackId === null ? null : reportBackMessage(reportBackId)
         const getAnswersTurn = getAnswers ? GET_ANSWERS_MESSAGE : null
+        const trackGetAnswers = () => {
+          trackEvent(EVENTS.Priorities.MessageSent, {
+            priorityId,
+            via: 'get_answers',
+            source: 'results_page',
+          })
+          trackUnderHeardTargeted(
+            priorityId,
+            openedReadRef.current?.underrepresented ?? [],
+            'results_page',
+          )
+        }
         if (history.length === 0) {
+          if (reportBackTurn === null && getAnswersTurn !== null) {
+            trackGetAnswers()
+          }
           sendRef.current(reportBackTurn ?? getAnswersTurn ?? KICKOFF, {
             hidden: true,
             idOverride: id,
@@ -531,6 +546,7 @@ const PriorityWorkspaceBody = ({
           getAnswersTurn !== null &&
           !sinceOfficial.some((m) => m.content === getAnswersTurn)
         ) {
+          trackGetAnswers()
           pendingSent.current.push(getAnswersTurn)
           setSentTick((tick) => tick + 1)
         }

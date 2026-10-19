@@ -25,6 +25,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import type { ProUpgradeChannel } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackUnderHeardTargeted } from 'app/dashboard/priorities/[priorityId]/underHeardAnalytics'
 import type { TcrCompliance } from 'helpers/types'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
@@ -389,6 +390,9 @@ export const ProposalFlowsProvider = ({
         !winGateRun.current(proposal.channel)
       ) {
         return
+      }
+      if (proposal.areaTarget === 'unreached' && priorityId !== undefined) {
+        trackUnderHeardTargeted(priorityId, ['unreachedAreas'], 'proposal_card')
       }
       if (proposal.channel === 'doorKnocking') {
         void openDoorKnocking({

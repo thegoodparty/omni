@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -87,6 +88,7 @@ const openCard = async (proposal: Proposal) => {
 // Every list the card saves, as the server would return them.
 let saved: Record<string, unknown>[] = []
 beforeEach(() => {
+  vi.mocked(trackEvent).mockClear()
   saved = []
   smsFlow.props = null
   window.localStorage.clear()
@@ -136,6 +138,34 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
     expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+  })
+})
+
+describe('a priority card kept to the parts of the district not reached yet', () => {
+  it('saves the list with the area and counts the area as targeted', async () => {
+    await openCard({ ...panelAndFresh, areaTarget: 'unreached' })
+
+    expect(saved[0]).toMatchObject({ unreachedAreaOfPriorityId: 'priority-1' })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Priorities.UnderHeardGroupTargeted,
+      {
+        priorityId: 'priority-1',
+        dimension: 'area',
+        group: 'unreached_areas',
+        targetType: 'area',
+        rank: 1,
+        source: 'proposal_card',
+      },
+    )
+  })
+
+  it('counts nothing for a card with no area target', async () => {
+    await openCard(panelAndFresh)
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Priorities.UnderHeardGroupTargeted,
+      expect.anything(),
+    )
   })
 })
 

@@ -149,7 +149,7 @@ describe('CivicPanelNextStepCard', () => {
     expect(flow).toHaveAttribute('data-purpose', 'build_citizens_panel')
     expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
       'href',
-      '/dashboard/contacts/citizens-panel',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
     )
   })
 

@@ -815,8 +815,12 @@ export const EVENTS = {
     ListViewed: 'Priorities - List Viewed',
     PriorityViewed: 'Priorities - Priority Viewed',
     MessageSent: 'Priorities - Message Sent',
-    // `heldBack` is true while the priority has no good read yet.
+    // `heldBack` is true while the priority has no good read yet;
+    // `weightingStatus` is the read's status against the census.
     ResultsViewed: 'Priorities - Results Viewed',
+    // Get answers on a read that names a group to hear more from, or a card
+    // kept to the parts of the district not reached yet. Buckets only.
+    UnderHeardGroupTargeted: 'Priorities - Under-Heard Group Targeted',
   },
   CivicPanel: {
     PanelViewed: 'Civic Panel - Panel Viewed',

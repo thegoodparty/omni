@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import type { PriorityResults } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PriorityResultsView } from './PriorityResultsView'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 vi.mock('./RespondentHeatGrid', () => ({
   RespondentHeatGrid: ({ points }: { points: unknown[] }) => (
@@ -223,5 +229,20 @@ describe('PriorityResultsView', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('More than their share')).not.toBeInTheDocument()
+  })
+
+  it('records the view with the read status against the census', () => {
+    renderView(results())
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.ResultsViewed, {
+      priorityId: 'p1',
+      heldBack: false,
+      weightingStatus: 'representative',
+      answers: 25,
+      answersNeeded: 20,
+      respondentCount: 25,
+      joinedCivicPanel: 6,
+      representationShown: true,
+    })
   })
 })

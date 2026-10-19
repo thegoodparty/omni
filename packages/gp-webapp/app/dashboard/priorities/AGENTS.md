@@ -6,14 +6,14 @@ done this term, and where they open one to work it forward. Gated by
 
 ## Files
 
-| File                             | Role                                                                                                  |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `layout.tsx`                     | The flag gate for the whole segment. Flag off redirects to Chief of Staff                             |
-| `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page |
+| File                             | Role                                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `layout.tsx`                     | The flag gate for the whole segment. Flag off redirects to Chief of Staff                                                                  |
+| `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page                                      |
 | `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below. Adding a priority (form or seed lane) opens its conversation |
-| `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                            |
-| `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`             |
-| `priorityFormCopy.ts`            | The add form's questions and limits, shared with Serve onboarding's priorities step                   |
+| `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                                                                 |
+| `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`                                                  |
+| `priorityFormCopy.ts`            | The add form's questions and limits, shared with Serve onboarding's priorities step                                                        |
 
 `[priorityId]/` is the detail view and carries its own doc.
 
@@ -65,8 +65,16 @@ it is, what to do next, and where it has got to.
 
 Everything fires under `Priorities -`. The browser fires what only it sees:
 `List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
-opened on and whether the thread is new) and `Message Sent` (`via` composer or
-clarify; the hidden kickoff and sent markers are not counted). Creates,
+opened on, whether the thread is new, its `entry` and the read it opened
+with) and `Message Sent` (`via` composer, clarify or get_answers, the last
+with `source` strip, rail or results_page and only when the turn is actually
+queued; the hidden kickoff and sent markers are not counted). `Results Viewed`
+fires on the results page with `heldBack` and `weightingStatus` (the read's
+status, snake case). `Under-Heard Group Targeted` fires once per group a read
+names when the official presses Get answers, and once when a card kept to the
+parts of the district not reached yet is opened (`underHeardAnalytics.ts`):
+`dimension` age, tenure, gender or area, a `group` bucket, `targetType` group
+or area, never a coordinate. Creates,
 archives, step moves, check moves and `Plan Completed` are server truth and
 fire from gp-api (`EVENTS.Priorities` in `segment.types.ts`), because the Chief
 of Staff and Community Issues create and archive too, and only the agent's

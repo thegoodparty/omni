@@ -3171,7 +3171,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
       'href',
-      '/dashboard/contacts/citizens-panel',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
     )
   })
 

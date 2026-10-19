@@ -221,6 +221,7 @@ describe('PriorityWorkspace', () => {
       priorityId: 'pri-1',
       currentStep: 'define',
       isNewConversation: true,
+      entry: 'direct',
     })
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Priorities.MessageSent,
@@ -1166,6 +1167,42 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Representative/)).not.toBeInTheDocument()
     })
 
+    it('counts Get answers against each group the read names', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: skewed,
+      })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.UnderHeardGroupTargeted,
+        {
+          priorityId: 'pri-1',
+          dimension: 'tenure',
+          group: 'renters',
+          targetType: 'group',
+          rank: 1,
+          source: 'rail',
+        },
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.UnderHeardGroupTargeted,
+        {
+          priorityId: 'pri-1',
+          dimension: 'age',
+          group: 'age_65_plus',
+          targetType: 'group',
+          rank: 2,
+          source: 'rail',
+        },
+      )
+    })
+
     it('names who to hear more from once there are enough answers', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: skewed,
@@ -1207,10 +1244,18 @@ describe('PriorityWorkspace', () => {
         expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
       )
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Priorities.MessageSent,
-        expect.anything(),
-      )
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
+        priorityId: 'pri-1',
+        via: 'get_answers',
+        source: 'rail',
+      })
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([event]) => event === EVENTS.Priorities.MessageSent,
+          ),
+      ).toHaveLength(1)
     })
 
     it('asks once when the results page sent the official here', async () => {
@@ -1228,6 +1273,11 @@ describe('PriorityWorkspace', () => {
         '/dashboard/priorities/pri-1',
         { scroll: false },
       )
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
+        priorityId: 'pri-1',
+        via: 'get_answers',
+        source: 'results_page',
+      })
     })
 
     it('does not ask again when a reload kept the results page link', async () => {
@@ -1258,6 +1308,10 @@ describe('PriorityWorkspace', () => {
 
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(mocks.streamMessage).not.toHaveBeenCalled()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Priorities.MessageSent,
+        expect.anything(),
+      )
     })
 
     it('asks once for a double click on Get answers', async () => {

@@ -1866,7 +1866,7 @@ export const SmsFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
-        ...(surface.isServe && purpose ? { purpose } : {}),
+        ...(purpose ? { purpose } : {}),
         ...(proposalLink?.priorityId
           ? { priorityId: proposalLink.priorityId }
           : {}),
