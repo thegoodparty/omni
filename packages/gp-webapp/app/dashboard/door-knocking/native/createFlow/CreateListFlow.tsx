@@ -209,7 +209,7 @@ interface CreateListFlowProps {
   // gp-api's answer for the shape the candidate asked about — the addresses
   // themselves, and the exact counts that come with them. Non-null only while
   // it describes the ring currently on screen, and when it is non-null it is
-  // what this step reports (ADR 0010): the estimate above becomes the loading
+  // what this step reports: the estimate above becomes the loading
   // state for it rather than a second figure beside it.
   addressPreview: DoorKnockingAddressPreviewResponse | null
   previewPending: boolean

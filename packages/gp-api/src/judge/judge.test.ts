@@ -1,7 +1,7 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageRole, ChatScope } from '@/generated/prisma'
-import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
+import { JUDGE_CHAT_EMAIL } from './judgeTelemetry.util'
 import { useTestService } from '@/test-service'
 import { JudgeTurnTelemetryService } from './services/judgeTurnTelemetry.service'
 
@@ -75,7 +75,7 @@ const seedTurn = async (args: {
 const becomeJudge = async () =>
   service.prisma.user.update({
     where: { id: service.user.id },
-    data: { email: JUDGE_FIXTURE.email },
+    data: { email: JUDGE_CHAT_EMAIL },
   })
 
 describe('GET /v1/judge/conversations/:id/turns', () => {

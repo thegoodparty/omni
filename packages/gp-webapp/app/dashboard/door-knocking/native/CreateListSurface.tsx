@@ -196,7 +196,7 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
 // SEAM — the create-list flow (Wave 1B).
 //
 // This surface owns: every step of the wizard and everything a step asks of
-// gp-api. That is now the whole address-preview machinery (ADR 0010) — which
+// gp-api. That is now the whole address-preview machinery — which
 // shape was asked about, whether the answer still describes it, and the four
 // props the draw step reads off it — because nothing outside this flow has
 // ever read a preview. It also owns the who step's list picker and the
@@ -441,7 +441,7 @@ export default function CreateListSurface({
     [savedListsQuery.data, selectedListId],
   )
 
-  // The shape the candidate asked for addresses about (ADR 0010). Not a
+  // The shape the candidate asked for addresses about. Not a
   // boolean, because it is what makes an answer belong to one ring: a preview
   // is fetched for the shape that was on screen when it was asked for, and a
   // vertex moved since means the list on screen describes a boundary that no
@@ -449,8 +449,8 @@ export default function CreateListSurface({
   // nothing — no request is ever made by drawing.
   const [previewRing, setPreviewRing] = useState<PolygonRing | null>(null)
   // The addresses inside the shape that was asked about, from gp-api's
-  // evaluation rather than from the pack — the pack carries no address at all
-  // (ADR 0010). Closing the ring the way the save path does, so the polygon
+  // evaluation rather than from the pack — the pack carries no address at
+  // all. Closing the ring the way the save path does, so the polygon
   // previewed and the polygon saved are the same geometry.
   const previewPolygon = useMemo(() => {
     if (!previewRing) return null
@@ -461,11 +461,11 @@ export default function CreateListSurface({
         : previewRing
     return { type: 'Polygon' as const, coordinates: [closed] }
   }, [previewRing])
-  // The draft plus whatever the draft cannot hold. `filters` is booleans, and
-  // a saved list's support-status, activity and precinct clauses are not — so
+  // The draft plus whatever the draft cannot hold. `filters` is booleans, and a
+  // saved list's support-status, activity and precinct clauses are not — so
   // assembling this request from the draft alone asked gp-api about the whole
-  // district inside the ring, and the draw step printed that as the exact
-  // count the route would be built from (ADR 0010's whole point is that these
+  // district inside the ring, and the draw step printed that as the exact count
+  // the route would be built from (the preview's whole point is that these
   // counts are the knock's own). The pack cannot shade those clauses and says
   // so; this endpoint CAN evaluate them, and does.
   //

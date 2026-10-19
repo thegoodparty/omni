@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JUDGE_ORG_SLUG_PREFIX as RUNNER_PREFIX } from '@/chats/evals/judge/runners/background'
 import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
+import { JUDGE_CLERK_EMAIL } from '@/chats/evals/judge/judgeClerkSession'
 import { chatOrgSlug } from '@/testFixtures/judgeChatFixture/seed'
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 
@@ -27,7 +28,7 @@ import {
   judgeToolNames,
   judgeToolQueries,
   judgeToolSteps,
-  JUDGE_FIXTURE_EMAIL,
+  JUDGE_CHAT_EMAIL,
   JUDGE_ORG_SLUG_PREFIX,
   PROMPT_HASH_VERSION,
 } from './judgeTelemetry.util'
@@ -45,14 +46,19 @@ describe('JUDGE_ORG_SLUG_PREFIX', () => {
   })
 })
 
-describe('JUDGE_FIXTURE_EMAIL', () => {
-  // Copied rather than imported because the guard that reads it ships in the
-  // production build and `src/chats/evals/**` does not, so importing the
-  // harness there resolves in vitest and then throws MODULE_NOT_FOUND in the
-  // container. This test is the only thing keeping the copy honest, and it
-  // can import the harness freely because it never ships.
-  it('matches the account the judge fixture seeds', () => {
-    expect(JUDGE_FIXTURE_EMAIL).toBe(JUDGE_FIXTURE.email)
+describe('JUDGE_CHAT_EMAIL', () => {
+  // The chat judge and the background fixture are DIFFERENT accounts, and
+  // this test exists to stop them being merged again. judgeFixtureSeed.ts
+  // seeds a gp-api user holding JUDGE_FIXTURE.email under a placeholder
+  // clerk id, for agents that authenticate with a broker token and never
+  // reach Clerk. `User.email` is unique, so a real Clerk account under that
+  // same address cannot be provisioned and every chat request 401s.
+  it('is not the background fixture address', () => {
+    expect(JUDGE_CHAT_EMAIL).not.toBe(JUDGE_FIXTURE.email)
+  })
+
+  it('is the address the Clerk helper provisions', () => {
+    expect(JUDGE_CLERK_EMAIL).toBe(JUDGE_CHAT_EMAIL)
   })
 })
 

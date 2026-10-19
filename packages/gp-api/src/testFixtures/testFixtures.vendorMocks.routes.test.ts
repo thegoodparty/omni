@@ -125,6 +125,7 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
     )
 
     expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.vendorMode).toBe('mock')
     expect(res.data.records).toHaveLength(2)
     expect(
       res.data.records.every(

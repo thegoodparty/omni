@@ -95,11 +95,11 @@ const ResidentRow = ({
     <span className="min-w-0 flex-1 truncate">
       {target.name ?? 'Name unavailable'}
     </span>
-    {/* ADR 0007 and 0008. Read before walking up, not after opening the sheet,
-        so the marker REPLACES the knock status rather than sitting beside it —
-        a flagged resident knocked before the flag was set still carries one,
-        and "Do not knock" next to the unknown label is two answers to one
-        question. */}
+    {/* Do-not-knock and not-a-voter. Read before walking up, not after
+        opening the sheet, so the marker REPLACES the knock status rather than
+        sitting beside it — a flagged resident knocked before the flag was set
+        still carries one, and "Do not knock" next to the unknown label is two
+        answers to one question. */}
     {targetMarker(target) ? (
       <span className="shrink-0 rounded-full border border-warning px-2 py-0.5 text-xs font-medium text-warning">
         {targetMarker(target)}
@@ -237,25 +237,25 @@ export default function WalkView({
   }
   const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) =>
     patchPerson(personId, (target) => ({ ...target, knockStatus }))
-  // ADR 0007. Same cache patch as a knock, so the marker sticks while the
+  // Do-not-knock. Same cache patch as a knock, so the marker sticks while the
   // canvasser moves down the list; the server is the truth on refetch.
   const applyDoNotKnock = (personId: string, doNotKnock: boolean) =>
     patchPerson(personId, (target) => ({ ...target, doNotKnock }))
-  // ADR 0008. `cleared` arrives from the server as an absent reason, which is
-  // how the route payload spells it too — so undoing a flag patches the same
+  // Not-a-voter. `cleared` arrives from the server as an absent reason, which
+  // is how the route payload spells it too — so undoing a flag patches the same
   // key back to nothing rather than needing a second notion of "not flagged".
   const applyNotAVoter = (
     personId: string,
     notAVoterReason: NotAVoterReason | undefined,
   ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
-  // ADR 0011. A note written at a door is the same kind of fact as a knock:
+  // Notes. A note written at a door is the same kind of fact as a knock:
   // recorded by this walk, and absent from the payload the walk was served
   // with. So it takes the same road, into the cached payload the sheet reads —
   // which makes the cache the door's ONE copy of a resident's notes, with
   // nothing beside it that could disagree. Held instead in state above the card
   // it would die with the sheet, and a note written on a door that was then
   // closed without being logged would read as gone when that door was reopened:
-  // `openSheet`'s ADR 0009 refresh only fires for a resident logged this
+  // `openSheet`'s activity-feed refresh only fires for a resident logged this
   // session, so nothing would go and ask for it either.
   //
   // Two properties come free with `patchPerson` and are the reason to reuse it
@@ -286,7 +286,7 @@ export default function WalkView({
     stopId: number
     targetId: number
   } | null>(null)
-  // ADR 0009. A resident's activity feed rides the route payload, so a door
+  // A resident's activity feed rides the route payload, so a door
   // logged during the walk is missing from that resident's own feed until the
   // next serve — while the status it produced updates everywhere else in the
   // panel, which makes the feed read as broken rather than as stale. The row
@@ -316,10 +316,10 @@ export default function WalkView({
   }
   const refreshFeedFor = (targetId: number) =>
     refreshFeedForPerson(targetForId(targetId)?.personId)
-  // ADR 0009's one documented residual, and the reason it was left as one: a
-  // `not_a_voter` door deliberately keeps its sheet open so the ADR 0008
-  // follow-up can be answered, so neither trigger above ever fires for that
-  // resident. Refreshing on the knock is what the ADR ruled out — the serve
+  // The activity feed's one known residual, and the reason it was left as
+  // one: a `not_a_voter` door deliberately keeps its sheet open so the
+  // not-a-voter follow-up can be answered, so neither trigger above ever fires
+  // for that resident. Refreshing on the knock is ruled out — the serve
   // rebuilds `NotAVoterControl`, whose two branches switch on
   // `notAVoterReason`, underneath the question being answered.
   //
@@ -329,8 +329,8 @@ export default function WalkView({
   // sheet is already unmounting, so there is nothing left for the serve to
   // arrive under. Narrow on purpose — every other outcome auto-advances and is
   // covered by `openSheet`, and refreshing on every sheet close would be the
-  // per-door serve ADR 0009 rejected. A reason already given takes this branch
-  // out, because that path asked for its own serve.
+  // per-door serve that fails at the door when signal is bad. A reason already
+  // given takes this branch out, because that path asked for its own serve.
   const refreshFeedOnAbandonedFollowUp = (targetId: number) => {
     const target = targetForId(targetId)
     if (target?.knockStatus !== 'not_a_voter' || target.notAVoterReason) return
@@ -782,21 +782,23 @@ export default function WalkView({
                           <span className="inline-flex items-center gap-1">
                             <UsersIcon size={14} aria-hidden="true" />
                             {/* Knockable people, like every people figure in
-                                this feature (routeCounts): ADR 0007 and 0008
-                                residents are dropped, so this and the progress
-                                bar's denominator are the same population. */}
+                                this feature (routeCounts): do-not-knock and
+                                not-a-voter residents are dropped, so this and
+                                the progress bar's denominator are the same
+                                population. */}
                             <span className="tabular-nums">
                               {stopKnockable(stop).length === 1
                                 ? '1 person'
                                 : `${stopKnockable(stop).length} people`}
                             </span>
                           </span>
-                          {/* ADR 0007 and 0008. A stop with nobody left says so
-                              outright rather than reading as an empty house —
-                              its rollup colour is the same grey as
-                              still-to-knock, and this is the only thing that
-                              tells those two apart. Distinct markers only:
-                              three deceased residents is one thing to read. */}
+                          {/* Do-not-knock and not-a-voter. A stop with nobody
+                              left says so outright rather than reading as an
+                              empty house — its rollup colour is the same grey
+                              as still-to-knock, and this is the only thing
+                              that tells those two apart. Distinct markers
+                              only: three deceased residents is one thing to
+                              read. */}
                           {!stopIsKnockable(stop) && (
                             <span className="font-medium text-warning">
                               Nobody to knock here
@@ -1044,8 +1046,8 @@ export default function WalkView({
           knockDrafts={knockDrafts}
           onRecorded={(targetId, personId, knockStatus) => {
             applyKnockStatus(personId, knockStatus)
-            // ADR 0009. The served payload now predates this resident's own
-            // history, so reopening them asks for a fresh one.
+            // Activity feed. The served payload now predates this resident's
+            // own history, so reopening them asks for a fresh one.
             setLoggedPersonIds((current) => new Set(current).add(personId))
             onKnockRecorded?.()
             onClientKeysChange((current) => {
@@ -1053,11 +1055,11 @@ export default function WalkView({
               next.delete(targetId)
               return next
             })
-            // ADR 0008. Every other outcome walks on; this one has a follow-up
-            // waiting in the sheet, and advancing would ask "what happened?"
-            // and take the answer away in the same frame. The door is already
-            // saved either way, so a canvasser who ignores the question and
-            // taps the next stop has still logged it.
+            // Not-a-voter. Every other outcome walks on; this one has a
+            // follow-up waiting in the sheet, and advancing would ask "what
+            // happened?" and take the answer away in the same frame. The door
+            // is already saved either way, so a canvasser who ignores the
+            // question and taps the next stop has still logged it.
             if (knockStatus === 'not_a_voter') return
             advanceFrom(targetId)
           }}
@@ -1073,12 +1075,13 @@ export default function WalkView({
           onDoNotKnockChanged={applyDoNotKnock}
           onNotAVoterChanged={(personId, notAVoterReason) => {
             applyNotAVoter(personId, notAVoterReason)
-            // ADR 0009's residual, closed. The question this resident's sheet
-            // was held open for has just been answered, so the control a serve
-            // would rebuild is already the marker that answer resolves to —
-            // which is what makes the deferred refresh safe here and not on
-            // the knock. After the patch, so the patch's own cancellation of
-            // an older in-flight serve can't take this one with it.
+            // The activity feed's residual, closed. The question this
+            // resident's sheet was held open for has just been answered, so the
+            // control a serve would rebuild is already the marker that answer
+            // resolves to — which is what makes the deferred refresh safe here
+            // and not on the knock. After the patch, so the patch's own
+            // cancellation of an older in-flight serve can't take this one with
+            // it.
             refreshFeedForPerson(personId)
           }}
           onClose={() => {

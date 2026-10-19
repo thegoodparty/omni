@@ -164,6 +164,8 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
             sendDate: new Date(),
             listId: turf.id,
             launchSource: recalledLaunchSource('doorKnocking', turf.id),
+            priorityId:
+              completed?.data.priorityId ?? turf.priorityId ?? undefined,
           }),
           method: 'turf',
         })

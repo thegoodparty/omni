@@ -2642,6 +2642,80 @@ describe('door-knocking routes', () => {
           )
         }
       })
+
+      // The completion event counts a walk toward the priority whose card
+      // opened it, and a sibling turf has no link of its own to read.
+      it("names the card's priority on every turf of its campaign", async () => {
+        const { slug, headers, filterId } = await serveOrg('campaign-priority')
+        const office = await service.prisma.electedOffice.findFirstOrThrow({
+          where: { organizationSlug: slug },
+        })
+        const priority = await service.prisma.priority.create({
+          data: {
+            electedOfficeId: office.id,
+            title: 'Fix the flooding on Maple',
+            description: 'The drains back up every storm.',
+            source: PrioritySource.user_stated,
+          },
+        })
+        const body = {
+          voterFileFilterId: filterId,
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
+        }
+        const first = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            ...body,
+            name: 'Maple 1',
+            proposalKey: '0a5b7fc3-4d6e-4f80-9b92-d3e4f5a6b7c8',
+            priorityId: priority.id,
+          },
+          headers,
+        )
+        expect(first.status).toBe(201)
+        expect(first.data.priorityId).toBe(priority.id)
+        const second = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            ...body,
+            name: 'Maple 2',
+            campaignOutreachId: first.data.outreachId,
+          },
+          headers,
+        )
+        expect(second.status).toBe(201)
+        expect(second.data.priorityId).toBe(priority.id)
+        const unlinked = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          { ...body, name: 'Elsewhere' },
+          headers,
+        )
+        expect(unlinked.data.priorityId).toBeNull()
+
+        const done = await service.client.post(
+          `/v1/door-knocking/turfs/${second.data.id}/complete`,
+          {},
+          headers,
+        )
+        expect(done.data).toMatchObject({
+          completed: true,
+          priorityId: priority.id,
+        })
+
+        const campaign = await service.client.post(
+          `/v1/door-knocking/campaigns/${first.data.outreachId}/complete`,
+          {},
+          headers,
+        )
+        expect(
+          campaign.data.map(
+            (turf: { priorityId: string | null }) => turf.priorityId,
+          ),
+        ).toEqual([priority.id, priority.id])
+      })
     })
   })
   // Creation stopping at the turf, and the route being bought at the door.
@@ -3600,10 +3674,10 @@ describe('door-knocking routes', () => {
       ).toHaveLength(0)
     })
 
-    // ADR 0009. The feed rides the route payload rather than a per-person
+    // The feed rides the route payload rather than a per-person
     // fetch, so these assertions are what the walk has to work from when the
     // canvasser is a block into a dead zone.
-    describe('per-resident activity feed (ADR 0009)', () => {
+    describe('per-resident activity feed', () => {
       const historyFor = (
         res: { data: { stops: unknown } },
         personId: string,
@@ -3782,7 +3856,7 @@ describe('door-knocking routes', () => {
       })
 
       // The cap is what keeps the payload's cost independent of how long a
-      // person's CRM history runs — see ADR 0009's measurements.
+      // person's CRM history runs; uncapped history made the payload too big.
       it(`caps a long history at ${ROUTE_TARGET_ACTIVITY_LIMIT} rows, keeping the newest`, async () => {
         await service.prisma.contactInteractionText.createMany({
           data: Array.from({ length: 12 }, (_, index) => ({
@@ -3829,10 +3903,10 @@ describe('door-knocking routes', () => {
       })
     })
 
-    // ADR 0011. Notes ride the payload for the reason the feed does: the
+    // Notes ride the payload for the reason the feed does: the
     // at-the-door sheet is fetch-free, so anything it cannot show from what
     // the walk opened with is not there when a canvasser is out of signal.
-    describe('resident notes (ADR 0011)', () => {
+    describe('resident notes', () => {
       const notesFor = (res: { data: { stops: unknown } }, personId: string) =>
         (
           res.data.stops as Array<{
@@ -4863,9 +4937,10 @@ describe('door-knocking routes', () => {
       ).toBe('non_supporter')
     })
 
-    // ADR 0009. The walk patches its own cache so the card updates without a
-    // refetch; this is the other half — a re-serve agrees with what the phone
-    // already showed, so leaving and re-entering the walk doesn't drop it.
+    // Activity feed. The walk patches its own cache so the card updates
+    // without a refetch; this is the other half — a re-serve agrees with what
+    // the phone already showed, so leaving and re-entering the walk doesn't
+    // drop it.
     it("the recorded knock shows up in that resident's feed on the next serve", async () => {
       stubVendors({ residents: { addresses: [] } })
       const turf = await createTurf()
@@ -5647,7 +5722,7 @@ describe('door-knocking routes', () => {
         expect(events).toHaveLength(0)
       })
     })
-    describe('do-not-knock (ADR 0007)', () => {
+    describe('do-not-knock', () => {
       const setDoNotKnock = (body: Record<string, unknown>) =>
         service.client.post('/v1/door-knocking/do-not-knock', body, {
           ...orgHeaders(),
@@ -5855,7 +5930,7 @@ describe('door-knocking routes', () => {
       // this route handed the adapter, which is the value under test's input
       // rather than its output.
     })
-    describe('not-a-voter (ADR 0008)', () => {
+    describe('not-a-voter', () => {
       const setNotAVoter = (body: Record<string, unknown>) =>
         service.client.post('/v1/door-knocking/not-a-voter', body, {
           ...orgHeaders(),
@@ -6098,7 +6173,7 @@ describe('door-knocking routes', () => {
         ).toBe(true)
       })
 
-      // The point of the feature, and the ADR 0007 trap: this turf's saved
+      // The point of the feature, and the do-not-knock trap: this turf's saved
       // list carries no filters at all, which is exactly the case where an
       // `idOverrides`-shaped exclusion would contribute nothing. Both reasons
       // suppress, and a person who is also do-not-knock appears once.
@@ -6484,7 +6559,7 @@ describe('door-knocking routes', () => {
     })
   })
 
-  // ADR 0010. The knock's own evaluation, run without the vendor call, so the
+  // The knock's own evaluation, run without the vendor call, so the
   // draw step can name the doors before anything is bought.
   describe('address preview', () => {
     const previewOpts = () => ({ ...orgHeaders(), validateStatus: () => true })
@@ -6605,7 +6680,7 @@ describe('door-knocking routes', () => {
       expect(res.data).toMatchObject({ stops: 0, audienceEmpty: true })
     })
 
-    it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
+    it('asks evaluation to drop the org suppressed people', async () => {
       await createTurf()
       const target =
         await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
@@ -6788,7 +6863,7 @@ describe('door-knocking routes', () => {
     })
 
     // The whole reason this can fire on a list pick rather than on a press.
-    // ADR 0010 made the address preview explicit because it buys a people-db
+    // The address preview is an explicit request because it buys a people-db
     // scan; if this one did too, moving the check earlier would just move that
     // cost earlier with it.
     it('reads no voter data and spends no vendor credit', async () => {
@@ -6843,7 +6918,7 @@ describe('door-knocking routes', () => {
         ['get', `/v1/door-knocking/turfs/${turfId}`, undefined],
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
-        // ADR 0010: a read of voter data, so it is gated with the rest.
+        // Address preview: a read of voter data, so it is gated with the rest.
         [
           'post',
           '/v1/door-knocking/address-preview',

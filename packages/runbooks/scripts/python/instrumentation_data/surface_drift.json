@@ -9,7 +9,7 @@
    "min_coverage": 0.5,
    "min_users": 5
   },
-  "traced": 364,
+  "traced": 362,
   "unmapped_prefixes": {
    "Campaign Manager": 1,
    "Civic Panel": 1,
@@ -18,16 +18,16 @@
    "Win": 7
   },
   "verdicts": {
-   "consistent": 166,
+   "consistent": 165,
    "dashboard_wide": 49,
    "flow": 67,
    "moved": 7,
    "moved_then_quiet": 9,
-   "stale_area_name": 41,
+   "stale_area_name": 40,
    "unclear": 34,
    "unmapped": 22
   },
-  "web_events": 395
+  "web_events": 393
  },
  "rows": {
   "Campaign Story - Rewrite Accepted": {
@@ -35,6 +35,22 @@
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
+   ],
+   "area_options": [
+    {
+     "area": "Your Story",
+     "display_name": "Your Story - Rewrite Accepted",
+     "fires_on": "Your Story (/dashboard/campaign-story)",
+     "surface": "your-story",
+     "url": "/dashboard/campaign-story"
+    },
+    {
+     "area": "Candidate Onboarding",
+     "display_name": "Candidate Onboarding - Rewrite Accepted",
+     "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+     "surface": "candidate-onboarding",
+     "url": "/onboarding/office-selection"
+    }
    ],
    "areas": [
     "Your Story",
@@ -79,6 +95,22 @@
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
    ],
+   "area_options": [
+    {
+     "area": "Your Story",
+     "display_name": "Your Story - Rewrite Discarded",
+     "fires_on": "Your Story (/dashboard/campaign-story)",
+     "surface": "your-story",
+     "url": "/dashboard/campaign-story"
+    },
+    {
+     "area": "Candidate Onboarding",
+     "display_name": "Candidate Onboarding - Rewrite Discarded",
+     "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+     "surface": "candidate-onboarding",
+     "url": "/onboarding/office-selection"
+    }
+   ],
    "areas": [
     "Your Story",
     "Candidate Onboarding"
@@ -122,6 +154,22 @@
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
    ],
+   "area_options": [
+    {
+     "area": "Your Story",
+     "display_name": "Your Story - Rewrite Limit Reached",
+     "fires_on": "Your Story (/dashboard/campaign-story)",
+     "surface": "your-story",
+     "url": "/dashboard/campaign-story"
+    },
+    {
+     "area": "Candidate Onboarding",
+     "display_name": "Candidate Onboarding - Rewrite Limit Reached",
+     "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+     "surface": "candidate-onboarding",
+     "url": "/onboarding/office-selection"
+    }
+   ],
    "areas": [
     "Your Story",
     "Candidate Onboarding"
@@ -156,6 +204,22 @@
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
+   ],
+   "area_options": [
+    {
+     "area": "Your Story",
+     "display_name": "Your Story - Rewrite Requested",
+     "fires_on": "Your Story (/dashboard/campaign-story)",
+     "surface": "your-story",
+     "url": "/dashboard/campaign-story"
+    },
+    {
+     "area": "Candidate Onboarding",
+     "display_name": "Candidate Onboarding - Rewrite Requested",
+     "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+     "surface": "candidate-onboarding",
+     "url": "/onboarding/office-selection"
+    }
    ],
    "areas": [
     "Your Story",
@@ -230,50 +294,6 @@
     "impersonated": 9,
     "on_reached": 53,
     "users": 34
-   },
-   "source": "detector",
-   "surface_options": [
-    "constituents",
-    "voter-data"
-   ],
-   "verdict": "stale_area_name"
-  },
-  "Contacts - Assistant Message Sent": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/contacts"
-   ],
-   "areas": [
-    "Voter Data"
-   ],
-   "claimed": "Contacts",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Contacts - Assistant Message Sent",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-19",
-   "live_routes": [
-    "/dashboard/contacts/[[...attr]]"
-   ],
-   "okr": false,
-   "proposed_display_name": "Voter Data - Assistant Message Sent",
-   "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "voter-data",
-   "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 1.0,
-    "attributed": 114,
-    "coverage": 0.927,
-    "fires": 123,
-    "impersonated": 9,
-    "on_reached": 114,
-    "users": 33
    },
    "source": "detector",
    "surface_options": [
@@ -1220,6 +1240,22 @@
     "/dashboard",
     "/dashboard/campaign-plan"
    ],
+   "area_options": [
+    {
+     "area": "Home",
+     "display_name": "Home - Campaign Task Completed",
+     "fires_on": "Home (/dashboard, /dashboard/campaign-plan)",
+     "surface": "home",
+     "url": ""
+    },
+    {
+     "area": "Campaign Plan",
+     "display_name": "Campaign Plan - Campaign Task Completed",
+     "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+     "surface": "campaign-plan",
+     "url": "/dashboard/campaign-plan"
+    }
+   ],
    "areas": [
     "Home",
     "Campaign Plan"
@@ -1302,6 +1338,22 @@
    "area_keys": [
     "/dashboard/issue-capture/[outreachId]/review",
     "/volunteer/door-knocking/[turfId]/review"
+   ],
+   "area_options": [
+    {
+     "area": "Notes to review",
+     "display_name": "Notes to review - Pending Memo Confirmed",
+     "fires_on": "Notes to review (/dashboard/issue-capture/[outreachId]/review)",
+     "surface": "notes-to-review",
+     "url": "/dashboard/issue-capture/[outreachId]/review"
+    },
+    {
+     "area": "Notes to review",
+     "display_name": "Notes to review - Pending Memo Confirmed",
+     "fires_on": "Notes to review (/volunteer/door-knocking/[turfId]/review)",
+     "surface": "notes-to-review",
+     "url": "/volunteer/door-knocking/[turfId]/review"
+    }
    ],
    "areas": [
     "Notes to review",
@@ -1554,6 +1606,22 @@
     "/serve/welcome",
     "/win/welcome"
    ],
+   "area_options": [
+    {
+     "area": "welcome",
+     "display_name": "welcome - Magic Link Clicked",
+     "fires_on": "welcome (/serve/welcome)",
+     "surface": "welcome",
+     "url": "/serve/welcome"
+    },
+    {
+     "area": "welcome",
+     "display_name": "welcome - Magic Link Clicked",
+     "fires_on": "welcome (/win/welcome)",
+     "surface": "welcome",
+     "url": "/win/welcome"
+    }
+   ],
    "areas": [
     "welcome",
     "welcome"
@@ -1721,6 +1789,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Do Not Knock Cleared",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Do Not Knock Cleared",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1755,6 +1839,22 @@
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Door Logged",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Door Logged",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",
@@ -1871,6 +1971,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Not A Voter Reason Cleared",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Not A Voter Reason Cleared",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1906,6 +2022,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Not A Voter Reason Set",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Not A Voter Reason Set",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1940,6 +2072,22 @@
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Route Build Failed",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Route Build Failed",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",
@@ -1984,6 +2132,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Abandoned",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Abandoned",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -2027,6 +2191,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Completed",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Completed",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -2069,6 +2249,22 @@
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Started",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Started",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",

@@ -162,6 +162,7 @@ const NO_WALK_TURF: DoorKnockingTurf = {
   peopleCount: 0,
   loggedCount: 0,
   routeSeconds: 0,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date(0),

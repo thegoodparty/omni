@@ -156,7 +156,6 @@ on every outcome, naming No One Home specifically — so our departure was the
 right one and the prototype was the thing out of step. Product went further and
 asked for many notes per resident, each timestamped and editable, which is a
 different store from the knock's single `note`: reads now ride the route payload
-under [ADR 0011](../../../../gp-api/docs/adr/0011-contact-notes-on-the-route-payload.md)
 so the door still opens with no signal, and writes go to the CRM's existing
 contact-note endpoints.
 
@@ -172,7 +171,7 @@ afterwards as an optional prompt.
 
 **Evidence** — `AGENTS.md` line 61, the second of the two deliberate departures:
 
-> ADR 0008's follow-up is **optional**, and a door that is only written once an
+> The not-a-voter follow-up is **optional**, and a door that is only written once an
 > optional question has been answered is a door lost whenever the canvasser
 > walks away mid-question.
 

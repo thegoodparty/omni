@@ -10,7 +10,6 @@ import {
   parseISO,
 } from 'date-fns'
 import { z } from 'zod'
-import { JUDGE_FIXTURE } from './judgeFixtureIdentity'
 
 // A REAL SIGNED-IN USER FOR THE CHAT ARMS, minted outside them.
 //
@@ -228,11 +227,21 @@ export interface ClerkUserApi {
   }
 }
 
-// The address is not a choice. src/judge's access guard compares the caller's
-// email to JUDGE_FIXTURE_EMAIL and answers 404 on anything else, so an account
-// under a different address authenticates and then cannot read its own
-// telemetry. Both constants are asserted equal in judgeTelemetry.util.test.ts.
-export const JUDGE_CLERK_EMAIL = JUDGE_FIXTURE.email
+// The chat judge's own address, NOT JUDGE_FIXTURE.email. The fixture
+// identity belongs to the background agents, which authenticate with a
+// broker token and never reach Clerk; its gp-api row already holds that
+// address, and `User.email` is unique, so a Clerk account under it cannot
+// be provisioned and every request 401s. src/judge's access guard compares
+// against this same constant, and judgeTelemetry.util.test.ts pins them
+// together.
+// A COPY, not an import of src/judge's JUDGE_CHAT_EMAIL, for the reason
+// JUDGE_ORG_SLUG_PREFIX is copied there: importing across the boundary drags
+// the whole module graph with it. `judgeTelemetry.util` pulls in
+// `appEnvironment.util`, which calls requireEnv('WEBAPP_ROOT_URL') at module
+// load, so the judging entry died on an unrelated variable before it could
+// name the one actually missing. judgeTelemetry.util.test.ts asserts the two
+// constants are equal, from the test side, where importing both is free.
+export const JUDGE_CLERK_EMAIL = 'judge-chat@example.com'
 
 // Find, then create. Idempotent on purpose: the mint step runs once per sweep
 // against a Clerk instance shared by every preview and every CI shard, whose

@@ -144,6 +144,7 @@ export const sampleWeightsSchema = z.object({
   age: sampleWeightFactorsSchema,
   gender: sampleWeightFactorsSchema,
   tract: sampleWeightFactorsSchema,
+  race: sampleWeightFactorsSchema,
   minWeight: z.number().positive(),
   maxWeight: z.number().positive(),
 })

@@ -9,15 +9,24 @@ import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 // asserts the two never drift.
 export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 
-// A copy of the judge account's address for the same reason as the prefix
-// above, and this one is load-bearing rather than cosmetic: tsconfig.build
-// and .swcrc.build drop `src/chats/evals/**` from the production build, so a
-// module under `src/judge/` that imports the harness compiles and tests
-// clean and then fails at `require` time in the container, which ECS sees as
-// a crash-looping task rather than as a build error. judgeTelemetry.util.
-// test.ts asserts this equals JUDGE_FIXTURE.email, from the test side of
-// that boundary, where importing the harness is fine.
-export const JUDGE_FIXTURE_EMAIL = 'judge-sweep@example.com'
+// THE CHAT JUDGE'S OWN ADDRESS, and deliberately not the background
+// fixture's. The two identities were conflated once and it cost a live
+// sweep: `judgeFixtureSeed.ts` seeds a gp-api user holding
+// judge-sweep@example.com under the placeholder clerk id
+// `user_judge_fixture`, because background agents authenticate with a
+// self-signed broker token that `Session.guard.ts` restricts to the MCP
+// endpoint and never reaches Clerk at all. A chat arm needs a REAL Clerk
+// session, so it needs a real Clerk account — and an account under the
+// fixture's address cannot be provisioned, because `User.email` is unique
+// and the fixture row already holds it. gp-api turns that failed lookup
+// into a bare 401, which reads like a bad token rather than a taken email.
+// Measured against dev: the fixture address 401s, a distinct one returns
+// 200 and provisions.
+//
+// Copied rather than imported for the reason the prefix above is:
+// tsconfig.build drops `src/chats/evals/**`, so a module that ships cannot
+// import the harness. judgeTelemetry.util.test.ts pins the two together.
+export const JUDGE_CHAT_EMAIL = 'judge-chat@example.com'
 
 // Names the implementation that produced `promptHash`. A reader compares two
 // hashes only when their versions match, so bump this on any change to what

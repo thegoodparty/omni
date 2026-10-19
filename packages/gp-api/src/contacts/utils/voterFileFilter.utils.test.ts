@@ -124,12 +124,12 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
   })
 })
 
-// ADR 0010, for age. The door-knocking map shades from the pack's age buckets
-// while knock time sends the `ageInt` bounds above to people-api, so the two
-// have to select the same people for every key and every age — otherwise the
-// count under the map and the list it previews are two answers to one
-// question, which is worse than the honest "the map can't shade this" the
-// disclosure used to give for 65+.
+// One quantity, one number, for age. The door-knocking map shades from the
+// pack's age buckets while knock time sends the `ageInt` bounds above to
+// people-api, so the two have to select the same people for every key and
+// every age — otherwise the count under the map and the list it previews are
+// two answers to one question, which is worse than the honest "the map can't
+// shade this" the disclosure used to give for 65+.
 //
 // Both sides now read one table (contracts' AGE_FILTER_KEY_RANGES): this
 // conversion builds its ranges from it and PackAgeBuckets cuts the buckets
