@@ -849,10 +849,10 @@ it is the uncorrected 96. The panel's own math is in
 `ContactsService.getDistrictPopulation` reads the population
 (`StatsService.findDistrictPopulation`, the census mart's
 `district_population` on its own, without the voter scan) and folds any
-failure into null. The priority flow reads it instead through
-`PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hands the figure to
-both its panel sizing and `readStatuses`.
+failure into null. The priority flow and the Chief of Staff chat read it
+instead through `PriorityResultsService.districtPopulation` (the memoized
+`CensusCompositionSource.population`), once per turn, and hand the figure to
+both their panel sizing and `readStatuses`.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
