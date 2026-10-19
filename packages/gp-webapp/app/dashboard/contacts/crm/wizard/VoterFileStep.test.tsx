@@ -209,6 +209,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Prior contacts made',
       'Support status',
       'Voter likelihood',
+      'Early vote likelihood',
       'Political party',
       'Age',
       'Marital status',
