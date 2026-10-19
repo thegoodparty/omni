@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
+  type GeoJsonShape,
   type PriorityReadStatus,
   type PriorityResults,
   type PriorityResultsChannel,
@@ -25,8 +26,12 @@ import {
   CENSUS_COMPOSITION_SOURCE,
   representationFrom,
   type CensusCompositionSource,
+  type CensusWeighting,
 } from './censusComposition'
-import { priorityReadStatus } from '../util/priorityReadStatus.util'
+import {
+  minAnswersForStatus,
+  priorityReadStatus,
+} from '../util/priorityReadStatus.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
   [OutreachType.text]: 'text',
@@ -39,6 +44,8 @@ const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
 const roundCoordinate = (value: number): number =>
   Math.round(value * 1000) / 1000
 
+const WEIGHTING_CACHE_MS = 15 * 60 * 1000
+
 interface SendRespondents {
   send: PriorityResultsSend
   respondentIds: string[]
@@ -46,6 +53,11 @@ interface SendRespondents {
 
 @Injectable()
 export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
+  private readonly weightings = new Map<
+    string,
+    { weighting: CensusWeighting; expiresAt: number }
+  >()
+
   constructor(
     private readonly moduleRef: ModuleRef,
     @Inject(CENSUS_COMPOSITION_SOURCE)
@@ -102,6 +114,12 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const population = await this.districtPopulation(organization)
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
+    const weighting = await this.weightingOf(
+      organization,
+      priorityId,
+      ids,
+      population,
+    )
 
     const representation =
       ids.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
@@ -111,6 +129,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
               personIds: ids,
             }),
             ids.length,
+            weighting,
           )
         : null
 
@@ -121,7 +140,11 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
 
     return {
       priorityId,
-      readStatus: priorityReadStatus({ answers: ids.length, population }),
+      readStatus: priorityReadStatus({
+        answers: ids.length,
+        population,
+        weighting: weighting?.read ?? null,
+      }),
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
       themes,
@@ -144,7 +167,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     ])
     return (
       statuses.get(priorityId) ??
-      priorityReadStatus({ answers: 0, population: null })
+      priorityReadStatus({ answers: 0, population: null, weighting: null })
     )
   }
 
@@ -158,23 +181,39 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     knownPopulation?: number | null,
   ): Promise<Map<string, PriorityReadStatus>> {
     if (priorityIds.length === 0) return new Map()
-    const populationRead =
-      knownPopulation !== undefined
-        ? Promise.resolve(knownPopulation)
-        : this.client.organization
-            .findUniqueOrThrow({ where: { slug: organizationSlug } })
-            .then((organization) => this.districtPopulation(organization))
+    const organization = await this.client.organization.findUniqueOrThrow({
+      where: { slug: organizationSlug },
+    })
     const [sends, population] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
-      populationRead,
+      knownPopulation !== undefined
+        ? Promise.resolve(knownPopulation)
+        : this.districtPopulation(organization),
     ])
     return new Map(
-      priorityIds.map((id) => {
-        const people = new Set(
-          (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
-        )
-        return [id, priorityReadStatus({ answers: people.size, population })]
-      }),
+      await Promise.all(
+        priorityIds.map(async (id): Promise<[string, PriorityReadStatus]> => {
+          const people = [
+            ...new Set(
+              (sends.get(id) ?? []).flatMap((send) => send.respondentIds),
+            ),
+          ]
+          const weighting = await this.weightingOf(
+            organization,
+            id,
+            people,
+            population,
+          )
+          return [
+            id,
+            priorityReadStatus({
+              answers: people.length,
+              population,
+              weighting: weighting?.read ?? null,
+            }),
+          ]
+        }),
+      ),
     )
   }
 
@@ -230,6 +269,66 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       const district =
         await this.resolveContacts().resolveEligibleDistrict(organization)
       return await this.census.population(district)
+    } catch {
+      return null
+    }
+  }
+
+  // The parts of the district a priority's answers have barely reached, for
+  // a list saved to hear from them. 404 on a priority another org holds.
+  async unreachedAreaFor(
+    organizationSlug: string,
+    priorityId: string,
+  ): Promise<GeoJsonShape | null> {
+    const priority = await this.model.findFirst({
+      where: { id: priorityId, electedOffice: { organizationSlug } },
+      select: { id: true },
+    })
+    if (!priority) throw new NotFoundException('Priority not found')
+    const organization = await this.client.organization.findUniqueOrThrow({
+      where: { slug: organizationSlug },
+    })
+    const sends = await this.sendsFor(organizationSlug, [priorityId])
+    const people = [
+      ...new Set(
+        (sends.get(priorityId) ?? []).flatMap((send) => send.respondentIds),
+      ),
+    ]
+    const district =
+      await this.resolveContacts().resolveEligibleDistrict(organization)
+    return this.census.unreachedArea({ ...district, personIds: people })
+  }
+
+  // Below the answers a status needs, there is nothing to weigh yet, so
+  // the warehouse is not asked. Every Chief of Staff and priority turn reads
+  // the status, and a weighting is three warehouse reads, so one is kept for
+  // a while per priority and answer count: a new answer is a new key. A
+  // failure is never kept, so the next read tries again.
+  private async weightingOf(
+    organization: Organization,
+    priorityId: string,
+    personIds: string[],
+    population: number | null,
+  ): Promise<CensusWeighting | null> {
+    if (personIds.length < minAnswersForStatus(population)) return null
+    const key = `${organization.slug}:${priorityId}:${personIds.length}`
+    const now = Date.now()
+    const kept = this.weightings.get(key)
+    if (kept && kept.expiresAt > now) return kept.weighting
+    try {
+      const district =
+        await this.resolveContacts().resolveEligibleDistrict(organization)
+      const weighting = await this.census.weighting({ ...district, personIds })
+      if (weighting) {
+        for (const [stale, entry] of this.weightings) {
+          if (entry.expiresAt <= now) this.weightings.delete(stale)
+        }
+        this.weightings.set(key, {
+          weighting,
+          expiresAt: now + WEIGHTING_CACHE_MS,
+        })
+      }
+      return weighting
     } catch {
       return null
     }

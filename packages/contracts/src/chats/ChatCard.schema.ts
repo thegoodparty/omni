@@ -194,6 +194,19 @@ export const OutreachProposalSchema = z.object({
         'read_report_back. The card goes to everyone it reached who has not ' +
         'opted out since.',
     ),
+  /**
+   * On a priority: keep the audience to the parts of the district its
+   * answers have not reached. The list is saved with that area as a drawn
+   * boundary, built by gp-api when the list is saved; no card carries
+   * coordinates.
+   */
+  areaTarget: z
+    .enum(['unreached'])
+    .optional()
+    .describe(
+      'unreached to keep the audience to the parts of the district this ' +
+        "priority's answers have not reached. The app draws the area.",
+    ),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 

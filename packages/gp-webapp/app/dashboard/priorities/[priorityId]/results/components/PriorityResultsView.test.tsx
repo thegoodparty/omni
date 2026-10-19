@@ -14,7 +14,13 @@ const results = (
   overrides: Partial<PriorityResults> = {},
 ): PriorityResults => ({
   priorityId: 'p1',
-  readStatus: { answers: 25, needed: 20, good: true },
+  readStatus: {
+    answers: 25,
+    needed: 20,
+    good: true,
+    status: 'representative',
+    underrepresented: [],
+  },
   sends: [
     {
       outreachId: 4,
@@ -70,7 +76,15 @@ const renderView = (data: PriorityResults) =>
 describe('PriorityResultsView', () => {
   describe('before a good read', () => {
     const early = () =>
-      results({ readStatus: { answers: 25, needed: 96, good: false } })
+      results({
+        readStatus: {
+          answers: 25,
+          needed: 96,
+          good: false,
+          status: 'tooEarly',
+          underrepresented: [],
+        },
+      })
 
     it('shows who answered and how many answers a good read still needs', () => {
       renderView(early())
@@ -91,9 +105,7 @@ describe('PriorityResultsView', () => {
       renderView(early())
 
       expect(
-        screen.getByText(
-          "It's too early to tell what your community thinks. We'll show what we heard once you have a good read.",
-        ),
+        screen.getByText("It's too early to tell what your community thinks."),
       ).toBeInTheDocument()
       expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
       expect(
@@ -113,6 +125,34 @@ describe('PriorityResultsView', () => {
         '/dashboard/priorities/p1?getAnswers=1',
       )
     })
+  })
+
+  it('names the groups to hear more from when answers do not look like the district', () => {
+    renderView(
+      results({
+        readStatus: {
+          answers: 140,
+          needed: 96,
+          good: false,
+          status: 'gettingClose',
+          underrepresented: ['unreachedAreas'],
+        },
+      }),
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Getting close' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We're hearing less from some groups than live in your district. We'll show what we heard once answers look like your district.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("people in parts of your district we haven't reached"),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
   })
 
   it('shows everything once there is a good read', () => {

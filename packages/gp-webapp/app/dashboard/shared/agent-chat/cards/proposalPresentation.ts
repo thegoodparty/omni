@@ -100,7 +100,10 @@ export const proposedAudienceOf = (
     | 'panelSampleSize'
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
+    | 'areaTarget'
   >,
+  // The priority the card was offered on, which an unreached area belongs to.
+  priorityId?: string,
 ): ProposedAudience | undefined => {
   // A report back is everyone one send reached, with no criteria of its own.
   const filters =
@@ -120,6 +123,8 @@ export const proposedAudienceOf = (
     precincts: list(filters.precincts),
     name: proposalListName(proposal),
     ...(sample && { sample }),
+    ...(proposal.areaTarget === 'unreached' &&
+      priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
   }
 }
 

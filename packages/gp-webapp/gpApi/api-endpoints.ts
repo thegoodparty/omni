@@ -1496,6 +1496,8 @@ export type APIEndpoints = {
   // the PUT, omitting it keeps whatever the row already holds, like every
   // other key of this partial update. `geoPolyLabels` names and colours each
   // part, aligned by index, and is only read beside `geoPoly`.
+  // `unreachedAreaOfPriorityId` has gp-api draw the boundary instead: the
+  // parts of the district that priority's answers have barely reached.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
@@ -1503,6 +1505,7 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
+      unreachedAreaOfPriorityId?: string
     } & Record<string, unknown>
     Response: SegmentResponse
   }
