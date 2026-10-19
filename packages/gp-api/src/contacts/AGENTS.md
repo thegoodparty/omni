@@ -978,12 +978,12 @@ priority read's rule (at least 5 points), null once representative. The
 official never sees a share, weight or target.
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, not wired
-yet). Leans a priority's follow-up text batches toward the groups a model of
-the answers is least sure about, rather than toward census gaps:
+yet). Leans a priority's round 2 text, drawn on its scheduled date, toward
+the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
 `batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
 share times range width; `batchWeights` turns that into the same
 `SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
-`UNSTEERED_BATCH_SHARE` (15%) of a batch unsteered. Groups under
+`UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
 `MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
 the caller leaves race out unless `raceNameable` holds. The model is
 `priorities/util/mrp.util.ts`. Design and what is left:

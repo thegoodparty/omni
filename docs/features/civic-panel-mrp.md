@@ -4,7 +4,7 @@ How a priority's answers become a read of the district, and who the next
 text goes to. Pure math lives in
 `packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
 `packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (who the
-next batch leans toward). Neither is wired to a route, a job or a send yet;
+round 2 text leans toward). Neither is wired to a route, a job or a send yet;
 this page says what they are for and what has to land before they are.
 
 ## Why
@@ -23,20 +23,37 @@ The replacement asks two different questions:
    opinion by group, reweighted to who lives in the district, with a range
    that says how sure it is.
 
-## Two rounds
+## Two rounds, one setup
 
-**Round 1, mixed.** The panel build plan's first wave as it is today: texts,
-calls and doors, drawn from the district. Doors and calls reach people who
-never text back, so round 1 seeds the model and gives the only check on the
-texters: in the same group, do door answerers and text answerers differ?
+Exactly two rounds (Samuel, 2026-10-19). The official sets both up at once,
+so the design is iterative without asking them to come back and act twice.
 
-**Round 2, texts in batches.** One question at a time. After each batch's
-reply window, refit the model, rank the groups (`batchTargets`), lean the
-next draw toward them (`batchWeights`, the same `SampleWeights` the census
-steering passes to `drawListSample`) and keep 15% of every batch unsteered
-(`splitBatch`) so drift outside the lean still shows up. Stop when every
-major group has its three voices and its range is narrow enough, or the
-budget is spent.
+**Round 1, mixed and up front.** Doors, calls and a text, drawn from the
+district, sized so every major group is expected to give at least three
+answers (below). Doors and calls reach people who never text back, so round
+1 seeds the model and gives the only check on the texters: in the same
+group, do door answerers and text answerers differ?
+
+**Round 2, one scheduled text.** Approved and paid for during setup, with
+its size and message (the official always approves the budget). It sends
+on its scheduled date, and its recipients are not chosen until then: at
+send time the model is fit to round 1's answers, the groups are ranked
+(`batchTargets`), the draw leans toward them (`batchWeights`, the same
+`SampleWeights` the census steering passes to `drawListSample`), and 15% of
+the send is drawn unsteered (`splitBatch`) so drift outside the lean still
+shows up. There is no round 3.
+
+**Sizing round 1.** Replaces `answersNeeded` and `panelGoalMembers` for
+this flow (Samuel, 2026-10-19, superseding the 2026-10-15 sizing). A major
+group holds 3% or more of the district on a steered dimension. Each needs
+three expected answers: invites to the group times the channel's assumed
+rate. Doors and calls take the official's hours as `sizePanelWave` splits
+them today; the text covers whatever groups the hours leave short.
+
+**Coding answers.** Replies stay free text. An AI classifier reads each
+reply against the question and records yes, no or mixed, plus "not an
+answer" (Samuel, 2026-10-19: a fixed YES or NO reply would narrow what
+residents can say). Staff spot check a sample.
 
 ## The model
 
@@ -71,23 +88,35 @@ population and know your model", for a readable account.
   it misreads some communities wholesale.
 - **Doubt about the scales themselves.**
 
+## What the official sees
+
+The priority results page as it is (Samuel, 2026-10-19: no new UI). The
+model feeds the shapes the page already reads:
+
+- **Status** (`priorityReadStatus`'s labels): `tooEarly` while a major
+  group has no answer, `notYetRepresentative` while one has fewer than
+  three, `gettingClose` while a major group's 90% range is wider than 20
+  points, `representative` once none is.
+- **Hear from more** (`underrepresented`): the groups `batchTargets` ranks
+  first, in the page's existing group names.
+- **Shares** the page shows weighted come from the model instead of raking.
+- **Representation bars** stay as they are: who answered against the
+  district.
+
 ## Before it is live
 
-1. **A coded answer per person.** Today a priority answer only records that
-   someone replied (`priorityResults.service.ts`, `responded`). The model
-   needs yes, no or mixed per respondent: AI classification of each reply,
-   with spot checks.
+1. **Coding answers.** The classifier above; today a priority answer only
+   records that someone replied (`priorityResults.service.ts`,
+   `responded`).
 2. **Shadow run.** Fit the model on existing priorities and compare it with
    the raked read, internally only.
-3. **Round 1 sizing.** Size the first wave for three voices per major group
-   instead of `answersNeeded`.
-4. **Round 2 batches.** A scheduled job that, after each reply window, fits,
-   ranks, draws and opens the next send. Each batch is a poll expansion
-   today (`sendSeq`), and each expansion needs its own checkout and staff
-   review; round 2 needs one approval covering a budget and a message.
-5. **Delivery.** Serve texts are sent by a person from a Slack CSV and the
-   replies come back by upload (`docs/features/serve-sms.md`, "Layer 1").
-   Batches a day apart work with that. Hours apart needs the vendor behind
-   `TEXT_DELIVERY_HANDOFF_PORT` and a reply webhook.
-6. **The official's view.** Each group's estimate with its range, and
-   nothing for a group under three voices.
+3. **Round 1 sizing** by coverage, above.
+4. **Round 2 scheduling.** A send created and paid for at setup with no
+   list, and a job on its date that fits, ranks, draws and hands it off.
+   Today a Serve send freezes its list at checkout and goes to staff review
+   on payment; round 2 needs the review to cover the message at setup and
+   the list drawn later.
+5. **The results page** reading the model, above.
+
+Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
+1"): with one scheduled send there is no reply loop to speed up.

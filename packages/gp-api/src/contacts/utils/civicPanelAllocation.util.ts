@@ -2,8 +2,8 @@ import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
 import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
 
-// Round 2 of a priority's outreach: who the next text batch leans toward,
-// from the model's read of the answers so far. See
+// Round 2 of a priority's outreach: who its scheduled text leans toward,
+// from the model's read of round 1's answers. See
 // docs/features/civic-panel-mrp.md.
 
 // Below this many answers a group's estimate is mostly the model's guess.
