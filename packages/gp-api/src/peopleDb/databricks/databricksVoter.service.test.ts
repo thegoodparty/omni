@@ -95,6 +95,27 @@ describe('DatabricksVoterService', () => {
       expect(district.useVoterOnlyPath).toBe(false)
     })
 
+    it('re-reads a cached district once it expires', async () => {
+      vi.useFakeTimers()
+      try {
+        stubDistrict('State_House_District', 'Old')
+        stubDistrict('State_House_District', 'New')
+
+        const first = await service.resolveDistrict(DISTRICT_ID, 'voters')
+        await service.resolveDistrict(DISTRICT_ID, 'voters')
+        expect(findDistrictById).toHaveBeenCalledTimes(1)
+
+        vi.advanceTimersByTime(60 * 60 * 1000 + 1)
+        const second = await service.resolveDistrict(DISTRICT_ID, 'voters')
+
+        expect(first.districtName).toBe('Old')
+        expect(second.districtName).toBe('New')
+        expect(findDistrictById).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('surfaces a missing district from the Postgres lookup', async () => {
       findDistrictById.mockRejectedValueOnce(
         new NotFoundException(`District not found for id=${DISTRICT_ID}`),
