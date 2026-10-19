@@ -18,8 +18,16 @@ export const IS_PROD_DEPLOY = OTEL_SERVICE_ENVIRONMENT === 'prod'
 // `!IS_PROD_DEPLOY`: an absent or unexpected OTEL_SERVICE_ENVIRONMENT
 // ('production', 'staging', undefined, a typo) is not in this list, so a
 // test-only affordance gated on it DENIES rather than silently ungating prod.
-export const IS_NON_PROD_DEPLOY =
-  OTEL_SERVICE_ENVIRONMENT === 'preview' || OTEL_SERVICE_ENVIRONMENT === 'dev'
+//
+// Pure (env-free) so a gate built on it can be tested against the values that
+// matter ('prod', an absent one, a typo) without module-reset gymnastics,
+// the way resolveAppRoot and resolveVendorMode below already are.
+export const isNonProdDeploy = (
+  otelServiceEnvironment: string | undefined,
+): boolean =>
+  otelServiceEnvironment === 'preview' || otelServiceEnvironment === 'dev'
+
+export const IS_NON_PROD_DEPLOY = isNonProdDeploy(OTEL_SERVICE_ENVIRONMENT)
 
 // Canonical prod user-facing app origin. In prod the webapp (Clerk-protected
 // app routes such as /serve/welcome, /reset-password, /set-password) is served
@@ -83,3 +91,51 @@ function isEnvironment(env: AppEnv) {
 // NODE_ENV is string | undefined — cannot constrain to AppEnv union without runtime check
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 export const CURRENT_ENVIRONMENT = CURRENT_ENV as AppEnv
+
+// The API's own origin, used by vendorBaseUrl to route calls to in-process
+// mocks. Only ever needed when VENDOR_MODE=mock (local/test), so localhost
+// is the correct default.
+const SELF_BASE_URL = `http://${process.env.HOST ?? 'localhost'}:${process.env.PORT ?? '3000'}`
+
+export type MockedVendor =
+  | 'geoapify'
+  | 'callhub'
+  | 'peerly'
+  | 'vercel'
+  | 'route53'
+
+// Pure so it can be unit-tested without module-reset gymnastics.
+export function resolveVendorMode(
+  otelServiceEnvironment: string | undefined,
+  vendorModeEnv: string | undefined,
+): 'live' | 'mock' {
+  if (otelServiceEnvironment === 'prod') return 'live'
+  if (vendorModeEnv === 'live') return 'live'
+  if (vendorModeEnv === 'mock') return 'mock'
+  if (otelServiceEnvironment === 'dev') return 'live'
+  return 'mock'
+}
+
+export const VENDOR_MODE = resolveVendorMode(
+  OTEL_SERVICE_ENVIRONMENT,
+  process.env.VENDOR_MODE,
+)
+
+if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
+  throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
+}
+
+// The organization rides in the mock's path, never in a live URL, so the mock
+// can keep one caller's fixture state (a seeded failure, its request records)
+// apart from every other test running against the same deploy.
+export const vendorBaseUrl = (
+  vendor: MockedVendor,
+  liveUrl: string,
+  organizationSlug?: string,
+): string =>
+  VENDOR_MODE !== 'mock'
+    ? liveUrl
+    : organizationSlug
+      ? `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}/org/` +
+        encodeURIComponent(organizationSlug)
+      : `${SELF_BASE_URL}/v1/vendor-mocks/${vendor}`

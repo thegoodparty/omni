@@ -100,7 +100,7 @@ export const parseControllerFile = (
     throw new Error(
       [
         `${relativePath}: @Controller('${controller}') declares no route handler this generator recognises, so it would be written into CONTROLLER_NAMES with an empty ROUTE_MAP.`,
-        `controllerAlerts() iterates ROUTE_MAP, so a controller in that state generates NO Grafana rule: there is nothing for CONTROLLER_OWNERS to enable and nothing to say so.`,
+        `controllerAlerts() iterates ROUTE_MAP, so a controller in that state generates NO Grafana rule: and nothing says so.`,
         `That is how POST /v1/mcp took 24,736 requests in the 30 days to 2026-09-17, 19 of them answered by nothing at all, with no alert rule in existence.`,
         `Recognised decorators: ${Object.keys(ROUTE_DECORATORS).join(', ')}. If this controller routes through one that is missing, add it to ROUTE_DECORATORS in this file.`,
       ].join(' '),

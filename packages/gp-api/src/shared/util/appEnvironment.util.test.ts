@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { APP_ROOT, resolveAppRoot } from './appEnvironment.util'
+import {
+  APP_ROOT,
+  VENDOR_MODE,
+  resolveAppRoot,
+  resolveVendorMode,
+  vendorBaseUrl,
+} from './appEnvironment.util'
 
 const LOCAL_URL = 'http://localhost:4000'
 const DEV_WEBAPP_URL = 'https://dev.goodparty.org'
@@ -70,5 +76,55 @@ describe('APP_ROOT (wired from env)', () => {
   // wiring that was previously broken (it used to hardcode app.goodparty.org).
   it('derives from WEBAPP_ROOT_URL on a non-prod (test) env', () => {
     expect(APP_ROOT).toBe(LOCAL_URL)
+  })
+})
+
+describe('resolveVendorMode', () => {
+  it('defaults to mock when OTEL_SERVICE_ENVIRONMENT is absent (local/test)', () => {
+    expect(resolveVendorMode(undefined, undefined)).toBe('mock')
+  })
+
+  it('defaults to mock when OTEL_SERVICE_ENVIRONMENT is preview', () => {
+    expect(resolveVendorMode('preview', undefined)).toBe('mock')
+  })
+
+  it('defaults to live when OTEL_SERVICE_ENVIRONMENT is dev', () => {
+    expect(resolveVendorMode('dev', undefined)).toBe('live')
+  })
+
+  it('defaults to live when OTEL_SERVICE_ENVIRONMENT is prod', () => {
+    expect(resolveVendorMode('prod', undefined)).toBe('live')
+  })
+
+  it('explicit VENDOR_MODE=mock overrides dev default', () => {
+    expect(resolveVendorMode('dev', 'mock')).toBe('mock')
+  })
+
+  it('explicit VENDOR_MODE=live overrides local default', () => {
+    expect(resolveVendorMode(undefined, 'live')).toBe('live')
+  })
+
+  it('prod ignores explicit VENDOR_MODE=mock — always live', () => {
+    expect(resolveVendorMode('prod', 'mock')).toBe('live')
+  })
+})
+
+describe('VENDOR_MODE (wired from env)', () => {
+  // In .env.test OTEL_SERVICE_ENVIRONMENT is unset and VENDOR_MODE is unset,
+  // so the module-level constant must resolve to 'mock'.
+  it('resolves to mock in the test environment', () => {
+    expect(VENDOR_MODE).toBe('mock')
+  })
+})
+
+describe('vendorBaseUrl', () => {
+  const LIVE = 'https://api.geoapify.com'
+
+  it('returns the mock URL in mock mode', () => {
+    // In .env.test VENDOR_MODE resolves to 'mock', so vendorBaseUrl routes
+    // to the self-hosted vendor-mocks path.
+    const result = vendorBaseUrl('geoapify', LIVE)
+    expect(result).toMatch(/\/v1\/vendor-mocks\/geoapify$/)
+    expect(result).not.toBe(LIVE)
   })
 })

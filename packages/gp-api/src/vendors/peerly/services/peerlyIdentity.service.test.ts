@@ -1515,7 +1515,7 @@ describe('PeerlyIdentityService', () => {
             suppressSlackAlert: true,
             // Separate from the Slack flag on purpose: this is what keeps the
             // `Peerly API ERROR` line at warn, and so what keeps
-            // win-peerly-warnings from paging win-bugs on a typo.
+            // win-peerly-warnings from paging on a typo.
             expectedRejection: true,
           }),
         }),

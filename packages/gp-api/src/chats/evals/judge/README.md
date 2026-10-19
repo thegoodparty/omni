@@ -50,10 +50,10 @@ refused, with the reason.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
-judge sweep, x1.5 and rounded up: about $9 for `chief_of_staff`, and $3 to $12
+judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $3 to $12
 for a measured background agent at the default 3 cases. An agent never
 measured is priced at a worst case and marked "(unmeasured)": $0.52 a chat
-turn ($37.50 for 8 cases at 3 attempts), $8 a background run ($48 at 3 cases).
+turn ($42.50 for 9 cases at 3 attempts), $8 a background run ($48 at 3 cases).
 Each agent is priced at the highest of the PR's, the base ref's and the default
 branch's tables, so a PR cannot lower its own estimate, and a chat agent pays
 for both arms' case lists. The numbers and their evidence are in
@@ -88,7 +88,7 @@ cannot import both. So a sweep is three invocations:
 | ---- | ----------------------------------------------------------------------------- | ------------------------------ |
 | 1    | `JUDGE_ARM=base npx vitest run src/chats/evals/judge/sweep.eval.test.ts`      | the **base** worktree          |
 | 2    | `JUDGE_ARM=candidate npx vitest run src/chats/evals/judge/sweep.eval.test.ts` | the **candidate** worktree     |
-| 3    | `npx tsx src/chats/evals/judge/sweep.ts`                                      | either — it only reads records |
+| 3    | `npx tsx src/chats/evals/judge/sweep.ts`                                      | the **candidate** worktree     |
 
 Steps 1 and 2 must be vitest: `useTestService()` registers
 `beforeAll`/`beforeEach`/`afterAll` to stand up the Postgres container and the
@@ -98,6 +98,22 @@ vitest file cannot be invoked from a workflow step cleanly.
 
 `.github/workflows/judge.yml` drives all three. The arms meet in the record
 store and nowhere else.
+
+**Step 3 is not checkout-neutral**, which is easy to assume because it reads
+the records rather than driving an agent. It also reads the checkout it runs
+in: the agent registry, each agent's case list (`CASES_DIR` resolves from the
+module's own directory, and a case's `condition`, `handledWhen`, dimensions
+and `scored` flag all come from there) and the background agent's
+output-contract manifest (`CANDIDATE_ROOT`, resolved the same way). Two of
+those reads exist to compare the candidate's copy against the base ref's:
+`readBaseControls` and `readOutputContracts`. So it runs in the **candidate**
+worktree, with `JUDGE_BASE_DIR` pointing at the other one. Grade from any
+third checkout and both comparisons compare a tree with itself: a branch that
+changes a manifest's required fields is judged against the old contract with
+no disclosure line, and a branch that edits a case's condition is judged
+without it and the report says nothing. See the note above the sweep job's
+`steps:` in `judge.yml` for why the hardening that would want a third
+checkout does not pay for itself here.
 
 **Configuration comes from the environment, not argv**, because a test file has
 no argv. Every value is Zod-validated up front and a missing one is a sentence
@@ -122,6 +138,8 @@ naming it.
 | `JUDGE_SELECTION`                                                                        | all   | `explicit` when the request NAMED the agents (`/judge chief_of_staff`, or `all`), `auto` when the diff derived them. Only the exact string `explicit` changes anything, so an empty or garbled value leaves every refusal armed. On `explicit` the two sameness refusals below become qualifiers in the report instead: the digest is the rendered prompt plus the tool names, so a branch that changes only the model, the provider, the sampling settings or a tool's implementation hashes identically, and refusing to judge it would refuse the comparison somebody asked for. Resolved once by judge.yml's `select` step and read by all three processes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `JUDGE_ANTHROPIC_API_KEY`                                                                | 1, 2  | The real Anthropic key, and it cannot arrive as `ANTHROPIC_API_KEY`: `vitest.config.ts` applies `.env.test` over the process environment and `.env.test` defines that name as a stub, so a key exported under it is replaced before any test line runs — which is how the first live sweep spent two arms collecting `invalid x-api-key`. `modelKey.ts` moves this into place at module scope, ahead of the app boot that constructs LlmService. **Required when `JUDGE_SPEND=true`** and ignored otherwise, so a dry run keeps the stub and cannot reach the real API. Export it in the shell; a `.env` file will not do it, because nothing on this path loads one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `JUDGE_AWS_ACCESS_KEY_ID` / `JUDGE_AWS_SECRET_ACCESS_KEY` / `JUDGE_AWS_SESSION_TOKEN`    | 1, 2  | The credentials for staging and dispatching a background agent, under these names for the same reason as the key above: `.env.test` stubs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, so credentials exported under the SDK's own names arrive as a stub key, and AWS refuses it. `awsCredentials.ts` hands them to the judge's own S3 and SQS clients and nothing else; the app under test keeps the stubs. judge.yml passes the role's; locally, export these to run a background agent. Not needed for a chat-only sweep.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `JUDGE_CLERK_SECRET_KEY` / `JUDGE_CLERK_USER_ID` / `JUDGE_CLERK_TTL_SECONDS`             | mint  | The Clerk backend key, the judge user's `user_…` id, and how long the minted session token lives (default 4h, floor 10m, ceiling 12h). Read by `judgeClerkSession.ts` in a **step of its own, from a checkout of `main`**, and by nothing else. That key mints a session for ANY user in the dev instance, so it must never sit in a step that runs the pull request's own code — which is the whole reason this is a separate step rather than something an arm does. There is no default user id: the account is created in the dev Clerk instance by hand, and a missing one is a sentence naming the variable. See [A chat arm against a deployed gp-api signs in as a real Clerk user](#a-chat-arm-against-a-deployed-gp-api-signs-in-as-a-real-clerk-user). |
+| `JUDGE_CLERK_SESSION_TOKEN` / `JUDGE_CLERK_SESSION_EXPIRES_AT`                           | 1, 2  | What the mint step hands the arms, and all an arm ever gets: a short-lived JWT and when it dies. An arm holds no Clerk secret, so a token that runs out there is a sentence naming the mint step and the TTL, not a re-mint. The token is registered with `::add-mask::` before it reaches `$GITHUB_OUTPUT`, and `scrubReason` redacts it by value and any JWT by shape, so it cannot ride a skip reason into a manifest or a public job summary. |
 | `AI_MODELS`                                                                              | 3     | LlmService refuses to construct without it. It is the default fallback chain, which the panel never reaches — each seat pins its own model — so step 3 derives it from `panel.seats` when the environment has not set it. Steps 1 and 2 get it from `.env.test`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `JUDGE_CANDIDATE_REF`                                                                    | 1, 2  | Optional. The head ref name, for readability.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `JUDGE_PR_NUMBER`                                                                        | all   | Optional.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -373,15 +391,41 @@ one this case seeded, so `accountState.district` works on briefing chat the
 way it does on the other Serve scopes.
 
 `query_constituent_data` and `describe_constituent_data` stay unregistered on
-every run this harness makes, but **that is now a deployment gap rather than a
-seeding one.** The one gate that lived in our own database — a missing
-`organization.positionId`, which `resolveByOrgSlug` refuses on before it asks
-anything else — is seeded. The two that remain are not rows anyone could seed:
-the position itself lives in election-api, read over HTTP, and the provider
-factory returns null without a Databricks credential. Both are absent locally
-and in CI, so the pair registers the moment a credentialed deployment drives
-this same seed, which `runners/seedChatOrg.tools.integration.test.ts` proves
-against the real handler and the real resolver.
+every run this harness makes, and **the district gate is the reason, on both
+of its halves.** The half that lives in our own database is seeded:
+`runners/seedChatOrg.ts` sets `organization.positionId`, which
+`resolveByOrgSlug` refuses on before it asks anything else. The other half is
+an election-api lookup, and the id seeded is now one a real election-api
+answers: `JUDGE_POSITION_ID` is Cheyenne City Council Ward 1's internal
+position id, the same office `JUDGE_FIXTURE_RACE`, `src/testFixtures`'
+`DEFAULT_RACE` and the gp-webapp e2e serve helpers all name. `JUDGE_POSITION`
+beside it is that deployed reply copied field for field, so a stub and a live
+lookup agree. It is the INTERNAL id rather than the BallotReady one because
+`DistrictResolverService` hands `organization.positionId` straight to
+`getPositionById`, whose election-api route parses the param as `z.guid()`,
+and because that is what production persists.
+
+**What still stops the sweep arm is the stub, not the id.** Exactly two files
+install `JUDGE_POSITION`, both integration tests, and each does it by
+re-spying `ElectionsService.getPositionById`:
+`runners/seedChatOrg.tools.integration.test.ts` and
+`runners/chat.integration.test.ts`. `sweep.eval.test.ts`, the arm that
+actually drives judged turns, installs nothing, and `useTestService()` pins
+`getPositionById` to null unconditionally for every suite it boots, including
+one running inside a credentialed deployment. So `resolveByOrgSlug` returns
+null on a real sweep, `districtFilters` is null, and the pair registers on no
+scope whatever credentials the process holds. The Databricks credential is a
+third gate behind that, not the binding one.
+
+What the real id buys is that a credentialed run no longer fails HARDER than
+an uncredentialed one. A synthetic id 404s, and
+`src/elections/services/elections.service.ts` rethrows a 404 as
+`NotFoundException`, so the lookup propagated out of `loadContext` and failed
+the whole turn rather than quietly dropping two tools. What would register the
+pair now is letting the sweep arm's `getPositionById` reach election-api, with
+the Databricks credential alongside it. Until then the two integration tests
+prove the handler and the resolver wire up correctly when a position is
+supplied, not that any environment supplies one.
 
 A question that needs state nobody seeded produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
@@ -590,11 +634,13 @@ open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
 `district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and the provider factory returns null without a
-Databricks credential — so the pair is unregistered locally and in CI whatever
-`positionId` says, and the digest is identical either way. The same deployment
-gap the case-list notes already record. What is ours is the row, and the runner
-asserts it.
+constituent-data pair, and no run this harness makes resolves a district to
+gate on: the seeded `positionId` is real, but `useTestService()` pins
+`getPositionById` to null for the sweep arm, and `resolveByOrgSlug` therefore
+returns null. So the pair is unregistered whatever `positionId` says, and the
+digest is identical either way. The Databricks credential the provider factory
+returns null without is a second gate behind that one, never reached. What is
+ours is the row, and the runner asserts it.
 
 **Every refusal happens before a turn is driven.** A chat turn costs real
 money, so: the schema refuses an undefined state or an unimplemented failure
@@ -874,6 +920,14 @@ each one.
   judge call per such case, and its swapped pair counts toward position
   consistency like any other scored pair.
 
+All five chat lists carry a `control` as their last case: a plain, central
+request for that scope with nothing planted on it, answerable against what
+`runners/seedChatOrg.ts` seeds. A difference the judge reports on it is the
+judge's own noise, and every other verdict in that agent's section is read
+against it. A chat list has no case cap, so none of them needs
+`JUDGE_BACKGROUND_EXTRA_CASES`; the both-refs rule still applies, so each one
+takes effect from the sweep after the PR that adds it merges.
+
 ## The judge sees each background agent's output contract
 
 A judge that doesn't know what an artifact must contain can't tell a required
@@ -1132,6 +1186,98 @@ against it, and the seed refuses an organization that has gained a campaign.
 
 The feed is office-agnostic on purpose: each case names a different real place
 in its own params, and every case reads the same rows on both arms.
+
+## A chat arm against a deployed gp-api signs in as a real Clerk user
+
+The background path never reaches Clerk: the broker signs its own token and
+`judgeFixtureIdentity.ts` names a `clerkId` no Clerk user has. A chat arm
+driving a **deployed** gp-api over HTTP has no such seam. `SessionGuard`
+refuses an agent token on anything but the MCP controller, so the arm needs a
+session token Clerk itself issued, for a user gp-api can find.
+
+`judgeClerkSession.ts` mints one, with the two calls the webapp's E2E helper
+makes (`mintApiToken` in `e2e-tests/tests/utils/headless-user.ts`):
+`sessions.createSession({ userId })`, then `sessions.getToken(id, undefined,
+ttl)`. A browser-minted token lives 60 seconds, which is why neither place
+uses one.
+
+**The Clerk secret key never enters a step that runs branch code**, and that
+is the whole reason this is a piece of its own rather than something the arm
+does. The key mints a session for any user in the dev instance. The previews
+migration exists to stop unreviewed code holding credentials, and a Clerk key
+in an arm step would reproduce that exposure with a different vendor. So the
+mint runs in a step of its own, from a checkout of `main`, and the only thing
+passed onward is the short-lived JWT.
+
+**An arm therefore cannot re-mint, and says so.** `createJudgeSession` takes
+an optional minter. The mint step has one; an arm does not, and a token that
+runs out there throws a sentence naming the mint step and
+`JUDGE_CLERK_TTL_SECONDS` rather than failing somewhere inside an HTTP
+client. Given a minter — a local run that exports the key — it re-mints
+within five minutes of expiry and after a 401.
+
+**A re-mint and a real permissions problem are never the same shape.** A
+re-mint is a `[judge-clerk]` log line. A 401 on a token minted less than a
+minute ago is not expiry, so it throws instead: a judge user with no role, or
+a Clerk instance the target does not trust, would otherwise hide behind a
+loop that mints forever and never gets in.
+
+**The token is never printed.** It goes to a file the mint step names on
+argv, never to stdout or stderr, and never into an error message — the
+validation sentences name variables and never values. The caller registers it
+with `::add-mask::` before copying it into `$GITHUB_OUTPUT`, the way
+`verify-vercel-registrar-token.yml` does, so the one place the value reaches
+a log stream is the line Actions redacts at source. On the arm side
+`scrubReason` redacts `JUDGE_CLERK_SESSION_TOKEN` by value and any JWT by
+shape, so it cannot ride a skip reason into a manifest, into S3, or into a
+public job summary.
+
+**One-time setup, by hand.** There is no judge Clerk user yet and no default
+id: a hardcoded one would either name nobody or, worse, name somebody.
+Someone has to create the account in the **dev** Clerk instance, point the
+dev-database fixture at it (`judgeFixtureIdentity.ts`'s `clerkUserId` has to
+become the real id, and `scripts/seed-judge-fixture.ts` re-run), and put the
+`user_…` value in `JUDGE_CLERK_USER_ID`. Until that exists the mint step
+fails with one sentence naming the variable.
+
+`judge.yml` does not call this yet. Wiring it is a `sweep`-job step after the
+base arm's workspace is installed and before either arm runs, in the shape
+`judgeIdentifiers.ts` already uses — into a file first, so a mint that failed
+part way leaves no half of it in the outputs — plus the mask. **It runs from
+the base worktree, not from `${{ env.WORKSPACE }}`**: that directory is
+`origin/<base ref>`, which on a PR targeting `main` is a reviewed checkout of
+`main`, and running the branch's copy of this file with the key in its
+environment would give away the thing the step exists to protect.
+
+```yaml
+- name: Mint the judge's Clerk session
+  id: clerk
+  working-directory: ${{ steps.base.outputs.dir }}/packages/gp-api
+  env:
+    JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+    JUDGE_CLERK_USER_ID: ${{ vars.JUDGE_CLERK_USER_ID }}
+  run: |
+    set -euo pipefail
+    out="$RUNNER_TEMP/judge-clerk"
+    npx tsx src/chats/evals/judge/judgeClerkSession.ts "$out"
+    echo "::add-mask::$(sed -n 's/^judge_session_token=//p' "$out")"
+    cat "$out" >> "$GITHUB_OUTPUT"
+    rm -f "$out"
+```
+
+Both arm steps then carry `JUDGE_CLERK_SESSION_TOKEN:
+${{ steps.clerk.outputs.judge_session_token }}` and
+`JUDGE_CLERK_SESSION_EXPIRES_AT:
+${{ steps.clerk.outputs.judge_session_expires_at }}`, and nothing else from
+Clerk.
+
+The base worktree is the best boundary available inside this job and it is
+not a perfect one: `setup-node-workspace` has already run `npm ci` from the
+branch's lockfile, with the branch's lifecycle scripts, as the same user, as
+the note above the sweep job's `steps:` says. A grading-style job of its own
+that never checks out or installs the candidate is the real boundary, and
+this step is shaped to move into one unchanged — it reads two variables and
+writes two outputs.
 
 ## Two refusals, and they are not the same one
 

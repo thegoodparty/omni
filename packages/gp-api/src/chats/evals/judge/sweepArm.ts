@@ -10,6 +10,7 @@ import {
 } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { selectAgents } from './cli'
+import { JUDGE_CLERK_ENV } from './judgeClerkSession'
 import { ARM_KEY_ENV } from './modelKey'
 import { isoUtc, RunRecordSchema, type RunRecord } from './record'
 import {
@@ -68,6 +69,13 @@ const SECRET_SHAPES: readonly [RegExp, string][] = [
   [/\bsk-[A-Za-z0-9_-]{8,}/g, '[redacted key]'],
   [/\bdapi[0-9a-f]{8,}/g, '[redacted token]'],
   [/\b[a-z][a-z0-9+.-]*:\/\/[^\s@]+:[^\s@]+@\S+/g, '[redacted url]'],
+  // Any JWT, which since judgeClerkSession.ts includes the judge's own Clerk
+  // session token: a chat arm driving a deployed gp-api sends it on every
+  // request, so it is in reach of any HTTP client that puts a header or a
+  // failing curl into an exception message. Shape as well as value, because
+  // the value pass below only covers the one variable it arrived under.
+  // `redactToolError` gets this through scrubReason and does not repeat it.
+  [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[redacted token]'],
 ]
 
 // Shapes are not enough on their own. DATABRICKS_CLIENT_SECRET is an opaque
@@ -88,6 +96,10 @@ const SECRET_VARS: readonly string[] = [
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_CLIENT_ID',
   'DATABASE_URL',
+  // The minted Clerk session token an HTTP chat arm calls with. The Clerk
+  // SECRET key is deliberately not here: it never enters an arm's
+  // environment, so a value pass for it would match nothing.
+  JUDGE_CLERK_ENV.sessionToken,
 ]
 
 // A short value would blanket the whole reason — an empty or one-character

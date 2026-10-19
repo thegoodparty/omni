@@ -33,6 +33,7 @@ import {
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { JudgeTurnTelemetryService } from '@/judge/services/judgeTurnTelemetry.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 export type ChatStreamErrorCode =
@@ -146,6 +147,11 @@ export interface StreamArgs {
   // ATTACHMENT_SCOPES, and the AttachedDocumentQueried analytics event needs
   // it to attribute a citation to the right product (Win vs Serve).
   scope?: ChatScope
+  // Set by the caller only for a Universal Judge conversation on a non-prod
+  // deploy (see judgeSweepIdFromOrgSlug). Undefined on every production turn,
+  // which is what keeps the telemetry write off the hot path: one comparison
+  // against undefined and nothing else.
+  judgeSweepId?: string
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -516,6 +522,8 @@ export class ChatStreamService {
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
     @Optional() private readonly analytics?: AnalyticsService,
+    @Optional()
+    private readonly judgeTelemetry?: JudgeTurnTelemetryService,
   ) {
     this.logger.setContext(ChatStreamService.name)
   }
@@ -1057,6 +1065,52 @@ export class ChatStreamService {
             'failed to write assistant message usage',
           )
         }
+      }
+      // One row per assistant turn, for judge conversations only. Here and
+      // not in LlmService because every value is in scope together only at
+      // this point: the tool events, the prompt the provider was actually
+      // handed, the conversation, and the assistant row this turn wrote.
+      //
+      // Fire-and-forget with a swallowed rejection, like the AnalyticsService
+      // call above: a judge observation must never cost a user their turn.
+      if (
+        cleanFinish &&
+        args.judgeSweepId !== undefined &&
+        this.judgeTelemetry
+      ) {
+        // The system message as sent, NOT `effectiveSystemPrompt`. That
+        // variable is only reassigned in the attached-documents branch, so on
+        // a turn with no attachments it still holds the handler's raw prompt
+        // and is missing the leading-greeting fold and the card-note line
+        // that toLlmMessages adds. Hashing it would digest a prompt the model
+        // never saw.
+        const system = effectiveMessages[0]
+        const sentSystemPrompt =
+          system?.role === 'system' && typeof system.content === 'string'
+            ? system.content
+            : args.systemPrompt
+        void this.judgeTelemetry
+          .recordTurn({
+            sweepId: args.judgeSweepId,
+            conversationId: args.conversationId,
+            // Derived from the conversation rather than counted: `history` is
+            // this turn's replay, already fetched, and it grows by the user
+            // row this turn appended. A retry that reuses clientMessageId
+            // dedups that row, so it lands on the same index and the upsert
+            // overwrites instead of filing a second opinion.
+            turnIndex: history.length,
+            ...(persistedId !== undefined && {
+              assistantMessageId: persistedId,
+            }),
+            systemPrompt: sentSystemPrompt,
+            toolEvents,
+          })
+          .catch((err: unknown) => {
+            this.logger.error(
+              { err, conversationId: args.conversationId },
+              'failed to write judge turn telemetry',
+            )
+          })
       }
       // Meter usage only on a clean finish; a partial/aborted turn's usage is
       // unreliable. Guarded so metering never breaks the turn.
