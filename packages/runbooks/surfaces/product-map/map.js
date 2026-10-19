@@ -772,8 +772,8 @@ var ProductMap = (function () {
         evs: [
           'Ordinances - Draft Details Viewed',
           'Ordinances - Draft Chat Opened',
-          'Ordinances - Draft Chat Message Sent',
         ],
+        shared: [['AI Chat - Message Sent', 'ordinance_draft', 'surface']],
         note: [
           'warn',
           'A different page',
