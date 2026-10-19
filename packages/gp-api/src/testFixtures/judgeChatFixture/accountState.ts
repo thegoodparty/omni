@@ -32,7 +32,7 @@ export class CaseListError extends Error {}
 //   district        `organization.positionId` is the half of the district
 //                   gate that lives in our own database; without it
 //                   resolveByOrgSlug returns null before it asks
-//                   election-api anything, so `districtFilters` is null and
+//                   election-db anything, so `districtFilters` is null and
 //                   the constituent-data pair registers on no scope.
 //   campaignDetails the campaign's `details` blob carries `raceId`, which is
 //                   what `get_ballot_requirements` registers on.

@@ -116,6 +116,42 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   fi
 done
 
+# election-db lives on its own Aurora cluster, loaded by ETL. gp-api owns its
+# schema since the election-api service was absorbed, so its migrations run
+# here too, and fatally: a failed election migration must stop the deploy
+# rather than start a task whose generated client disagrees with the database.
+# ECS's deployment circuit breaker keeps the previous tasks serving, so the
+# blast radius is "deploys are blocked", not "gp-api is down".
+#
+# Previews are the exception. They read the shared dev election database
+# rather than cloning it (cloning would give every preview an empty one, and
+# every election-backed feature would render nothing), so a preview must never
+# apply an unmerged migration to a database other PRs are reading.
+if [ "$IS_PREVIEW" = "true" ]; then
+  echo "Preview environment: skipping election-db migrations (reads shared dev)."
+elif [ -z "$ELECTION_DATABASE_URL" ]; then
+  echo "ERROR: ELECTION_DATABASE_URL is not set."
+  exit 1
+else
+  echo "Running election-db migrations..."
+  ELECTION_RETRY_COUNT=0
+  while [ $ELECTION_RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if npx prisma migrate deploy --schema=prisma-election/schema 2>&1; then
+      echo "✅ election-db migrations completed successfully."
+      break
+    else
+      ELECTION_RETRY_COUNT=$((ELECTION_RETRY_COUNT + 1))
+      if [ $ELECTION_RETRY_COUNT -lt $MAX_RETRIES ]; then
+        echo "⏳ election-db not ready yet. Retrying in 10s..."
+        sleep 10
+      else
+        echo "❌ ERROR: election-db migrations failed after $MAX_RETRIES attempts."
+        exit 1
+      fi
+    fi
+  done
+fi
+
 if [ -z "$CLERK_SECRET_KEY" ] || [ -z "$CLERK_PUBLISHABLE_KEY" ]; then
   echo "ERROR: CLERK_SECRET_KEY or CLERK_PUBLISHABLE_KEY is not set."
   exit 1
