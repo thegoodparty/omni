@@ -175,3 +175,21 @@ describe('PrecinctFilter', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('PrecinctFilter precinct-vs-city hint', () => {
+  it('explains that precincts do not always follow city lines', () => {
+    render(
+      <PrecinctFilter
+        options={[{ county: 'LOS ANGELES', precinct: 'Cerritos', voters: 10 }]}
+        selected={[]}
+        onChange={() => {}}
+        isLoading={false}
+        isError={false}
+        onRetry={() => {}}
+      />,
+    )
+    expect(
+      screen.getByText(/don’t always follow city lines/),
+    ).toBeInTheDocument()
+  })
+})
