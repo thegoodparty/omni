@@ -345,6 +345,8 @@ export class TestFixturesService {
       })
       date = now
     } else if (body.action === 'robocall.dialed_48h_ago') {
+      if (!outreach.robocall)
+        throw new NotFoundException('No robocall record for this outreach')
       const backdated = subHours(new Date(), 49)
       await this.campaigns.client.outreachRobocall.update({
         where: { outreachId: outreach.id },
@@ -353,12 +355,7 @@ export class TestFixturesService {
       dialedAt = backdated
       poolFreedAt = backdated
     } else if (body.action === 'sms.start_date_today') {
-      const now = new Date()
-      await this.campaigns.client.outreach.update({
-        where: { id: outreach.id },
-        data: { date: now },
-      })
-      date = now
+      throw new BadRequestException('Not implemented until M3')
     }
 
     return {

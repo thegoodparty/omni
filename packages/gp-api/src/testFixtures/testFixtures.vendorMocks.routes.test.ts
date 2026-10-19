@@ -285,7 +285,8 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.outreachId).toBe(outreach.id)
     const date = new Date(res.data.date)
-    expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime())
+    // formatISO truncates to whole seconds, so allow up to 1 s before `before`
+    expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000)
     expect(res.data.dialedAt).toBeNull()
     expect(res.data.poolFreedAt).toBeNull()
   })
@@ -337,6 +338,18 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('returns 400 for sms.start_date_today (not yet implemented)', async () => {
+    const { outreach } = await seedOutreach(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'sms.start_date_today' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
