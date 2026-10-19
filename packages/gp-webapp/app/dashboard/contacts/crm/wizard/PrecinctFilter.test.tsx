@@ -182,10 +182,10 @@ describe('PrecinctFilter precinct-vs-city hint', () => {
       <PrecinctFilter
         options={[{ county: 'LOS ANGELES', precinct: 'Cerritos', voters: 10 }]}
         selected={[]}
-        onChange={() => {}}
+        onChange={vi.fn()}
         isLoading={false}
         isError={false}
-        onRetry={() => {}}
+        onRetry={vi.fn()}
       />,
     )
     expect(
