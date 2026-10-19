@@ -536,15 +536,11 @@ export class OutreachInboundSweepService extends createPrismaBase(
     counters: SweepCounters,
   ): InboundEvent[] {
     const events: InboundEvent[] = []
+    const optoutValues = new Set<string>()
     for (const row of rows) {
       if (!isOptedOut(row.optout)) continue
       counters.inboundRowsSeen += 1
-      // The raw flag value is worth learning (vocabulary unverified); it is
-      // not PII, unlike the rest of the row.
-      this.logger.info(
-        { jobId, optoutValue: row.optout },
-        '[Outreach Inbound] opt-out row observed',
-      )
+      optoutValues.add(row.optout)
       const phoneKey = phoneDigitsKey(row.lead_phone)
       const personIds = phoneKey ? phoneToPersonIds.get(phoneKey) : undefined
       if (!phoneKey || !personIds) {
@@ -557,6 +553,15 @@ export class OutreachInboundSweepService extends createPrismaBase(
         eventType: 'optout',
         eventTimestamp: parseReportTimestamp(row.date),
       })
+    }
+    // Once per job, not per row: prod has only ever shown 'True', and now
+    // that big jobs' reports succeed a per-row line would run to hundreds of
+    // thousands a day. The flag value is not PII, unlike the rest of the row.
+    if (optoutValues.size > 0) {
+      this.logger.info(
+        { jobId, optoutValues: [...optoutValues] },
+        '[Outreach Inbound] opt-out flag values observed',
+      )
     }
     return events
   }
