@@ -750,6 +750,14 @@ export = async () => {
               Action: ['s3:GetObject'],
               Resource: [pulumi.interpolate`${localElectionSeedBucket.arn}/*`],
             },
+            {
+              // Without ListBucket, S3 answers a HeadObject for a key that
+              // does not exist with 403 rather than 404, and the endpoint
+              // could not tell "not uploaded yet" from a real denial.
+              Effect: 'Allow' as const,
+              Action: ['s3:ListBucket'],
+              Resource: [localElectionSeedBucket.arn],
+            },
           ]
         : []),
     ],
