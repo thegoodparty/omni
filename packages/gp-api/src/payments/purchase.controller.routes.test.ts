@@ -234,6 +234,7 @@ describe('POST /v1/payments/purchase/create-checkout-session', () => {
       id: 'cs_test',
       clientSecret: 'secret_test',
       amount: 500,
+      isHold: false,
     })
 
     const res = await service.client.post(
