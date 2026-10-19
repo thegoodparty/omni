@@ -39,10 +39,10 @@ const MARKER_DETAIL: Record<NotAVoterReason, string> = {
     'This person is marked as deceased. Someone else in the household may answer — do not ask for them by name. They stay off new lists.',
 }
 
-// ADR 0008. Two states, one component: the marker a flagged resident carries on
-// an already-frozen route, and the follow-up question behind a `not_a_voter`
-// outcome. Both write the same field, and answering the question turns the
-// prompt into the marker.
+// Not-a-voter reason. Two states, one component: the marker a flagged
+// resident carries on an already-frozen route, and the follow-up question
+// behind a `not_a_voter` outcome. Both write the same field, and answering the
+// question turns the prompt into the marker.
 export default function NotAVoterControl({
   target,
   onChanged,
