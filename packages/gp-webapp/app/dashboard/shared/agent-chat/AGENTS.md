@@ -342,6 +342,22 @@ registered on `ChiefOfStaffChatBody`'s registry:
 A `save_panel_weekly_time` result drops the plan query and the home's cards,
 so the card and the People first card follow the new plan at once.
 
+## Analytics — one event per message sent
+
+Every message a user sends to an agent is `AI Chat - Message Sent`, fired
+through `trackChatMessageSent` (`chatAnalytics.ts`) with `agent` (the
+`ChatScope`), `surface`, `via` (`composer`, `clarify`, `assistant_bar`),
+`product`, and `priorityId` / `ordinanceId` where there is one. The Chief of
+Staff body fires it on its visible send path for every host, each of which
+passes `analyticsSurface`; `PriorityWorkspace` and the ordinance `DraftChat`
+fire it themselves. Hidden kickoffs, markers and Get answers turns never fire
+it. A new chat surface adds a `ChatSurface` value rather than a new event.
+
+An outreach card's flow carries `launchSource` on the `Outreach -` events.
+`ProposalFlowsProvider` defaults it from the surface (`campaign_manager` on
+Win, `priorities` with a priority, else `chief_of_staff`); a widget context's
+`launchSource` overrides it (`expand_panel`). It stays out of `ProposalLink`.
+
 ## Reference wrappers — copy the closest
 
 | Want | Copy |

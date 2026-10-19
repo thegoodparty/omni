@@ -25,7 +25,9 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   outreachProduct,
+  rememberLaunchSource,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
@@ -341,6 +343,8 @@ interface PhoneBankingFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events and the Pro gate.
   source: OutreachFlowSource
+  // The agent surface that launched this call list, for the Outreach events.
+  launchSource?: OutreachLaunchSource
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
@@ -364,6 +368,7 @@ export const PhoneBankingFlow = ({
   proposalLink,
   tracker,
   source,
+  launchSource,
   initialEvent,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
@@ -499,6 +504,7 @@ export const PhoneBankingFlow = ({
         ...(proposalLink?.priorityId
           ? { priorityId: proposalLink.priorityId }
           : {}),
+        ...(launchSource ? { launchSource } : {}),
       })
       // The cross-channel sibling of the event above. Phone banking is
       // one-to-one, so creating the list is NOT reaching anyone — completion
@@ -523,8 +529,10 @@ export const PhoneBankingFlow = ({
           ...(proposalLink?.priorityId
             ? { priorityId: proposalLink.priorityId }
             : {}),
+          launchSource,
         }),
       })
+      rememberLaunchSource('phoneBanking', response.id, launchSource)
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)
       }

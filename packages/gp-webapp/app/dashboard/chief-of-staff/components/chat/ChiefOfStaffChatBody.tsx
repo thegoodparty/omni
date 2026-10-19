@@ -97,6 +97,11 @@ import {
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  trackChatMessageSent,
+  type ChatSendVia,
+  type ChatSurface,
+} from '../../../shared/agent-chat/chatAnalytics'
 
 interface Props {
   /**
@@ -173,12 +178,12 @@ interface Props {
    */
   pendingFile?: File
   /**
-   * Fires once per VISIBLE message the user sends — the composer, a quick
-   * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
-   * sentinels, which the user never typed. The contacts entry point counts
-   * these for its open-to-send funnel (ENG-10767).
+   * Where this chat is mounted, for `AI Chat - Message Sent`. It fires once
+   * per VISIBLE message the user sends — the composer, a quick prompt, a
+   * clarify answer, a `pendingMessage`, a retry of one. Not for hidden
+   * kickoffs or sentinels, which the user never typed. Omitted, nothing fires.
    */
-  onMessageSent?: () => void
+  analyticsSurface?: ChatSurface
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -340,7 +345,7 @@ function ChiefOfStaffChatThread({
   pendingKickoff,
   pendingMessage,
   pendingFile,
-  onMessageSent,
+  analyticsSurface,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -1144,7 +1149,7 @@ function ChiefOfStaffChatThread({
   const deliver = useCallback(
     async (
       content: string,
-      opts?: { hidden?: boolean; attachmentIds?: string[] },
+      opts?: { hidden?: boolean; attachmentIds?: string[]; via?: ChatSendVia },
     ): Promise<boolean> => {
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
@@ -1177,7 +1182,13 @@ function ChiefOfStaffChatThread({
         // returns null and bails above, and counting that as a sent message
         // would overstate the very open-to-send funnel this callback exists
         // to measure (ENG-10767).
-        onMessageSent?.()
+        if (analyticsSurface) {
+          trackChatMessageSent({
+            agent: scope,
+            surface: analyticsSurface,
+            via: opts?.via ?? 'composer',
+          })
+        }
         setMessages((prev) => [
           ...prev,
           {
@@ -1212,7 +1223,8 @@ function ChiefOfStaffChatThread({
       send,
       setMessages,
       attachments,
-      onMessageSent,
+      analyticsSurface,
+      scope,
     ],
   )
 
@@ -1258,6 +1270,10 @@ function ChiefOfStaffChatThread({
 
   const sendContent = useCallback(
     (content: string) => deliver(content, { hidden: false }),
+    [deliver],
+  )
+  const answerClarify = useCallback(
+    (content: string) => deliver(content, { hidden: false, via: 'clarify' }),
     [deliver],
   )
 
@@ -1336,7 +1352,7 @@ function ChiefOfStaffChatThread({
       return
     }
     sentPendingRef.current = pendingMessage
-    void deliver(pendingMessage, { hidden: false })
+    void deliver(pendingMessage, { hidden: false, via: 'assistant_bar' })
   }, [
     active,
     pendingMessage,
@@ -1596,7 +1612,7 @@ function ChiefOfStaffChatThread({
                 context={{
                   clarifyInteractive: m.id === activeClarifyId && !busy,
                   clarifyAnswer: clarifyAnswerById[m.id],
-                  onClarifyAnswer: sendContent,
+                  onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
                 }}
                 onCitationClick={
@@ -1653,7 +1669,7 @@ function ChiefOfStaffChatThread({
               toolLabel={toolLabel}
               context={{
                 clarifyInteractive: false,
-                onClarifyAnswer: sendContent,
+                onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
               }}
               onCitationClick={

@@ -15,7 +15,7 @@ import {
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { WEIGHTING_STATUS } from 'app/dashboard/priorities/[priorityId]/underHeardAnalytics'
+import { WEIGHTING_STATUS } from 'app/dashboard/priorities/[priorityId]/weightingStatus'
 import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import {
   CITIZENS_PANEL_LIST_PATH,

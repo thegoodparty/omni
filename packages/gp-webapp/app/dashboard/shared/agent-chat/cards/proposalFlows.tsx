@@ -25,7 +25,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import type { ProUpgradeChannel } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { trackUnderHeardTargeted } from 'app/dashboard/priorities/[priorityId]/underHeardAnalytics'
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { TcrCompliance } from 'helpers/types'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
@@ -65,6 +65,7 @@ type Opened = {
   // The list the card's audience was saved as, when the flow opens on its
   // message with that list picked rather than on the list builder.
   listId?: number
+  launchSource: OutreachLaunchSource
 }
 
 // The list a card's audience was saved as, kept by the card's key so opening
@@ -101,7 +102,13 @@ type SentListener = (proposal: OutreachProposal) => void
 
 type ProposalFlows = {
   mode: CardMode
-  open: (proposal: OutreachProposal, priorityId?: string) => void
+  // launchSource names the card's surface when the default (Campaign
+  // Manager on Win, else priorities or Chief of Staff) is not enough.
+  open: (
+    proposal: OutreachProposal,
+    priorityId?: string,
+    launchSource?: OutreachLaunchSource,
+  ) => void
   // The conversation listens for a send finishing, to refresh what it shows
   // and tell the agent.
   listen: (listener: SentListener) => () => void
@@ -315,6 +322,7 @@ export const ProposalFlowsProvider = ({
         create: '1',
         ...(listId ? { listId: String(listId) } : {}),
         ...linkOf(opened),
+        launchSource: opened.launchSource,
       })
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
@@ -383,7 +391,11 @@ export const ProposalFlowsProvider = ({
   )
 
   const open = useCallback(
-    (proposal: OutreachProposal, priorityId?: string) => {
+    (
+      proposal: OutreachProposal,
+      priorityId?: string,
+      launchSource?: OutreachLaunchSource,
+    ) => {
       if (
         mode === 'win' &&
         proposal.channel !== 'social' &&
@@ -391,17 +403,20 @@ export const ProposalFlowsProvider = ({
       ) {
         return
       }
-      if (proposal.areaTarget === 'unreached' && priorityId !== undefined) {
-        trackUnderHeardTargeted(priorityId, ['unreachedAreas'], 'proposal_card')
-      }
+      const link = {
+        ...(priorityId !== undefined && { priorityId }),
+        launchSource:
+          launchSource ??
+          (mode === 'win'
+            ? 'campaign_manager'
+            : priorityId !== undefined
+              ? 'priorities'
+              : 'chief_of_staff'),
+      } satisfies Omit<Opened, 'proposal'>
       if (proposal.channel === 'doorKnocking') {
-        void openDoorKnocking({
-          proposal,
-          ...(priorityId !== undefined && { priorityId }),
-        })
+        void openDoorKnocking({ proposal, ...link })
         return
       }
-      const link = { ...(priorityId !== undefined && { priorityId }) }
       if (READY_CHANNELS.has(proposal.channel)) {
         void saveProposalList(proposal, priorityId).then(
           (listId) =>
@@ -479,6 +494,7 @@ export const ProposalFlowsProvider = ({
             proposalLink: linkOf(opened),
           }}
           source={mode === 'win' ? 'campaign_manager' : 'deep_link'}
+          launchSource={opened.launchSource}
         />
       ) : null}
       {opened && proposal?.channel === 'phoneBanking' ? (
@@ -497,6 +513,7 @@ export const ProposalFlowsProvider = ({
           )}
           proposalLink={linkOf(opened)}
           source={mode === 'win' ? 'campaign_manager' : 'deep_link'}
+          launchSource={opened.launchSource}
         />
       ) : null}
       {/* Behind the flag the outreach page mounts it behind, so a chat cannot
@@ -524,6 +541,7 @@ export const ProposalFlowsProvider = ({
           audienceSettled={readyListId !== undefined}
           proposalLink={linkOf(opened)}
           source="deep_link"
+          launchSource={opened.launchSource}
         />
       ) : null}
       {/* Win's own surface, not SERVE_SMS_SURFACE, and only once the text
@@ -543,6 +561,7 @@ export const ProposalFlowsProvider = ({
           {...(winProposalLink && { proposalLink: winProposalLink })}
           onProposalCreateFailed={proposalCreateFailed}
           source="campaign_manager"
+          launchSource={opened.launchSource}
         />
       ) : null}
       {winText.modals}

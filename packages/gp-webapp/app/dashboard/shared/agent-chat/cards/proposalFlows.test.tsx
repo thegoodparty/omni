@@ -286,6 +286,7 @@ describe('ProposalFlowsProvider', () => {
       priorityId: 'priority-1',
       stepId: 'method',
       side: 'main',
+      launchSource: 'priorities',
     })
   })
 

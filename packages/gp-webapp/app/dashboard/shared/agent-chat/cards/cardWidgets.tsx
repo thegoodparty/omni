@@ -1,3 +1,4 @@
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { WidgetToolCall } from '../widgetRegistry'
 import { defineWidgetTool } from '../widgetRegistry'
 import { ChatCardRenderer } from './ChatCardRenderer'
@@ -8,6 +9,9 @@ import { toChatCard } from './toChatCard'
 export type CardWidgetContext = {
   // Absent outside a priority: an outreach handoff then links to no priority.
   priorityId?: string
+  // What launched an outreach card opened from this turn, when the surface
+  // knows better than the flows' default.
+  launchSource?: OutreachLaunchSource
 }
 
 const cardDetailKey = (call: WidgetToolCall): string | undefined => {
@@ -28,12 +32,13 @@ const cardTool = (toolName: string, onParseFailure?: 'inline') =>
         toolCallId: call.toolCallId,
         conversationId: call.conversationId ?? '',
       }),
-    render: (card, { priorityId }: CardWidgetContext, call) => {
+    render: (card, { priorityId, launchSource }: CardWidgetContext, call) => {
       const detailKey = cardDetailKey(call)
       return (
         <ChatCardRenderer
           card={card}
           {...(priorityId !== undefined && { priorityId })}
+          {...(launchSource !== undefined && { launchSource })}
           {...(detailKey !== undefined && { detailKey })}
         />
       )
