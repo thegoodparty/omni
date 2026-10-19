@@ -49,7 +49,7 @@ All routes are mounted under the global prefix `v1` (set in `src/main.ts`). Cont
 
 `election-api` runs behind an internet-facing ALB, so the application — not the network — is the security boundary. A global `M2MAuthGuard` (`APP_GUARD`, in `src/authentication/`) is default-deny: every route requires a JWT-format Clerk M2M bearer token, verified networkless against `ELECTION_API_MACHINE_SECRET`. Routes opt out with `@PublicAccess()`; only the ALB health check does.
 
-Callers mint their own tokens with their own machine secret (`gp-api`: `GP_API_MACHINE_SECRET`, `gp-marketing`: `GP_MARKETING_MACHINE_SECRET`) and must be connected to the election-api machine in the Clerk dashboard. New consumers need the same wiring — see [ADR-0001](adr/0001-m2m-lockdown.md).
+Callers mint their own tokens with their own machine secret (`gp-api`: `GP_API_MACHINE_SECRET`, `gp-marketing`: `GP_MARKETING_MACHINE_SECRET`) and must be connected to the election-api machine in the Clerk dashboard. New consumers need the same wiring.
 
 The guard rejects unconditionally in every environment: any non-`@PublicAccess` route without a valid M2M token gets a 401.
 
