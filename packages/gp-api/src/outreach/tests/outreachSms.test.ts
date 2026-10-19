@@ -226,7 +226,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     await postDraft({
       purpose: 'custom',
       tone: 'warm',
-      currentDraft: 'x'.repeat(1900),
+      currentDraft: 'x'.repeat(900),
     })
 
     const longCall = jsonCompletion.mock.calls[0]?.[0]
