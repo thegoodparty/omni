@@ -149,6 +149,7 @@ export const buildFilterSummary = (
       isElectedOfficial &&
       (field.key === 'political_party' ||
         field.key === 'voter_likely' ||
+        field.key === 'early_vote' ||
         WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
     )
       continue

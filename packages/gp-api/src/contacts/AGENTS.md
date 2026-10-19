@@ -270,6 +270,26 @@ the product is silently wrong — check the live vocabulary against the
 `mart_gp_api` voter mart in Databricks before trusting any filter-related bug
 report.
 
+### The Early_Vote_Status vocabulary
+
+`Early_Vote_Status` is the likelihood of voting before Election Day, early in
+person or by mail: the higher of Haystaq's `hs_likely_ev` and `hs_likely_vbm`
+(0-100), bucketed `Very unlikely` (<25), `Unlikely` (<55), `Likely` (<80),
+`Very likely` (>=80), `Unknown` (no score), in the mart's sentence case.
+The product speaks Title Case (`Very Likely`, `Very Unlikely`) like its other
+multi-word person values; `peopleDb/earlyVoteStatus.ts` translates both ways,
+for the Person payload and for filter values going into SQL. The CSV copies
+the column raw, so it still says `Very likely`. Both scores are within-state
+percentiles, so the buckets are relative to the state, not probabilities; the
+max skews high, which is why the cuts sit above `Voter_Status`'s. It reaches the
+filter as the `earlyVote*` booleans → `earlyVoteStatus`, with the same
+`Unknown`-also-matches-NULL rule as `voterStatus`, but none of the
+per-person override handling below: there is no editable early-vote status.
+It is Win-only everywhere: hidden in the UI and dropped from Serve downloads
+like Voter Likelihood, and also `modes: 'win'` in the filter catalog, which
+Voter Likelihood (`audience`) is not, so the assistant never offers it to an
+`eo-` org.
+
 ### Override-aware Voter Likelihood filtering (ENG-10838)
 
 The wizard's Voter Likelihood filter (the `audience*` booleans /
