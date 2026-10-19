@@ -248,6 +248,7 @@ export const httpChatRuntime = ({
             url: '/v1/test-fixtures/judge-chat-cases',
             data: {
               agentId: request.agentId,
+              sweepId: request.sweepId,
               slugKey: request.slugKey,
               ...(request.accountState && {
                 accountState: request.accountState,

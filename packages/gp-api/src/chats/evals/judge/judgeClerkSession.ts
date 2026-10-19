@@ -168,8 +168,7 @@ export const parseJudgeClerkMintConfig = (
   if (!parsed.success) {
     throw new JudgeClerkSessionError(
       'the judge cannot mint a Clerk session: ' +
-        asSentence(parsed.error.issues, source) +
-        '',
+        asSentence(parsed.error.issues, source),
     )
   }
   return {

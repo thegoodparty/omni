@@ -287,12 +287,16 @@ describe('staging and tearing down a case', () => {
     }))
     const staged = await runtimeFor(target).stageCase({
       agentId: 'chief_of_staff',
+      sweepId: 'judge-19284756312-1',
       slugKey: 'case-1-1',
     })
     expect(staged.organizationSlug).toBe('judge-case-1-abcd1234')
     expect(target.recorded[0]?.url).toBe('/v1/test-fixtures/judge-chat-cases')
+    // The sweep id goes over the wire and the slug does not: the server
+    // derives the organization, so no caller can name one.
     expect(JSON.parse(target.recorded[0]?.body ?? '{}')).toEqual({
       agentId: 'chief_of_staff',
+      sweepId: 'judge-19284756312-1',
       slugKey: 'case-1-1',
     })
   })

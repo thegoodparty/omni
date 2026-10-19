@@ -25,10 +25,12 @@ import { assertTestProcess } from './chatSeam'
 // is the point: neither path can borrow the other's permission.
 //
 // `slugKey` is the caller's case id: unique per case within one run, and the
-// same on both arms.
+// same on both arms. `sweepId` is the run itself, which both arms also
+// share — it keeps two sweeps on one database off each other's fixtures.
 export const seedChatOrg = async (
   prisma: PrismaClient,
   userId: number,
+  sweepId: string,
   agentId: string,
   slugKey: string,
   options: SeedChatOrgOptions = {},
@@ -37,5 +39,5 @@ export const seedChatOrg = async (
   // deletes (see seedBriefing). A judge-prefixed organization owned by a real
   // user is not something to create outside a throwaway database.
   assertTestProcess('seedChatOrg')
-  return seedChatOrgRows(prisma, userId, agentId, slugKey, options)
+  return seedChatOrgRows(prisma, userId, sweepId, agentId, slugKey, options)
 }

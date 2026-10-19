@@ -185,6 +185,7 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // it lives in is skipped unless JUDGE_ARM is set.
             const seeded = await chatRuntime.stageCase({
               agentId: request.agent.agentId,
+              sweepId: request.sweepId,
               slugKey: `${request.case.caseId}-${request.attempt}`,
               ...(request.case.accountState && {
                 accountState: request.case.accountState,

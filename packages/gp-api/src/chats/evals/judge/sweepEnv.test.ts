@@ -13,6 +13,7 @@ import {
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from './config'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { armEnvFor as armEnv } from './fixtures/sweep'
+import { JudgeSweepIdSchema } from '@/testFixtures/schemas/judgeChatFixture.schema'
 
 describe('parseArmEnv', () => {
   it('reads a complete arm environment', () => {
@@ -94,6 +95,34 @@ describe('parseArmEnv', () => {
     expect(() =>
       parseArmEnv(armEnv({ JUDGE_SWEEP_ID: 'x'.repeat(64) })),
     ).not.toThrow()
+  })
+
+  // The HTTP arm sends this id to POST /v1/test-fixtures/judge-chat-cases,
+  // where it reaches `organization.slug`. That route's schema restates the
+  // alphabet rather than importing it, because `src/chats/evals/**` is not
+  // in the production build — so a value one side takes and the other
+  // refuses would be an arm that captures locally and 400s against a
+  // preview. Asserted from this side, which may import both.
+  it.each([
+    ['judge-19284756312-1', true],
+    ['swp_1', true],
+    ['x'.repeat(64), true],
+    ['has/slash', false],
+    ['has space', false],
+    ['', false],
+    ['x'.repeat(65), false],
+  ])('agrees with the fixture route about %s', (sweepId, accepted) => {
+    const armTakesIt = parseArmEnv.bind(
+      null,
+      armEnv({ JUDGE_SWEEP_ID: sweepId }),
+    )
+
+    expect(JudgeSweepIdSchema.safeParse(sweepId).success).toBe(accepted)
+    if (accepted) {
+      expect(armTakesIt).not.toThrow()
+    } else {
+      expect(armTakesIt).toThrow()
+    }
   })
 
   it('rejects an arm that is neither base nor candidate', () => {

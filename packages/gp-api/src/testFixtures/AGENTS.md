@@ -78,12 +78,23 @@ fixture: `seedChatOrgRows` in
 `src/chats/evals/judge/runners/seedChatOrg.ts` is the same function the
 in-process vitest arm calls, so both arms seed the same rows.
 
-`POST` takes `{ agentId, slugKey, accountState? }` and answers the
+`POST` takes `{ agentId, sweepId, slugKey, accountState? }` and answers the
 `SeededChatOrg` the in-process arm gets. The **slug is derived**
 (`chatOrgSlug`), never passed, which is what keeps attempt i of both arms on
 one organization and keeps a caller from naming one. Setup is idempotent by
 tearing the same slug down first — the seeder creates rather than upserts, and
 the in-process arm wants that collision.
+
+`sweepId` is in the slug — `judge-<sweepId>-<agentId>-<caseId>-<digest>` —
+because two sweeps against one database (dev, which every PR's base arm
+targets) otherwise stage the identical organization and the second's
+teardown-first step removes the first's fixture mid-run. It costs the
+identical-config refusal nothing: one sweep's two arms are handed the same
+value, so their system prompts still match. The id is validated against the
+same alphabet `sweepEnv.SweepIdSchema` holds it to, restated rather than
+imported because `src/chats/evals/**` is dropped from the production build.
+It does **not** make `briefing_annotation` concurrency-safe — see the judge
+README.
 
 `DELETE` is scoped twice over: the request schema refuses a slug without the
 `judge-` prefix, and the delete itself matches on that prefix **and** the

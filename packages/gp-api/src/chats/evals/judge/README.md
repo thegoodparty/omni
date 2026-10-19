@@ -1285,14 +1285,32 @@ The account also survives the reaper. `users.service.ts` sweeps e2e users
 after three hours and fixture users matching `qa-<uuid>@goodparty.org` after
 twenty-four; this address matches neither.
 
-What sharing one identity does NOT isolate is the database. Two runs against
-the same database stage the same organization slug, because
-`chatOrgSlug` carries no sweep id, and one teardown then removes the other's
-fixture mid-run. Previews are unaffected, each having its own `gpdb_pr_<n>`
-schema; dev is where it bites, and every PR's base arm points at dev. The
-`clerkUserId` in `judgeFixtureIdentity.ts` is still the placeholder
-`user_judge_fixture`, which is correct for the broker-token path that
-`Session.guard.ts` restricts to the MCP endpoint, and unrelated to this.
+What sharing one identity does NOT isolate is the database, so the slug does
+it instead. `chatOrgSlug` mints
+`judge-<sweepId>-<agentId>-<caseId>-<digest>`, with the sweep id's own
+`judge-` prefix stripped so it does not read twice. Both arms of one sweep
+are handed the same `sweepId` — it is the directory they meet in — so the
+slug is still identical across the pair and the identical-config refusal
+stays armed; it is only two different sweeps that get different
+organizations, and they are never compared. Previews were already isolated,
+each having its own `gpdb_pr_<n>` schema; dev is what this fixes, and every
+PR's base arm points at dev. The `clerkUserId` in `judgeFixtureIdentity.ts`
+is still the placeholder `user_judge_fixture`, which is correct for the
+broker-token path that `Session.guard.ts` restricts to the MCP endpoint, and
+unrelated to this.
+
+**Briefing cases still cannot run concurrently on one database**, and that is
+the prerequisite for ever driving `briefing_annotation` over HTTP.
+`briefingChatCreate.service.ts` finds the briefing with
+`findFirst({ where: { meetingDate, electedOffice: { userId } } })` — no
+organization in the predicate — so two sweeps sharing the judge account and
+the fixed `JUDGE_MEETING_DATE` are picked between by whatever order Postgres
+returns. The per-sweep slug cannot reach that: it scopes which briefings a
+case DELETES, not which one the route FINDS. The fix is a per-sweep meeting
+date derived from the sweep id, which both arms would share for the same
+reason they share the slug. It is not urgent: `briefing_annotation` is one of
+the cases the HTTP runtime refuses outright, and in-process arms each get
+their own throwaway database.
 
 `judge.yml` does not call this yet. Wiring it is a `sweep`-job step after the
 base arm's workspace is installed and before either arm runs, in the shape
@@ -1499,19 +1517,20 @@ the same guarantee: one row per driven turn, in order.
 A turn that wrote no `done` frame is not waited for at all — gp-api records
 the row only on a clean finish, so there is nothing coming.
 
-### `JudgeTurnTelemetry.sweepId` is still a per-case key
+### `JudgeTurnTelemetry.sweepId` is sweep-prefixed, not a bare sweep id
 
-Unfixed here, and it needs a gp-api change rather than a judge one.
 `general-chats.service.ts` derives the column from the conversation's
-organization slug, which is `judge-<agentId>-<caseId>-<digest>` and carries
-no sweep id. For the arm to send its own `JUDGE_SWEEP_ID` the message POST
-would have to accept it — a header or a field on
-`SendChatMessageRequestSchema`, read by the controller and threaded through
-`GeneralChatsService.sendMessage` into `ChatStreamService.stream`. That is a
-change to the production chat turn, for a column only the judge reads, so it
-belongs in its own PR against `src/chats/` with its own review. Nothing in
-the arm reads the column today: records are grouped by the `sweepId` on the
-`RunRecord`, which the arm writes itself.
+organization slug, which is now `judge-<sweepId>-<agentId>-<caseId>-<digest>`
+— so the column holds the sweep id followed by the case's own key. It groups
+by sweep with a prefix match and is still unique per case. The arm sends
+nothing extra for this: the sweep id rides in on the slug, which costs the
+production chat turn no change at all, which is why it is done this way
+rather than by teaching `SendChatMessageRequestSchema` a judge field.
+
+Nothing parses a bare sweep id back out, and nothing should: a sweep id may
+contain hyphens, so a split rule would be guesswork, and nothing reads the
+column — records are grouped by the `sweepId` on the `RunRecord`, which the
+arm writes itself.
 
 ## Two refusals, and they are not the same one
 
