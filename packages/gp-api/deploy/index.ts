@@ -489,6 +489,25 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
+  // The local election seed POST /v1/dev-env/election-seed presigns: the
+  // slice of the dev election database local setup loads into `electiondb`.
+  // Restricted data, so private and dev only; refresh.sh uploads it.
+  const localElectionSeedBucket =
+    environment === 'dev'
+      ? new aws.s3.BucketV2('local-election-seed-bucket', {
+          bucket: 'gp-local-election-seed-dev',
+        })
+      : undefined
+  if (localElectionSeedBucket) {
+    new aws.s3.BucketPublicAccessBlock('local-election-seed-pab', {
+      bucket: localElectionSeedBucket.id,
+      blockPublicAcls: true,
+      blockPublicPolicy: true,
+      ignorePublicAcls: true,
+      restrictPublicBuckets: true,
+    })
+  }
+
   const containerSecrets: Record<
     string,
     pulumi.Output<string>
@@ -609,6 +628,9 @@ export = async () => {
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
+      LOCAL_ELECTION_SEED_BUCKET: localElectionSeedBucket
+        ? localElectionSeedBucket.bucket
+        : '',
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -718,6 +740,15 @@ export = async () => {
               Effect: 'Allow' as const,
               Action: ['secretsmanager:GetSecretValue'],
               Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
+      ...(localElectionSeedBucket
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['s3:GetObject'],
+              Resource: [pulumi.interpolate`${localElectionSeedBucket.arn}/*`],
             },
           ]
         : []),

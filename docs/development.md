@@ -36,6 +36,19 @@ election-api and
 gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
 election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
 
+gp-api reads election data (races, positions, districts, office holders) from
+a second database. Locally that is `electiondb` in the same Postgres
+container, loaded from a seed of Michigan, North Carolina and Wyoming taken
+from the dev election database. Setup fetches the seed on the same GitHub
+sign-in as the env bundle and loads it after the gp-api migrate step, so
+zips in those three states return races and the test fixtures' default race
+(zip 82001, Cheyenne City Council Ward 1) resolves. Anywhere else returns no
+races locally. A run that skipped the sign-in (env files already valid, or
+`--from`) has no seed yet; fetch and load one with `npm run seed:election`.
+The seed is restricted data, so it lives in a private dev bucket and is
+never committed; how it is built and refreshed is in
+`packages/gp-api/src/electionDb/AGENTS.md`.
+
 A local stack can't run agent experiments (community issues, briefings,
 opponent research, compliance setup). A run's result comes back on dev's
 shared results queue to dev gp-api, so no `LOCAL_DEV_ENV` key or AWS
