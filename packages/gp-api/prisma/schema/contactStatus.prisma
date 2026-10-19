@@ -17,13 +17,13 @@ enum VoterLikelihood {
 enum ContactStatusField {
   voter_likelihood
   support_status
-  // ADR 0007: a standing instruction, not an observation of one conversation.
-  // Nothing derives it — no outcome, no answer, and deliberately not
-  // refused_to_engage, which means "not today" rather than "not ever". Seed is
-  // always `cleared`, so absence of a row reads as knockable like every other
-  // field here.
+  // Do-not-knock: a standing instruction, not an observation of one
+  // conversation. Nothing derives it — no outcome, no answer, and
+  // deliberately not refused_to_engage, which means "not today" rather than
+  // "not ever". Seed is always `cleared`, so absence of a row reads as
+  // knockable like every other field here.
   do_not_knock
-  // ADR 0008: why this person is not a voter to reach at this door. Written
+  // Not-a-voter: why this person is not a voter to reach at this door. Written
   // only by the follow-up question behind a `not_a_voter` outcome, and stored
   // here rather than on the interaction because it has to be reversible and
   // queryable as a set. Seed is `cleared`, same as do_not_knock.
@@ -42,7 +42,7 @@ enum ContactStatusField {
   civic_panel
 }
 
-// ADR 0007. `cleared` is a real value rather than a deleted row so that
+// Do-not-knock. `cleared` is a real value rather than a deleted row so that
 // lifting a flag is itself recorded — a mis-tap on a phone in the rain is
 // foreseeable, and "who lifted this, and when" gets asked exactly when it
 // matters.
@@ -51,7 +51,7 @@ enum DoNotKnockStatus {
   cleared
 }
 
-// ADR 0008. One field rather than two booleans: `moved` and `deceased` are
+// Not-a-voter. One field rather than two booleans: `moved` and `deceased` are
 // mutually exclusive answers to one question asked at one door, so the latest
 // answer has to replace the previous one rather than sit beside it. `cleared`
 // carries the same reversibility argument as DoNotKnockStatus above — a

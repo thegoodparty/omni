@@ -50,7 +50,7 @@ interface SurfaceProps {
   chatApi?: unknown
   historyKey?: readonly unknown[]
   scope?: string
-  onMessageSent?: () => void
+  analyticsSurface?: string
 }
 let lastSurfaceProps: SurfaceProps | null = null
 vi.mock(
@@ -209,35 +209,23 @@ describe('CrmAssistant', () => {
       { context: 'serve', source: 'history' },
     )
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
   })
 
-  // Every message is counted once, by the surface — including the bar's first
-  // one, which now rides the surface's own visible send path. CrmAssistant
-  // firing Sent itself would double-count it.
-  it('counts each message once, through the surface callback', async () => {
+  // Every message is counted once, by the chat body — including the bar's
+  // first one, which rides the body's own visible send path. CrmAssistant
+  // firing it itself would double-count it.
+  it('leaves message counting to the chat body, tagged as the contacts assistant', async () => {
     const user = userEvent.setup()
     setContext(true)
     render(<CrmAssistant />)
     await user.click(screen.getByText('submit assistant'))
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
-
-    lastSurfaceProps?.onMessageSent?.()
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
-      { context: 'win' },
-    )
-    expect(
-      vi
-        .mocked(trackEvent)
-        .mock.calls.filter(
-          (c) => c[0] === EVENTS.Contacts.AssistantMessageSent,
-        ),
-    ).toHaveLength(1)
+    expect(lastSurfaceProps?.analyticsSurface).toBe('contacts_assistant')
   })
 })

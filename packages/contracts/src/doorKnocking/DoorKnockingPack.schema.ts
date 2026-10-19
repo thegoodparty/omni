@@ -34,12 +34,13 @@ export const PACK_CONTACTS_MADE_MAX = 100_000
 // is NOT that, they are a real selectable bucket whose precinct side is
 // empty, exactly as the picker offers it.
 // Whether this door is one the campaign may knock at all. NOT a filter the
-// candidate picks: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are
-// suppression, applied unconditionally by every server-side evaluation, and
-// the map was the only surface still drawing the people they remove. So the
-// plane is consumed as a mask in `runFilter`/`polygonStats` rather than
-// through a dim selection, and it needs no entry in the filter catalog —
-// which is the review ADR 0007 deferred and this deliberately does not open.
+// candidate picks: do-not-knock and not-a-voter are suppression, applied
+// unconditionally by every server-side evaluation, and the map was the only
+// surface still drawing the people they remove. So the plane is consumed as
+// a mask in `runFilter`/`polygonStats` rather than through a dim selection,
+// and it needs no entry in the filter catalog. Adding one is a
+// filter-catalog change with its own review, which this deliberately does
+// not open.
 export const KNOCKABLE_DIM_KEY = 'knockable'
 export const KNOCKABLE_VALUES = ['No', 'Yes'] as const
 

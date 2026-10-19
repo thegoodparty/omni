@@ -1,0 +1,29 @@
+model Position {
+    id           String  @id @map("id") @db.Uuid
+    brDatabaseId String  @map("br_database_id")
+    brPositionId String  @unique @map("br_position_id") // Must be the source Ballotready position ID
+    state        String
+    name         String
+
+    // Office-level ICP eligibility from int__icp_offices, written by the
+    // m_election_api__position dbt mart (gp-data-platform#473). Null = the
+    // office's voter_count is unknown upstream.
+    isWinIcp   Boolean? @map("is_win_icp")
+    isServeIcp Boolean? @map("is_serve_icp")
+
+    // Office compensation (BallotReady api_position.salary; position-scoped). Powers
+    // the profile "About Office" salary row, incl. for sitting EOs with no active
+    // candidacy (Race.salary is only reachable via a Candidacy). Free-text: BR
+    // values include ranges/notes, so this mirrors Candidacy.salary as text.
+    salary String? @map("salary")
+
+    // Relations
+    district   District? @relation(fields: [districtId], references: [id])
+    districtId String?   @map("district_id") @db.Uuid()
+
+    level  PositionLevel? @map("level")
+
+    Races          Race[]
+    ZipToPositions ZipToPosition[]
+    OfficeHolders  OfficeHolder[]
+}

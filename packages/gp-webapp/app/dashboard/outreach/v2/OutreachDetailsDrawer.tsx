@@ -1372,9 +1372,9 @@ export const OutreachDetailsDrawer = ({
 
             {/* Unlike phone banking's, this section does not give way to a
                 Results table on a finished row: door knocking has no outcomes
-                surface here (ADR 0012), and a walk is routinely ended with
-                doors left unlogged — so how much of the list was covered is
-                the answer on a done walk too, not only on a live one. */}
+                surface here, and a walk is routinely ended with doors left
+                unlogged — so how much of the list was covered is the answer
+                on a done walk too, not only on a live one. */}
             {/* The campaign's own turfs: one row per turf, plus an "Add
                 another turf" affordance that lands on the create flow scoped
                 to this campaign. Rendered for every door-knocking row rather

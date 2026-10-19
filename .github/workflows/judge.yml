@@ -58,6 +58,34 @@ on:
         required: false
         default: ''
         type: string
+      arm_runtime:
+        description: >-
+          Where the chat arms drive the app. `inprocess` is today's behaviour
+          and the default: each arm boots the branch's own gp-api inside the
+          runner. `http` drives deployed targets instead — the candidate
+          against its PR preview, the base against dev — which is the only
+          way a chat case exercises the deployed stack, its real Clerk
+          session and its real Databricks credential.
+
+          Default-`inprocess` for the same reason `live` is default-false: a
+          caller that says nothing gets the behaviour that has been running,
+          not the new one.
+
+          BOTH ARMS ALWAYS USE THE SAME RUNTIME. `configDigest` is computed
+          from different inputs on each path — in process from the rendered
+          prompt and the tools OFFERED, over HTTP from the prompt's hash and
+          the tools CALLED — so the two are not comparable and are prefixed
+          differently so they can never collide into a false match. Mixing
+          them would compare two things that were never measured the same
+          way.
+
+          `http` requires `live`. A dry run substitutes a canned script
+          inside the arm's own LlmService, and nothing can inject a script
+          into a deployed container; the arms refuse the pair by name rather
+          than quietly spending.
+        required: false
+        default: inprocess
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         # required: false so the plan path works in a context with no secrets
@@ -68,6 +96,12 @@ on:
       DATABRICKS_CLIENT_ID:
         required: false
       DATABRICKS_CLIENT_SECRET:
+        required: false
+      CLERK_SECRET_KEY:
+        # HTTP arms only, and required: false for the same reason as the
+        # others: a plan must not fail for want of a key it will not use.
+        # The mint step runs only when arm_runtime is http, and fails there
+        # with a sentence naming the variable if this is empty.
         required: false
 
 permissions:
@@ -120,21 +154,55 @@ jobs:
   # or a push on the `pull_request` path. These job-level groups exist for the
   # caller added later that forgets to declare one.
   #
-  # What they do NOT do, because it is less than it looks: the two groups below
-  # are split by job on purpose — a single group shared by two jobs of one run
-  # has them cancelling each other, the trap gp-api.yml's test matrix documents
-  # — so a second request's `plan` contends only with another `plan` and
-  # cancels nothing that is spending, and its `sweep` never joins the sweep
-  # group at all unless that second request is itself live. Cross-request
-  # cancellation of a live sweep comes from the callers, not from here.
+  # THE TWO GROUPS BELOW ARE NOT THE SAME KIND OF GUARD, and reading them as
+  # one is the mistake this paragraph exists to prevent. `plan` is keyed per PR
+  # and cancels. `sweep` is keyed on a single repo-wide constant and queues.
+  # They are split by job in any case, because a single group shared by two
+  # jobs of one run has them cancelling each other, the trap gp-api.yml's test
+  # matrix documents.
   #
-  # Cancelled rather than queued, at both layers, because this is a money guard
-  # and not a runner-minutes one: a superseded sweep is judging a commit nobody
-  # is asking about any more. Cancelling is not a refund — whatever the
-  # cancelled sweep already burned is already billed.
+  # `plan` SPENDS NOTHING, so its group is only about not leaving two stale
+  # estimates racing to write the same comment: a second request's `plan`
+  # contends only with another `plan`, and cancels nothing that is spending.
+  # Cross-request cancellation of a live sweep still comes from the callers,
+  # not from here. The run_id fallback keeps the key unique if a caller ever
+  # passes an empty pr_number, so the group never matches and nothing cancels.
   #
-  # The run_id fallback keeps the key unique if a caller ever passes an empty
-  # pr_number, so the group never matches and nothing cancels.
+  # `sweep` IS THE MONEY, AND ITS GROUP IS GLOBAL ON PURPOSE. Keyed per PR, as
+  # it was, two PRs judged at once put two sweeps out at up to twelve
+  # background runs per arm each. The dev scheduler's concurrent-agent cap is
+  # shared across everything running there, so past it runs queue, their polls
+  # give up as infra errors, and the task still launches and bills with nothing
+  # waiting for it. `maxInFlight` in src/chats/evals/judge/config.ts says the
+  # same thing from the other side and asks for exactly this. One constant
+  # group is what makes that arithmetic per repository rather than per PR.
+  #
+  # AND IT QUEUES, WHERE EVERY OTHER GROUP HERE CANCELS. A running sweep has
+  # already spent, and it cannot be resumed: SWEEP_ID carries `run_attempt`
+  # precisely so a re-run does not read the first run's records, so cancelling
+  # one buys money already burned and no verdict. Queueing costs a wait;
+  # cancelling costs the sweep. The per-PR layers above still cancel, so a
+  # superseded request for the SAME PR is killed rather than run twice. What
+  # queues here is only another PR's turn.
+  #
+  # Note the one thing queueing does drop: a group holds at most one pending
+  # entry, so a third live request arriving while one sweep runs and one waits
+  # cancels the waiting one. That is a request that never started and therefore
+  # never spent, which is the right thing to lose.
+  #
+  # A PLAN MUST NEVER QUEUE BEHIND A SWEEP. Seventy minutes of wait for a step
+  # that costs nothing is not a trade worth making, which is why the group is a
+  # conditional and not a bare constant even though the `if:` on this job
+  # already skips it unless the request is live. Whether a job skipped by `if:`
+  # takes a place in its concurrency group is documented neither way, and being
+  # wrong about it would park every plan-only request behind a live sweep. The
+  # non-live arm keys on run_id, so it matches nothing and waits for nothing.
+  # `inputs` and `github` are both available to `jobs.<job_id>.concurrency`,
+  # which is checked; `needs.*` is listed as available there too, but this
+  # expression deliberately depends on neither it nor a job output.
+  #
+  # Cancelling is not a refund, at any layer — whatever a cancelled sweep
+  # already burned is already billed.
 
   plan:
     name: Plan and estimate
@@ -501,7 +569,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # ~$808 sweep of every agent that every other guard in this file
+                # ~$829 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -698,7 +766,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $808
+      # An accidental `all` is the failure this exists for. It is roughly $829
       # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -1053,9 +1121,9 @@ jobs:
               # The worst case for an unmeasured agent, never below what
               # planCost.ts would charge: 2 arms x 3 cases x $8 a run, plus
               # $1.00 for its 6 judge calls, for a background agent, and
-              # $37.50 for any chat one, ordinance_flow
-              # included. $37.50 ASSUMES 8 turns a list and 3 attempts a case
-              # (16 turns over both arms x 3 x $0.52, x1.5): a longer list or
+              # $42.50 for any chat one, ordinance_flow
+              # included. $42.50 ASSUMES 9 turns a list and 3 attempts a case
+              # (18 turns over both arms x 3 x $0.52, x1.5): a longer list or
               # more attempts on an old branch is underpriced here.
               # A list's own attempts never apply on this path: a branch whose
               # CLI predates per-agent pricing also predates the budget step
@@ -1063,7 +1131,7 @@ jobs:
               # attempt, and it has no controls past the cap either. Its judge
               # still swaps a fifth of pairs, under the six calls priced here.
               if [ "$basis" = old-branch ]; then
-                [ "$shape" = chat ] && cents=3750 || cents=4900
+                [ "$shape" = chat ] && cents=4250 || cents=4900
               fi
               total=$((total + cents))
               keep "$id"
@@ -1448,9 +1516,15 @@ jobs:
       # short-lived credentials from an OIDC exchange, never a stored key.
       # Still no `pull-requests: write` — this job writes no comment.
       id-token: write
+    # ONE LIVE SWEEP AT A TIME, REPOSITORY-WIDE, and queued rather than
+    # cancelled. The non-live arm is a group of this run's own, so a plan-only
+    # request contends with nothing even if a skipped job turns out to hold a
+    # place. Full reasoning in the note above `plan`.
     concurrency:
-      group: judge-sweep-${{ inputs.pr_number || github.run_id }}
-      cancel-in-progress: true
+      group: >-
+        ${{ inputs.live == true && 'universal-judge-live-sweep'
+        || format('judge-sweep-not-live-{0}', github.run_id) }}
+      cancel-in-progress: false
     env:
       # ONE ID FOR ALL THREE PROCESSES. It is the directory the two arms meet
       # in, so an id that differed between them would leave each arm stored
@@ -1460,6 +1534,72 @@ jobs:
       # the run's own URL. `run_attempt` is in it because a re-run is a
       # different sweep that must not read the first one's records.
       SWEEP_ID: judge-${{ github.run_id }}-${{ github.run_attempt }}
+    # WHY THE JUDGE MACHINERY RUNS THE BRANCH'S OWN CODE, which reads as an
+    # oversight and is not. This job holds the Anthropic key, the Databricks
+    # credentials and the role's session credentials, and it runs the
+    # candidate checkout in six steps. Three of those are pure judge
+    # machinery that needs nothing from the branch to do its job: the schema
+    # preflight, the mart resolver and the judging step. Moving them to a
+    # checkout of `main` so that only merged code ever holds a key is the
+    # obvious idea, it has been worked through, and it does not hold up. The
+    # reasons are here rather than left to be rediscovered.
+    #
+    # THE ARMS CANNOT MOVE, BY CONSTRUCTION, AND THAT SETTLES THE REST.
+    # "Capture the candidate arm" IS the branch's code: running it is the
+    # question the sweep exists to answer. It is handed the real Anthropic
+    # key (under JUDGE_ANTHROPIC_API_KEY), DATABRICKS_CLIENT_ID and
+    # DATABRICKS_CLIENT_SECRET, and `.env.test` stubs neither Databricks name,
+    # so the real values reach branch code there whatever the other steps do.
+    # The role's credentials are worse than per-step: configure-aws-credentials
+    # exports them into the JOB environment, so every step after it holds them
+    # whether its own `env:` names them or not. Every secret the three
+    # machinery steps carry is therefore already carried by a step that cannot
+    # be moved, so moving them would cut the number of invocations and not the
+    # exposure. judgeWorkflow.test.ts pins that equality, so a later change
+    # cannot claim a boundary it does not create.
+    #
+    # THE JUDGING STEP IS NOT CHECKOUT-NEUTRAL. `sweep.ts` reads three things
+    # from the checkout it runs in, not only the stored records: the agent
+    # registry, each agent's case list (`CASES_DIR` resolves from the module's
+    # own directory, and a case's condition, handling sentence, dimensions and
+    # `scored` flag all come from there) and the output-contract manifest
+    # (`CANDIDATE_ROOT`, resolved the same way). Two of those exist precisely
+    # to compare the candidate's copy against the base ref's: `readBaseControls`
+    # and `readOutputContracts`. Run from `main`, on a PR whose base IS `main`,
+    # both comparisons compare a tree with itself and can only ever agree. A
+    # branch that changes a manifest's required fields would be judged against
+    # the old contract with no "produced under different output contracts"
+    # line, and a branch that edits a case's condition would be judged without
+    # it and nothing in the report would say so. It would also put `main`'s
+    # record parser in front of records the branch wrote, which is a
+    # forward-compatibility requirement nothing in the judge has today.
+    #
+    # THE PREFLIGHT HAS TO BE THE BRANCH'S COPY. Its contract is that the
+    # schema the judging step is about to send is one the API accepts, and the
+    # judging step sends the branch's. From `main` it would validate a schema
+    # this sweep never sends, and it would duplicate judge-schema-check.yml,
+    # which already makes the same call on `main` after every judge change. A
+    # branch that changes the verdict schema is the one case #2534 is about and
+    # the one case a main-side preflight would stop covering.
+    #
+    # THE MART RESOLVER COULD MOVE, AND IT IS NOT WORTH THE MOVE. The base
+    # worktree below is a full install of `origin/<base ref>`, which for a PR
+    # that targets `main` is a reviewed checkout of `main`, so running the
+    # resolver there would cost no extra wall clock. It would buy nothing: the
+    # candidate arm a few steps later holds the same two Databricks secrets. It
+    # would cost the early annotation, which is the whole reason this step sits
+    # before the base install, plus a second code path for a base ref that is
+    # not `main`.
+    #
+    # WHAT WOULD ACTUALLY HELP IS A JOB BOUNDARY, not a second checkout inside
+    # this one. There is no boundary within a job: `setup-node-workspace` runs
+    # `npm ci` from the branch's own lockfile, with its own lifecycle scripts,
+    # as the same user, before any of these steps. A grading job of its own
+    # that never checks out or installs the candidate would be a real boundary
+    # and is reachable, because the records are already in S3 under SWEEP_ID.
+    # It needs the case lists and the manifests handed to it as DATA from a
+    # checkout that is never installed, which is a change to `sweep.ts` rather
+    # than to this file.
     steps:
       # First, before the checkout and the workspace build. Without it the
       # missing key surfaces minutes in, several frames deep inside the SDK, on
@@ -1552,7 +1692,10 @@ jobs:
       #
       # Before the base worktree and its second `npm ci`, so an unresolvable
       # mart is annotated in the first two minutes of the job rather than
-      # twenty in.
+      # twenty in. That position is also why it is not run from the base
+      # worktree, which on a PR targeting `main` is a reviewed checkout of
+      # `main` that is already installed: see the note above `steps:` for why
+      # the move would buy nothing anyway.
       #
       # IT DOES NOT FAIL THE SWEEP. Most agents never touch the mart, so
       # killing a live sweep over an unpinnable table would be the wrong
@@ -1637,6 +1780,12 @@ jobs:
       # Run from the checkout the judging step uses, with the key the judging
       # step already holds, so it adds no new place a key can be read from. A
       # branch that predates the check has no entry to run and skips it.
+      #
+      # THE BRANCH'S COPY, NOT MAIN'S, and that is the point rather than an
+      # accident: the schema it asks about has to be the one the judging step
+      # is about to send. judge-schema-check.yml is the main-side counterpart
+      # and makes the same call on every push that touches the judge. The note
+      # above `steps:` has the rest of the reasoning.
       - name: Check the model API accepts the judge's schema
         working-directory: ${{ env.WORKSPACE }}
         env:
@@ -1701,8 +1850,18 @@ jobs:
             echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT. AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
+      # SKIPPED ON AN HTTP ARM, which is what leaves `data_version` empty for
+      # both arms without either of them special-casing it. Pinning a version
+      # is a `VERSION AS OF` rewrite the in-process provider patch performs,
+      # and nothing rewrites SQL inside a deployed container; the arms refuse
+      # the pair at startup rather than failing every case with the same
+      # sentence. Deciding it here rather than in two arm expressions keeps
+      # both arms reading one step output verbatim, which is the shape
+      # judgeWorkflow.test.ts requires so that nobody can hardcode a version
+      # in place of looking one up.
       - name: Resolve the voter mart's Delta version
         id: mart
+        if: inputs.arm_runtime != 'http'
         working-directory: ${{ env.WORKSPACE }}
         env:
           # DATABRICKS_SERVER_HOSTNAME comes from the job environment, set by
@@ -1896,6 +2055,39 @@ jobs:
           npm run generate:prisma:gp-api
           (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
 
+      # HTTP ARMS ONLY. Mints the one Clerk session both arms present to the
+      # deployed targets.
+      #
+      # IT RUNS FROM THE BASE WORKTREE, not from ${{ env.WORKSPACE }}. That
+      # directory is the pull request's own code, and this step holds a key
+      # that mints a session for ANY user in the dev instance. The base
+      # worktree is `origin/<base ref>`, which on a PR targeting main is a
+      # reviewed checkout. That is the best boundary available inside this
+      # job and not a perfect one — setup-node-workspace has already run
+      # `npm ci` from the branch's lockfile with its lifecycle scripts — and
+      # the step is shaped to move into a job of its own unchanged, taking
+      # two inputs and producing two outputs.
+      #
+      # The token goes to a file rather than stdout, so the single line it
+      # reaches a log stream on is the one `::add-mask::` redacts at source.
+      # The file is removed in the same step whether or not the mask lands.
+      - name: Mint the judge's Clerk session
+        id: clerk
+        if: inputs.arm_runtime == 'http'
+        working-directory: ${{ steps.base.outputs.dir }}/packages/gp-api
+        env:
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # Optional. Unset, the step finds the judge's account by email and
+          # creates it if it is not there, so nothing waits on a person.
+          JUDGE_CLERK_USER_ID: ${{ vars.JUDGE_CLERK_USER_ID }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/judge-clerk"
+          trap 'rm -f "$out"' EXIT
+          npx tsx src/chats/evals/judge/judgeClerkSession.ts "$out"
+          echo "::add-mask::$(sed -n 's/^judge_session_token=//p' "$out")"
+          cat "$out" >> "$GITHUB_OUTPUT"
+
       # ARM 1 OF 2. Identical to the candidate step below except for
       # JUDGE_ARM, JUDGE_ARM_COMMIT and the directory, which is the whole
       # design: one suite, two invocations, one record store.
@@ -1944,6 +2136,10 @@ jobs:
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
+          JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
+          JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
+          JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && 'https://gp-api-dev.goodparty.org' || '' }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
@@ -1980,6 +2176,53 @@ jobs:
       # prints the gap between them, flagging a comparison whose arms are far
       # apart. The TDD asks for "base, candidate, base, candidate" in time,
       # which two worktrees cannot deliver.
+      # HTTP ARMS ONLY, and the reason this job cannot simply assume a
+      # preview exists: the sweep job needs only `plan`, so nothing here has
+      # waited for the gp-api preview workflow. A candidate arm pointed at a
+      # preview that is absent, still rolling, or still serving the previous
+      # commit would compare the branch against itself and report it as a
+      # finding.
+      #
+      # Polls the same `/v1/version` contract gp-api.yml's own verify step
+      # uses, against the same 10-minute budget, because a first preview
+      # deploy runs every migration before the app starts. `--max-time`
+      # keeps a hung container from parking the runner: `|| true` catches a
+      # non-zero exit, not a curl that never returns.
+      # EITHER SHA COUNTS, and that is not laxity. `candidate_sha` is the PR's
+      # headRefOid, but gp-api tags a preview image with `github.sha`, which
+      # on a `pull_request` event is the MERGE commit — head merged into the
+      # base. The two are never equal, so comparing only against the head
+      # would time out on every HTTP sweep ever run while reporting it as a
+      # stale preview.
+      #
+      # The merge commit is re-read each poll rather than resolved once: it
+      # is recomputed whenever the base moves, so a value captured up front
+      # goes stale mid-wait and produces the same false timeout.
+      - name: Wait for the candidate's preview to serve its commit
+        if: inputs.arm_runtime == 'http'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          BASE: https://pr-${{ inputs.pr_number }}.preview.goodparty.org
+        run: |
+          set -euo pipefail
+          echo "Confirming $BASE is serving $HEAD_SHA or its merge commit"
+          deadline=$((SECONDS + 600))
+          got=""
+          merge=""
+          while [ $SECONDS -lt $deadline ]; do
+            got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            merge="$(gh pr view "$PR_NUMBER" --json potentialMergeCommit --jq '.potentialMergeCommit.oid // empty' 2>/dev/null || true)"
+            if [ -n "$got" ] && { [ "$got" = "$HEAD_SHA" ] || { [ -n "$merge" ] && [ "$got" = "$merge" ]; }; }; then
+              echo "preview serving $got after ${SECONDS}s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The candidate's preview is serving ${got:-nothing}, which is neither $HEAD_SHA nor its merge commit ${merge:-unknown}, after 600s. A sweep against it would judge the wrong commit. Check the gp-api preview deploy for this PR."
+          exit 1
+
       - name: Capture the candidate arm
         working-directory: ${{ env.WORKSPACE }}
         env:
@@ -2002,6 +2245,10 @@ jobs:
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
+          JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
+          JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
+          JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && format('https://pr-{0}.preview.goodparty.org', inputs.pr_number) || '' }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
@@ -2029,6 +2276,12 @@ jobs:
       # which is the failure a vitest suite produces by self-skipping every
       # test: that PASSES, and without the manifest check this job would go
       # green having judged nothing.
+      #
+      # IT READS THIS CHECKOUT, NOT ONLY THE RECORDS, which is what ties it to
+      # the candidate: the agent registry, every case's condition, handling
+      # sentence, dimensions and `scored` flag, and the output-contract
+      # manifest it compares against JUDGE_BASE_DIR's. The note above `steps:`
+      # spells out what moving it to `main` would silently change.
       - name: Judge both arms
         id: judging
         # RUNS EVEN WHEN AN ARM CAPTURE FAILED, because by the time it did the

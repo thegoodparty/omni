@@ -39,10 +39,9 @@ npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 
 **If you added or renamed a controller, run `npm run generate` first.**
 `src/generated/route-types.ts` is gitignored and built by
-`scripts/generate-route-types.ts`, and the alerting ownership tests read
+`scripts/generate-route-types.ts`, and the route alerting tests read
 `CONTROLLER_NAMES` from it. CI always generates fresh, so a stale local copy
-makes those tests pass here and fail there — a new controller with no entry in
-`CONTROLLER_OWNERS` is invisible until the PR is already open.
+makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
@@ -115,7 +114,6 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Adding/debugging an alert                    | `docs/observability.md`                                          |
 | Reproducing a reported bug                   | `docs/debugging.md`                                              |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| Why a thing is the way it is                 | `docs/adr/`                                                      |
 | AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
@@ -169,7 +167,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
-| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md` + `docs/adr/`                |
+| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
 | Recommended lists (the audience picker's cards)          | `docs/features/recommended-lists.md`                 |
@@ -190,6 +188,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
+| Universal Judge turn telemetry (non-prod only)           | `src/judge/AGENTS.md`                                |
 | Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
@@ -228,7 +227,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 }
 ```
 
-Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMany`, `findFirst`, `count`, etc.), and `optimisticLockingUpdate`. ADR: `docs/adr/0001-prisma-base-pattern.md`.
+Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMany`, `findFirst`, `count`, etc.), and `optimisticLockingUpdate`.
 
 ## Auth
 
@@ -237,15 +236,15 @@ Two global guards run in order:
 1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
 2. `RolesGuard` — enforces `@Roles(...)`
 
-Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`. ADR: `docs/adr/0004-clerk-m2m-auth.md`.
+Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`.
 
 ## Zod validation
 
-Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponseInterceptor` to validate outgoing responses at runtime. Never use `.passthrough()` on input schemas. ADR: `docs/adr/0002-zod-everywhere.md`.
+Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponseInterceptor` to validate outgoing responses at runtime. Never use `.passthrough()` on input schemas.
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`. ADR: `docs/adr/0003-fifo-sqs-single-queue.md`.
+One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 

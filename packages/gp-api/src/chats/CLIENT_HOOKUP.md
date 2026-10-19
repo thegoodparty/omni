@@ -39,7 +39,7 @@ the chain is `claude-sonnet-4-6` → `claude-opus-4-7`, fail-closed.
 
 ## Authentication
 
-All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`) — see `docs/adr/0004-clerk-m2m-auth.md`.
+All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`).
 
 ## POST `:annotationId/messages` — sending a message
 

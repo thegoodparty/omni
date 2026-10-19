@@ -75,7 +75,10 @@ import {
   type PeopleDataset,
   PeopleDatasetService,
 } from '@/peopleDb/services/peopleDataset.service'
-import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
+import {
+  DoorKnockingEvaluateDTO,
+  WalkableAreaDTO,
+} from '@/peopleDb/schemas/doorKnocking.schema'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import type { Bbox } from '@goodparty_org/contracts'
 import {
@@ -90,6 +93,7 @@ import {
   OverlapCountDTO,
   SamplePeopleDTO,
   StatsDTO,
+  type SampleWeights,
 } from '@/peopleDb/schemas/people.schema'
 import {
   StatsResponse,
@@ -2204,6 +2208,12 @@ export class ContactsService {
       // Server-side only: people to leave out by id, such as who the civic
       // panel build plan already drew. Passing it always freezes the draw.
       excludePersonIds?: string[]
+      // Server-side only: draw only from these people, such as who a
+      // boundary gp-api drew encloses.
+      withinPersonIds?: string[]
+      // Server-side only: a weighted draw, such as the civic panel's
+      // census steering. Only for a draw with no panelSize.
+      weights?: SampleWeights
     },
   ): Promise<string[] | null> {
     if (sample.recipientsOfOutreachId !== undefined) {
@@ -2238,16 +2248,24 @@ export class ContactsService {
       )),
       ...(sample.excludePersonIds ?? []),
     ]
-    const notAsked: IdFilterResolution =
+    const notAskedAnywhere: IdFilterResolution =
       excludeIds.length === 0
         ? { kind: 'none' }
         : { kind: 'filter', idFilter: { notIn: [...new Set(excludeIds)] } }
+    const notAsked: IdFilterResolution =
+      sample.withinPersonIds === undefined
+        ? notAskedAnywhere
+        : intersectIdFilterResolutions(notAskedAnywhere, {
+            kind: 'filter',
+            idFilter: { in: sample.withinPersonIds },
+          })
     if (sample.panelSize === undefined) {
       return this.drawWithin(organization, filterInput, notAsked, {
         size: sample.size,
         seedKey: sample.seedKey,
         wholeWhenItFits:
           excludeIds.length === 0 && sample.excludePersonIds === undefined,
+        weights: sample.weights,
       })
     }
     if (!this.hasElectedOfficeAccess(organization)) {
@@ -2305,7 +2323,12 @@ export class ContactsService {
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     within: IdFilterResolution,
-    draw: { size: number; seedKey?: string; wholeWhenItFits: boolean },
+    draw: {
+      size: number
+      seedKey?: string
+      wholeWhenItFits: boolean
+      weights?: SampleWeights
+    },
   ): Promise<string[] | null> {
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
@@ -2352,6 +2375,7 @@ export class ContactsService {
             ...scope,
             size: Math.min(draw.size, pool),
             seedKey: draw.seedKey,
+            weights: draw.weights,
           }),
           dataset,
         )
@@ -2401,14 +2425,17 @@ export class ContactsService {
     )
   }
 
-  // Where the people the criteria match live, with their household, for
-  // picking a walkable area. Rooftop-geocoded only, like a turf's doors, so
-  // every household picked is one a route can reach. Capped like the map.
-  async doorPointsWithin(
+  // The densest walkable area of `households` doors among the people the
+  // criteria match, chosen in the warehouse over the whole district (or the
+  // tract), each door with its residents. Rooftop-geocoded only, like a
+  // turf's doors, so every household picked is one a route can reach.
+  async walkableAreaWithin(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     excludePersonIds: string[],
-  ): Promise<{ id: string; lat: number; lng: number; addressKey: string }[]> {
+    households: number,
+    tract?: string,
+  ): Promise<{ lat: number; lng: number; personIds: string[] }[]> {
     const resolved = await this.resolveSavedFilterForQuery(
       organization,
       filterInput,
@@ -2416,26 +2443,19 @@ export class ContactsService {
     if (resolved.empty) return []
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId, dataset }) => {
-        const { people } = await this.voterDoorKnockingService.evaluatePoints(
-          DoorKnockingEvaluateDTO.create({
+      async ({ districtId, dataset }) =>
+        this.voterDoorKnockingService.walkableArea(
+          WalkableAreaDTO.create({
             districtId,
-            bbox: DISTRICT_WIDE_BBOX,
             filters: resolved.filters,
             idOverrides: resolved.idOverrides,
             contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-            maxPeople: MAP_POINTS_MAX,
+            households,
             ...(excludePersonIds.length > 0 && { excludePersonIds }),
+            ...(tract !== undefined && { tract }),
           }),
           dataset,
-        )
-        return people.map(({ id, lat, lng, addressKey }) => ({
-          id,
-          lat,
-          lng,
-          addressKey,
-        }))
-      },
+        ),
     )
   }
 

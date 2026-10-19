@@ -155,7 +155,7 @@ describe('supportAsOf', () => {
   })
 
   // Both silences that are facts about the payload rather than about the
-  // person: history capped past the answering row (ADR 0009), and a route the
+  // person: history capped past the answering row, and a route the
   // service worker snapshotted before history rode it at all.
   it('stays silent when the history cannot date the answer', () => {
     expect(

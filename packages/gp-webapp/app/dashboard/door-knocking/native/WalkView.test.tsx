@@ -976,7 +976,7 @@ describe('WalkView', () => {
     expect(within(stopRow(0)).queryByText(/walk/)).toBeNull()
   })
 
-  // ADR 0007. A flagged door has nothing to say and nothing to log, so the
+  // Do-not-knock. A flagged door has nothing to say and nothing to log, so the
   // footer swaps the script and the form for the flag's own banner — and the
   // marker reaches the collapsed stop row too, so a canvasser reads it before
   // walking up rather than only on the resident one tap in.
@@ -1003,7 +1003,7 @@ describe('WalkView', () => {
     expect(within(stopRow(0)).getByText('Do not knock')).toBeInTheDocument()
   })
 
-  // ADR 0007. A flagged door keeps `knockStatus: 'unknown'`, so counting it
+  // Do-not-knock. A flagged door keeps `knockStatus: 'unknown'`, so counting it
   // would strand a canvasser who correctly skipped it below 100% and leave it
   // sitting under the "Support unknown" chip as work still to do.
   it('drops a flagged door out of the progress counts', async () => {
@@ -1104,9 +1104,9 @@ describe('WalkView', () => {
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
 
-    // ADR 0007. The flagged resident gets no per-person dot either — a status
-    // dot beside the "Do not knock" label would say the opposite of the label.
-    // One level in, where the residents now live.
+    // Do-not-knock. The flagged resident gets no per-person dot either — a
+    // status dot beside the "Do not knock" label would say the opposite of the
+    // label. One level in, where the residents now live.
     expandStop('210 Cedar Row')
     const personDots = Array.from(row.querySelectorAll('span.h-2'))
     expect(personDots).toHaveLength(1)
@@ -1349,7 +1349,7 @@ describe('WalkView', () => {
   })
 })
 
-// ADR 0008. The reason behind a `not_a_voter` outcome: optional, asked after
+// The reason behind a `not_a_voter` outcome: optional, asked after
 // the door is already saved, and suppressing the resident once it is given.
 describe('WalkView not-a-voter reason', () => {
   beforeEach(() => {
@@ -1368,8 +1368,8 @@ describe('WalkView not-a-voter reason', () => {
     })
 
   // The route as the server would build it now. Dorian's knock status and both
-  // flags are read live at serve time (ADR 0008), so a serve asked for mid-walk
-  // reflects whatever has been written since the walk opened.
+  // flags are read live at serve time, so a serve asked for mid-walk reflects
+  // whatever has been written since the walk opened.
   const serveWithDorian = (
     live: Partial<RoutePayloadTarget>,
   ): DoorKnockingRoutePayload => ({
@@ -1421,10 +1421,10 @@ describe('WalkView not-a-voter reason', () => {
 
   // A live serve rather than a frozen payload, because both writes below are
   // things the next serve genuinely reflects — and because answering the
-  // follow-up now asks for one (ADR 0009's deferred refresh), so a static mock
-  // would answer that request by walking the write it had just accepted back
-  // off. Each write also adds the feed row it really produces, which is the row
-  // the refresh exists to fetch.
+  // follow-up now asks for one (the activity feed's deferred refresh), so a
+  // static mock would answer that request by walking the write it had just
+  // accepted back off. Each write also adds the feed row it really produces,
+  // which is the row the refresh exists to fetch.
   const mockLiveRoute = () => {
     const live: Partial<RoutePayloadTarget> = {}
     let serves = 0
@@ -1649,11 +1649,12 @@ describe('WalkView not-a-voter reason', () => {
     expect(legendCount('Support unknown')).toBe('0')
   })
 
-  // ADR 0009 left exactly one resident on a stale feed: this one, because their
-  // sheet is deliberately held open across their own knock, so neither
-  // `openSheet` nor the resident switcher ever fires for them. The refresh is
-  // deferred rather than dropped — the three tests below are the two ways a
-  // follow-up resolves, and the reason it could not simply fire on the knock.
+  // The activity feed left exactly one resident on a stale feed: this one,
+  // because their sheet is deliberately held open across their own knock, so
+  // neither `openSheet` nor the resident switcher ever fires for them. The
+  // refresh is deferred rather than dropped — the three tests below are the two
+  // ways a follow-up resolves, and the reason it could not simply fire on the
+  // knock.
   //
   // This one is that reason. `NotAVoterControl` switches branches on
   // `notAVoterReason`, so a serve arriving mid-answer replaces the question with
@@ -1749,8 +1750,9 @@ describe('WalkView not-a-voter reason', () => {
   })
 
   // Every other outcome auto-advances, so `openSheet` already covers it — and
-  // paying a serve on every sheet close would be the per-door refresh ADR 0009
-  // rejected, on the one connection the whole design exists to work without.
+  // paying a serve on every sheet close would be a per-door refresh, a round
+  // trip at the door, on the one connection the whole design exists to work
+  // without.
   it('does not re-serve the route when an ordinary door is closed on', async () => {
     let serves = 0
     api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
@@ -1916,7 +1918,7 @@ describe('WalkView auto-advance', () => {
     await expectSheetAtDoor('318 Birch Ave')
   })
 
-  // ADR 0007. A flagged door has nothing to log, so advancing onto it would
+  // Do-not-knock. A flagged door has nothing to log, so advancing onto it would
   // park the canvasser on a dead end.
   it('skips a do-not-knock door', async () => {
     mockRoute([
@@ -1935,8 +1937,8 @@ describe('WalkView auto-advance', () => {
     await expectSheetAtDoor('318 Birch Ave')
   })
 
-  // ADR 0008. Same dead end as a do-not-knock door: advancing onto a resident
-  // who moved away parks the canvasser on a door with nothing to log.
+  // Not-a-voter. Same dead end as a do-not-knock door: advancing onto a
+  // resident who moved away parks the canvasser on a door with nothing to log.
   it('skips a resident flagged with a reason', async () => {
     mockRoute([
       stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
@@ -2156,7 +2158,7 @@ describe('WalkView auto-advance', () => {
 
   // Each door needs its own replay key, so advancing has to mint for the
   // stop it lands on rather than reusing the one just cleared.
-  // ADR 0009. The feed is served with the route, so the door just logged is
+  // The activity feed is served with the route, so the door just logged is
   // missing from it until the route is served again. Reopening the resident is
   // where that shows, and is therefore where the fresh serve is asked for.
   it('shows a door logged this walk in the feed when the resident is reopened', async () => {
@@ -3032,8 +3034,8 @@ describe('WalkView notes', () => {
   // note is the one thing worth writing at a door nobody answered, and a door
   // nobody answered is often shut without being logged — the canvasser writes
   // "come back Saturday", closes the sheet and walks on. Nothing then refreshes
-  // that resident (`openSheet`'s ADR 0009 serve is for residents logged this
-  // session, and this one was not), so a sheet re-seeded from the frozen
+  // that resident (`openSheet`'s activity-feed serve is for residents logged
+  // this session, and this one was not), so a sheet re-seeded from the frozen
   // payload showed a note that had definitely saved as though it had not.
   it('keeps a note written at a door that was closed without being logged', async () => {
     mockRoute([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])])
@@ -3098,8 +3100,8 @@ describe('WalkView notes', () => {
   // payload rather than on a list held beside it, since that is the copy a
   // reopened sheet reads. A fourth note is not evicted to imitate a wire cap
   // that prices payload bytes a note in this browser does not cost, and an
-  // edit is replaced in place rather than floated to the top, because ADR 0011
-  // orders by `created_at` so that fixing a typo in an old note does not
+  // edit is replaced in place rather than floated to the top, because notes are
+  // ordered by `created_at` so that fixing a typo in an old note does not
   // resurface it above one written this morning.
   it('does not trim to the cap, and does not resurface an edited note', async () => {
     const user = userEvent.setup()
@@ -3155,16 +3157,16 @@ describe('WalkView notes', () => {
     expect(bodies[0]).toContain('Written at the door')
     expect(bodies[1]).toContain('Newest served note')
     expect(bodies[2]).toContain('Middle served note')
-    // Still last, though it is the note most recently touched: ADR 0011 orders
-    // by when a note was written, not by when it was edited.
+    // Still last, though it is the note most recently touched: notes are
+    // ordered by when a note was written, not by when it was edited.
     expect(bodies[3]).toContain('Oldest, corrected')
     // Four of four, so the card claims no truncation it does not have.
     expect(screen.queryByText(/Showing the/)).toBeNull()
   })
 
-  // The same race `patchPerson` cancels for a knock, met by a note: the ADR
-  // 0009 feed refresh for this resident is already in flight when the note is
-  // written, and it was built by a server that had never seen it. Landing
+  // The same race `patchPerson` cancels for a knock, met by a note: the
+  // activity feed refresh for this resident is already in flight when the note
+  // is written, and it was built by a server that had never seen it. Landing
   // afterwards it would take the note back off a card the canvasser had just
   // watched save.
   it('does not let an in-flight serve undo a note written while it was open', async () => {
@@ -3221,12 +3223,12 @@ describe('WalkView notes', () => {
 
     await writeNote('Come back Saturday')
 
-    // Settled, not slept on, the way the ADR 0008 refresh test above reads its
-    // failed serve: the patch's cancellation puts this query idle immediately,
-    // so nothing lands and the note stays — while with the cancellation removed
-    // the query is still fetching here, and reaching idle means the serve has
-    // arrived and taken the note back off the card. A wall-clock wait would
-    // pass either way on a slow enough runner.
+    // Settled, not slept on, the way the not-a-voter refresh test above reads
+    // its failed serve: the patch's cancellation puts this query idle
+    // immediately, so nothing lands and the note stays — while with the
+    // cancellation removed the query is still fetching here, and reaching idle
+    // means the serve has arrived and taken the note back off the card. A
+    // wall-clock wait would pass either way on a slow enough runner.
     releaseSecondServe!()
     await waitFor(() =>
       expect(

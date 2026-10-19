@@ -170,14 +170,15 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
+    // One census read serves both the panel sizing and the good read.
+    const population =
+      outreachFeedbackEnabled && this.priorityResults
+        ? await this.priorityResults.districtPopulation(ctx.organization)
+        : null
     const civicPanel = outreachFeedbackEnabled
       ? await this.contextService.civicPanelBuildState(
           ctx.organizationSlug,
-          panelGoalMembers(
-            this.contacts
-              ? await this.contacts.getDistrictPopulation(ctx.organization)
-              : null,
-          ),
+          panelGoalMembers(population),
         )
       : undefined
     const reportBacks =
@@ -192,6 +193,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         ? await this.priorityResults.readStatuses(
             ctx.organizationSlug,
             ctx.priorities.map((priority) => priority.id),
+            population,
           )
         : undefined
     if (!resolved) {

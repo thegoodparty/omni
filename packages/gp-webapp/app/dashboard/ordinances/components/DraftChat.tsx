@@ -11,6 +11,7 @@ import {
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
+import { trackChatMessageSent } from '../../shared/agent-chat/chatAnalytics'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
@@ -189,7 +190,12 @@ export default function DraftChat({
           if (!conversationId) return
           const text = composer
           setComposer('')
-          trackEvent(EVENTS.Ordinances.DraftChatMessageSent)
+          trackChatMessageSent({
+            agent: 'ordinance_flow',
+            surface: 'ordinance_draft',
+            via: 'composer',
+            ordinanceId: ordinance.id,
+          })
           // send resolves when the turn (and its tail drain) finishes; only
           // then is any apply_draft_edit write settled server-side.
           void send(conversationId, text).then(() => onTurnComplete?.())

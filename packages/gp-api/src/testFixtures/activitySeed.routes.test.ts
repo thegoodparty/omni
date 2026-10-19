@@ -1,12 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import type { Person } from '@goodparty_org/contracts'
 import {
+  answersNeeded,
+  CIVIC_PANEL_JOIN_LINE,
+  type Person,
+} from '@goodparty_org/contracts'
+import {
+  CivicPanelBuildChannel,
+  CivicPanelBuildPlanStatus,
+  CivicPanelStatus,
   ConstituentFeedbackChannel,
   ContactStatusField,
+  ContactStatusSource,
+  OutreachStatus,
   OutreachType,
   SynthesisRunStatus,
+  SynthesisScope,
   UserRole,
 } from '@/generated/prisma'
 import { MockSynthesisEngine } from '@/constituentFeedback/services/mockSynthesisEngine'
@@ -16,6 +26,8 @@ import {
 } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { LlmService } from '@/llm/services/llm.service'
+import { StatsService } from '@/peopleDb/services/stats.service'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
@@ -46,11 +58,13 @@ const person = (index: number): Person =>
   }) as Person
 
 const PEOPLE = Array.from({ length: 40 }, (_, index) => person(index))
+// Enough residents for the priority ask to reach a good read.
+const DISTRICT_SAMPLE = Array.from({ length: 160 }, (_, index) => person(index))
 
-const seed = (slug: string) =>
+const seed = (slug: string, people: Person[] = PEOPLE) =>
   service.client.post(
     `/v1/test-fixtures/organizations/${slug}/activity`,
-    { people: PEOPLE.length },
+    { people: people.length },
     { validateStatus: () => true },
   )
 
@@ -72,17 +86,30 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       .mockImplementation((...args) => {
         scheduled.push(args)
       })
+    const contacts = service.app.get(ContactsService)
     const sample = vi
-      .spyOn(service.app.get(ContactsService), 'sampleContacts')
+      .spyOn(contacts, 'sampleContacts')
       .mockResolvedValue(PEOPLE)
     // A completed run asks the model to match its issues to themes.
     const llm = vi
       .spyOn(service.app.get(LlmService), 'jsonCompletion')
       .mockRejectedValue(new Error('No model in this suite'))
+    // What the panel plan sizes its first wave from.
+    const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
+    const stats = service.app.get(StatsService)
+    const population = vi
+      .spyOn(stats, 'findDistrictPopulation')
+      .mockResolvedValue(null)
+    const weighting = vi
+      .spyOn(stats, 'findWeightingInputs')
+      .mockResolvedValue({ district: null, cells: [], tractAdults: new Map() })
     onTestFinished(() => {
       engine.mockRestore()
       sample.mockRestore()
       llm.mockRestore()
+      pools.mockRestore()
+      population.mockRestore()
+      weighting.mockRestore()
     })
   })
 
@@ -195,10 +222,103 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const runs = await service.prisma.feedbackSynthesisRun.findMany({
       where: { organizationSlug: slug },
     })
-    expect(runs).toHaveLength(3)
+    // Door, calls, the check-in text, the priority ask and its pooled run.
+    expect(runs).toHaveLength(5)
     expect(
       runs.every((run) => run.status === SynthesisRunStatus.completed),
     ).toBe(true)
+  })
+
+  it('gives a Serve org the whole civic panel loop', async () => {
+    vi.mocked(
+      service.app.get(ContactsService).sampleContacts,
+    ).mockResolvedValue(DISTRICT_SAMPLE)
+    const slug = await createServeOrg(service)
+
+    const res = await seed(slug, DISTRICT_SAMPLE)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.efforts).toHaveLength(6)
+    const [, , , , invite, ask] = res.data.efforts
+
+    // 32 joined at the door or on a call; 21 of the 121 invited texted JOIN.
+    const panel = {
+      organizationSlug: slug,
+      field: ContactStatusField.civic_panel,
+      value: CivicPanelStatus.member,
+    }
+    expect(
+      await service.prisma.contactCurrentStatus.count({ where: panel }),
+    ).toBe(53)
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: {
+          organizationSlug: slug,
+          field: ContactStatusField.civic_panel,
+          source: ContactStatusSource.sms,
+          toValue: CivicPanelStatus.member,
+        },
+      }),
+    ).toBe(21)
+    const inviteSend = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: invite.outreachId },
+    })
+    expect(inviteSend).toMatchObject({
+      asksToJoinCivicPanel: true,
+      status: OutreachStatus.completed,
+    })
+    expect(inviteSend.message?.endsWith(CIVIC_PANEL_JOIN_LINE)).toBe(true)
+
+    const plan = await service.prisma.civicPanelBuildPlan.findFirstOrThrow({
+      where: { organizationSlug: slug },
+      include: { steps: true },
+    })
+    expect(plan).toMatchObject({
+      status: CivicPanelBuildPlanStatus.active,
+      hoursPerWeek: 2,
+    })
+    const textStep = plan.steps.find(
+      (step) => step.channel === CivicPanelBuildChannel.text,
+    )
+    expect(textStep).toMatchObject({ wave: 1, outreachId: invite.outreachId })
+    expect(textStep?.completedAt).not.toBeNull()
+
+    const askSend = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: ask.outreachId },
+    })
+    expect(askSend).toMatchObject({
+      campaignId: null,
+      status: OutreachStatus.completed,
+    })
+    const priorityId = askSend.priorityId
+    if (priorityId === null) throw new Error('ask is not on a priority')
+    const needed = answersNeeded(null)
+    const repliers = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: ask.outreachId, isOptOut: false },
+      distinct: ['personId'],
+      select: { personId: true },
+    })
+    expect(repliers).toHaveLength(needed + 4)
+    expect(
+      await service.prisma.contactCurrentStatus.count({
+        where: {
+          ...panel,
+          personId: { in: repliers.map((row) => row.personId) },
+        },
+      }),
+    ).toBe(53)
+    const read = await service.app
+      .get(PriorityResultsService)
+      .readStatuses(slug, [priorityId])
+    expect(read.get(priorityId)).toMatchObject({ good: true, needed })
+
+    await flushEngine()
+    const pooled = await service.prisma.feedbackSynthesisRun.findFirstOrThrow({
+      where: { priorityId, scope: SynthesisScope.priority },
+      include: { _count: { select: { themes: true } } },
+    })
+    expect(pooled.status).toBe(SynthesisRunStatus.completed)
+    expect(pooled._count.themes).toBeGreaterThan(0)
   })
 
   it('turns away a caller who is neither staff nor a machine', async () => {

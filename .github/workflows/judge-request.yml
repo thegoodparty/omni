@@ -39,6 +39,17 @@ on:
         required: false
         default: false
         type: boolean
+      arm_runtime:
+        # Only the manual entry point offers this. A PR-triggered or
+        # `/judge` sweep keeps the in-process default until an HTTP sweep
+        # has been run by hand enough times to be boring.
+        description: >-
+          Where the chat arms drive: `inprocess` (default, today's
+          behaviour) or `http` (candidate against its PR preview, base
+          against dev). `http` requires `live`.
+        required: false
+        default: inprocess
+        type: string
 
 # GUARD 2 of 3, and the half of it that is unambiguously in force.
 #
@@ -109,8 +120,10 @@ jobs:
       pr_number: ${{ inputs.pr_number }}
       agents: ${{ inputs.agents || 'auto' }}
       live: ${{ inputs.live }}
+      arm_runtime: ${{ inputs.arm_runtime || 'inprocess' }}
       requested_by: ${{ github.actor }}
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}

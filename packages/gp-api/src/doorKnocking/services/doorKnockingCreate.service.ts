@@ -336,10 +336,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     const { districtId, dataset } =
       await this.contacts.resolveEligibleDistrict(organization)
 
-    // ADR 0007 and ADR 0008. Read outside the transaction because they touch a
-    // different table and would otherwise add two round trips to a critical
-    // section that already contains a vendor call. Both sets are the org's own
-    // flagged people, small by construction.
+    // Do-not-knock and not-a-voter. Read outside the transaction because they
+    // touch a different table and would otherwise add two round trips to a
+    // critical section that already contains a vendor call. Both sets are the
+    // org's own flagged people, small by construction.
     //
     // One exclusion list, because evaluation has one job either way: leave
     // this person's door out of the route. Deduped because a person told
@@ -834,7 +834,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
   ): Promise<{ id: number; plan: RoutePlannerPlan }> {
-    const plan = await this.planStops(stops, request)
+    const plan = await this.planStops(stops, request, organizationSlug)
 
     // Priced off what the vendor was actually sent, not off stops.length:
     // the anchors are billed locations, the Route Planner's rate is
@@ -1014,6 +1014,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   private async planStops(
     stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
+    organizationSlug: string,
   ): Promise<RoutePlannerPlan> {
     const faces = groupIntoBlockFaces(stops)
 
@@ -1037,7 +1038,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
       plan =
         faces.length < 2
           ? SINGLE_FACE_PLAN
-          : await this.orderFaces(faces, stops, request)
+          : await this.orderFaces(faces, stops, request, organizationSlug)
     } catch (error) {
       // A refusal is about these coordinates and will be the same refusal
       // tomorrow, so it becomes a 400 naming the addresses rather than a 502
@@ -1106,6 +1107,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     const path = await this.geoapify.routeThrough({
       mode: request.mode,
       waypoints: walked,
+      organizationSlug,
     })
 
     // Totals are re-derived rather than passed through: the vendor's are for
@@ -1219,6 +1221,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     faces: BlockFace[],
     stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
+    organizationSlug: string,
   ): Promise<RoutePlannerPlan> {
     const representatives = faces.map((face) => representativeOf(face, stops))
     const jobs = representatives.map((stopIndex, faceIndex) => ({
@@ -1302,6 +1305,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
       // doors. planStops buys the path through the doors instead, once their
       // order is known.
       fetchGeometry: false,
+      organizationSlug,
     })
   }
 }

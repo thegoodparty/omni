@@ -111,8 +111,8 @@ describe('PeerlyErrorHandlingService', () => {
     )
   })
 
-  // The level of these lines is what decides whether win-peerly-warnings pages
-  // win-bugs: the rule counts error-level lines carrying 'Peerly API ERROR'.
+  // The level of these lines is what decides whether win-peerly-warnings pages:
+  // the rule counts error-level lines carrying 'Peerly API ERROR'.
   describe('log level', () => {
     // Peerly proxies CampaignVerify and collapses its answer into a 400 with
     // CV's own status echoed in status_code. This is the prod shape.

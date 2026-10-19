@@ -204,7 +204,11 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     await this.assertCivicPanelsOn(user)
-    return this.civicPanelBuildPlan.create(organization, body.hoursPerWeek)
+    return this.civicPanelBuildPlan.create(
+      organization,
+      body.hoursPerWeek,
+      'panel_page',
+    )
   }
 
   @Patch('civic-panel/plan')
@@ -216,7 +220,11 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     await this.assertCivicPanelsOn(user)
-    return this.civicPanelBuildPlan.updateHours(organization, body.hoursPerWeek)
+    return this.civicPanelBuildPlan.updateHours(
+      organization,
+      body.hoursPerWeek,
+      'panel_page',
+    )
   }
 
   @Post('civic-panel/plan/steps/:id/skip')

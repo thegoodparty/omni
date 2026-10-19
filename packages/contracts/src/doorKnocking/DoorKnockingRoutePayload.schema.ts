@@ -11,7 +11,7 @@ import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
 import { DoorKnockingDemographicsShape } from './DoorKnockingResidents.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 
-// ADR 0009. Previous outreach to one resident, riding the route payload so
+// Previous outreach to one resident, riding the route payload so
 // the walk keeps working on the bad signal it was designed around.
 //
 // The variants are the CRM's own ConstituentActivity members, not a
@@ -62,12 +62,13 @@ const optionalDemographics = (): {
 // the CRM person view, which pages.
 export const ROUTE_TARGET_ACTIVITY_LIMIT = 5
 
-// ADR 0011. The same server-side cap as the activity feed above and for the
+// Notes get the same server-side cap as the activity feed above and for the
 // same reason, at a lower number: notes are several times more expensive per
 // row. An activity row is a fixed handful of short fields, while a note is
 // free text a human typed and `ContactNoteInputSchema` lets it run to 10,000
-// characters. On ADR 0009's own 100-stop rig, one 140-character note per
-// target costs roughly what all five activity rows cost together.
+// characters. On the 100-stop route the activity feed was measured on, one
+// 140-character note per target costs roughly what all five activity rows
+// cost together.
 //
 // Three is also close to product's "show them all": a resident with three or
 // fewer notes — nearly all of them — loses nothing.
@@ -180,13 +181,14 @@ export const RoutePayloadTargetSchema = z.object({
   ...optionalDemographics(),
   knockStatus: DoorKnockStatusSchema,
   mayHaveMoved: z.boolean(),
-  // ADR 0007. A flag rather than a DoorKnockStatus member: a knock status is
-  // derived from an interaction, and this comes from the contact-status
-  // projection instead. Read live at serve time, so a person flagged this
-  // morning is marked on a route frozen yesterday — turf evaluation keeps them
-  // out of new routes, but it cannot reach back into one already built.
+  // Do-not-knock. A flag rather than a DoorKnockStatus member: a knock
+  // status is derived from an interaction, and this comes from the
+  // contact-status projection instead. Read live at serve time, so a person
+  // flagged this morning is marked on a route frozen yesterday — turf
+  // evaluation keeps them out of new routes, but it cannot reach back into
+  // one already built.
   doNotKnock: z.boolean(),
-  // ADR 0008. Why this person is not a voter to reach here, when someone at
+  // Why this person is not a voter to reach here, when someone at
   // the door said so. Read live at serve time for the same reason doNotKnock
   // is: evaluation keeps them out of new routes, but the frozen one in
   // someone's hand already passed it.
@@ -195,7 +197,7 @@ export const RoutePayloadTargetSchema = z.object({
   // reason, and the marker is present or it isn't. Keeping it optional also
   // means a payload snapshotted offline before this shipped still parses.
   notAVoterReason: NotAVoterReasonSchema.optional(),
-  // ADR 0009. This resident's own recent outreach, newest first — never the
+  // This resident's own recent outreach, newest first — never the
   // household's. Two people behind one door disagree, and attributing a
   // neighbor's refusal to the person answering is worse than showing nothing.
   //
@@ -211,19 +213,19 @@ export const RoutePayloadTargetSchema = z.object({
   // clientRequest casts ofetch's JSON without parsing). A default would fill in
   // nothing and only promise the compiler a non-optional array, so a service
   // worker's pre-ship snapshot would hand a `.map()` undefined with no type
-  // error. Optional keeps that decision at the call site. See ADR 0009.
+  // error. Optional keeps that decision at the call site.
   history: z.array(RouteTargetActivitySchema).optional(),
-  // ADR 0011. This resident's saved contact notes, newest first, capped at
+  // This resident's saved contact notes, newest first, capped at
   // ROUTE_TARGET_NOTE_LIMIT with their true count beside them. Riding the
-  // payload rather than fetched per resident for the reason ADR 0009 gave
-  // about `history`: the sheet is deliberately fetch-free, because the moment
+  // payload rather than fetched per resident for the same reason as
+  // `history`: the sheet is deliberately fetch-free, because the moment
   // a canvasser needs it is the moment they are standing on a porch in the
   // dead zone the whole feature is shaped around.
   //
   // Keyed by personId like `history`, never rolled up to the address. Two
   // people behind one door are two records, and free text written about one of
-  // them read against the housemate who answered is the ADR 0009 failure with
-  // worse material than an outcome enum.
+  // them read against the housemate who answered is the same misattribution
+  // `history` avoids, with worse material than an outcome enum.
   //
   // The CRM's own `ContactNoteSchema`, not a door-knocking narrowing of it, so
   // one note cannot be worded two ways — and so the webapp can drop the

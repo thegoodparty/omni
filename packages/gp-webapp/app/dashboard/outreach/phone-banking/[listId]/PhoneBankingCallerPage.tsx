@@ -47,6 +47,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  recalledLaunchSource,
   outreachProduct,
 } from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
@@ -748,6 +749,7 @@ export default function PhoneBankingCallerPage({
                   recipientCount: totalPeopleCount({ entries: list.entries }),
                   sendDate: new Date(),
                   listId,
+                  launchSource: recalledLaunchSource('phoneBanking', listId),
                 }),
               })
             }

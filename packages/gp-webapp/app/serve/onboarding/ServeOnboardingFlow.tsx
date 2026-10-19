@@ -40,6 +40,7 @@ import {
   buildBrSuggestionChangedPayload,
   trackServeOnboarding,
   SERVE_ONBOARDING_EVENTS,
+  SERVE_STORY_EVENTS,
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
@@ -82,6 +83,11 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
   'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
   pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
+  'story-represent': SERVE_STORY_EVENTS['story-represent'].viewed,
+  'story-loudest': SERVE_STORY_EVENTS['story-loudest'].viewed,
+  'story-sample': SERVE_STORY_EVENTS['story-sample'].viewed,
+  'story-grow': SERVE_STORY_EVENTS['story-grow'].viewed,
+  priorities: SERVE_ONBOARDING_EVENTS.PrioritiesViewed,
 }
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
@@ -655,7 +661,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // failed save keeps the user here to retry instead of advancing silently.
   const savePrioritiesAndAdvance = async (): Promise<void> => {
     if (priorityOptions === null) return
+    const trackCompleted = () =>
+      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PrioritiesCompleted, {
+        branch,
+        electedOfficeId: currentEO?.id,
+        shownCount: priorityOptions.length,
+        selectedCount: selectedPriorityKeys.size,
+        wroteOwn: otherPriorityComplete,
+      })
     if (priorityOptions.length === 0 && !otherPriorityComplete) {
+      trackCompleted()
       await persistAndAdvance(
         { targetStep: 'pledge' },
         () => setStep('pledge'),
@@ -685,6 +700,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       setSaving(false)
       return
     }
+    trackCompleted()
     await persistAndAdvance(
       { targetStep: 'pledge' },
       () => setStep('pledge'),
@@ -987,6 +1003,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // step's motion.
         const next =
           SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) + 1] ?? 'priorities'
+        trackServeOnboarding(SERVE_STORY_EVENTS[step].completed, {
+          branch,
+          electedOfficeId: currentEO?.id,
+        })
         setStep(next)
         saveProgress({ targetStep: next }).catch((err: Error) =>
           reportErrorToSentry(err, {

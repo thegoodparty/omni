@@ -42,7 +42,6 @@ npm run build -w packages/candidate-sites    # tsc --noEmit + next build (typech
 | Adding a route, section, or data flow                            | `docs/architecture.md`      |
 | Local dev quirks (gp-api wiring, custom-domain trick, port 4001) | `docs/getting-started.md`   |
 | AI rule-by-rule code review                                      | `ai-rules/` (git submodule) |
-| Why a thing is the way it is                                     | `docs/adr/`                 |
 
 ## Code style
 
