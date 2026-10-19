@@ -24,7 +24,11 @@ import { useCampaignLifecycle } from './campaignLifecycle'
 
 const ANCHOR = 900
 
-const turf = (id: number, completed: boolean) => ({
+const turf = (
+  id: number,
+  completed: boolean,
+  priorityId: string | null = null,
+) => ({
   id,
   name: `Turf ${id}`,
   color: '#22c55e',
@@ -32,6 +36,7 @@ const turf = (id: number, completed: boolean) => ({
   knockedDoorCount: 1,
   completed,
   archivedAt: null,
+  priorityId,
 })
 
 // A fresh client per test so nothing inherits the previous one's cache — the
@@ -114,5 +119,33 @@ describe('useCampaignLifecycle', () => {
     )
     // The events are the thing given up, not the press.
     expect(completedCalls()).toHaveLength(0)
+  })
+
+  it('counts each finished turf toward the priority that opened it', async () => {
+    clientRequestMock.mockImplementation((route: string) => {
+      if (route === 'GET /v1/door-knocking/campaigns/:anchorId') {
+        return Promise.resolve({
+          data: [turf(1, false, 'priority-1'), turf(2, false)],
+        })
+      }
+      return Promise.resolve({
+        data: [turf(1, true, 'priority-1'), turf(2, true)],
+      })
+    })
+
+    const { result } = renderHook(() => useCampaignLifecycle(ANCHOR, true), {
+      wrapper: wrapper(newClient()),
+    })
+    result.current.markDone()
+
+    await waitFor(() => expect(completedCalls()).toHaveLength(2))
+    const byList = Object.fromEntries(
+      completedCalls().map(([, props]) => [props.listId, props]),
+    )
+    expect(byList[1]).toMatchObject({
+      priorityId: 'priority-1',
+      method: 'campaign',
+    })
+    expect(byList[2]).not.toHaveProperty('priorityId')
   })
 })

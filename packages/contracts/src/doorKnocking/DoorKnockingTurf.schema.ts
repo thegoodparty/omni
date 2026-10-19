@@ -302,6 +302,11 @@ export const DoorKnockingTurfSchema = z.object({
   // list the server considers gone.
   completed: z.boolean(),
   archivedAt: zDate().nullable(),
+  // The priority whose card opened this turf's campaign. A chat card's link
+  // is written to the campaign's anchor envelope only, so a sibling turf
+  // reads it off its anchor. Carried so the completion event can count the
+  // walk toward that priority, as text and phone banking already do.
+  priorityId: z.string().nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
 })

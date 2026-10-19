@@ -1,7 +1,28 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React, { type ReactNode } from 'react'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+
+const clientRequestMock = vi.fn()
+const trackEventMock = vi.fn()
+
+vi.mock('gpApi/typed-request', () => ({
+  clientRequest: (...args: unknown[]) => clientRequestMock(...args),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}))
+
+import { EVENTS } from 'helpers/analyticsHelper'
 import { getHistoryStatusLabel } from 'app/dashboard/outreach/v2/historyStatus.util'
-import { turfStatusLabel } from './turfLifecycle'
+import { turfStatusLabel, useTurfLifecycle } from './turfLifecycle'
 
 const turf = (fields: Partial<DoorKnockingTurf>): DoorKnockingTurf =>
   ({
@@ -99,5 +120,63 @@ describe('turfStatusLabel', () => {
         status: 'pending',
       } as Parameters<typeof getHistoryStatusLabel>[0]),
     ).not.toBe('Not started')
+  })
+})
+
+describe('useTurfLifecycle', () => {
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    React.createElement(
+      QueryClientProvider,
+      {
+        client: new QueryClient({
+          defaultOptions: { mutations: { retry: false } },
+        }),
+      },
+      children,
+    )
+
+  const completedCalls = () =>
+    trackEventMock.mock.calls.filter(
+      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+    )
+
+  beforeEach(() => {
+    clientRequestMock.mockReset()
+    trackEventMock.mockReset()
+  })
+
+  it('counts a finished walk toward the priority that opened it', async () => {
+    const walked = turf({ knockedDoorCount: 3, priorityId: 'priority-1' })
+    clientRequestMock.mockResolvedValue({
+      data: { ...walked, completed: true, loggedCount: 12 },
+    })
+
+    const { result } = renderHook(() => useTurfLifecycle(walked, true), {
+      wrapper,
+    })
+    result.current.markDone()
+
+    await waitFor(() => expect(completedCalls()).toHaveLength(1))
+    expect(completedCalls()[0]?.[1]).toMatchObject({
+      medium: 'doorKnocking',
+      product: 'serve',
+      priorityId: 'priority-1',
+      method: 'turf',
+    })
+  })
+
+  it('omits the priority from a walk no priority opened', async () => {
+    const walked = turf({ knockedDoorCount: 3, priorityId: null })
+    clientRequestMock.mockResolvedValue({
+      data: { ...walked, completed: true },
+    })
+
+    const { result } = renderHook(() => useTurfLifecycle(walked, false), {
+      wrapper,
+    })
+    result.current.markDone()
+
+    await waitFor(() => expect(completedCalls()).toHaveLength(1))
+    expect(completedCalls()[0]?.[1]).not.toHaveProperty('priorityId')
   })
 })
