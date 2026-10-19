@@ -94,7 +94,11 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     return calls ? COPY.calledSoFar(reached) : COPY.knockedSoFar(reached)
   }
   const time = COPY.duration(minutesOf(step))
-  if (calls) return COPY.stepDetail.phone_banking(time)
+  if (calls) {
+    return step.landlineFirst === false
+      ? COPY.stepLean.phone_banking(time)
+      : COPY.stepDetail.phone_banking(time)
+  }
   return step.steeredToward === 'unreachedAreas'
     ? COPY.stepLean.door_knocking(time)
     : COPY.stepDetail.door_knocking(time)

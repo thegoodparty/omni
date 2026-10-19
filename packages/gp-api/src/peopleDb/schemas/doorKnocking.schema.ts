@@ -24,6 +24,14 @@ const evaluateSchema = DoorKnockingEvaluateRequestSchema.extend({
 
 export class DoorKnockingEvaluateDTO extends createZodDto(evaluateSchema) {}
 
+// Server-only: the civic panel's door step, the densest walkable area of
+// `households` doors among everyone the filters match.
+const walkableAreaSchema = evaluateSchema
+  .omit({ bbox: true, maxPeople: true, affinityColumn: true })
+  .extend({ households: z.number().int().positive().max(1_000) })
+
+export class WalkableAreaDTO extends createZodDto(walkableAreaSchema) {}
+
 export class DoorKnockingResidentsDTO extends createZodDto(
   DoorKnockingResidentsRequestSchema,
 ) {}

@@ -76,6 +76,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   // A step's line when its draw leans toward a group the panel trails.
   stepLean: {
     text: (group: string) => `This round invites more ${group}.`,
+    phone_banking: (time: string) =>
+      `People a text can't reach. ${time} of your time.`,
     door_knocking: (time: string) =>
       `A part of your district we haven't reached. ${time} of your time.`,
   },

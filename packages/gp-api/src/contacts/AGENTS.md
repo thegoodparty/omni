@@ -909,9 +909,9 @@ overlap across channels or waves (`drawListSample`'s server-only
 `excludePersonIds`, which always freezes the draw). Calls draw `hasLandline`
 first, the residents a text cannot reach, and fill from anyone with a phone
 (until the panel holds its share of people 65 and over; see "Steering by
-census"). Doors pick a walkable area (`pickWalkableArea`): eligible rooftop-geocoded
-people (`doorPointsWithin`, capped like the map) grouped into households by
-`addressKey`, households into ~200m grid cells, the cell whose 3x3
+census"). Doors pick a walkable area in the warehouse (`walkableAreaWithin`, the
+peopleDb `walkableArea` read): every eligible rooftop-geocoded household in
+the district, uncapped, goes into ~200m grid cells, the cell whose 3x3
 neighborhood holds the most households is the seed, and the households
 nearest that neighborhood's center are taken until the step's size; a
 second area in the wave is drawn after the first, so it lands elsewhere. The
@@ -945,13 +945,16 @@ Texts (and calls, below) draw weighted: per value `clamp(c / p, 0.5, 2)`
 passed as `drawListSample`'s server-only `weights` and applied in
 `buildSampleSql`'s order. Doors walk the barely reached tract
 (`tractShortfalls`, the `unreachedTracts` rule on members) trailing most,
-through `doorPointsWithin`'s `tract`, and fall back to the district-wide
+through `walkableAreaWithin`'s `tract`, and fall back to the district-wide
 pick when it holds fewer households than the step. Calls drop landline-first
 once the panel's 65+ share reaches the census's, and draw weighted from
 the whole phone pool. Nothing leans below `PANEL_MIN_MEMBERS_FOR_BALANCE`
 (30) members, and the census is not read then. A step's
 `steeredToward` (`UnderrepresentedGroup`) is written when it is drawn;
-before that the read predicts it for a not-started step. A door step
+before that the read predicts it for a not-started step. A call step's
+`landlineFirst` (whether its draw put landlines first) is recorded and
+predicted the same way; a call step drawn before it was recorded reads
+true unless it leaned. A door step
 leaning toward `unreachedAreas` reads "Knock on doors in a part of your
 district we haven't reached" as its Next line. The response's `balance`
 (null when the census cannot be read) is the panel's one status, in the

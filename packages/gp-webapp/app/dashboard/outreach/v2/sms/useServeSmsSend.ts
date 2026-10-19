@@ -12,6 +12,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
@@ -122,6 +123,7 @@ export interface UseServeSmsSendInput {
   purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
+  launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'compose') => void
   setDraftOutreachId: (id: number) => void
@@ -159,6 +161,7 @@ export const useServeSmsSend = ({
   purpose,
   proposalLink,
   reportBackForOutreachId,
+  launchSource,
   create,
   setStepId,
   setDraftOutreachId,
@@ -282,6 +285,7 @@ export const useServeSmsSend = ({
               : {}),
             asksToJoinCivicPanel:
               findCivicPanelJoinLine(composedMessage) !== null,
+            ...(launchSource ? { launchSource } : {}),
           }),
         })
       } catch {

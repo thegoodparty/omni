@@ -480,11 +480,10 @@ export const EVENTS = {
     // once per drawer open with
     // { context, source: 'message' | 'history' | 'toolbar' } (a bar submit
     // opens with a message; a history pick opens a past conversation; the
-    // paperclip or mic opens a fresh one); MessageSent fires per user send ({ context }) — the
-    // initial bar submit and every composer follow-up — so open-to-send
-    // drop-off is visible.
+    // paperclip or mic opens a fresh one). Each send is AI Chat - Message
+    // Sent with surface 'contacts_assistant', so open-to-send drop-off is
+    // visible.
     AssistantChatOpened: 'Contacts - Assistant Chat Opened',
-    AssistantMessageSent: 'Contacts - Assistant Message Sent',
     // ENG-10767: per-stage funnel for the URL-stable create-list wizard
     // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
     // its stages. Viewed fires on every stage entry (including Back
@@ -712,6 +711,13 @@ export const EVENTS = {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
   },
+  // Every message a user sends to an agent chat, on every surface: { agent
+  // (the ChatScope), surface, via, product, priorityId?, ordinanceId? }.
+  // Hidden turns the app sends never fire it. See
+  // app/dashboard/shared/agent-chat/chatAnalytics.ts.
+  AIChat: {
+    MessageSent: 'AI Chat - Message Sent',
+  },
   ChiefOfStaff: {
     DocumentAttached: 'Chief Of Staff - Document Attached',
     LinkSubmitted: 'Chief Of Staff - Link Submitted',
@@ -814,13 +820,12 @@ export const EVENTS = {
   Priorities: {
     ListViewed: 'Priorities - List Viewed',
     PriorityViewed: 'Priorities - Priority Viewed',
-    MessageSent: 'Priorities - Message Sent',
+    // Get answers queued its turn: { priorityId, source: strip | rail |
+    // results_page }. Typed messages are AI Chat - Message Sent.
+    GetAnswersClicked: 'Priorities - Get Answers Clicked',
     // `heldBack` is true while the priority has no good read yet;
     // `weightingStatus` is the read's status against the census.
     ResultsViewed: 'Priorities - Results Viewed',
-    // Get answers on a read that names a group to hear more from, or a card
-    // kept to the parts of the district not reached yet. Buckets only.
-    UnderHeardGroupTargeted: 'Priorities - Under-Heard Group Targeted',
   },
   CivicPanel: {
     PanelViewed: 'Civic Panel - Panel Viewed',
@@ -848,7 +853,6 @@ export const EVENTS = {
     NewOrdinanceCreated: 'Ordinances - New Ordinance Created',
     NewOrdinanceErrored: 'Ordinances - New Ordinance Errored',
     DraftChatOpened: 'Ordinances - Draft Chat Opened',
-    DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
   // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —

@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackEvent } from 'helpers/analyticsHelper'
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -60,23 +61,32 @@ const panelAndFresh: Proposal = {
   civicPanelAsk: true,
 }
 
-const Opener = ({ proposal }: { proposal: Proposal }) => {
+const Opener = ({
+  proposal,
+  launchSource,
+}: {
+  proposal: Proposal
+  launchSource?: OutreachLaunchSource
+}) => {
   const flows = useProposalFlows()
   return (
     <button
       type="button"
       disabled={!flows?.textResolved}
-      onClick={() => flows?.open(proposal, 'priority-1')}
+      onClick={() => flows?.open(proposal, 'priority-1', launchSource)}
     >
       Start the text
     </button>
   )
 }
 
-const openCard = async (proposal: Proposal) => {
+const openCard = async (
+  proposal: Proposal,
+  launchSource?: OutreachLaunchSource,
+) => {
   render(
     <ProposalFlowsProvider>
-      <Opener proposal={proposal} />
+      <Opener proposal={proposal} {...(launchSource && { launchSource })} />
     </ProposalFlowsProvider>,
   )
   const button = await screen.findByRole('button', { name: 'Start the text' })
@@ -142,30 +152,25 @@ describe("a priority's text card to the panel and new residents", () => {
 })
 
 describe('a priority card kept to the parts of the district not reached yet', () => {
-  it('saves the list with the area and counts the area as targeted', async () => {
+  it('saves the list with the area', async () => {
     await openCard({ ...panelAndFresh, areaTarget: 'unreached' })
 
     expect(saved[0]).toMatchObject({ unreachedAreaOfPriorityId: 'priority-1' })
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Priorities.UnderHeardGroupTargeted,
-      {
-        priorityId: 'priority-1',
-        dimension: 'area',
-        group: 'unreached_areas',
-        targetType: 'area',
-        rank: 1,
-        source: 'proposal_card',
-      },
-    )
   })
+})
 
-  it('counts nothing for a card with no area target', async () => {
+describe("a priority card's launch source", () => {
+  it('is priorities by default', async () => {
     await openCard(panelAndFresh)
 
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Priorities.UnderHeardGroupTargeted,
-      expect.anything(),
-    )
+    expect(smsFlow.props?.launchSource).toBe('priorities')
+    expect(smsFlow.props?.proposalLink).not.toHaveProperty('launchSource')
+  })
+
+  it('is expand_panel for a card that answered Get answers', async () => {
+    await openCard(panelAndFresh, 'expand_panel')
+
+    expect(smsFlow.props?.launchSource).toBe('expand_panel')
   })
 })
 

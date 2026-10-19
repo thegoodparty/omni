@@ -1003,4 +1003,41 @@ describe('DatabricksVoterService', () => {
       expect(logger.error).not.toHaveBeenCalled()
     })
   })
+
+  describe('walkableAreaRows', () => {
+    it('reads each picked door with its residents, one row per door', async () => {
+      stubDistrict('City', 'SPRINGFIELD')
+      const a = '11111111-1111-4111-8111-111111111111'
+      const b = '22222222-2222-4222-8222-222222222222'
+      query.mockResolvedValueOnce({
+        columns: ['lat', 'lng', 'personIds'],
+        rows: [['39.78', '-89.65', `${a},${b}`]],
+      })
+
+      const rows = await service.walkableAreaRows(
+        {
+          districtId: DISTRICT_ID,
+          filters: filtersSchema.parse({}),
+          households: 40,
+          tract: '17167000100',
+        } as never,
+        'voters',
+      )
+
+      expect(rows).toEqual([
+        {
+          lat: 39.78,
+          lng: -89.65,
+          personIds: [a, b],
+        },
+      ])
+      const [statement] = query.mock.calls[0] as [
+        { sql: string; params: Array<{ value: string | null }> },
+      ]
+      expect(statement.sql).toContain('WITH points AS')
+      expect(statement.params.map((p) => p.value)).toEqual(
+        expect.arrayContaining(['40', '17167000100']),
+      )
+    })
+  })
 })

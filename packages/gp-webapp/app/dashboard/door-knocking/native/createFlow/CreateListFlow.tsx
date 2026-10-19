@@ -11,7 +11,9 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   outreachProduct,
+  rememberLaunchSource,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
 } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
@@ -327,6 +329,8 @@ interface CreateListFlowProps {
   // a new campaign's anchor turf only: whole on Serve, so the walk puts that
   // card's check out, and the key alone on Win.
   proposalLink?: ProposalLink
+  // The agent surface that opened the flow, for the Outreach events.
+  launchSource?: OutreachLaunchSource
   // The turfs cut in this sitting, in the order they were cut. One campaign
   // holds all of them, and the route step's press buys a route for each.
   //
@@ -445,6 +449,7 @@ export default function CreateListFlow({
   joinSaveRequest = 0,
   onJoinSaveStateChange,
   proposalLink,
+  launchSource,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -1473,8 +1478,10 @@ export default function CreateListFlow({
             ...(proposalLink?.priorityId
               ? { priorityId: proposalLink.priorityId }
               : {}),
+            launchSource,
           }),
         )
+        rememberLaunchSource('doorKnocking', row.turf.id, launchSource)
       }
       // Dropped here rather than in the mutation body so a draft is only
       // ever forgotten once its route is real. What is left in the list is

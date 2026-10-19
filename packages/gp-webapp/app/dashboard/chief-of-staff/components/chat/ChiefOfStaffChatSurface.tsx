@@ -16,6 +16,7 @@ import type {
   AgentChatClient,
   ChatScope,
 } from '../../../shared/agent-chat/chatClient'
+import type { ChatSurface } from '../../../shared/agent-chat/chatAnalytics'
 
 interface Props {
   open: boolean
@@ -54,8 +55,8 @@ interface Props {
   pendingMessage?: string
   /** One-shot file to attach on open, picked from a chat bar's paperclip. */
   pendingFile?: File
-  /** Fires once per visible message the user sends. */
-  onMessageSent?: () => void
+  /** Where this chat is mounted, for `AI Chat - Message Sent`. */
+  analyticsSurface: ChatSurface
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -107,7 +108,7 @@ export default function ChiefOfStaffChatSurface({
   pendingKickoff,
   pendingMessage,
   pendingFile,
-  onMessageSent,
+  analyticsSurface,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
@@ -203,7 +204,7 @@ export default function ChiefOfStaffChatSurface({
           // Not gated like `pendingMessage`: a bar that resumes a past
           // conversation attaches the file to it, the way its paperclip would.
           pendingFile={pendingFile}
-          onMessageSent={onMessageSent}
+          analyticsSurface={analyticsSurface}
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}

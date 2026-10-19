@@ -73,6 +73,10 @@ model CivicPanelBuildStep {
   /// The group the drawn list leaned toward (contracts'
   /// UnderrepresentedGroup), written when it is drawn. Null: no lean.
   steeredToward      String?                @map("steered_toward")
+  /// A call step's draw put landlines first (true) or drew from every phone
+  /// (false), written when it is drawn. Null: not a call step, or drawn
+  /// before this was recorded.
+  landlineFirst      Boolean?               @map("landline_first")
 
   @@unique([planId, wave, channel, position])
   @@index([outreachId])

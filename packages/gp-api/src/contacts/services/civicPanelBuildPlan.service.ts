@@ -50,7 +50,6 @@ import {
   areaAround,
   CHANNEL_ORDER,
   nextStep,
-  pickWalkableArea,
   sizePanelWave,
   stepStatus,
   waveIsDue,
@@ -102,6 +101,7 @@ const STEP_SELECT = {
   markedDone: true,
   markedAt: true,
   steeredToward: true,
+  landlineFirst: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -507,6 +507,16 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
                 : status === 'not_started'
                   ? predictedLean(step.channel, steering)
                   : null,
+            landlineFirst:
+              step.channel !== CivicPanelBuildChannel.phone_banking
+                ? null
+                : step.voterFileFilterId !== null
+                  ? // Drawn before this was recorded: only a draw that
+                    // dropped landlines first could lean.
+                    (step.landlineFirst ?? step.steeredToward === null)
+                  : status === 'not_started'
+                    ? steering.landlineFirst
+                    : null,
             ...(await this.reachOf(organization, step, memberIds)),
           }
         }),
@@ -597,6 +607,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         voterFileFilterId: list.id,
         preparedAt: new Date(),
         steeredToward,
+        landlineFirst:
+          step.channel === CivicPanelBuildChannel.phone_banking
+            ? steering.landlineFirst
+            : null,
       },
     })
     if (claimed.count === 0) {
@@ -985,31 +999,28 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       return { personIds: [...landlines, ...others], steeredToward: null }
     }
     if (steering.doorTract) {
-      const inTract = await this.contactsService.doorPointsWithin(
+      const inTract = await this.contactsService.walkableAreaWithin(
         organization,
         this.criteriaFor(step.channel),
         exclude,
+        step.targetSize,
         steering.doorTract,
       )
-      const households = new Set(inTract.map((point) => point.addressKey))
-      if (households.size >= step.targetSize) {
+      if (inTract.length >= step.targetSize) {
         return {
-          personIds: pickWalkableArea(inTract, step.targetSize).flatMap(
-            (household) => household.personIds,
-          ),
+          personIds: inTract.flatMap((household) => household.personIds),
           steeredToward: 'unreachedAreas',
         }
       }
     }
-    const points = await this.contactsService.doorPointsWithin(
+    const area = await this.contactsService.walkableAreaWithin(
       organization,
       this.criteriaFor(step.channel),
       exclude,
+      step.targetSize,
     )
     return {
-      personIds: pickWalkableArea(points, step.targetSize).flatMap(
-        (household) => household.personIds,
-      ),
+      personIds: area.flatMap((household) => household.personIds),
       steeredToward: null,
     }
   }

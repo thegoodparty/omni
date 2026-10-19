@@ -38,6 +38,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -338,6 +339,8 @@ interface SmsFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events and the Pro gate.
   source: OutreachFlowSource
+  // The agent surface that launched this send, for the Outreach events.
+  launchSource?: OutreachLaunchSource
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -578,6 +581,7 @@ export const SmsFlow = ({
   tracker,
   initialEvent,
   source,
+  launchSource,
   initialScript,
   initialPurpose,
   proposedAudience,
@@ -743,6 +747,7 @@ export const SmsFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(launchSource ? { launchSource } : {}),
         }),
       ),
     onClose,
@@ -1215,6 +1220,7 @@ export const SmsFlow = ({
     ...(proposalLink && !resumeDraft && { proposalLink }),
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
+    launchSource,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -1797,6 +1803,7 @@ export const SmsFlow = ({
                   ? 'recommended'
                   : 'savedList',
                 ...(tracker ? { tracker } : {}),
+                ...(launchSource ? { launchSource } : {}),
               }),
             )
         } else {
@@ -1866,6 +1873,7 @@ export const SmsFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
+        ...(launchSource ? { launchSource } : {}),
         ...(purpose ? { purpose } : {}),
         ...(proposalLink?.priorityId
           ? { priorityId: proposalLink.priorityId }

@@ -50,7 +50,7 @@ live in, from which gp-api draws the area a priority has not reached. All
 three return counts or square indexes, never a person. The civic panel reads
 the same cells for its members to steer its invites (see the contacts
 AGENTS.md, "Steering by census"); its door draws keep to one tract through
-the door evaluate's server-only `tract` (`tractSql`). The grid stands in
+the walkable-area read's `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
 (https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
 is the one place to swap.
@@ -323,6 +323,14 @@ than return a partial roster, via `LIMIT cap + 1` and a `BadRequestException`
 when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
+
+The civic panel's door step does not go through either. `walkableArea()`
+(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+eligible rooftop household in scope (or one tract): households into 200m
+cells, the densest 3x3 block of cells as the seed, the `households` nearest
+that block's center. Only the picked doors come back, as a position and
+resident ids, so it has no cap to reject or truncate at, and no scan-order
+slice decides where a large district's doors are.
 
 Related arithmetic worth knowing: `residentsCap = targetPersonIds.length * 10`,
 applied as `LIMIT residentsCap + 1`. The cap bounds the _result_, never the

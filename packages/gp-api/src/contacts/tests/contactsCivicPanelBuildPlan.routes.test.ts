@@ -95,24 +95,57 @@ const household = (n: number, lat: number) =>
     displayAddress: `${n} Main St`,
   }))
 
+type DoorPoint = ReturnType<typeof household>[number]
+
+// The warehouse's walkable-area pick, over the given people: the first
+// `households` doors left once the excluded people are out.
+const pickFrom = (
+  people: DoorPoint[],
+  dto: { households: number; excludePersonIds?: string[] },
+) => {
+  const excluded = new Set(dto.excludePersonIds ?? [])
+  const doors = new Map<
+    string,
+    { lat: number; lng: number; personIds: string[] }
+  >()
+  for (const p of people) {
+    if (excluded.has(p.id)) continue
+    const door = doors.get(p.addressKey)
+    if (door) door.personIds.push(p.id)
+    else {
+      doors.set(p.addressKey, {
+        lat: p.lat,
+        lng: p.lng,
+        personIds: [p.id],
+      })
+    }
+  }
+  return [...doors.values()].slice(0, dto.households)
+}
+
+// Where the people drawn live, for the area a door step opens on.
+const stubAreaPoints = (people: DoorPoint[]) =>
+  vi
+    .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+    .mockClear()
+    .mockImplementation(async (dto) => {
+      const id = (dto as FilterArg).filters?.filterOperators?.id
+      const only = id?.operator === 'in' ? id.values : []
+      return {
+        people: people.filter((p) => only.includes(p.id)),
+        truncated: false,
+      }
+    })
+
 const stubDoors = (households: number) => {
   const people = Array.from({ length: households }, (_, n) =>
     household(n, 40 + n * 0.0001),
   ).flat()
+  stubAreaPoints(people)
   return vi
-    .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+    .spyOn(service.app.get(VoterDoorKnockingService), 'walkableArea')
     .mockClear()
-    .mockImplementation(async (dto) => {
-      const only = (dto.filters as { id?: { in?: string[] } } | undefined)?.id
-        ?.in
-      const excluded = new Set(dto.excludePersonIds ?? [])
-      return {
-        people: people.filter((p) =>
-          only ? only.includes(p.id) : !excluded.has(p.id),
-        ),
-        truncated: false,
-      }
-    })
+    .mockImplementation(async (dto) => pickFrom(people, dto))
 }
 
 const seedOffice = async (prefix: 'eo' | 'campaign' = 'eo') => {
@@ -592,7 +625,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     stubPools(LARGE)
     const plan = await createPlan(slug, 1)
     const draw = stubDraws()
-    stubDoors(60)
+    const doorDraw = stubDoors(60)
 
     const text = await prepare(slug, stepOf(plan, 'text').id)
     const calls = await prepare(slug, stepOf(plan, 'phone_banking').id)
@@ -606,6 +639,9 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     // Landlines first, so the first call draw asks for landlines.
     const callDraw = draw.mock.calls[1]?.[0] as FilterArg
     expect(filterKeys(callDraw)).toContain('hasLandline')
+    expect(stepOf(await readPlan(slug), 'phone_banking').landlineFirst).toBe(
+      true,
+    )
     const textIds = await sampleIds(text.data.voterFileFilterId)
     expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
     expect(doors.data).toMatchObject({
@@ -614,6 +650,11 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     })
     expect(doors.data.size).toBe(80)
     expect(doors.data.area?.type).toBe('Polygon')
+    // The warehouse picks the step's doors over the whole district, leaving
+    // out everyone the earlier steps drew.
+    const doorDto = doorDraw.mock.calls[0]?.[0]
+    expect(doorDto?.households).toBe(40)
+    expect(doorDto?.excludePersonIds).toEqual(expect.arrayContaining(textIds))
     const all = [
       ...textIds,
       ...(await sampleIds(calls.data.voterFileFilterId)),
@@ -721,6 +762,8 @@ describe('steering the plan by census', () => {
       { channel: 'phone_banking', steeredToward: null },
       { channel: 'door_knocking', steeredToward: 'unreachedAreas' },
     ])
+    expect(stepOf(res, 'phone_banking').landlineFirst).toBe(true)
+    expect(stepOf(res, 'text').landlineFirst).toBeNull()
   })
 
   it('draws the text weighted toward the groups the panel trails', async () => {
@@ -765,6 +808,40 @@ describe('steering the plan by census', () => {
     expect(filterKeys(callDraw as FilterArg)).not.toContain('hasLandline')
     expect(filterKeys(callDraw as FilterArg)).toContain('hasAnyPhone')
     expect(callDraw?.weights?.age['18to64']).toBeGreaterThan(1)
+    const read = stepOf(await readPlan(slug), 'phone_banking')
+    expect(read.landlineFirst).toBe(false)
+    expect(read.steeredToward).toBe('age18to64')
+  })
+
+  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
+    // nobody trails by enough to lean toward.
+    stubMix([
+      members(9, { ageBand: '65plus', tract: TRACT_A }),
+      members(11, { tract: TRACT_A }),
+      members(16, { tract: TRACT_B }),
+      members(4, { tract: TRACT_C }),
+    ])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    expect(stepOf(plan, 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
+    const draw = stubDraws()
+
+    await prepare(slug, stepOf(plan, 'phone_banking').id)
+
+    expect(draw).toHaveBeenCalledTimes(1)
+    expect(filterKeys(draw.mock.calls[0]?.[0] as FilterArg)).not.toContain(
+      'hasLandline',
+    )
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
   })
 
   it('walks the tract the panel has reached least, or district-wide when it is too small', async () => {
@@ -776,21 +853,21 @@ describe('steering the plan by census', () => {
     const everyone = Array.from({ length: 60 }, (_, n) =>
       household(n, 40 + n * 0.0001),
     ).flat()
+    stubAreaPoints(everyone)
     const inTract = (households: number) =>
       vi
-        .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+        .spyOn(service.app.get(VoterDoorKnockingService), 'walkableArea')
         .mockClear()
-        .mockImplementation(async (dto) => ({
-          people: dto.tract
-            ? everyone.slice(0, households * 2)
-            : everyone.slice(households * 2),
-          truncated: false,
-        }))
-    // The draws, not the area read that maps the people drawn.
+        .mockImplementation(async (dto) =>
+          pickFrom(
+            dto.tract
+              ? everyone.slice(0, households * 2)
+              : everyone.slice(households * 2),
+            dto,
+          ),
+        )
     const draws = (spy: ReturnType<typeof inTract>) =>
-      spy.mock.calls
-        .filter(([, , opts]) => opts?.requireRooftopAccuracy !== false)
-        .map(([dto]) => dto)
+      spy.mock.calls.map(([dto]) => dto)
 
     const doors = inTract(45)
     const steered = await prepare(slug, stepOf(plan, 'door_knocking').id)

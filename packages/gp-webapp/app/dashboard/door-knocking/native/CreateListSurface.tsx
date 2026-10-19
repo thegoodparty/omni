@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -349,6 +352,8 @@ export interface CreateListSurfaceProps {
   // The purpose a civic panel plan's door step answered, opening the flow
   // past the purpose picker on it.
   initialPurpose?: ServeDoorKnockingPurpose
+  // The agent surface that opened the flow. Threaded straight through.
+  launchSource?: OutreachLaunchSource
 }
 
 // Stable identity, so the page's effect does not refire every render.
@@ -393,6 +398,7 @@ export default function CreateListSurface({
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
   initialPurpose,
+  launchSource,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -606,6 +612,7 @@ export default function CreateListSurface({
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}
       onRemoveDraft={onRemoveDraft}
+      launchSource={launchSource}
     />
   )
 }

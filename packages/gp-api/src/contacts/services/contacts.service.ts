@@ -75,7 +75,10 @@ import {
   type PeopleDataset,
   PeopleDatasetService,
 } from '@/peopleDb/services/peopleDataset.service'
-import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
+import {
+  DoorKnockingEvaluateDTO,
+  WalkableAreaDTO,
+} from '@/peopleDb/schemas/doorKnocking.schema'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import type { Bbox } from '@goodparty_org/contracts'
 import {
@@ -2422,16 +2425,17 @@ export class ContactsService {
     )
   }
 
-  // Where the people the criteria match live, with their household, for
-  // picking a walkable area. Rooftop-geocoded only, like a turf's doors, so
-  // every household picked is one a route can reach. Capped like the map.
-  // With a tract, only the people living in it.
-  async doorPointsWithin(
+  // The densest walkable area of `households` doors among the people the
+  // criteria match, chosen in the warehouse over the whole district (or the
+  // tract), each door with its residents. Rooftop-geocoded only, like a
+  // turf's doors, so every household picked is one a route can reach.
+  async walkableAreaWithin(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     excludePersonIds: string[],
+    households: number,
     tract?: string,
-  ): Promise<{ id: string; lat: number; lng: number; addressKey: string }[]> {
+  ): Promise<{ lat: number; lng: number; personIds: string[] }[]> {
     const resolved = await this.resolveSavedFilterForQuery(
       organization,
       filterInput,
@@ -2439,27 +2443,19 @@ export class ContactsService {
     if (resolved.empty) return []
     return this.withOrgDistrictResolution(
       organization,
-      async ({ districtId, dataset }) => {
-        const { people } = await this.voterDoorKnockingService.evaluatePoints(
-          DoorKnockingEvaluateDTO.create({
+      async ({ districtId, dataset }) =>
+        this.voterDoorKnockingService.walkableArea(
+          WalkableAreaDTO.create({
             districtId,
-            bbox: DISTRICT_WIDE_BBOX,
             filters: resolved.filters,
             idOverrides: resolved.idOverrides,
             contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-            maxPeople: MAP_POINTS_MAX,
+            households,
             ...(excludePersonIds.length > 0 && { excludePersonIds }),
             ...(tract !== undefined && { tract }),
           }),
           dataset,
-        )
-        return people.map(({ id, lat, lng, addressKey }) => ({
-          id,
-          lat,
-          lng,
-          addressKey,
-        }))
-      },
+        ),
     )
   }
 
