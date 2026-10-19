@@ -47,6 +47,24 @@ sends a JWT-format machine token, which `SessionGuard` only turns into
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
 
+## Local development
+
+Locally the election database is `electiondb` in the gp-api docker Postgres,
+loaded by `scripts/setup/election-db.sh` (run by `npm run setup`; refetch
+and reload with `npm run seed:election`). The seed is every row for
+Michigan, North Carolina and Wyoming in the dev election database, plus the
+rows those point at in other states, with `Person.email`, `Person.phone`,
+`Person.gp_api_user_id` and `Candidacy.email` nulled. Voter density is
+limited to Laramie County, WY, which covers the fixture office in Cheyenne.
+
+It is built by `prisma-election/seed/refresh.sh`, which needs a connection
+to the dev election database (VPN only) and `--upload` writes it to the
+private `gp-local-election-seed-dev` bucket that
+`POST /v1/dev-env/election-seed` presigns. Never commit the file: this repo
+is public and the seed is restricted data. Refresh it when a migration adds
+a required column, or when its races have mostly passed; the "upcoming
+election" reads run against real dates.
+
 ## Gotchas
 
 - **`prisma-election/schema/migrations/` is byte-identical to what the old
