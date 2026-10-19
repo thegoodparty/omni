@@ -224,7 +224,7 @@ on `deletedAt`, and the completed CTE reads `status`).
 drawer repaints from the mutation rather than refetching. There is no campaign
 status field on it: the badge is `every(turf => turf.completed)`, the same
 predicate `collapseDoorKnockingCampaigns` applies, and a second copy of one
-number is the failure ADR 0010 wrote the rule against.
+number breaks the rule that one quantity gets one number.
 
 **A write 404s where the read returns `[]`.** The read withholds existence from
 a caller not entitled to it; a write has to fail visibly, and a 404 leaks no
@@ -355,7 +355,7 @@ used to resolve through `doorKnockingRouteId` and the route's own `@unique`
 **The counts are the rail's, not a second set.** The block calls
 `DoorKnockingTurfCountsService.forRoutes`, the same aggregate
 `GET /v1/door-knocking/turfs` uses, so doors are addresses paired with their
-stop, people exclude ADR 0007 / ADR 0008 residents, and logged is the subset of
+stop, people exclude do-not-knock and not-a-voter residents, and logged is the subset of
 those people with a recorded status. **A fourth figure, `stopCount`, rides the
 turf** (not this block): a stop is a COORDINATE with addresses behind it, so a
 multi-unit building is one stop with many doors, and the two are different
@@ -363,8 +363,8 @@ numbers wherever a card prints both. It is counted over the same targets as the
 doors rather than as a `_count` on the turf's stop rows, so the pair can never
 disagree about which stops the list actually reaches, and the routes test
 asserts it against the route payload's own stop count. Deriving any of the three here instead
-would put a second denominator on a second surface for one quantity, which is
-the failure ADR 0010 wrote the standing rule against — and the counts service's
+would put a second denominator on a second surface for one quantity, which
+breaks the standing rule of one quantity, one number — and the counts service's
 own header explains why its door key is a `(stopId, addressKey)` pair rather
 than a `COUNT(DISTINCT address_key)`. Anything added to this block takes its
 numbers from there.
@@ -482,7 +482,7 @@ The edges worth knowing:
   `uniqueDoorsKnocked`.
 
 `bad address count` from the source doc is **not** here. Nothing in the product
-records it, and the `not_a_voter` reason (moved / deceased, ADR 0008) is a
+records it, and the `not_a_voter` reason (moved / deceased) is a
 different claim about a different thing.
 
 ### What else rides the payload
@@ -975,7 +975,7 @@ server excludes, and the candidate drew over dots that really are there.
 One user hit this six times in 62 seconds — redrawing the boundary, which
 is what the message asks for and what cannot help.
 
-**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, which is the review ADR 0007 deferred. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
+**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock and not-a-voter ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, so it avoids the filter-catalog review that was deferred when do-not-knock shipped. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
 
 **Precinct is fixed** (format revision 6): the pack carries a `precinct`
 dim keyed on `encodePrecinctPair`'s `county|precinct`, the same strings
@@ -1303,9 +1303,8 @@ evening, since returning to a door is the whole point of a follow-up.
 ## Previous outreach, at the door
 
 Each target carries `history`: its own recent outreach, newest first, capped
-at five rows — see [ADR 0009](adr/0009-activity-feed-on-the-route-payload.md)
-for why this rides the route payload instead of a per-person fetch. Short
-version: the walk is frozen and fetched once so it survives bad signal, and a
+at five rows. It rides the route payload instead of a per-person fetch
+because the walk is frozen and fetched once so it survives bad signal, and a
 round trip at the moment a canvasser is standing at a door fails exactly where
 the product is most valuable. Capped at five, a 100-stop payload grows 24.4 KB
 → 42.9 KB gzip worst case (~29 KB at realistic coverage); uncapped it passes
@@ -1348,34 +1347,34 @@ silent: the knock is already saved, so the feed keeps showing what it was
 served with.
 
 **The `not_a_voter` door is refreshed on a delay rather than not at all**
-(PR #1310, which closed the residual ADR 0009 recorded). Its sheet is held open
-across its own knock so the ADR 0008 follow-up can be answered, so neither
-trigger above ever fires for that resident — and refreshing on the knock is the
-thing the ADR ruled out, because the arriving serve rebuilds `NotAVoterControl`
-underneath the question. The refresh therefore waits for the follow-up to
+(PR #1310, which closed the gap the activity feed shipped with). Its sheet is
+held open across its own knock so the moved / deceased follow-up can be
+answered, so neither trigger above ever fires for that resident — and
+refreshing on the knock is ruled out, because the arriving serve rebuilds
+`NotAVoterControl` underneath the question. The refresh therefore waits for the follow-up to
 _resolve_: `WalkView` asks for one when the answer lands (after the status patch,
 which cancels in-flight serves) and, if the canvasser walks away from the
 question instead, on sheet close — gated on a `not_a_voter` status with no reason
 yet. That gate is load-bearing rather than tidy: an answered resident already
 paid for a serve and an ordinary door pays none, so this stays one serve per
-held-open sheet and does not become the per-door refetch ADR 0009 rejected the
-per-person endpoint to avoid.
+held-open sheet and does not become a per-door refetch, the round trip at the
+door that putting `history` on the payload exists to avoid.
 
 ## Notes, at the door
 
 Each target also carries `notes`: that resident's saved `ContactNote` rows,
-newest first, capped at three, as `{ entries, total }` — see
-[ADR 0011](adr/0011-contact-notes-on-the-route-payload.md). It rides the
-payload for the reason `history` does, and this section is only the parts that
-differ.
+newest first by `createdAt`, capped at three, as `{ entries, total }`. It
+rides the payload for the reason `history` does, and this section is only the
+parts that differ.
 
 **The cap is three rather than five because free text is not priced like an
-activity row.** On ADR 0009's own rig, one 140-character note per target costs
+activity row.** On the 100-stop route used to size `history`, one
+140-character note per target costs
 about what all five activity rows cost together (+14.3 KB gzip against
 +24.1 KB), because an activity row is a handful of short fields gzip has
 already seen 142 times and a note is prose nobody has written before. Five
-notes per target would be +60 KB, more than double the feature ADR 0009 argued
-was worth 18 KB. At three, the worst case is +37 KB and realistic 25% coverage
+notes per target would be +60 KB, more than double the 18 KB the activity feed
+was judged worth. At three, the worst case is +37 KB and realistic 25% coverage
 is +11 KB.
 
 **`total` is the resident's real note count, and it is on the wire on
@@ -1424,8 +1423,7 @@ the two suppression writes below, this opens no ungated surface.
 
 ## Do-not-knock
 
-`POST /v1/door-knocking/do-not-knock` — see
-[ADR 0007](adr/0007-do-not-knock.md) for why this is its own
+`POST /v1/door-knocking/do-not-knock` records do-not-knock as its own
 `ContactStatusField` (`do_not_knock`, values `active` / `cleared`) rather
 than a `support_status` override: a refusal is an observation, an
 instruction not to return is not, and the two would otherwise share one
@@ -1447,8 +1445,7 @@ button, so the instruction outlives the entitlement.
 
 ## "Not a voter" — the reason, captured
 
-`POST /v1/door-knocking/not-a-voter` — see
-[ADR 0008](adr/0008-not-a-voter-reason.md). The follow-up question behind a
+`POST /v1/door-knocking/not-a-voter`. The follow-up question behind a
 `not_a_voter` outcome ("What happened?", answered **Moved** or **Deceased**)
 lands as a fourth `ContactStatusField`, `not_a_voter`, values
 `moved` / `deceased` / `cleared`. One field rather than two, because they
@@ -1505,8 +1502,8 @@ membership. There is no single set of "the age bands" to invert.
 Nor can the pack approximate. The map shades from these buckets while knock
 time evaluates the real ranges, so a bucket that is a near-miss for a key gives
 a map whose count disagrees with the list it is previewing — the
-two-denominator failure [ADR 0010](adr/0010-draw-time-address-preview.md)
-forbids. The old buckets did this twice: `age50_64` shaded `50_plus` (every 65+
+two-denominator failure: two different numbers for one quantity. The old
+buckets did this twice: `age50_64` shaded `50_plus` (every 65+
 door the list would skip) and `age65Plus` had nowhere to map at all, so
 neither key narrowed the preview at all.
 
@@ -1534,9 +1531,10 @@ from both sides.
 either way and nine values is nowhere near the 256 a byte holds; only the
 manifest's value list grew. **`PACK_FORMAT_REVISION` moved to 2** because the
 meaning of the shared district build changed, while the manifest's `version`
-stays at 1 because its framing did not — see
-[ADR 0014](adr/0014-the-voter-pack-has-two-versions.md) for why those are two
-different numbers.
+stays at 1 because its framing did not. Those are two different numbers:
+`version` is the wire framing, a `z.literal` so an old client refuses a new
+framing, while `PACK_FORMAT_REVISION` is a server-side contracts constant for
+the district-dim vocabulary and is not on the wire.
 
 **`PACK_FORMAT_REVISION` is now 3**, for the language plane. Byte 0 used to be
 `Other` and double as the no-data slot, so a person with no `Language_Code`
@@ -1837,8 +1835,8 @@ opinion that can drift from it.
 `contact_current_status` and the four `contact_interaction_*` tables, so unlike
 the address preview below there is no people-db scan to pay for and no district
 to resolve first. That is what lets it fire on a list pick rather than on an
-explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
-preview explicit because each firing costs a scan, and moving the emptiness check
+explicit press: the address preview is explicit because each firing costs a
+scan, and moving the emptiness check
 earlier would have moved that cost earlier with it if it were answered the same
 way. It deliberately skips `resolveEligibleDistrict` for the same reason — an
 election-api round trip to find a district nothing here scans. An org with no
@@ -1863,8 +1861,7 @@ a list that cannot be cut at all.
 ## The address preview (draw step)
 
 `POST /v1/door-knocking/address-preview` answers "which houses are inside this
-shape?" **before** anything is bought — see
-[ADR 0010](adr/0010-draw-time-address-preview.md). The pack above carries no
+shape?" **before** anything is bought. The pack above carries no
 address at all, so it cannot; this runs the knock's own evaluation instead.
 
 `DoorKnockingPreviewService` repeats what
@@ -1873,7 +1870,7 @@ does right up to the vendor call and then stops:
 `resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
 filter draft (so activity conditions, support status, contacts-made and the
 voter-likelihood overrides are applied, exactly as they will be at knock time),
-ADR 0007 + ADR 0008 exclusions deduped into one `excludePersonIds`, then
+do-not-knock + not-a-voter exclusions deduped into one `excludePersonIds`, then
 `evaluate` over the polygon's bbox with an in-process ray-cast. Nothing is
 written, nothing is frozen and no Geoapify credit is spent.
 
@@ -1884,7 +1881,7 @@ Three things about it are load-bearing:
   estimate rather than beside it. The two count different audiences at different
   granularities — the pack's household key is `AddressLine`-level, this is
   unit-level like the freeze — so printing both is the two-denominator failure
-  the feature has a standing rule against. ADR 0010 is the whole argument.
+  the feature has a standing rule against: one quantity, one number.
 - **One request per explicit press.** The ring changes with every vertex, so
   nothing is fetched by drawing: the candidate asks, and a shape edited
   afterwards makes the answer _stale_ rather than triggering another scan. A
@@ -1928,8 +1925,8 @@ one moment the condition is cheap to state, before anything is bought.
 **Not yet surfaced in the UI.** Nothing on the draw step consumes
 `audienceEmpty` today: `DoorsPanel` was removed in a design change, and with it
 the only caller of `onShowAddresses`, so the address-preview request never
-fires. Wiring this up means either reviving that request path (ADR 0010 rejected
-firing it automatically — it bills a people-db scan per shape) or, better,
+fires. Wiring this up means either reviving that request path (firing it
+automatically was rejected — it bills a people-db scan per shape) or, better,
 asking the question where it actually belongs: emptiness depends only on the
 list's filters, needs no polygon, and is answerable from Postgres alone, so the
 **who** step could check it before a boundary is ever drawn. The
@@ -1973,7 +1970,8 @@ So: resolving the filter correctly (step 3 above) is necessary but not
 sufficient. `contactsMade0` covers the common intent — "only doors I haven't
 been to" — and is now offered in the create flow because evaluate finally
 applies it. Suppressing refusals specifically needs the do-not-knock field,
-which is a separate instruction from an observed refusal and gets its own ADR.
+which is a separate instruction from an observed refusal and gets its own
+status field (see "Do-not-knock").
 
 ## Scope guardrails (v1)
 
@@ -1985,7 +1983,7 @@ already serves instead of picking a different one. No **voter record
 mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues
 anything but a `SELECT` against the people database, and `not_a_voter` is the
 near-exception that proves it — it captures a reason and suppresses the person
-from future evaluation (ADR 0008), but that write lands in our own Postgres and
+from future evaluation, but that write lands in our own Postgres and
 no person, address or L2-derived field is ever deleted or edited. No **sharable
 URLs**: the deep links that exist (`?listId=`, `?walkTurfId=`,
 `/volunteer/door-knocking/[turfId]`) are authenticated in-app routes, not
@@ -2150,7 +2148,7 @@ The reads (`GET /turfs`, `GET /pack`, `POST /audience-check`) opened with
 outreach-pro-gating-v2: a free campaign can list, draw and shape a list
 behind the create flow's in-flow gate, and the two Geoapify spends —
 `POST /turfs` and `POST /turfs/:id/route` — are where it is refused. `POST /address-preview` stays gated because it
-returns addresses (ADR 0010). The gate is `ContactsService.assertProAccess(organization)`, called at
+returns addresses. The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
@@ -2193,7 +2191,7 @@ Reads are gated alongside the writes on purpose: a map that opens and then
 fails on the first turf is a worse answer than an upgrade prompt, and creating
 a list spends real Geoapify credits.
 
-The two holes are ADR 0007 and ADR 0008, and they are the point rather than an
+The two holes are do-not-knock and not-a-voter, and they are the point rather than an
 oversight — see "Do-not-knock" and "'Not a voter'" below. If an org lapses
 mid-pilot the walk it was on becomes unreachable, but a canvasser standing at a
 door that asked not to be revisited can still record that, and a door reported
