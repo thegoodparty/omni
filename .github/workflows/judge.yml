@@ -58,6 +58,34 @@ on:
         required: false
         default: ''
         type: string
+      arm_runtime:
+        description: >-
+          Where the chat arms drive the app. `inprocess` is today's behaviour
+          and the default: each arm boots the branch's own gp-api inside the
+          runner. `http` drives deployed targets instead — the candidate
+          against its PR preview, the base against dev — which is the only
+          way a chat case exercises the deployed stack, its real Clerk
+          session and its real Databricks credential.
+
+          Default-`inprocess` for the same reason `live` is default-false: a
+          caller that says nothing gets the behaviour that has been running,
+          not the new one.
+
+          BOTH ARMS ALWAYS USE THE SAME RUNTIME. `configDigest` is computed
+          from different inputs on each path — in process from the rendered
+          prompt and the tools OFFERED, over HTTP from the prompt's hash and
+          the tools CALLED — so the two are not comparable and are prefixed
+          differently so they can never collide into a false match. Mixing
+          them would compare two things that were never measured the same
+          way.
+
+          `http` requires `live`. A dry run substitutes a canned script
+          inside the arm's own LlmService, and nothing can inject a script
+          into a deployed container; the arms refuse the pair by name rather
+          than quietly spending.
+        required: false
+        default: inprocess
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         # required: false so the plan path works in a context with no secrets
@@ -68,6 +96,12 @@ on:
       DATABRICKS_CLIENT_ID:
         required: false
       DATABRICKS_CLIENT_SECRET:
+        required: false
+      CLERK_SECRET_KEY:
+        # HTTP arms only, and required: false for the same reason as the
+        # others: a plan must not fail for want of a key it will not use.
+        # The mint step runs only when arm_runtime is http, and fails there
+        # with a sentence naming the variable if this is empty.
         required: false
 
 permissions:
@@ -1816,8 +1850,18 @@ jobs:
             echo "::warning::could not resolve the URL of $queue, so this sweep cannot dispatch a background agent. A chat-only sweep is unaffected and continues; a background one is refused by name at capture, before anything is staged or billed. Check that the job's AWS role is assumable and carries UniversalJudgeSweep-$JUDGE_ENVIRONMENT. AWS said: $(tr '\n' ' ' < "$err")"
           fi
 
+      # SKIPPED ON AN HTTP ARM, which is what leaves `data_version` empty for
+      # both arms without either of them special-casing it. Pinning a version
+      # is a `VERSION AS OF` rewrite the in-process provider patch performs,
+      # and nothing rewrites SQL inside a deployed container; the arms refuse
+      # the pair at startup rather than failing every case with the same
+      # sentence. Deciding it here rather than in two arm expressions keeps
+      # both arms reading one step output verbatim, which is the shape
+      # judgeWorkflow.test.ts requires so that nobody can hardcode a version
+      # in place of looking one up.
       - name: Resolve the voter mart's Delta version
         id: mart
+        if: inputs.arm_runtime != 'http'
         working-directory: ${{ env.WORKSPACE }}
         env:
           # DATABRICKS_SERVER_HOSTNAME comes from the job environment, set by
@@ -2011,6 +2055,39 @@ jobs:
           npm run generate:prisma:gp-api
           (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
 
+      # HTTP ARMS ONLY. Mints the one Clerk session both arms present to the
+      # deployed targets.
+      #
+      # IT RUNS FROM THE BASE WORKTREE, not from ${{ env.WORKSPACE }}. That
+      # directory is the pull request's own code, and this step holds a key
+      # that mints a session for ANY user in the dev instance. The base
+      # worktree is `origin/<base ref>`, which on a PR targeting main is a
+      # reviewed checkout. That is the best boundary available inside this
+      # job and not a perfect one — setup-node-workspace has already run
+      # `npm ci` from the branch's lockfile with its lifecycle scripts — and
+      # the step is shaped to move into a job of its own unchanged, taking
+      # two inputs and producing two outputs.
+      #
+      # The token goes to a file rather than stdout, so the single line it
+      # reaches a log stream on is the one `::add-mask::` redacts at source.
+      # The file is removed in the same step whether or not the mask lands.
+      - name: Mint the judge's Clerk session
+        id: clerk
+        if: inputs.arm_runtime == 'http'
+        working-directory: ${{ steps.base.outputs.dir }}/packages/gp-api
+        env:
+          JUDGE_CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # Optional. Unset, the step finds the judge's account by email and
+          # creates it if it is not there, so nothing waits on a person.
+          JUDGE_CLERK_USER_ID: ${{ vars.JUDGE_CLERK_USER_ID }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/judge-clerk"
+          trap 'rm -f "$out"' EXIT
+          npx tsx src/chats/evals/judge/judgeClerkSession.ts "$out"
+          echo "::add-mask::$(sed -n 's/^judge_session_token=//p' "$out")"
+          cat "$out" >> "$GITHUB_OUTPUT"
+
       # ARM 1 OF 2. Identical to the candidate step below except for
       # JUDGE_ARM, JUDGE_ARM_COMMIT and the directory, which is the whole
       # design: one suite, two invocations, one record store.
@@ -2059,6 +2136,10 @@ jobs:
           # the sweep then runs against the live mart and the report says so,
           # rather than a whole paid sweep dying over an unpinnable table.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
+          JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
+          JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
+          JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && 'https://gp-api-dev.goodparty.org' || '' }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
@@ -2095,6 +2176,39 @@ jobs:
       # prints the gap between them, flagging a comparison whose arms are far
       # apart. The TDD asks for "base, candidate, base, candidate" in time,
       # which two worktrees cannot deliver.
+      # HTTP ARMS ONLY, and the reason this job cannot simply assume a
+      # preview exists: the sweep job needs only `plan`, so nothing here has
+      # waited for the gp-api preview workflow. A candidate arm pointed at a
+      # preview that is absent, still rolling, or still serving the previous
+      # commit would compare the branch against itself and report it as a
+      # finding.
+      #
+      # Polls the same `/v1/version` contract gp-api.yml's own verify step
+      # uses, against the same 10-minute budget, because a first preview
+      # deploy runs every migration before the app starts. `--max-time`
+      # keeps a hung container from parking the runner: `|| true` catches a
+      # non-zero exit, not a curl that never returns.
+      - name: Wait for the candidate's preview to serve its commit
+        if: inputs.arm_runtime == 'http'
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          BASE: https://pr-${{ inputs.pr_number }}.preview.goodparty.org
+        run: |
+          set -euo pipefail
+          echo "Confirming $BASE is serving $EXPECTED_SHA"
+          deadline=$((SECONDS + 600))
+          got=""
+          while [ $SECONDS -lt $deadline ]; do
+            got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            if [ "$got" = "$EXPECTED_SHA" ]; then
+              echo "preview serving $EXPECTED_SHA after ${SECONDS}s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The candidate's preview is serving ${got:-nothing}, not $EXPECTED_SHA, after 600s. A sweep against it would judge the wrong commit. Check the gp-api preview deploy for this PR."
+          exit 1
+
       - name: Capture the candidate arm
         working-directory: ${{ env.WORKSPACE }}
         env:
@@ -2117,6 +2231,10 @@ jobs:
           # expression: two arms on different versions is worse than two arms
           # on none, because each would report a pin nothing held.
           JUDGE_DATA_VERSION: ${{ steps.mart.outputs.data_version }}
+          JUDGE_ARM_RUNTIME: ${{ inputs.arm_runtime }}
+          JUDGE_CLERK_SESSION_TOKEN: ${{ steps.clerk.outputs.judge_session_token }}
+          JUDGE_CLERK_SESSION_EXPIRES_AT: ${{ steps.clerk.outputs.judge_session_expires_at }}
+          JUDGE_TARGET_BASE_URL: ${{ inputs.arm_runtime == 'http' && format('https://pr-{0}.preview.goodparty.org', inputs.pr_number) || '' }}
           JUDGE_BACKGROUND_ATTEMPTS: ${{ steps.budget.outputs.attempts }}
           JUDGE_BACKGROUND_MAX_CASES: ${{ steps.budget.outputs.max_cases }}
           JUDGE_BACKGROUND_ADMITTED: ${{ steps.budget.outputs.admitted }}
