@@ -46,6 +46,28 @@ describe('parseJudgeClerkMintConfig', () => {
 
   // An absent id is the ordinary case now: the mint step resolves the
   // account by email rather than waiting on someone to make one.
+  // THE ONE THAT WOULD HAVE SAVED THE FIRST LIVE SWEEP. The workflow passes
+  // `${{ vars.JUDGE_CLERK_USER_ID }}`, and an Actions variable that is not
+  // set expands to an empty string rather than vanishing, so `.optional()`
+  // alone never sees `undefined`.
+  it.each(['', '   '])('reads %o as no user id rather than a bad one', (v) => {
+    expect(
+      parseJudgeClerkMintConfig({
+        [JUDGE_CLERK_ENV.secretKey]: SECRET_KEY,
+        [JUDGE_CLERK_ENV.userId]: v,
+      }),
+    ).toEqual({ secretKey: SECRET_KEY, ttlSeconds: 4 * 60 * 60 })
+  })
+
+  it('still refuses a user id that is set but malformed', () => {
+    expect(() =>
+      parseJudgeClerkMintConfig({
+        [JUDGE_CLERK_ENV.secretKey]: SECRET_KEY,
+        [JUDGE_CLERK_ENV.userId]: 'judge-sweep@example.com',
+      }),
+    ).toThrow(JUDGE_CLERK_ENV.userId)
+  })
+
   it('accepts a configuration with no user id', () => {
     expect(
       parseJudgeClerkMintConfig({ [JUDGE_CLERK_ENV.secretKey]: SECRET_KEY }),
