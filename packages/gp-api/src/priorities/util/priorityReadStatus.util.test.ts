@@ -18,6 +18,7 @@ const weighting = (overrides: Partial<ReadWeighting> = {}): ReadWeighting => ({
   effectiveSampleSize: 200,
   largestGap: 0,
   gaps: [],
+  raceNameable: true,
   ...overrides,
 })
 
@@ -96,22 +97,65 @@ describe('priorityReadStatus', () => {
   })
 })
 
+describe('priorityReadStatus with race', () => {
+  it('names a race group only when the weighting says race may be named', () => {
+    const gaps = [gap('race', 'asian', 0.02, 0.15)]
+    const named = priorityReadStatus({
+      answers: 150,
+      population: 2_000,
+      weighting: weighting({ gaps }),
+    })
+    const unnamed = priorityReadStatus({
+      answers: 150,
+      population: 2_000,
+      weighting: weighting({ gaps, raceNameable: false }),
+    })
+    expect(named.underrepresented).toEqual(['asian'])
+    expect(unnamed.underrepresented).toEqual([])
+  })
+})
+
 describe('underrepresentedGroups', () => {
   it('names the two groups trailing the census most, before weighting', () => {
     expect(
-      underrepresentedGroups([
-        gap('tenure', 'renter', 0.2, 0.4),
-        gap('tenure', 'owner', 0.8, 0.6),
-        gap('age', '65plus', 0.1, 0.18),
-        gap('tract', '53017950100', 0.02, 0.3),
-        gap('tract', 'other', 0.05, 0.1),
-      ]),
+      underrepresentedGroups(
+        [
+          gap('tenure', 'renter', 0.2, 0.4),
+          gap('tenure', 'owner', 0.8, 0.6),
+          gap('age', '65plus', 0.1, 0.18),
+          gap('tract', '53017950100', 0.02, 0.3),
+          gap('tract', 'other', 0.05, 0.1),
+        ],
+        true,
+      ),
     ).toEqual(['unreachedAreas', 'renters'])
   })
 
   it('skips groups trailing by less than 5 points', () => {
-    expect(underrepresentedGroups([gap('age', '65plus', 0.17, 0.2)])).toEqual(
-      [],
-    )
+    expect(
+      underrepresentedGroups([gap('age', '65plus', 0.17, 0.2)], true),
+    ).toEqual([])
+  })
+
+  it('names a race group, but never other', () => {
+    expect(
+      underrepresentedGroups(
+        [
+          gap('race', 'black', 0.05, 0.2),
+          gap('race', 'other', 0.0, 0.3),
+          gap('race', 'hispanic', 0.1, 0.18),
+        ],
+        true,
+      ),
+    ).toEqual(['black', 'hispanic'])
+  })
+
+  it('leaves race unnamed when too few people have one on file', () => {
+    expect(
+      underrepresentedGroups(
+        [gap('race', 'black', 0.05, 0.2), gap('age', '65plus', 0.1, 0.18)],
+        false,
+      ),
+    ).toEqual(['age65plus'])
   })
 })

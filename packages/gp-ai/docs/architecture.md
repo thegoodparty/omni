@@ -144,7 +144,3 @@ Nothing is rebuilt at promotion time.
 
 - `.claude/agents/code-critic.md` — strict reviewer that applies `ai-rules/` + `CLAUDE.md` + the actual ruff/mypy config.
 - `.claude/skills/python-developer.md` — captures the workspace + uv reality so agents don't reach for the wrong package manager or run the wrong test command.
-
-## ADRs
-
-`docs/adr/` is not yet seeded. Add one when a non-obvious decision lands — likely candidates: why uv workspace instead of separate repos, why gradual mypy strictness instead of all-or-nothing, why Braintrust as the single observability layer, why per-member ECR images instead of a shared Lambda layer. Use `ai-rules/adr-template.md`.

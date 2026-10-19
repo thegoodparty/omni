@@ -6,6 +6,7 @@ import {
   type RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
+  raceNameable,
   unreachedTracts,
   weighToCensus,
   weightingTargets,
@@ -36,8 +37,18 @@ const cell = (
   gender: null,
   tenure: 'owner',
   tract: '53017950100',
+  race: null,
   ...overrides,
 })
+
+const RACE = {
+  populationWhiteNh: 600,
+  populationBlackNh: 300,
+  populationHispanic: 250,
+  populationAsianNh: 60,
+  populationNativeAmericanNh: 10,
+  populationOtherNh: 30,
+}
 
 describe('weightingTargets', () => {
   it('reads adult age bands, household tenure and tract adults', () => {
@@ -70,6 +81,59 @@ describe('weightingTargets', () => {
   })
 })
 
+describe('weightingTargets race', () => {
+  it('reads race over everyone, Native American joining other', () => {
+    const targets = weightingTargets({
+      district: { ...DISTRICT, ...RACE },
+      tractAdults: TRACTS,
+    })
+    expect(targets.race?.white).toBeCloseTo(0.48)
+    expect(targets.race?.black).toBeCloseTo(0.24)
+    expect(targets.race?.hispanic).toBeCloseTo(0.2)
+    expect(targets.race?.asian).toBeCloseTo(0.048)
+    expect(targets.race?.other).toBeCloseTo(0.032)
+  })
+
+  it('folds a group under 2% of the district into other', () => {
+    const targets = weightingTargets({
+      district: { ...DISTRICT, ...RACE, populationAsianNh: 20 },
+      tractAdults: TRACTS,
+    })
+    expect(targets.race?.asian).toBeUndefined()
+    expect(targets.race?.other).toBeCloseTo(60 / 1_210)
+  })
+
+  it('leaves race out when a figure is suppressed', () => {
+    const targets = weightingTargets({
+      district: { ...DISTRICT, ...RACE, populationOtherNh: null },
+      tractAdults: TRACTS,
+    })
+    expect(targets.race).toBeUndefined()
+  })
+})
+
+describe('raceNameable', () => {
+  it('needs 10 people with a known race', () => {
+    expect(raceNameable([cell({ count: 9, race: 'black' })])).toBe(false)
+    expect(raceNameable([cell({ count: 10, race: 'black' })])).toBe(true)
+  })
+
+  it('needs 70% of the people to have one', () => {
+    expect(
+      raceNameable([
+        cell({ count: 69, race: 'white' }),
+        cell({ count: 31, race: null }),
+      ]),
+    ).toBe(false)
+    expect(
+      raceNameable([
+        cell({ count: 70, race: 'white' }),
+        cell({ count: 30, race: null }),
+      ]),
+    ).toBe(true)
+  })
+})
+
 describe('unreachedTracts', () => {
   it('names tracts answered at half their census share or less', () => {
     const tracts = new Map([
@@ -99,6 +163,34 @@ describe('unreachedTracts', () => {
 })
 
 describe('weighToCensus', () => {
+  it('weighs race to the census, a folded group counting as other', () => {
+    const result = weighToCensus(
+      [
+        cell({ count: 70, race: 'white' }),
+        cell({ count: 10, race: 'black' }),
+        cell({ count: 10, race: 'hispanic' }),
+        cell({ count: 5, race: 'other' }),
+        cell({ count: 5, race: 'asian' }),
+        cell({ count: 5, race: null }),
+      ],
+      {
+        district: { ...DISTRICT, ...RACE, populationAsianNh: 20 },
+        tractAdults: TRACTS,
+      },
+    )
+    const race = result.gaps.filter((gap) => gap.dimension === 'race')
+    expect(race.map((gap) => gap.value).sort()).toEqual([
+      'black',
+      'hispanic',
+      'other',
+      'white',
+    ])
+    const other = race.find((gap) => gap.value === 'other')
+    expect(other?.unweightedShare).toBeCloseTo(0.1)
+    const black = race.find((gap) => gap.value === 'black')
+    expect(black?.share).toBeGreaterThan(black?.unweightedShare ?? 1)
+  })
+
   it('brings a sample that skews old and owner to the census mix', () => {
     const result = weighToCensus(
       [

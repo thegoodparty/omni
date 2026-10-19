@@ -682,7 +682,7 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
 
   it('stages only in-window drafts, once across repeat sweeps', async () => {
     const inWindow = await createDraft({ sendInHours: 1 })
-    const outOfWindow = await createDraft({ sendInHours: 5 })
+    const outOfWindow = await createDraft({ sendInHours: 8 })
 
     await staging.sweepRobocallStaging()
     // A second sweep in the same slot must not re-stage: the eligibility filter

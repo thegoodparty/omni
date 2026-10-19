@@ -336,10 +336,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     const { districtId, dataset } =
       await this.contacts.resolveEligibleDistrict(organization)
 
-    // ADR 0007 and ADR 0008. Read outside the transaction because they touch a
-    // different table and would otherwise add two round trips to a critical
-    // section that already contains a vendor call. Both sets are the org's own
-    // flagged people, small by construction.
+    // Do-not-knock and not-a-voter. Read outside the transaction because they
+    // touch a different table and would otherwise add two round trips to a
+    // critical section that already contains a vendor call. Both sets are the
+    // org's own flagged people, small by construction.
     //
     // One exclusion list, because evaluation has one job either way: leave
     // this person's door out of the route. Deduped because a person told

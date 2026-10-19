@@ -35,10 +35,10 @@ interface ActiveDim {
 }
 
 // The people every server-side evaluation removes before it counts anything:
-// do-not-knock (ADR 0007) and not-a-voter (ADR 0008). Read as a MASK rather
-// than through `selections`, because this is suppression and not a criterion
-// — nobody picks it, and there is no filter pill to clear. Byte 0 is the
-// suppressed one; the plane's default is knockable.
+// do-not-knock and not-a-voter. Read as a MASK rather than through
+// `selections`, because this is suppression and not a criterion — nobody picks
+// it, and there is no filter pill to clear. Byte 0 is the suppressed one; the
+// plane's default is knockable.
 //
 // Absent on a pack gp-api could not answer for, and absent means DON'T
 // suppress: the same fail-open the rest of this engine takes, and the walk
@@ -128,9 +128,9 @@ const dotKey = (lng: number, lat: number): string =>
 // turf, because the two sides roll up over different populations: the stop over
 // the turf's filtered targets, the dot over everyone the pack put at that
 // coordinate. A block of flats is the loud version of it (the pack groups
-// households at `AddressLine` while a stop carries the apartment — ADR 0010),
-// but the common one is smaller and worth naming: a party-filtered turf that
-// took one half of a mixed-party couple colours the house for both of them.
+// households at `AddressLine` while a stop carries the apartment), but the
+// common one is smaller and worth naming: a party-filtered turf that took one
+// half of a mixed-party couple colours the house for both of them.
 //
 // The exact answer is only knowable from the per-person statuses, which live on
 // the server side of the pack build — and asking for them means the same

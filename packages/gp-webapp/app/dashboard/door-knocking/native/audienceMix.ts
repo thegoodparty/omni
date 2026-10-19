@@ -112,7 +112,7 @@ const toMix = (buckets: string[]): DimSlice[] => {
 // without it having to know which source it was handed.
 //
 // Callers pass `knockableTargets`, never the raw stops: every people figure on
-// this surface drops ADR 0007 do-not-knock and ADR 0008 not-a-voter residents,
+// this surface drops do-not-knock and not-a-voter residents,
 // and a breakdown summing to a different total than the People stat above it
 // is two answers to one question.
 export const routeAudienceMix = (

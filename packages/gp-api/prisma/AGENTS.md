@@ -15,7 +15,7 @@ Postgres schema, migrations, and the Prisma client surface. Schema is split per-
 ## Patterns
 
 - **One model per file.** When adding a model, create `schema/<modelName>.prisma`. Don't append to `schema.prisma`.
-- **The PrismaBase pattern is mandatory** for services backed by a model — see root `CLAUDE.md` and `docs/adr/0001-prisma-base-pattern.md`.
+- **The PrismaBase pattern is mandatory** for services backed by a model — see root `CLAUDE.md`.
 - **Migrations**: `npm run migrate:dev` creates and applies one locally. `npm run migrate:reset` wipes the local DB and re-seeds. Never run reset against a non-local database.
 - **Pending-migration check** runs on every `npm run start:dev` via `scripts/check-pending-migrations.ts`. If you see the yellow warning banner, run `migrate:dev` before continuing.
 - **`prisma-json-types-generator`** turns `Json` columns into typed fields if you have a matching `<model>.jsonTypes.d.ts` and a `///` comment annotation in the `.prisma` file (e.g. `/// [CampaignData]`). The generator is run as part of `npm run generate`.

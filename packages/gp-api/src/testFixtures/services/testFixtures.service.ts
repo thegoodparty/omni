@@ -2,6 +2,7 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
+import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -290,7 +291,7 @@ export class TestFixturesService {
 
   async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
     const records = await this.vendorMockRecord.findByCampaign(campaignId)
-    return { records }
+    return { vendorMode: VENDOR_MODE, records }
   }
 
   runJob(name: string): never {

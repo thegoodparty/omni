@@ -64,7 +64,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
-| **Changing code a person decided on**  | **`docs/decisions/`** (human decisions; see below) |
+| **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer
 tables and terse, high-signal sections. Each app and most feature folders carry one.
@@ -76,27 +76,23 @@ their directory. So: when you start work in an area, open its nearest `AGENTS.md
 and follow its pointers. Don't try to hold the whole monorepo in context to make one
 change. Read what the task touches.
 
-## Human decisions (`docs/decisions/`)
+## Architecture decisions (`docs/adr/`)
 
-`docs/decisions/` records choices a person made on purpose, so the next person or
-agent does not quietly undo them. Format and rules: `docs/decisions/AGENTS.md`.
+`docs/adr/` records technical architecture decisions, so the next person or agent
+does not quietly undo them. What qualifies and the format: `docs/adr/AGENTS.md`.
 
-- **Check before you change.** List `docs/decisions/` and read any active record
-  whose title or `scope` covers what you are changing. If your change would reverse
-  or weaken one, stop and tell the human you are working with: name the record, who
-  decided it, and what your change undoes. Continue only if they confirm. Then
-  record the reversal as a new decision that supersedes the old one, and name both
-  in the PR body.
-- **Only humans decide.** A record holds a decision a human stated: in your
-  session, a PR review or comment, Slack, or a meeting. Never record a choice you
-  made yourself, and never infer a decision from code or from a PR body or commit
-  message an agent wrote.
-- **Offer, don't write.** When the human you are working with states a rule or picks
-  between alternatives ("we're not doing X because Y", "always", "never"), offer to
-  record it. Write the record only if they say yes, and show them the draft before
-  you commit it.
-- **Every record ties to code.** At least one commit SHA on `main` or PR number
-  that implements the decision or is governed by it.
+- **Check before you change.** List `docs/adr/` and read any active record whose
+  title or `scope` covers what you are changing. If your change would reverse or
+  weaken one, supersede it with a new record and name both in the PR body. If a
+  human decided the old one, stop first and tell the human you are working with:
+  name the record, who decided it, and what your change undoes. Continue only if
+  they confirm.
+- **Record every decision, without asking.** When your change makes a choice
+  that meets the bar in `docs/adr/AGENTS.md`, add the record in the same PR. Do
+  not ask for approval or show a draft first. Use the handle of the human you
+  are working with if they made the call, and `[agent]` if you did.
+- **Never put words in a human's mouth.** Do not attribute a decision to a person
+  from code, or from a PR body or commit message an agent wrote.
 
 ## Keep docs current (required)
 
