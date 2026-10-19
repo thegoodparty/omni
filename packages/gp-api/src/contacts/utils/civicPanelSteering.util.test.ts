@@ -44,7 +44,21 @@ const cell = (
   gender: null,
   tenure: 'owner',
   tract: A,
+  race: null,
   ...overrides,
+})
+
+// Everyone, all ages: 50% white, 30% Black, 15% Hispanic, 5% other.
+const RACE_DISTRICT = {
+  ...DISTRICT,
+  populationWhiteNh: 625,
+  populationBlackNh: 375,
+  populationHispanic: 187.5,
+  populationOtherNh: 62.5,
+}
+const raceMixOf = (cells: RespondentCell[]): PanelMix => ({
+  cells,
+  census: { district: RACE_DISTRICT, tractAdults: TRACTS },
 })
 
 const mixOf = (cells: RespondentCell[]): PanelMix => ({
@@ -84,6 +98,33 @@ describe('panelGaps', () => {
     const other = gaps.find((g) => g.value === 'other')
     expect(other?.censusShare).toBeCloseTo(0.5)
     expect(other?.panelShare).toBeCloseTo(5 / 45)
+  })
+})
+
+describe('panelGaps race', () => {
+  it('compares race once enough members have one on file', () => {
+    const { gaps } = panelGaps(
+      raceMixOf([
+        cell({ count: 80, race: 'white' }),
+        cell({ count: 10, race: 'black' }),
+        cell({ count: 10, race: 'hispanic' }),
+      ]),
+    )
+    const black = gaps.find(
+      (g) => g.dimension === 'race' && g.value === 'black',
+    )
+    expect(black?.panelShare).toBeCloseTo(0.1)
+    expect(black?.censusShare).toBeCloseTo(0.3)
+  })
+
+  it('leaves race out when under 70% of members have one', () => {
+    const { gaps } = panelGaps(
+      raceMixOf([
+        cell({ count: 60, race: 'white' }),
+        cell({ count: 40, race: null }),
+      ]),
+    )
+    expect(gaps.some((g) => g.dimension === 'race')).toBe(false)
   })
 })
 
@@ -204,6 +245,24 @@ describe('panelSteering', () => {
     expect(steering.leansToward).toBe('unreachedAreas')
     expect(steering.balance?.status).toBe('notYetRepresentative')
     expect(steering.landlineFirst).toBe(true)
+  })
+
+  it('leans toward a race group the panel trails, never toward other', () => {
+    const steering = panelSteering({
+      members: 100,
+      goal: 240,
+      mix: raceMixOf([
+        cell({ count: 50, tract: A, race: 'white' }),
+        cell({ count: 5, tract: A, race: 'black' }),
+        cell({ count: 15, tract: B, race: 'hispanic' }),
+        cell({ count: 20, tract: B, race: 'white' }),
+        cell({ count: 10, tract: C, race: 'white' }),
+      ]),
+    })
+    expect(steering.weights?.race.black).toBe(2)
+    expect(steering.weights?.race.white).toBeCloseTo(0.5 / 0.8)
+    expect(steering.weights?.race.other).toBeUndefined()
+    expect(steering.leansToward).toBe('black')
   })
 
   it('drops landline-first once the panel holds its share of people 65 and over', () => {
