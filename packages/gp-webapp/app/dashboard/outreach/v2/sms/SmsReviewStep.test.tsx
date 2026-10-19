@@ -223,6 +223,9 @@ describe('SmsReviewStep free texts', () => {
     expect(screen.getByText('$1022.42')).toBeInTheDocument()
     expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
     expect(screen.queryByText('$1197.42')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Your bank may show a temporary hold of $1197.42.'),
+    ).toBeInTheDocument()
   })
 
   it('states the discounted ceiling when paying before the list is ready', async () => {
@@ -243,6 +246,9 @@ describe('SmsReviewStep free texts', () => {
 
     expect(await screen.findByText('$423.71 due today')).toBeInTheDocument()
     expect(screen.getByText('$423.71')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your bank may show a temporary hold of $598.71.'),
+    ).toBeInTheDocument()
   })
 
   it('never shows a negative total when a promo covers most of the hold', async () => {
@@ -264,6 +270,16 @@ describe('SmsReviewStep free texts', () => {
     expect(await screen.findByText('$1022.42 due today')).toBeInTheDocument()
     expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
     expect(screen.queryByText('$847.42')).not.toBeInTheDocument()
+    expect(screen.queryByText(/temporary hold/)).not.toBeInTheDocument()
+  })
+
+  it('does not mention a larger hold when the hold is the total', async () => {
+    checkout.isHold = true
+
+    renderStep({ priceIsCeiling: true })
+
+    expect(await screen.findByText('Up to $1197.42')).toBeInTheDocument()
+    expect(screen.queryByText(/temporary hold/)).not.toBeInTheDocument()
   })
 
   it('takes the free texts off the estimate in the read-only summary', () => {

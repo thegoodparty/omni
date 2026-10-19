@@ -167,15 +167,18 @@ export const SmsReviewStep = ({
     hasFreeTextsOffer && contactCount !== null
       ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT) * pricePerContact
       : 0
+  const stripeDollars = liveTotalDollars ?? checkoutSession?.amount ?? 0
   // An immediate charge already has the free texts off its amount. A hold
   // does not, so the total takes them off here the way capture will.
   const totalDollars = isFree
     ? 0
     : Math.max(
         0,
-        (liveTotalDollars ?? checkoutSession?.amount ?? 0) -
-          (checkoutSession?.isHold ? freeTextsDollars : 0),
+        stripeDollars - (checkoutSession?.isHold ? freeTextsDollars : 0),
       )
+  // The card is authorized for the hold, not the total, until capture.
+  const showsLargerHold =
+    Boolean(checkoutSession?.isHold) && stripeDollars > totalDollars
   // The provider's error is set both when the session could not be created
   // and, by the form, when a confirm fails. Only the first is fatal to the
   // step; once a session exists an error is a card problem to show inline.
@@ -483,10 +486,15 @@ export const SmsReviewStep = ({
                 : `$${money(totalDollars)} due today`}
             </AlertTitle>
             <AlertDescription>
-              {priceIsCeiling
-                ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
-                : (copy?.chargeNote ??
-                  'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+              <p>
+                {priceIsCeiling
+                  ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
+                  : (copy?.chargeNote ??
+                    'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+              </p>
+              {showsLargerHold && (
+                <p>{`Your bank may show a temporary hold of $${money(stripeDollars)}.`}</p>
+              )}
             </AlertDescription>
           </Alert>
         </>
