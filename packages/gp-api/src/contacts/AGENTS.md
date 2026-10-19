@@ -929,14 +929,14 @@ draft does.
 
 **Steering by census** (`utils/civicPanelSteering.util.ts`, Bryan,
 2026-10-18). Each draw leans toward the groups the panel trails, so the
-panel drifts toward the district's census mix. Dimensions are age (18 to
-64, 65+) and tract, plus gender once the marts publish sex by age (wired
-through `WeightingCensus.genderShares`, inactive until then). Tenure is out
+panel drifts toward the district's census mix. Dimensions are age (the
+census's six adult bands, 18 to 24 through 65+), gender (census sex against
+the voter file's `M`/`F`) and tract, all from `weightingTargets`. Tenure is out
 until a statistician rules on its household target; race is never steered.
 `CensusCompositionSource.weightingInputs` reads the members' cells and the
 census (`findWeightingInputs`), cached 15 minutes per office and member set
 in the plan service; a failed read leans nowhere. Gaps are census share
-(`weightingTargets`: ACS adults for age, adults per tract over the block
+(`weightingTargets`: ACS adults by sex and age band, adults per tract over the block
 groups the district's people live in) against the members' unweighted share
 among those with a known value, values under
 `MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.

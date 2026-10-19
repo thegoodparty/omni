@@ -312,7 +312,7 @@ describe('mapTractAdults', () => {
 
 describe('sampleWeightSql', () => {
   const weights = {
-    age: { '18to64': 0.8, '65plus': 2 },
+    age: { '35to44': 0.8, '65plus': 2 },
     gender: {},
     tract: { '53017950100': 1, '53017950200': 1.5 },
     minWeight: 0.5,
@@ -325,7 +325,11 @@ describe('sampleWeightSql', () => {
     expect(sql).toBe(
       'least(CAST(:p7 AS DOUBLE), greatest(CAST(:p6 AS DOUBLE),' +
         " CASE CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
-        " WHEN v.`Age_Int` >= 18 THEN '18to64' END" +
+        " WHEN v.`Age_Int` >= 55 THEN '55to64'" +
+        " WHEN v.`Age_Int` >= 45 THEN '45to54'" +
+        " WHEN v.`Age_Int` >= 35 THEN '35to44'" +
+        " WHEN v.`Age_Int` >= 25 THEN '25to34'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to24' END" +
         ' WHEN :p0 THEN CAST(:p1 AS DOUBLE)' +
         ' WHEN :p2 THEN CAST(:p3 AS DOUBLE) ELSE 1.0 END *' +
         ' CASE substr(v.`Census_Block_Group_Geoid`, 1, 11)' +
@@ -333,7 +337,7 @@ describe('sampleWeightSql', () => {
     )
     // A factor of 1 and an empty dimension add nothing.
     expect(bag.params.map((p) => p.value)).toEqual([
-      '18to64',
+      '35to44',
       '0.8',
       '65plus',
       '2',
