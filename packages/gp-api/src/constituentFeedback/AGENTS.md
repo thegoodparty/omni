@@ -377,6 +377,13 @@ audio-upload/:clientKey` here: a multipart form read through
 route parameter limit. The sink 404s outside mock mode or off a dev-only
 deploy. `.env.test` sets `mock`.
 
+## Priority answer coding
+
+A memo captured with words, or confirmed, on an effort linked to a priority
+has its answer to the priority's question coded, fire-and-forget after the
+memo is saved (`codePriorityAnswers`, resolved lazily). The memo stands
+whatever the coding does. See `src/priorities/AGENTS.md`, "Answer coding".
+
 ## The extraction prompt names no product
 
 The same issues land on a voter's record and a constituent's, and the

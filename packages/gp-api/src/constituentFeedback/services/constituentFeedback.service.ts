@@ -31,6 +31,7 @@ import {
 } from '@/generated/prisma'
 import { assertVolunteerAssignedToOutreach } from '@/doorKnocking/utils/doorKnockingAccess.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
 import { APP_ROOT, WEBAPP_API_PATH } from '@/shared/util/appEnvironment.util'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { SPEECH_BUCKET } from '@/speech/speechBucket'
@@ -323,6 +324,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         issues: await replaceIssues(tx, saved.id, proposedIssues(extracted)),
       }
     })
+    this.codePriorityAnswers(row.outreachId)
 
     return {
       id: row.id,
@@ -811,6 +813,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         include: RECORD_INCLUDE,
       })
     })
+    this.codePriorityAnswers(row.outreachId)
 
     return this.toRecord(row)
   }
@@ -852,6 +855,23 @@ export class ConstituentFeedbackService extends createPrismaBase(
       userId,
       NOT_ASSIGNED_MESSAGE[channel],
     )
+  }
+
+  // Fire-and-forget once the memo is saved: the memo stands whatever the
+  // coding does, and the service skips an effort on no priority. Resolved
+  // lazily, as the synthesis triggers are.
+  private codePriorityAnswers(outreachId: number | null): void {
+    if (outreachId === null) return
+    try {
+      this.moduleRef
+        .get(PriorityAnswerCodingService, { strict: false })
+        .codeOutreachInBackground(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Could not start coding answers for a memo',
+      )
+    }
   }
 
   private extractionFields(extracted: Extracted): ExtractionFields {
