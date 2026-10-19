@@ -155,6 +155,9 @@ model ConstituentFeedback {
   @@index([organizationSlug, outreachId])
   // The pending-transcription cron reads across orgs, and pending rows are few.
   @@index([extractionStatus])
+  // The abandoned-confirm sweep reads across orgs every minute, oldest
+  // unconfirmed first.
+  @@index([confirmedAt, updatedAt])
   @@map("constituent_feedback")
 }
 

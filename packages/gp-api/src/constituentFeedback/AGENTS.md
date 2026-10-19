@@ -192,7 +192,8 @@ confirm step abandoned: the app closed on the card. The
 `feedbackPendingTranscription` pass confirms these too, 25 a pass, the way a
 skip does but as `automatic`, each conditional on `confirmedAt` still null
 and `updatedAt` unchanged since the pass read it, so a confirm that lands
-first keeps what its confirmer gave.
+first keeps what its confirmer gave. Its read, oldest `updatedAt` first, runs
+on the `(confirmedAt, updatedAt)` index, so a pass never scans the table.
 
 ## Synthesis
 
