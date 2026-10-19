@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { createClerkClient } from '@clerk/backend'
 import {
@@ -9,6 +10,7 @@ import {
   parseISO,
 } from 'date-fns'
 import { z } from 'zod'
+import { JUDGE_FIXTURE } from './judgeFixtureIdentity'
 
 // A REAL SIGNED-IN USER FOR THE CHAT ARMS, minted outside them.
 //
@@ -116,7 +118,9 @@ const ExpiresAtSchema = NON_EMPTY.transform((value) => parseISO(value)).refine(
 
 const MintEnvSchema = z.object({
   [JUDGE_CLERK_ENV.secretKey]: SecretKeySchema,
-  [JUDGE_CLERK_ENV.userId]: UserIdSchema,
+  // Optional, and usually absent. Set it to pin an existing account; leave
+  // it unset and the mint step finds or creates the judge's own by email.
+  [JUDGE_CLERK_ENV.userId]: UserIdSchema.optional(),
   [JUDGE_CLERK_ENV.ttlSeconds]: TtlSchema,
 })
 
@@ -146,30 +150,26 @@ const asSentence = (
 
 export interface JudgeClerkMintConfig {
   secretKey: string
-  userId: string
+  // Absent means "resolve it", not "fail": see resolveJudgeClerkUserId.
+  userId?: string
   ttlSeconds: number
 }
 
-// There is no default judge user and there must not be one: a hardcoded id
-// would either name nobody or, worse, name somebody. The account is created
-// in the dev Clerk instance by hand and its id configured here, so the
-// missing-value sentence says that rather than leaving the reader to guess
-// what a `user_…` is supposed to come from.
+// The judge's account is not created by hand. JUDGE_CLERK_USER_ID is an
+// override for pinning an existing one; left unset, the mint step finds the
+// account by email and creates it if it is not there, which is what
+// e2e-tests/tests/utils/api-registration.ts does through the same backend
+// SDK. A hand-made account was the earlier design and it made every sweep
+// wait on a person.
 export const parseJudgeClerkMintConfig = (
   source: NodeJS.ProcessEnv = process.env,
 ): JudgeClerkMintConfig => {
   const parsed = MintEnvSchema.safeParse(source)
   if (!parsed.success) {
-    const named = new Set(
-      parsed.error.issues.map((issue) => String(issue.path[0])),
-    )
     throw new JudgeClerkSessionError(
       'the judge cannot mint a Clerk session: ' +
         asSentence(parsed.error.issues, source) +
-        (named.has(JUDGE_CLERK_ENV.userId)
-          ? '. The judge has no Clerk account until someone creates one in ' +
-            `the dev instance; its id goes in ${JUDGE_CLERK_ENV.userId}.`
-          : ''),
+        '',
     )
   }
   return {
@@ -197,14 +197,86 @@ export interface ClerkSessionApi {
   }
 }
 
+// Just enough of the backend SDK to find or create the account, kept
+// separate from ClerkSessionApi so a test that only mints needs neither.
+export interface ClerkUserApi {
+  users: {
+    getUserList(params: {
+      emailAddress: string[]
+      limit?: number
+    }): Promise<{ data: { id: string }[] }>
+    createUser(params: {
+      emailAddress: string[]
+      password?: string
+      firstName?: string
+      lastName?: string
+      skipPasswordChecks?: boolean
+    }): Promise<{ id: string }>
+  }
+}
+
+// The address is not a choice. src/judge's access guard compares the caller's
+// email to JUDGE_FIXTURE_EMAIL and answers 404 on anything else, so an account
+// under a different address authenticates and then cannot read its own
+// telemetry. Both constants are asserted equal in judgeTelemetry.util.test.ts.
+export const JUDGE_CLERK_EMAIL = JUDGE_FIXTURE.email
+
+// Find, then create. Idempotent on purpose: the mint step runs once per sweep
+// against a Clerk instance shared by every preview and every CI shard, whose
+// backend API is capped near 100 requests per 10 seconds, and
+// e2e-tests/AGENTS.md records what exhausting it looks like — Clerk answers
+// 429, gp-api turns the failed lookup into a bare 401, and the failure reads
+// like an auth bug rather than a budget one. One lookup and, once ever, one
+// create.
+//
+// The account is deliberately NOT swept. users.service.ts reaps e2e users
+// after three hours and fixture users matching `qa-<uuid>@goodparty.org`
+// after twenty-four; this address matches neither, so the judge keeps one
+// stable account instead of minting a new identity per sweep.
+export const resolveJudgeClerkUserId = async (
+  config: JudgeClerkMintConfig,
+  client: ClerkUserApi,
+  log: (line: string) => void = logToStderr,
+): Promise<string> => {
+  if (config.userId !== undefined) return config.userId
+
+  const { data: found } = await client.users.getUserList({
+    emailAddress: [JUDGE_CLERK_EMAIL],
+    limit: 1,
+  })
+  const existing = found[0]
+  if (existing) return existing.id
+
+  // Never signed in with, because the session is minted from the backend, so
+  // this is generated and dropped rather than stored anywhere.
+  const created = await client.users.createUser({
+    emailAddress: [JUDGE_CLERK_EMAIL],
+    password: `judge-${randomUUID()}!`,
+    firstName: 'Universal',
+    lastName: 'Judge',
+    skipPasswordChecks: true,
+  })
+  log(
+    `${LOG_PREFIX} created the judge's Clerk account for ` +
+      `${JUDGE_CLERK_EMAIL} as ${created.id}`,
+  )
+  return created.id
+}
+
 export type SessionMinter = () => Promise<MintedSession>
 
 // Clerk answers with the JWT and nothing about its lifetime, so the expiry is
 // computed from the TTL we asked for. Erring early is the safe direction: a
 // token believed to expire sooner than it does is re-minted once too often,
 // and one believed to last longer dies in the middle of a turn.
+// Takes a config whose user id is already resolved, so the type carries the
+// ordering rather than a comment: resolveJudgeClerkUserId runs first.
+export type ResolvedJudgeClerkMintConfig = JudgeClerkMintConfig & {
+  userId: string
+}
+
 export const mintJudgeSession = async (
-  config: JudgeClerkMintConfig,
+  config: ResolvedJudgeClerkMintConfig,
   client: ClerkSessionApi,
   now: () => Date = () => new Date(),
 ): Promise<MintedSession> => {
@@ -361,18 +433,17 @@ if (require.main === module) {
     if (!out) {
       throw new JudgeClerkSessionError(
         `usage: ${JUDGE_CLERK_ENV.secretKey}=<key> ` +
-          `${JUDGE_CLERK_ENV.userId}=<id> judgeClerkSession.ts ` +
+          `[${JUDGE_CLERK_ENV.userId}=<id>] judgeClerkSession.ts ` +
           '<path to write the token to>',
       )
     }
     const config = parseJudgeClerkMintConfig()
-    const session = await mintJudgeSession(
-      config,
-      createClerkClient({ secretKey: config.secretKey }),
-    )
+    const clerk = createClerkClient({ secretKey: config.secretKey })
+    const userId = await resolveJudgeClerkUserId(config, clerk)
+    const session = await mintJudgeSession({ ...config, userId }, clerk)
     writeFileSync(out, sessionOutputLines(session), { mode: 0o600 })
     process.stderr.write(
-      `${LOG_PREFIX} minted a session for ${config.userId}, good until ` +
+      `${LOG_PREFIX} minted a session for ${userId}, good until ` +
         `${formatISO(session.expiresAt)}\n`,
     )
   }
