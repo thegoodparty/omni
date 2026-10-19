@@ -213,4 +213,20 @@ describe('step status and waves', () => {
       href: null,
     })
   })
+
+  it('says a door step walks a part of the district not reached yet', () => {
+    const door = {
+      ...base,
+      id: 'doors',
+      position: 1,
+      channel: 'door_knocking' as const,
+      status: 'not_started' as const,
+    }
+    expect(nextStep([door])?.line).toBe(
+      'Knock on doors to invite residents to your civic panel',
+    )
+    expect(
+      nextStep([{ ...door, steeredToward: 'unreachedAreas' as const }])?.line,
+    ).toBe("Knock on doors in a part of your district we haven't reached")
+  })
 })

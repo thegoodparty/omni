@@ -77,6 +77,10 @@ const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 export const col = (name: string): string => `v.${ident(name)}`
 
+// A person's census tract: the first 11 digits of their block group GEOID.
+export const tractSql = (): string =>
+  `substr(${col('Census_Block_Group_Geoid')}, 1, 11)`
+
 // Each component COALESCE'd so a NULL doesn't void the key, TRIM'd and UPPER'd
 // so formatting differences group together, joined on a delimiter that cannot
 // occur inside a component. Columns come from contracts, so a key composed
@@ -925,6 +929,10 @@ export const buildPageSql = (
   return { sql, params: bag.params }
 }
 
+// A weighted draw's u: the seeded hash's low 32 bits over 2^32, offset
+// half a step so it is never 0 or 1.
+const HASH_UNIT_RANGE = '4294967296'
+
 // CSV export projection. Every column is cast to string and null-coalesced
 // because the Statement Execution API renders a SQL NULL as the literal text
 // `null` in CSV, where Postgres COPY writes an empty field — without this the
@@ -945,6 +953,8 @@ export const buildSampleSql = (
     hashDivisor: number
     hasCellPhone?: boolean
     excludeIds?: readonly string[]
+    // Each row's draw weight, as SQL. Without it every row weighs the same.
+    weight?: (bag: Bag) => string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -969,9 +979,17 @@ export const buildSampleSql = (
     parts.push(`AND pmod(${seededHash}, ${bag.bind(divisor, 'INT')}) = 0`)
   }
 
+  // Weighted, the slice is ordered by -ln(u) / w, u the same hash mapped
+  // into (0, 1): the smallest n keys are a weighted draw without
+  // replacement (Efraimidis and Spirakis), and equal weights order exactly
+  // as the hash does.
+  const order = args.weight
+    ? `-ln((pmod(${seededHash}, ${HASH_UNIT_RANGE}) + 0.5)` +
+      ` / ${HASH_UNIT_RANGE}) / (${args.weight(bag)})`
+    : seededHash
   const sql =
     `SELECT ${projection} FROM ${args.district.table} v ${parts.join(' ')}` +
-    ` ORDER BY ${seededHash}, ${col('id')}` +
+    ` ORDER BY ${order}, ${col('id')}` +
     ` LIMIT ${bag.bind(num(args.size), 'INT')}`
   return { sql, params: bag.params }
 }
@@ -1030,6 +1048,8 @@ export const buildDoorKnockingEvaluateSql = (
     // interpolated dot on screen was silently uncountable. Defaults to the
     // door-knocking rule so that path is unchanged.
     requireRooftopAccuracy?: boolean
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -1046,6 +1066,9 @@ export const buildDoorKnockingEvaluateSql = (
   const excluded = args.excludePersonIds ?? []
   if (excluded.length > 0) {
     parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
+  }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
   }
 
   const sql =

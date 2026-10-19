@@ -850,14 +850,25 @@ describe('ChiefOfStaffHandler', () => {
 
     // Two lines a build reply produced: "not just the people who already
     // reach out" (banned word) and "the panel ends up looking like
-    // Asheville" (a representativeness claim the panel brief forbids).
-    it('bans "just" and any claim that the panel looks like the community', async () => {
+    // Asheville" (a promise the panel brief forbids). The panel page's own
+    // status and group to invite next may be said, nothing past them.
+    it('bans "just" and any promise that the panel will match the community', async () => {
       const prompt = await promptFor()
       const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
       expect(civicPanel).toContain('Never use the word "just".')
       expect(civicPanel).toContain(
-        'Never say or imply the panel will look like, match, mirror or ' +
+        'You may say the status their panel page shows (the panelStatus a ' +
+          'panel tool returns: Too early, Not yet representative, Getting ' +
+          'close or Representative) and the group it says to invite next ' +
+          '(inviteMoreNext), in those words.',
+      )
+      expect(civicPanel).toContain(
+        'Never promise or imply the panel will look like, match, mirror or ' +
           'represent the district, the city or the community.',
+      )
+      expect(civicPanel).toContain(
+        'Never mention weights, quotas or targets, and never suggest ' +
+          'inviting or leaving out anyone by race.',
       )
       expect(civicPanel).not.toContain('looks like the district')
       const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))

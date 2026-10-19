@@ -11,6 +11,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
   progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  balance: null,
 }
 
 const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
@@ -32,6 +33,7 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     href: '/dashboard/contacts/citizens-panel?step=step-1',
   },
   progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
 })
 
 const buildPlans = (overrides: Partial<CivicPanelBuildPlanService> = {}) =>
@@ -78,6 +80,8 @@ describe('the civic panel plan tools', () => {
       expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Not yet representative',
+      inviteMoreNext: 'people 65 and over',
     })
     // Answered once, it is never asked again in the same turn.
     expect(await tools.ask_panel_weekly_time.execute({})).toHaveProperty(
@@ -191,6 +195,8 @@ describe('the civic panel plan tools', () => {
       expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Not yet representative',
+      inviteMoreNext: 'people 65 and over',
     })
   })
 })

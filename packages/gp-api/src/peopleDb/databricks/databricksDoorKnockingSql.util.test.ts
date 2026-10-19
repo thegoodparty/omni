@@ -110,6 +110,16 @@ describe('buildDoorKnockingEvaluateSql', () => {
     expect(build().sql).not.toContain('NOT IN')
   })
 
+  it('keeps to one census tract when asked, bound', () => {
+    const { sql, params } = build({ tract: '53017950100' })
+    const marker = sql.match(
+      /substr\(v\.`Census_Block_Group_Geoid`, 1, 11\) = (:p\d+)/,
+    )?.[1]
+    expect(marker).toBeDefined()
+    expect(valueOf(params, marker ?? '')).toBe('53017950100')
+    expect(build().sql).not.toContain('Census_Block_Group_Geoid')
+  })
+
   it('refuses to inline a non-uuid into the suppression set', () => {
     expect(() => build({ excludePersonIds: ["' OR 1=1 --"] })).toThrow(
       /non-uuid/,

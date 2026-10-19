@@ -3075,12 +3075,14 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
               markedDone: null,
               reached: null,
               joined: null,
+              steeredToward: null,
             },
           ]
         : [],
     },
     next,
     progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    balance: null,
   })
 
   const timeQuestion = (answer?: string) => [

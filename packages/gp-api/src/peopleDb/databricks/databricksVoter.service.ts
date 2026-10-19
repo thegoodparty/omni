@@ -80,6 +80,7 @@ import {
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  sampleWeightSql,
   type CensusCompositionRows,
   type WeightingInputs,
 } from './districtCensusSql.util'
@@ -570,6 +571,7 @@ export class DatabricksVoterService {
     const size = dto.size ?? DEFAULT_SAMPLE_SIZE
     const hasCellPhone = dto.filters ? undefined : (dto.hasCellPhone ?? true)
     const excludeIds = dto.excludeIds ?? []
+    const weights = dto.weights
     const scope: DbxScopeArgs = {
       district,
       filters: dto.filters ?? EMPTY_FILTERS,
@@ -611,6 +613,7 @@ export class DatabricksVoterService {
           hashDivisor: divisor,
           hasCellPhone,
           excludeIds,
+          weight: weights && ((bag) => sampleWeightSql(bag, weights)),
         }),
       )
     let { rows } = await draw(hashDivisor)
@@ -672,6 +675,7 @@ export class DatabricksVoterService {
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,
         requireRooftopAccuracy: opts?.requireRooftopAccuracy,
+        tract: dto.tract,
       }),
     )
     return rows.map((row) => {

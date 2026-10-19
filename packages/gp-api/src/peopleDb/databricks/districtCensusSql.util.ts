@@ -1,9 +1,12 @@
 import { z } from 'zod'
 import { filtersSchema } from '../schemas/filters.schema'
+import type { SampleWeights } from '../schemas/people.schema'
 import {
   buildScopeSql,
   col,
   createBag,
+  tractSql,
+  type Bag,
   type DbxDistrict,
   type DbxStatement,
 } from './databricksVoterSql.util'
@@ -163,6 +166,32 @@ export const mapAcsCounts = (row: ReadonlyArray<string | null>): AcsCounts =>
       ACS_COUNT_KEYS.map((key, index) => [key, figure(row[index])]),
     ),
   )
+
+// A person's draw weight for a census-steered sample: the product of their
+// age band, gender and tract factors, held within the weights' bounds. A
+// value with no factor, or unknown, counts 1. Factors are bound and cast.
+export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
+  const factor = (expression: string, factors: Record<string, number>) => {
+    const arms = Object.entries(factors)
+      .filter(([, value]) => value !== 1)
+      .map(
+        ([key, value]) =>
+          ` WHEN ${bag.bind(key)} THEN CAST(${bag.bind(String(value))} AS DOUBLE)`,
+      )
+    return arms.length === 0
+      ? null
+      : `CASE ${expression}${arms.join('')} ELSE 1.0 END`
+  }
+  const factors = [
+    factor(ageBandSql(), weights.age),
+    factor(genderSql(), weights.gender),
+    factor(tractSql(), weights.tract),
+  ].filter((part): part is string => part !== null)
+  if (factors.length === 0) return '1.0'
+  const min = `CAST(${bag.bind(String(weights.minWeight))} AS DOUBLE)`
+  const max = `CAST(${bag.bind(String(weights.maxWeight))} AS DOUBLE)`
+  return `least(${max}, greatest(${min}, ${factors.join(' * ')}))`
+}
 
 const RespondentProfileSchema = z.object({
   ageBand: z.enum(['18to64', '65plus']).nullable(),

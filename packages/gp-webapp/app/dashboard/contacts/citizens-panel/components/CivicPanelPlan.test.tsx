@@ -74,6 +74,7 @@ const step = (
   markedDone: null,
   reached: null,
   joined: null,
+  steeredToward: null,
   ...overrides,
 })
 
@@ -130,6 +131,7 @@ const withPlan = (
   },
   next,
   progress: { members: 60, goal: 240, answersNeeded: 96, expectedAnswers: 24 },
+  balance: null,
 })
 
 // How far the bar is filled, in percent.
@@ -140,6 +142,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
   progress: { members: 0, goal: 240, answersNeeded: 96, expectedAnswers: 0 },
+  balance: null,
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
@@ -281,6 +284,31 @@ describe('the plan', () => {
     ).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Skip' })).toHaveLength(1)
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
+  })
+
+  it('names who a round leans toward, never how', () => {
+    renderPage(
+      withPlan([
+        step({ id: 'step-text', steeredToward: 'age65plus' }),
+        step({
+          id: 'step-doors',
+          channel: 'door_knocking',
+          targetSize: 100,
+          steeredToward: 'unreachedAreas',
+        }),
+      ]),
+    )
+
+    expect(
+      within(rowOf('Text 3,150 residents')).getByText(
+        'This round invites more people 65 and over.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(rowOf('Knock on 100 doors in a walkable area')).getByText(
+        "A part of your district we haven't reached. About 5 hours of your time.",
+      ),
+    ).toBeInTheDocument()
   })
 
   it('checks off done steps at the bottom, a sent text included, and hides skipped ones', () => {

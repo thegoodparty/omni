@@ -16,6 +16,7 @@ import {
   type CivicPanelBuildNext,
   type CivicPanelBuildStepStatus,
   type GeoJsonPolygon,
+  type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import { addDays, format, isBefore, subBusinessDays } from 'date-fns'
 
@@ -285,6 +286,11 @@ const READY_LINES: Record<CivicPanelBuildChannel, string> = {
   door_knocking: 'Knock on doors to invite residents to your civic panel',
 }
 
+// A door step that walks a part of the district the panel has barely
+// reached says so. Never which part, or why.
+const STEERED_DOOR_LINE =
+  "Knock on doors in a part of your district we haven't reached"
+
 const IN_PROGRESS_LINES: Record<CivicPanelBuildChannel, string> = {
   text: 'Your civic panel invite is on its way',
   phone_banking: 'Finish your civic panel calls',
@@ -301,6 +307,7 @@ export const nextStep = (
     id: string
     position: number
     status: CivicPanelBuildStepStatus
+    steeredToward?: UnderrepresentedGroup | null
   })[],
 ): CivicPanelBuildNext | null => {
   const ordered = [...steps].sort(
@@ -315,7 +322,11 @@ export const nextStep = (
       stepId: ready.id,
       channel: ready.channel,
       status: ready.status,
-      line: READY_LINES[ready.channel],
+      line:
+        ready.channel === 'door_knocking' &&
+        ready.steeredToward === 'unreachedAreas'
+          ? STEERED_DOOR_LINE
+          : READY_LINES[ready.channel],
       href: href(ready.id),
     }
   }

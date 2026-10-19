@@ -331,8 +331,9 @@ registered on `ChiefOfStaffChatBody`'s registry:
 - **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
   the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
   holds no state of its own: the Next line, members of the goal, the panel
-  page's button for that step (none while waiting on replies), and See your
-  plan. The button opens the step's own flow through the panel page's
+  page's status and who to invite next (`CivicPanelBalanceStatus`), the
+  panel page's button for that step (none while waiting on replies), and See
+  your plan. The button opens the step's own flow through the panel page's
   `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
   calls over the chat, doors on the door knocking page, calls or walks
   underway on their caller page or walk. A refused call's null args render

@@ -760,6 +760,32 @@ describe('DatabricksVoterService', () => {
       )
     })
 
+    it('orders a weighted draw by its weights, inside the same slice', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValueOnce(twoPeople)
+
+      await service.samplePeople(
+        samplePeopleSchema.parse({
+          ...sampleWithin('proposal-1'),
+          weights: {
+            age: { '65plus': 2 },
+            gender: {},
+            tract: {},
+            minWeight: 0.5,
+            maxWeight: 2,
+          },
+        }),
+        'voters',
+      )
+
+      const [draw] = drawCalls()
+      expect(intParams(draw!)[1]).toBe('10')
+      expect(draw!.sql).toContain('ORDER BY -ln((pmod(xxhash64(v.`id`')
+      expect(draw!.sql).toContain("THEN '65plus'")
+    })
+
     it('orders the whole pool when it is too small to slice', async () => {
       stubDistrict('US_Congressional_District', '29')
       query

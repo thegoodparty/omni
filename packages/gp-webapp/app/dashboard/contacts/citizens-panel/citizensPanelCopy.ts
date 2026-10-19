@@ -63,6 +63,16 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       `People a text can't reach, landlines first. ${time} of your time.`,
     door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
   },
+  // A step's line when its draw leans toward a group the panel trails.
+  stepLean: {
+    text: (group: string) => `This round invites more ${group}.`,
+    door_knocking: (time: string) =>
+      `A part of your district we haven't reached. ${time} of your time.`,
+  },
+  balanceTitle: 'How your panel compares with your district',
+  balanceTooEarly: (minimum: number) =>
+    `We'll compare your panel with your district once ${minimum} people join.`,
+  inviteMore: (group: string) => `Invite more ${group} next.`,
   duration: (minutes: number) =>
     minutes < 50
       ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`
