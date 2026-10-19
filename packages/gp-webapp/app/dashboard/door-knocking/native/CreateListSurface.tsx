@@ -23,6 +23,7 @@ import type {
 } from './createFlow/CreateListFlow'
 import type {
   DoorKnockingTurf,
+  ProposalLink,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import type { TurfDraft } from './turfDrafts'
@@ -319,6 +320,9 @@ export interface CreateListSurfaceProps {
   // The campaign-plan task the walk was started from. Threaded straight
   // through to the create.
   trackerTaskId?: string
+  // The chat card the walk was opened from. Threaded straight through to the
+  // create, which is what puts out that card's check.
+  proposalLink?: ProposalLink
   // The drawing panel's Save while joining, and the write's state back.
   // Threaded straight through, like the id above.
   joinSaveRequest?: number
@@ -379,6 +383,7 @@ export default function CreateListSurface({
   siblingTurfs,
   campaignOutreachId,
   trackerTaskId,
+  proposalLink,
   joinSaveRequest,
   onJoinSaveStateChange,
   turfDrafts,
@@ -594,6 +599,7 @@ export default function CreateListSurface({
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
       trackerTaskId={trackerTaskId}
+      {...(proposalLink && { proposalLink })}
       joinSaveRequest={joinSaveRequest}
       onJoinSaveStateChange={onJoinSaveStateChange}
       turfDrafts={turfDrafts}

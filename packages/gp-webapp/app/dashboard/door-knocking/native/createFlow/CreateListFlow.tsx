@@ -1470,6 +1470,9 @@ export default function CreateListFlow({
             audienceSource:
               recommendedMeta !== null ? 'recommended' : 'savedList',
             ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
           }),
         )
       }
