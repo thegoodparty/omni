@@ -59,6 +59,12 @@ type RowInput = {
 // first's insert has committed.
 const PHONE_BANKING_LIST_LOCK_NAMESPACE = 25714
 
+// Prisma's 5s interactive-transaction default also covers waiting on the
+// per-list advisory lock, a pooled connection, and any stall of the process
+// itself. An 11.4s container freeze on 2026-10-19 (P2028 -> 503) otherwise
+// fails a call the volunteer just made.
+const RECORD_CALL_TX_TIMEOUT_MS = 20_000
+
 // `completed` is the ratchet the response reports on every later call;
 // `completedNowId` is set only on the call that flipped it, so a re-logged
 // call on a finished list does not start another synthesis run.
@@ -122,16 +128,18 @@ export class PhoneBankingCallService extends createPrismaBase(
     }
 
     const occurredAt = new Date()
-    const { rows, envelope } = await this.client.$transaction((tx) =>
-      this.applyOutcome(
-        tx,
-        organizationSlug,
-        listId,
-        entry,
-        civicPanelOnly ? input : { ...input, stayOnCivicPanel: undefined },
-        occurredAt,
-        actorUserId,
-      ),
+    const { rows, envelope } = await this.client.$transaction(
+      (tx) =>
+        this.applyOutcome(
+          tx,
+          organizationSlug,
+          listId,
+          entry,
+          civicPanelOnly ? input : { ...input, stayOnCivicPanel: undefined },
+          occurredAt,
+          actorUserId,
+        ),
+      { timeout: RECORD_CALL_TX_TIMEOUT_MS },
     )
 
     // The DB-level upserts above are done; the likelihood override write has

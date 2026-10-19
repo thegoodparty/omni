@@ -21,6 +21,12 @@ import { WrapperType } from 'src/shared/types/utility.types'
 import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
 import { isTestUser } from '../util/users.util'
 
+const isRetryableFormError = (error: unknown) => {
+  if (!isAxiosError(error)) return false
+  const status = error.response?.status
+  return !status || status === 429 || status >= 500
+}
+
 @Injectable()
 export class CrmUsersService {
   constructor(
@@ -267,8 +273,8 @@ export class CrmUsersService {
       )
       return
     }
-    try {
-      return await lastValueFrom(
+    const submit = () =>
+      lastValueFrom(
         this.httpService.post(
           `https://api.hsforms.com/submissions/v3/integration/submit/21589597/${formId}`,
           {
@@ -288,6 +294,14 @@ export class CrmUsersService {
           },
         ),
       )
+    try {
+      try {
+        return await submit()
+      } catch (error) {
+        if (!isRetryableFormError(error)) throw error
+        this.logger.warn({ formId }, 'retrying HubSpot form submission')
+        return await submit()
+      }
     } catch (error) {
       let message = 'Error submitting form to HubSpot: '
       if (isAxiosError(error)) {
@@ -296,7 +310,7 @@ export class CrmUsersService {
           message += JSON.stringify(axiosError.response.data)
           // Handle error response body here
         } else if (axiosError.request) {
-          message += axiosError.request
+          message += `no response from HubSpot (${axiosError.code ?? 'unknown'})`
         } else {
           message += axiosError.message
         }
