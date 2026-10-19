@@ -394,6 +394,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         channel: true,
         skippedAt: true,
         startedAt: true,
+        completedAt: true,
         markedDone: true,
         plan: { select: { status: true } },
       },
@@ -414,7 +415,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       where: { id: step.id },
       data: { markedDone: done, markedAt: new Date() },
     })
-    if (done && step.markedDone !== true) {
+    // A step's completion is reported once: here, or by the read when its
+    // list finished first.
+    if (done && step.markedDone !== true && !step.completedAt) {
       await this.track(office, [
         [
           EVENTS.CivicPanel.StepCompleted,
@@ -784,7 +787,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     if (!step.startedAt && data.startedAt) {
       events.push([EVENTS.CivicPanel.StepStarted, base])
     }
-    if (!step.completedAt && data.completedAt) {
+    // A ticked or unticked step reads off the official's mark, so its list
+    // finishing is not a completion (mark reported the tick).
+    if (!step.completedAt && data.completedAt && step.markedDone === null) {
       events.push([
         EVENTS.CivicPanel.StepCompleted,
         {

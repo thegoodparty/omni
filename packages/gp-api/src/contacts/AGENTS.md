@@ -1004,9 +1004,10 @@ link; with nothing left to do or wait on, `next` is null.
 office's user through `trackForOffice`; ids, counts and enums only).
 `Plan Created` (step counts per channel, `surface` `panel_page` or
 `chief_of_staff`) and `Plan Updated` (only when the hours change) fire from
-the writes. `Step Skipped` fires once per skip, `Step Completed` with `how`
-`marked` once per tick. The read fires `Step Started` and `Step Completed`
-(`how` `finished` or `window_ended`) when its sync writes the date, and
+the writes. `Step Skipped` fires once per skip. `Step Completed` fires once per step:
+with `how` `marked` on a tick of a step whose list has not finished, or from
+the read (`how` `finished` or `window_ended`) when its sync writes the date
+of a step nobody ticked or unticked. The read also fires `Step Started`, and
 `Goal Reached` when it closes the plan. That sync writes conditionally on
 the dates it read, so of two racing reads only one reports a change.
 `Membership Changed` fires from `ContactStatusService.changeStatus` for every

@@ -1342,6 +1342,59 @@ describe('civic panel analytics', () => {
     ])
   })
 
+  it('reports a ticked step done once, even when its walk finishes after', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    stubDoors(60)
+    const plan = await createPlan(slug, 1)
+    const doors = stepOf(plan, 'door_knocking')
+    const { data: list } = await prepare(slug, doors.id)
+    if (!list.area) throw new Error('a door step draws an area')
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: list.voterFileFilterId,
+        name: 'Civic panel doors',
+        color: '#000000',
+        geoPoly: list.area,
+      },
+    })
+    const envelope = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingTurfId: turf.id,
+        status: OutreachStatus.in_progress,
+      },
+    })
+    await readPlan(slug)
+    const track = spyTrack()
+
+    await mark(slug, doors.id, true)
+    await service.prisma.outreach.update({
+      where: { id: envelope.id },
+      data: { status: OutreachStatus.completed },
+    })
+    await readPlan(slug)
+
+    const completed = track.mock.calls.filter(
+      ([, name]) => name === 'Civic Panel - Step Completed',
+    )
+    expect(completed).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Completed',
+        {
+          organizationSlug: slug,
+          stepId: doors.id,
+          channel: 'door_knocking',
+          wave: 1,
+          how: 'marked',
+        },
+      ],
+    ])
+  })
+
   it('tracks a member joining and the goal reached, never who joined', async () => {
     stubPopulation(2_000)
     const slug = await seedOffice()
