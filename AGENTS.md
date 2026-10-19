@@ -87,10 +87,10 @@ does not quietly undo them. What qualifies and the format: `docs/adr/AGENTS.md`.
   human decided the old one, stop first and tell the human you are working with:
   name the record, who decided it, and what your change undoes. Continue only if
   they confirm.
-- **Record the decisions you make.** When your change makes a choice that meets
-  the bar in `docs/adr/AGENTS.md`, add a record in the same PR with
-  `decided_by: [agent]`. When the human you are working with makes one, offer to
-  record it under their handle, and show them the draft before you commit it.
+- **Record every decision, without asking.** When your change makes a choice
+  that meets the bar in `docs/adr/AGENTS.md`, add the record in the same PR. Do
+  not ask for approval or show a draft first. Use the handle of the human you
+  are working with if they made the call, and `[agent]` if you did.
 - **Never put words in a human's mouth.** Do not attribute a decision to a person
   from code, or from a PR body or commit message an agent wrote.
 
