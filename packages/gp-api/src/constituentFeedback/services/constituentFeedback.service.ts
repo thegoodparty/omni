@@ -564,6 +564,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       id: input.id,
       transcriptionJobName: input.jobName,
       transcript: null,
+      extractionStatus: ConstituentFeedbackExtractionStatus.pending,
       confirmedAt: null,
     }
     const transcript = clamp(

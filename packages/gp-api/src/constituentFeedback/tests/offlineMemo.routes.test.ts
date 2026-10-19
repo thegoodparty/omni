@@ -596,6 +596,35 @@ describe('offline memo capture', () => {
       ])
     })
 
+    // Giving up keeps the job's name on the row, so a job that answers after
+    // that must not confirm a memo the report already shows as unreadable.
+    it('leaves a memo marked unreadable alone when its job answers late', async () => {
+      const { res } = await recordOffline()
+      const id = res.data.id as string
+      const { transcriptionJobName } = await row(id)
+      const feedback = service.app.get(ConstituentFeedbackService)
+      await feedback.failTranscription({
+        id,
+        jobName: transcriptionJobName,
+        reason: 'timeout',
+      })
+
+      await feedback.completeTranscription({
+        id,
+        jobName: transcriptionJobName!,
+        transcript: 'She wants the storm drain cleared.',
+      })
+
+      const saved = await row(id)
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+      expect(saved.transcript).toBeNull()
+      expect(saved.confirmedAt).toBeNull()
+      expect(saved.confirmation).toBeNull()
+      expect(await proposal(id)).toEqual([])
+    })
+
     it('stops polling a memo once it is confirmed', async () => {
       await confirmMidJob()
       const poll = vi.spyOn(
