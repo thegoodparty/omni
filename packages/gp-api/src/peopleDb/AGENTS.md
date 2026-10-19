@@ -42,8 +42,9 @@ are the same for both.
 
 A priority's read weights its answers to the census
 (`districtCensusSql.util.ts`, read through `StatsService`):
-`buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure
-and tract (the first 11 digits of `Census_Block_Group_Geoid`),
+`buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure,
+tract (the first 11 digits of `Census_Block_Group_Geoid`) and race (L2's
+`EthnicGroups_EthnicGroup1Desc` folded into the census categories),
 `buildDistrictTractAdultsSql` sums adults per tract, and
 `buildTractGridCellsSql` returns the grid squares a set of tracts' people
 live in, from which gp-api draws the area a priority has not reached. All

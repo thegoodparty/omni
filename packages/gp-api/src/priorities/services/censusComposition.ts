@@ -14,6 +14,7 @@ import type {
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
+  raceNameable,
   unreachedTracts,
   weighToCensus,
   type WeightingCensus,
@@ -41,7 +42,13 @@ export interface CensusWeighting {
 }
 
 const profileKey = (profile: RespondentProfile): string =>
-  [profile.ageBand, profile.gender, profile.tenure, profile.tract].join('|')
+  [
+    profile.ageBand,
+    profile.gender,
+    profile.tenure,
+    profile.tract,
+    profile.race,
+  ].join('|')
 
 // Where district and block group demographics come from. Bound once in
 // CensusCompositionModule, so a test can stand in for the warehouse.
@@ -156,6 +163,7 @@ export class DistrictCensusComposition implements CensusCompositionSource {
           effectiveSampleSize: result.effectiveSampleSize,
           largestGap: result.largestGap,
           gaps: result.gaps,
+          raceNameable: raceNameable(cells),
         },
         weightOf: (profile) => weights.get(profileKey(profile)) ?? 1,
       }

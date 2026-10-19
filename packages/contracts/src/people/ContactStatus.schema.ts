@@ -32,14 +32,15 @@ export type ContactStatusField = GeneratedContactStatusField
 export const ContactStatusSourceSchema = GeneratedContactStatusSourceSchema
 export type ContactStatusSource = GeneratedContactStatusSource
 
-// ADR 0007. Not a member of UpdateContactStatusInputSchema below: the CRM's
-// status PATCH is Pro-gated, and the flagged door-knocking pilot is not, so
-// do-not-knock is written through its own door-knocking endpoint instead.
+// Do-not-knock. Not a member of UpdateContactStatusInputSchema below: the
+// CRM's status PATCH is Pro-gated, and the flagged door-knocking pilot is
+// not, so do-not-knock is written through its own door-knocking endpoint
+// instead.
 export const DoNotKnockStatusSchema = GeneratedDoNotKnockStatusSchema
 export type DoNotKnockStatus = GeneratedDoNotKnockStatus
 
-// ADR 0008. Written from the door only, for the same reason as do-not-knock,
-// and likewise absent from UpdateContactStatusInputSchema below.
+// Not-a-voter. Written from the door only, for the same reason as
+// do-not-knock, and likewise absent from UpdateContactStatusInputSchema below.
 export const NotAVoterStatusSchema = GeneratedNotAVoterStatusSchema
 export type NotAVoterStatus = GeneratedNotAVoterStatus
 
@@ -154,14 +155,14 @@ export const SUPPORT_STATUS_ROLLUP_LABELS: Record<
   refused: 'Refused',
 }
 
-// ADR 0007. Read as "Do Not Knock: — -> On" in the feed, so the values carry
+// Read as "Do Not Knock: — -> On" in the feed, so the values carry
 // the on/off reading and the field name carries the meaning.
 export const DO_NOT_KNOCK_LABELS: Record<DoNotKnockStatus, string> = {
   active: 'On',
   cleared: 'Off',
 }
 
-// ADR 0008. Reads as "Not A Voter: — -> Moved away" in the feed. `cleared`
+// Reads as "Not A Voter: — -> Moved away" in the feed. `cleared`
 // says the flag was lifted, not that anyone concluded the person is a voter.
 export const NOT_A_VOTER_LABELS: Record<NotAVoterStatus, string> = {
   moved: 'Moved away',

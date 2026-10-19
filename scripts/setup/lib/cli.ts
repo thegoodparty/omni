@@ -25,6 +25,14 @@
 //     <outDir>/device-<pkg>.env for each. Exits 1, writes nothing, and never
 //     prints the token or any vended value if any step fails.
 //
+//     With ELECTION_SEED_OUT set, also downloads the local election seed to
+//     that path on the same token (best-effort: a failure only warns).
+//
+//   npx tsx scripts/setup/lib/cli.ts election-seed <clientId> <apiUrl> <outPath>
+//     Walk the device flow and download the local election seed (the slice
+//     of the dev election database `electiondb` is loaded from) to outPath.
+//     Exits 1 if no seed was fetched. Never prints the token or the URL.
+//
 //   npx tsx scripts/setup/lib/cli.ts get-var <envFilePath> <varName>
 //     Print <varName>'s parsed value from <envFilePath> (empty line if the
 //     file or the var is absent). Reuses parseEnvFile so bash never
@@ -279,12 +287,10 @@ const tryOpen = (uri: string): void => {
   }
 }
 
-export const runDeviceFlow = async (
-  clientId: string,
-  apiUrl: string,
-  outDir: string,
-  packages: string[],
-) => {
+// Walks the GitHub OAuth device flow (read:org) and returns the user token,
+// or exits through fail(). The token is only ever handed to gp-api's
+// dev-env routes and is never printed or persisted.
+const acquireGithubToken = async (clientId: string): Promise<string> => {
   if (!clientId) {
     return fail(
       'GitHub OAuth App not registered yet — use --from <path>, or see ' +
@@ -306,9 +312,8 @@ export const runDeviceFlow = async (
   tryOpen(device.verification_uri)
   console.log('Waiting for you to authorize in the browser...')
 
-  let token: string
   try {
-    token = await awaitAccessToken(clientId, device, { sleep })
+    return await awaitAccessToken(clientId, device, { sleep })
   } catch (err) {
     if (err instanceof DeviceFlowExpiredError) {
       return fail(
@@ -320,6 +325,53 @@ export const runDeviceFlow = async (
     }
     return fail(`GitHub device flow failed: ${(err as Error).message}`)
   }
+}
+
+// Fetches the local election seed into outPath. Never fatal on the device
+// flow path: a missing seed costs local election data, not the rest of setup,
+// and scripts/setup/election-db.sh says how to fetch it later.
+const fetchElectionSeed = async (
+  apiUrl: string,
+  token: string,
+  outPath: string,
+): Promise<boolean> => {
+  try {
+    const { fetchElectionSeedUrl, downloadElectionSeed } =
+      await import('./devEnvBundle')
+    const url = await fetchElectionSeedUrl(apiUrl, token)
+    await downloadElectionSeed(url, outPath)
+    console.log('Fetched the local election seed')
+    return true
+  } catch (err) {
+    console.warn(
+      `Could not fetch the local election seed: ${(err as Error).message}`,
+    )
+    return false
+  }
+}
+
+export const runElectionSeedFetch = async (
+  clientId: string,
+  apiUrl: string,
+  outPath: string,
+) => {
+  let token = await acquireGithubToken(clientId)
+  try {
+    if (!(await fetchElectionSeed(apiUrl, token, outPath))) {
+      fail('No local election seed was fetched.')
+    }
+  } finally {
+    token = ''
+  }
+}
+
+export const runDeviceFlow = async (
+  clientId: string,
+  apiUrl: string,
+  outDir: string,
+  packages: string[],
+) => {
+  let token = await acquireGithubToken(clientId)
 
   try {
     const { fetchDevEnvBundles } = await import('./devEnvBundle')
@@ -356,6 +408,13 @@ export const runDeviceFlow = async (
       )
     }
     console.log(`Fetched dev env bundle for: ${packages.join(', ')}`)
+
+    // Rides along on the same token so setup never prompts twice. Set by
+    // setup.sh; absent when a caller only wants the env bundles.
+    const seedOut = process.env.ELECTION_SEED_OUT
+    if (seedOut) {
+      await fetchElectionSeed(apiUrl, token, seedOut)
+    }
   } catch (err) {
     return fail(`Could not fetch dev env bundles: ${(err as Error).message}`)
   } finally {
@@ -389,6 +448,15 @@ const main = async () => {
     await runDeviceFlow(argv[1], argv[2], argv[3], argv.slice(4))
     return
   }
+  if (
+    command === 'election-seed' &&
+    argv[1] !== undefined &&
+    argv[2] !== undefined &&
+    argv[3]
+  ) {
+    await runElectionSeedFetch(argv[1], argv[2], argv[3])
+    return
+  }
   if (command === 'get-var' && argv[1] && argv[2]) {
     runGetVar(argv[1], argv[2])
     return
@@ -418,6 +486,7 @@ const main = async () => {
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath> [<underEnvPath>]',
       '  cli.ts device-flow <clientId> <apiUrl> <outDir> <pkg...>',
+      '  cli.ts election-seed <clientId> <apiUrl> <outPath>',
       '  cli.ts get-var <envFilePath> <varName>',
       '  cli.ts seed-login <userState>   (secret via env var',
       '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',

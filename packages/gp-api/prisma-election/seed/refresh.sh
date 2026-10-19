@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Rebuilds election-seed.sql.gz, the slice of the dev election database that
+# local setup loads into `electiondb` (see load.sh).
+#
+# Needs a connection to the dev election database, which is VPN-only. Nobody
+# else needs to run this; everyone else only loads the committed file.
+#
+#   ELECTION_SEED_SOURCE_URL=postgresql://... bash refresh.sh [--upload]
+#
+# --upload copies the result to the private dev bucket gp-api presigns for
+# POST /v1/dev-env/election-seed, which is how everyone else gets it. Needs
+# AWS credentials that can write gp-local-election-seed-dev.
+#
+# The slice is every row for SEED_STATES, plus every row those rows point at in
+# another state, so a Prisma include never finds a required relation missing.
+# Personal contact data is nulled on the way out: Person.email, Person.phone,
+# Person.gp_api_user_id and Candidacy.email. Office contact details on
+# OfficeHolder are public and are kept.
+set -euo pipefail
+
+UPLOAD=false
+[ "${1:-}" = "--upload" ] && UPLOAD=true
+SEED_BUCKET="${SEED_BUCKET:-gp-local-election-seed-dev}"
+
+SEED_STATES="${SEED_STATES:-MI,NC,WY}"
+SOURCE_URL="${ELECTION_SEED_SOURCE_URL:?set ELECTION_SEED_SOURCE_URL to the dev election database}"
+# Voter density is ~4.6M rows across the three states. One county keeps the
+# file small and still renders a heat map around the fixture office in
+# Cheyenne (Laramie County, WY).
+DENSITY_STATE="${DENSITY_STATE:-WY}"
+DENSITY_NAME_PATTERN="${DENSITY_NAME_PATTERN:-%(LARAMIE|CHEYENNE)%}"
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+OUT="$HERE/election-seed.sql.gz"
+SCRIPT="$(mktemp "${TMPDIR:-/tmp}/election-seed-script.XXXXXX")"
+DUMP="$(mktemp "${TMPDIR:-/tmp}/election-seed.XXXXXX")"
+trap 'rm -f "$SCRIPT" "$DUMP"' EXIT
+
+# libpq rejects Prisma's ?schema= query param.
+SOURCE_URL="$(printf '%s' "$SOURCE_URL" | sed -E 's/[?&]schema=[^&]*//')"
+STATES_SQL="'$(printf '%s' "$SEED_STATES" | tr -cd 'A-Z,' | sed "s/,/','/g")'"
+
+columns() {
+  psql "$SOURCE_URL" -X -At -c "SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '$1'"
+}
+
+# Appends one table's TRUNCATE + COPY block to the generated script. Columns
+# are listed explicitly so a column order that differs between dev and a fresh
+# local migrate cannot misalign data. Columns named in $3 are exported as NULL.
+add_table() {
+  local table="$1" where="$2" scrub="${3:-}" cols select_cols col
+  cols="$(columns "$table")"
+  select_cols="$cols"
+  for col in $scrub; do
+    select_cols="$(printf '%s' "$select_cols" | sed -E "s/(^|, )$col(, |$)/\1NULL\2/")"
+  done
+  cat >>"$SCRIPT" <<SQL
+\\qecho 'TRUNCATE "$table" CASCADE;'
+\\qecho 'COPY "$table" ($cols) FROM stdin;'
+COPY (SELECT $select_cols FROM "$table" WHERE $where) TO STDOUT;
+\\qecho '\\\\.'
+SQL
+}
+
+cat >"$SCRIPT" <<SQL
+\\set ON_ERROR_STOP 1
+CREATE TEMP TABLE seed_race AS
+  SELECT id FROM "Race" WHERE state IN ($STATES_SQL);
+CREATE TEMP TABLE seed_candidacy AS
+  SELECT c.id FROM "Candidacy" c WHERE c.state IN ($STATES_SQL)
+  UNION SELECT c.id FROM "Candidacy" c JOIN seed_race r ON r.id = c.race_id;
+INSERT INTO seed_race
+  SELECT race_id FROM "Candidacy" WHERE id IN (SELECT id FROM seed_candidacy)
+  EXCEPT SELECT id FROM seed_race;
+CREATE TEMP TABLE seed_office_holder AS
+  SELECT id FROM "OfficeHolder" WHERE state IN ($STATES_SQL);
+CREATE TEMP TABLE seed_zip AS
+  SELECT id FROM "ZipToPosition" WHERE state IN ($STATES_SQL);
+CREATE TEMP TABLE seed_position AS
+  SELECT id FROM "Position" WHERE state IN ($STATES_SQL)
+  UNION SELECT position_id FROM "Race" WHERE id IN (SELECT id FROM seed_race) AND position_id IS NOT NULL
+  UNION SELECT position_id FROM "OfficeHolder" WHERE id IN (SELECT id FROM seed_office_holder) AND position_id IS NOT NULL
+  UNION SELECT position_id FROM "ZipToPosition" WHERE id IN (SELECT id FROM seed_zip) AND position_id IS NOT NULL;
+CREATE TEMP TABLE seed_district AS
+  SELECT id FROM "District" WHERE state IN ($STATES_SQL)
+  UNION SELECT district_id FROM "Position" WHERE id IN (SELECT id FROM seed_position) AND district_id IS NOT NULL;
+CREATE TEMP TABLE seed_person AS
+  SELECT id FROM "Person" WHERE state IN ($STATES_SQL)
+  UNION SELECT person_id FROM "Candidacy" WHERE id IN (SELECT id FROM seed_candidacy) AND person_id IS NOT NULL
+  UNION SELECT person_id FROM "OfficeHolder" WHERE id IN (SELECT id FROM seed_office_holder) AND person_id IS NOT NULL;
+CREATE TEMP TABLE seed_place AS
+  WITH RECURSIVE up AS (
+    SELECT id, parent_id FROM "Place"
+      WHERE state IN ($STATES_SQL)
+         OR id IN (SELECT place_id FROM "Race" WHERE id IN (SELECT id FROM seed_race))
+    UNION
+    SELECT p.id, p.parent_id FROM "Place" p JOIN up ON p.id = up.parent_id
+  )
+  SELECT DISTINCT id FROM up;
+CREATE TEMP TABLE seed_density_district AS
+  SELECT id FROM "District"
+  WHERE state = '$DENSITY_STATE'
+    AND upper(l2_district_name) SIMILAR TO '$DENSITY_NAME_PATTERN';
+\\qecho '-- Generated by packages/gp-api/prisma-election/seed/refresh.sh. Do not edit.'
+\\qecho '-- States: $SEED_STATES. Person email, phone and gp_api_user_id and Candidacy email are nulled.'
+\\qecho 'SET session_replication_role = replica;'
+\\qecho 'SET client_min_messages = warning;'
+SQL
+
+add_table Issue 'true'
+add_table Place 'id IN (SELECT id FROM seed_place)'
+add_table District 'id IN (SELECT id FROM seed_district)'
+add_table Position 'id IN (SELECT id FROM seed_position)'
+add_table Person 'id IN (SELECT id FROM seed_person)' 'email phone gp_api_user_id'
+add_table Race 'id IN (SELECT id FROM seed_race)'
+add_table Candidacy 'id IN (SELECT id FROM seed_candidacy)' 'email'
+add_table Stance 'candidacy_id IN (SELECT id FROM seed_candidacy)'
+add_table OfficeHolder 'id IN (SELECT id FROM seed_office_holder)'
+add_table ZipToPosition 'id IN (SELECT id FROM seed_zip)'
+add_table Projected_Turnout 'district_id IN (SELECT id FROM seed_district)'
+add_table DistrictTopIssue 'district_id IN (SELECT id FROM seed_district)'
+add_table District_Voter_Density_Meta 'district_id IN (SELECT id FROM seed_density_district)'
+add_table District_Voter_Density 'district_id IN (SELECT id FROM seed_density_district)'
+add_table PersonMerge 'retired_id IN (SELECT id FROM seed_person) OR surviving_id IN (SELECT id FROM seed_person)'
+
+psql "$SOURCE_URL" -X -q -o "$DUMP" -f "$SCRIPT"
+gzip -9 -c "$DUMP" >"$OUT"
+echo "wrote $OUT ($(du -h "$OUT" | cut -f1))"
+
+if [ "$UPLOAD" = true ]; then
+  aws s3 cp "$OUT" "s3://$SEED_BUCKET/election-seed.sql.gz" --only-show-errors
+  echo "uploaded to s3://$SEED_BUCKET/election-seed.sql.gz"
+fi

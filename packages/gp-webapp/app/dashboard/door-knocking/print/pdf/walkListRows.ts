@@ -41,7 +41,7 @@ export interface WalkListRow {
   // This is the field the row model was structurally unable to carry, and the
   // reason that mattered: a column here is reachable by every renderer at once.
   // It is deliberately the *only* screen-side field that crossed — the
-  // eleven-attribute demographic profile and ADR 0011's saved notes are still
+  // eleven-attribute demographic profile and the saved contact notes are still
   // absent, and the tests that assert their omission against a fixture carrying
   // all of them are unchanged.
   phone: string | null

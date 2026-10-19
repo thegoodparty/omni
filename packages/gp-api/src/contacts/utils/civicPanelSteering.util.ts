@@ -7,7 +7,9 @@ import type { RespondentCell } from '@/peopleDb/databricks/districtCensusSql.uti
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import {
   MIN_ANSWERS_PER_WEIGHTING_GROUP,
+  placeCells,
   POOLED_VALUE,
+  raceNameable,
   toRakingCells,
   tractShortfalls,
   weightingTargets,
@@ -22,8 +24,9 @@ import {
 } from '@/priorities/util/raking.util'
 
 // Tenure stays out until a statistician rules on holding person answers to
-// a household target (see weightingTargets); race is never steered.
-const STEERED_DIMENSIONS = ['age', 'gender', 'tract'] as const
+// a household target (see weightingTargets). Race steers only when
+// raceNameable holds for the members.
+const STEERED_DIMENSIONS = ['age', 'gender', 'tract', 'race'] as const
 type SteeredDimension = (typeof STEERED_DIMENSIONS)[number]
 
 export const MIN_STEER_WEIGHT = 0.5
@@ -39,7 +42,7 @@ export const balanceBar = (members: number): number =>
   Math.max(MIN_BALANCE_BAR, Z_95 * Math.sqrt(0.25 / members))
 
 export interface PanelMix {
-  // Members counted by age band, gender, tenure and tract.
+  // Members counted by age band, gender, tenure, tract and race.
   cells: RespondentCell[]
   census: WeightingCensus
 }
@@ -57,26 +60,26 @@ const clampWeight = (value: number): number =>
 // Census share against the members' unweighted share, per value. Members
 // with an unknown value sit out that dimension's base. Values fewer than
 // MIN_ANSWERS_PER_WEIGHTING_GROUP members hold pool into one, as weighting
-// pools them; `pooled` names the values that went into it.
+// pools them; `pooled` names the values that went into it. Race sits out
+// entirely unless raceNameable holds.
 export const panelGaps = (
   mix: PanelMix,
 ): { gaps: PanelGap[]; pooled: Record<SteeredDimension, Set<string>> } => {
   const all = weightingTargets(mix.census)
+  const withRace = raceNameable(mix.cells)
   let targets: RakingTargets = {}
   for (const dimension of STEERED_DIMENSIONS) {
     const shares = all[dimension]
-    if (shares) targets[dimension] = shares
+    if (shares && (dimension !== 'race' || withRace)) {
+      targets[dimension] = shares
+    }
   }
-  let cells: RakingCell[] = toRakingCells(mix.cells).map((cell) => {
-    const tract = cell.values.tract
-    return tract != null && targets.tract?.[tract] === undefined
-      ? { ...cell, values: { ...cell.values, tract: null } }
-      : cell
-  })
+  let cells: RakingCell[] = placeCells(toRakingCells(mix.cells), targets)
   const pooled: Record<SteeredDimension, Set<string>> = {
     age: new Set(),
     gender: new Set(),
     tract: new Set(),
+    race: new Set(),
   }
   for (const dimension of STEERED_DIMENSIONS) {
     const before = Object.keys(targets[dimension] ?? {})
@@ -117,7 +120,8 @@ export const panelGaps = (
 }
 
 // Each value's draw factor, clamp(census / panel, 0.5, 2), and 2 for a
-// value the panel holds nobody from. A pooled value takes its pool's.
+// value the panel holds nobody from. A pooled value takes its pool's. A
+// race of 'other' itself is never leaned toward, so it draws at 1.
 export const steerWeights = (
   gaps: PanelGap[],
   pooled: Record<SteeredDimension, Set<string>>,
@@ -135,6 +139,7 @@ export const steerWeights = (
   const factors = (dimension: SteeredDimension): Record<string, number> =>
     Object.fromEntries(
       Object.keys(all[dimension] ?? {}).flatMap((value) => {
+        if (dimension === 'race' && value === POOLED_VALUE) return []
         const key = pooled[dimension].has(value) ? POOLED_VALUE : value
         const factor = factorOf.get(`${dimension}:${key}`)
         return factor === undefined ? [] : [[value, factor]]
@@ -144,6 +149,7 @@ export const steerWeights = (
     age: factors('age'),
     gender: factors('gender'),
     tract: factors('tract'),
+    race: factors('race'),
     minWeight: MIN_STEER_WEIGHT,
     maxWeight: MAX_STEER_WEIGHT,
   }
@@ -159,7 +165,8 @@ const furthestBehind = (gaps: PanelGap[]): UnderrepresentedGroup | null => {
     unweightedShare: gap.panelShare,
     censusShare: gap.censusShare,
   }))
-  return underrepresentedGroups(raking)[0] ?? null
+  // panelGaps holds race gaps only when race may be named.
+  return underrepresentedGroups(raking, true)[0] ?? null
 }
 
 export const panelBalance = ({

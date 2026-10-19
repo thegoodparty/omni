@@ -1080,24 +1080,34 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     id: string,
     voterContact?: CompleteTaskBodySchema,
   ) {
-    return this.client.$transaction(async (tx) => {
-      if (voterContact) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${VOTER_GOALS_ADVISORY_LOCK_KEY}::integer, ${campaignId}::integer)`
-      }
-
-      const task = await tx.campaignTrackerTask.findFirst({
-        where: { campaignId, id },
-      })
+    if (!voterContact) {
+      const task = await this.model.findFirst({ where: { campaignId, id } })
       if (!task) {
         throw new NotFoundException(`Tracker task ${id} not found`)
       }
       if (task.completed) {
         return task
       }
+      return this.model.update({
+        where: { id: task.id },
+        data: { completed: true },
+      })
+    }
 
-      let updateHistoryId: number | undefined
+    return this.client.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${VOTER_GOALS_ADVISORY_LOCK_KEY}::integer, ${campaignId}::integer)`
 
-      if (voterContact) {
+        const task = await tx.campaignTrackerTask.findFirst({
+          where: { campaignId, id },
+        })
+        if (!task) {
+          throw new NotFoundException(`Tracker task ${id} not found`)
+        }
+        if (task.completed) {
+          return task
+        }
+
         const history = await tx.campaignUpdateHistory.create({
           data: {
             type: voterContact.type,
@@ -1106,7 +1116,6 @@ export class CampaignTrackerTasksService extends createPrismaBase(
             userId,
           },
         })
-        updateHistoryId = history.id
 
         const campaign = await tx.campaign.findUniqueOrThrow({
           where: { id: campaignId },
@@ -1124,16 +1133,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           where: { id: campaignId },
           data: { data },
         })
-      }
 
-      return tx.campaignTrackerTask.update({
-        where: { id: task.id },
-        data: {
-          completed: true,
-          ...(updateHistoryId !== undefined && { updateHistoryId }),
-        },
-      })
-    })
+        return tx.campaignTrackerTask.update({
+          where: { id: task.id },
+          data: { completed: true, updateHistoryId: history.id },
+        })
+      },
+      { maxWait: 10_000, timeout: 15_000 },
+    )
   }
 
   // Puts a task off or sets it aside, without completing it, so it still

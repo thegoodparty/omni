@@ -505,6 +505,10 @@ export const PersonRecord: React.FC<{
           >
             <Field label="Registered Voter" value={person.registeredVoter} />
             <Field label="Voter Status" value={person.voterStatus} />
+            <Field
+              label="Early Vote Likelihood"
+              value={person.earlyVoteStatus}
+            />
             <Field label="Political Party" value={person.politicalParty} />
           </InfoSection>
         )}

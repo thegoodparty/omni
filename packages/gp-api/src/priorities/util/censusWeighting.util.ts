@@ -10,6 +10,7 @@ import {
   type RakingTargets,
 } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
+import { MIN_DISTRICT_SHARE_FOR_RACE_GROUP } from './representation.util'
 import { adultAgeBandShares, adultSexShares } from './censusSexAge.util'
 
 // A value with fewer answers than this pools with the other small ones, so
@@ -44,6 +45,34 @@ const tenureTargets = (district: AcsCounts): Record<string, number> | null => {
   })
 }
 
+// The census publishes race and Hispanic origin over everyone, not adults,
+// so these shares include children; see the decision record
+// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md. Native
+// American joins 'other' because the voter file has no such group, and a
+// group under the share the comparison bars hide folds into 'other' too,
+// so no handful of people is weighted up to stand for it.
+const raceTargets = (district: AcsCounts): Record<string, number> | null => {
+  const other =
+    district.populationNativeAmericanNh === null ||
+    district.populationOtherNh === null
+      ? null
+      : district.populationNativeAmericanNh + district.populationOtherNh
+  const all = shares({
+    white: district.populationWhiteNh,
+    black: district.populationBlackNh,
+    hispanic: district.populationHispanic,
+    asian: district.populationAsianNh,
+    other,
+  })
+  if (!all) return null
+  const folded: Record<string, number> = {}
+  for (const [value, share] of Object.entries(all)) {
+    const key = share < MIN_DISTRICT_SHARE_FOR_RACE_GROUP ? POOLED_VALUE : value
+    folded[key] = (folded[key] ?? 0) + share
+  }
+  return folded
+}
+
 export interface WeightingCensus {
   district: AcsCounts
   tractAdults: Map<string, number>
@@ -60,11 +89,29 @@ export const weightingTargets = (census: WeightingCensus): RakingTargets => {
   if (tenure) targets.tenure = tenure
   const tract = shares(Object.fromEntries(census.tractAdults))
   if (tract) targets.tract = tract
+  const race = raceTargets(census.district)
+  if (race) targets.race = race
   // Census sex among adults. Respondents' Gender is the voter file's M or F,
   // and a blank one sits this dimension out.
   const gender = adultSexShares(census.district)
   if (gender) targets.gender = { ...gender }
   return targets
+}
+
+// Race names a group or leans a draw only when enough of the people have a
+// known value and few are unknown. Below either, it only weights: the voter
+// file's ethnicity is modeled, and its unknowns are not a random slice.
+export const MIN_KNOWN_RACE = 10
+export const MIN_KNOWN_RACE_SHARE = 0.7
+
+export const raceNameable = (cells: RespondentCell[]): boolean => {
+  let total = 0
+  let known = 0
+  for (const cell of cells) {
+    total += cell.count
+    if (cell.race !== null) known += cell.count
+  }
+  return known >= MIN_KNOWN_RACE && known / total >= MIN_KNOWN_RACE_SHARE
 }
 
 export const toRakingCells = (cells: RespondentCell[]): RakingCell[] =>
@@ -75,8 +122,27 @@ export const toRakingCells = (cells: RespondentCell[]): RakingCell[] =>
       tenure: cell.tenure,
       tract: cell.tract,
       gender: cell.gender,
+      race: cell.race,
     },
   }))
+
+// A respondent living outside every known tract sits out the neighborhood
+// dimension, and one in a race group folded into 'other' counts there.
+export const placeCells = (
+  cells: RakingCell[],
+  targets: RakingTargets,
+): RakingCell[] =>
+  cells.map((cell) => {
+    const { tract, race } = cell.values
+    const values = { ...cell.values }
+    if (tract != null && targets.tract?.[tract] === undefined) {
+      values.tract = null
+    }
+    if (race != null && targets.race && targets.race[race] === undefined) {
+      values.race = POOLED_VALUE
+    }
+    return { ...cell, values }
+  })
 
 // A tract holding less than this share of the district's adults is too
 // small to send anyone to on its own.
@@ -126,19 +192,13 @@ export const unreachedTracts = (
   tractShortfalls(respondents, tractAdults).map(({ tract }) => tract)
 
 // Weights the answers to the district's census mix, pooling small groups
-// first. A respondent living outside every known tract sits out the
-// neighborhood dimension.
+// first.
 export const weighToCensus = (
   respondents: RespondentCell[],
   census: WeightingCensus,
 ): RakingResult => {
   let targets = weightingTargets(census)
-  let cells = toRakingCells(respondents).map((cell) => {
-    const tract = cell.values.tract
-    return tract != null && targets.tract?.[tract] === undefined
-      ? { ...cell, values: { ...cell.values, tract: null } }
-      : cell
-  })
+  let cells = placeCells(toRakingCells(respondents), targets)
   for (const dimension of Object.keys(targets)) {
     const pooled = poolSmallValues(
       cells,

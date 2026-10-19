@@ -259,10 +259,14 @@ The answers are raked to the district's census marginals
 (`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
 ACS adults in six age bands (18 to 24, 25 to 34, 35 to 44, 45 to 54, 55 to 64,
 65 and over), adult men and women (census sex, against the voter file's
-`M`/`F`), owner and renter households, and adults per census tract. Small
-groups pool (an age band with under 5 answers joins the other small ones),
-weights are capped at 0.2x to 5x the average, and an unknown value, such as a
-blank gender, sits out its dimension. Race is never weighted. `underrepresented` names the one or two groups whose raw share
+`M`/`F`), owner and renter households, adults per census tract, and race
+(white, Black, Hispanic, Asian, other; all-ages ACS shares against L2's
+modeled ethnicity, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`).
+Small groups pool (an age band with under 5 answers joins the other small
+ones), weights are capped at 0.2x to 5x the average, and an unknown value,
+such as a blank gender, sits out its dimension. A race group is named only
+when `raceNameable` holds (10 answers with a known race, 70% of all);
+otherwise race only weights. `other` is never named. `underrepresented` names the one or two groups whose raw share
 trails the census most, by at least 5 points
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
 read, enough answers are a good read labeled "Enough answers", never

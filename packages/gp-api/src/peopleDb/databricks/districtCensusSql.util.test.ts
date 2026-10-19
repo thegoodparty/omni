@@ -122,14 +122,15 @@ describe('buildRespondentBlockGroupsSql', () => {
         ' count(*) AS respondents',
     )
     expect(sql).toContain(
-      'r.age_band, r.gender, r.tenure, substr(r.block_group_geoid, 1, 11) AS tract',
+      'r.age_band, r.gender, r.tenure, r.race,' +
+        ' substr(r.block_group_geoid, 1, 11) AS tract',
     )
     expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
     expect(sql).toContain('v.`State` = :p0')
     expect(sql).toContain('v.`Water_District` = :p1')
     expect(sql).toContain(`v.\`id\` IN ('${ID_A}', '${ID_B}')`)
     expect(sql).toContain('AND v.`Census_Block_Group_Geoid` IS NOT NULL')
-    expect(sql).toContain('GROUP BY 1, 3, 4, 5')
+    expect(sql).toContain('GROUP BY 1, 3, 4, 5, 6')
     expect(sql).toContain(
       `JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
         ' ON bg.block_group_geoid = r.block_group_geoid',
@@ -181,22 +182,26 @@ describe('mapCensusCompositionRows', () => {
   it('reads each row profile after its census figures, in step with the people', () => {
     const mapped = mapCensusCompositionRows(
       [],
-      [['2', ...acsRow(() => '1'), '65plus', null, 'renter', '53017950100']],
+      [
+        [
+          '2',
+          ...acsRow(() => '1'),
+          '65plus',
+          null,
+          'renter',
+          'hispanic',
+          '53017950100',
+        ],
+      ],
     )
-    expect(mapped.respondentProfiles).toEqual([
-      {
-        ageBand: '65plus',
-        gender: null,
-        tenure: 'renter',
-        tract: '53017950100',
-      },
-      {
-        ageBand: '65plus',
-        gender: null,
-        tenure: 'renter',
-        tract: '53017950100',
-      },
-    ])
+    const profile = {
+      ageBand: '65plus',
+      gender: null,
+      tenure: 'renter',
+      race: 'hispanic',
+      tract: '53017950100',
+    }
+    expect(mapped.respondentProfiles).toEqual([profile, profile])
   })
 
   it('maps a missing district row to null', () => {
@@ -209,12 +214,19 @@ describe('mapCensusCompositionRows', () => {
 const PERSON_ID = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4'
 
 describe('buildRespondentCellsSql', () => {
-  it('reads counts per age band, gender, tenure and tract, never a person', () => {
+  it('reads counts per age band, gender, tenure, tract and race, never a person', () => {
     const { sql } = buildRespondentCellsSql(DISTRICT, [PERSON_ID])
 
     expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
     expect(sql).toContain('count(*) AS respondents')
-    expect(sql).toContain('GROUP BY 1, 2, 3, 4')
+    expect(sql).toContain('GROUP BY 1, 2, 3, 4, 5')
+    expect(sql).toContain(
+      "CASE WHEN v.`EthnicGroups_EthnicGroup1Desc` = 'European' THEN 'white'",
+    )
+    expect(sql).toContain("= 'Likely African-American' THEN 'black'")
+    expect(sql).toContain("= 'Hispanic and Portuguese' THEN 'hispanic'")
+    expect(sql).toContain("= 'East and South Asian' THEN 'asian'")
+    expect(sql).toContain("= 'Other' THEN 'other' END AS race")
     expect(sql).toContain(PERSON_ID)
     expect(sql).toContain("THEN '65plus'")
     expect(sql).toContain("THEN 'renter'")
@@ -252,8 +264,8 @@ describe('mapRespondentCells', () => {
   it('keeps unknowns as null and counts as numbers', () => {
     expect(
       mapRespondentCells([
-        ['65plus', 'female', 'owner', '53017950100', '4'],
-        [null, null, null, null, '2'],
+        ['65plus', 'female', 'owner', '53017950100', 'black', '4'],
+        [null, null, null, null, null, '2'],
       ]),
     ).toEqual([
       {
@@ -261,9 +273,17 @@ describe('mapRespondentCells', () => {
         gender: 'female',
         tenure: 'owner',
         tract: '53017950100',
+        race: 'black',
         count: 4,
       },
-      { ageBand: null, gender: null, tenure: null, tract: null, count: 2 },
+      {
+        ageBand: null,
+        gender: null,
+        tenure: null,
+        tract: null,
+        race: null,
+        count: 2,
+      },
     ])
   })
 })
@@ -315,6 +335,7 @@ describe('sampleWeightSql', () => {
     age: { '35to44': 0.8, '65plus': 2 },
     gender: {},
     tract: { '53017950100': 1, '53017950200': 1.5 },
+    race: {},
     minWeight: 0.5,
     maxWeight: 2,
   }
@@ -356,5 +377,20 @@ describe('sampleWeightSql', () => {
         tract: { '53017950100': 1 },
       }),
     ).toBe('1.0')
+  })
+
+  it('adds a race factor when one moves', () => {
+    const bag = createBag()
+    const sql = sampleWeightSql(bag, {
+      ...weights,
+      age: {},
+      tract: {},
+      race: { black: 1.6, white: 1 },
+    })
+    expect(sql).toContain(
+      "CASE CASE WHEN v.`EthnicGroups_EthnicGroup1Desc` = 'European'",
+    )
+    expect(sql).toContain('WHEN :p0 THEN CAST(:p1 AS DOUBLE) ELSE 1.0 END')
+    expect(bag.params.map((p) => p.value)).toEqual(['black', '1.6', '0.5', '2'])
   })
 })

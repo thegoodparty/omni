@@ -68,8 +68,8 @@ export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
 // stepping back to the who step re-reads the answer rather than re-asking.
 //
 // Unlike the address preview below, this may fire on a pick rather than on a
-// press: it resolves person-id sets out of Postgres and reads no voter data,
-// so ADR 0010's reason for making the preview explicit does not apply to it.
+// press: it resolves person-id sets out of Postgres and reads no voter data, so
+// the voter-data scan that makes the preview explicit does not apply to it.
 //
 // Nothing is kept. This is the one answer on the flow that must not outlive
 // the mount that asked for it, because the only answer it can give is one
@@ -102,14 +102,14 @@ export const audienceCheckQueryOptions = (filters: VoterFileBackendFilters) =>
     gcTime: 0,
   })
 
-// The exact audience inside a drawn shape, addresses included (ADR 0010).
+// The exact audience inside a drawn shape, addresses included.
 // Keyed on the polygon and the filter draft, which is what makes the answer
 // belong to one shape: move a vertex and the key changes, so a stale preview
 // can never be read as describing the ring now on screen.
 //
 // There is no debounce and nothing refetches on its own. The draw step asks
 // for this once, when the candidate presses for it, because the alternative
-// is a people-db scan per vertex — see ADR 0010.
+// is a people-db scan per vertex.
 export const addressPreviewQueryOptions = (
   geoPoly: GeoJsonPolygon,
   filters: VoterFileBackendFilters,

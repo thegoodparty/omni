@@ -107,6 +107,10 @@ export const UnderrepresentedGroupSchema = z.enum([
   'unreachedAreas',
   'men',
   'women',
+  'white',
+  'black',
+  'hispanic',
+  'asian',
 ])
 export type UnderrepresentedGroup = z.infer<typeof UnderrepresentedGroupSchema>
 
@@ -127,6 +131,10 @@ export const UNDERREPRESENTED_GROUP_NAMES: Record<
   unreachedAreas: "people in parts of your district we haven't reached",
   men: 'men',
   women: 'women',
+  white: 'white residents',
+  black: 'Black residents',
+  hispanic: 'Hispanic or Latino residents',
+  asian: 'Asian residents',
 }
 
 // The status's name wherever it shows, in the app and from the agents.

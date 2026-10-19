@@ -29,10 +29,16 @@ export interface ReadWeighting {
   effectiveSampleSize: number
   largestGap: number
   gaps: RakingGap[]
+  // Whether a race group may be named (raceNameable).
+  raceNameable: boolean
 }
 
-const groupOf = (gap: RakingGap): UnderrepresentedGroup | null => {
+const groupOf = (
+  gap: RakingGap,
+  nameRace: boolean,
+): UnderrepresentedGroup | null => {
   if (gap.dimension === 'tract') return 'unreachedAreas'
+  if (gap.dimension === 'race' && !nameRace) return null
   const key = `${gap.dimension}:${gap.value}`
   const groups: Record<string, UnderrepresentedGroup> = {
     'age:18to24': 'age18to24',
@@ -45,6 +51,12 @@ const groupOf = (gap: RakingGap): UnderrepresentedGroup | null => {
     'tenure:renter': 'renters',
     'gender:male': 'men',
     'gender:female': 'women',
+    // 'other' is a mix of groups no one would recognize as one, so it
+    // weights but is never named.
+    'race:white': 'white',
+    'race:black': 'black',
+    'race:hispanic': 'hispanic',
+    'race:asian': 'asian',
   }
   return groups[key] ?? null
 }
@@ -53,10 +65,11 @@ const groupOf = (gap: RakingGap): UnderrepresentedGroup | null => {
 // official needs to hear more from.
 export const underrepresentedGroups = (
   gaps: RakingGap[],
+  nameRace: boolean,
 ): UnderrepresentedGroup[] => {
   const behind = new Map<UnderrepresentedGroup, number>()
   for (const gap of gaps) {
-    const group = groupOf(gap)
+    const group = groupOf(gap, nameRace)
     const trail = gap.censusShare - gap.unweightedShare
     if (!group || trail < MIN_UNDERREPRESENTED_GAP) continue
     behind.set(group, Math.max(behind.get(group) ?? 0, trail))
@@ -81,7 +94,9 @@ export const priorityReadStatus = (input: {
   const { answers, weighting } = input
   const tooEarly = answers < minAnswersForStatus(input.population)
   const underrepresented =
-    weighting && !tooEarly ? underrepresentedGroups(weighting.gaps) : []
+    weighting && !tooEarly
+      ? underrepresentedGroups(weighting.gaps, weighting.raceNameable)
+      : []
   const status = ((): ReadRepresentativeness => {
     // Without the census there is nothing to weigh against: enough answers
     // still unlock the results, but nothing claims they look like the

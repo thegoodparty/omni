@@ -161,8 +161,32 @@ const genderSql = (): string =>
   `CASE WHEN ${col('Gender')} = 'M' THEN 'male'` +
   ` WHEN ${col('Gender')} = 'F' THEN 'female' END`
 
-// One row per block group the given people live in and age band, gender
-// and tenure among them, with how many share it: block group figures and a
+// L2's modeled ethnic group, folded into the census race and Hispanic
+// origin categories the comparison bars use. L2 has no Native American
+// group, so the census's Native American count joins 'other' on that side.
+// Read only into counts and draw weights, never onto a person.
+export const RACE_VALUES = [
+  'white',
+  'black',
+  'hispanic',
+  'asian',
+  'other',
+] as const
+export type RaceValue = (typeof RACE_VALUES)[number]
+
+const raceSql = (): string => {
+  const group = col('EthnicGroups_EthnicGroup1Desc')
+  return (
+    `CASE WHEN ${group} = 'European' THEN 'white'` +
+    ` WHEN ${group} = 'Likely African-American' THEN 'black'` +
+    ` WHEN ${group} = 'Hispanic and Portuguese' THEN 'hispanic'` +
+    ` WHEN ${group} = 'East and South Asian' THEN 'asian'` +
+    ` WHEN ${group} = 'Other' THEN 'other' END`
+  )
+}
+
+// One row per block group the given people live in and age band, gender,
+// tenure and race among them, with how many share it: block group figures and a
 // count, never a person. Scoped to the district like every other people
 // read, so an id from elsewhere adds nothing, and a person with no geocoded
 // block group drops out. The profile columns let weighting reach each row.
@@ -178,13 +202,13 @@ export const buildRespondentBlockGroupsSql = (
   })
   const sql =
     `SELECT r.respondents, ${acsColumns('bg')},` +
-    ' r.age_band, r.gender, r.tenure,' +
+    ' r.age_band, r.gender, r.tenure, r.race,' +
     ` substr(r.block_group_geoid, 1, ${TRACT_GEOID_LENGTH}) AS tract FROM (` +
     `SELECT ${geoid} AS block_group_geoid, count(*) AS respondents,` +
     ` ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
-    ` ${tenureSql()} AS tenure` +
+    ` ${tenureSql()} AS tenure, ${raceSql()} AS race` +
     ` FROM ${district.table} v ${where} AND ${geoid} IS NOT NULL` +
-    ' GROUP BY 1, 3, 4, 5' +
+    ' GROUP BY 1, 3, 4, 5, 6' +
     `) r JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
     ' ON bg.block_group_geoid = r.block_group_geoid'
   return { sql, params: bag.params }
@@ -204,7 +228,7 @@ export const mapAcsCounts = (row: ReadonlyArray<string | null>): AcsCounts =>
   )
 
 // A person's draw weight for a census-steered sample: the product of their
-// age band, gender and tract factors, held within the weights' bounds. A
+// age band, gender, tract and race factors, held within the weights' bounds. A
 // value with no factor, or unknown, counts 1. Factors are bound and cast.
 export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
   const factor = (expression: string, factors: Record<string, number>) => {
@@ -222,6 +246,7 @@ export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
     factor(ageBandSql(), weights.age),
     factor(genderSql(), weights.gender),
     factor(tractSql(), weights.tract),
+    factor(raceSql(), weights.race),
   ].filter((part): part is string => part !== null)
   if (factors.length === 0) return '1.0'
   const min = `CAST(${bag.bind(String(weights.minWeight))} AS DOUBLE)`
@@ -233,18 +258,20 @@ const RespondentProfileSchema = z.object({
   ageBand: z.enum(ADULT_AGE_BAND_KEYS).nullable(),
   gender: z.enum(['male', 'female']).nullable(),
   tenure: z.enum(['owner', 'renter']).nullable(),
+  race: z.enum(RACE_VALUES).nullable(),
   tract: z.string().nullable(),
 })
 // What weighting knows about a respondent. Unknowns stay null.
 export type RespondentProfile = z.infer<typeof RespondentProfileSchema>
 
-const mapProfile = ([ageBand, gender, tenure, tract]: ReadonlyArray<
+const mapProfile = ([ageBand, gender, tenure, race, tract]: ReadonlyArray<
   string | null | undefined
 >): RespondentProfile =>
   RespondentProfileSchema.parse({
     ageBand: ageBand ?? null,
     gender: gender ?? null,
     tenure: tenure ?? null,
+    race: race ?? null,
     tract: tract ?? null,
   })
 
@@ -277,8 +304,8 @@ export const mapCensusCompositionRows = (
   }
 }
 
-// How many of the given people share each age band, gender, tenure and
-// tract: counts per combination, never a person. Unknowns stay NULL.
+// How many of the given people share each age band, gender, tenure, tract
+// and race: counts per combination, never a person. Unknowns stay NULL.
 export const buildRespondentCellsSql = (
   district: DbxDistrict,
   personIds: string[],
@@ -291,9 +318,10 @@ export const buildRespondentCellsSql = (
   const tract = `substr(${col(BLOCK_GROUP_GEOID_COLUMN)}, 1, ${TRACT_GEOID_LENGTH})`
   const sql =
     `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
-    ` ${tenureSql()} AS tenure, ${tract} AS tract, count(*) AS respondents` +
+    ` ${tenureSql()} AS tenure, ${tract} AS tract,` +
+    ` ${raceSql()} AS race, count(*) AS respondents` +
     ` FROM ${district.table} v ${where}` +
-    ' GROUP BY 1, 2, 3, 4'
+    ' GROUP BY 1, 2, 3, 4, 5'
   return { sql, params: bag.params }
 }
 
@@ -335,12 +363,13 @@ export interface WeightingInputs {
 export const mapRespondentCells = (
   rows: ReadonlyArray<ReadonlyArray<string | null>>,
 ): RespondentCell[] =>
-  rows.map(([ageBand, gender, tenure, tract, respondents]) =>
+  rows.map(([ageBand, gender, tenure, tract, race, respondents]) =>
     RespondentCellSchema.parse({
       ageBand,
       gender,
       tenure,
       tract,
+      race,
       count: Number(respondents),
     }),
   )
