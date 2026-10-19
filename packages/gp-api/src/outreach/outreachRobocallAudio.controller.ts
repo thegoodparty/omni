@@ -16,7 +16,7 @@ import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.s
 
 // Returns a presigned S3 POST (url + form fields) for the recorded robocall
 // audio; nothing persists here — the client holds the returned key until the
-// send is created later. Not Pro-gated (outreach-pro-gating-v2): a free
+// send is created later. Not Pro-gated: a free
 // candidate can build a robocall draft, including this presign, before
 // upgrading. Only the paid create/authorize/send routes still require Pro.
 @Controller('outreach')

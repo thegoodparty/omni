@@ -9,9 +9,6 @@ export type ProUpgradeLaunchChannel = 'sms' | 'robocall' | 'door' | 'phone-bank'
 export interface ProUpgradeWizardContextValue {
   // null on the wizard index (before redirect) or on any non-step path.
   currentStep: ProUpgradeStep | null
-  // outreach-pro-gating-v2: filing details and profile are collected after
-  // payment, in campaign verification.
-  purchaseOnly: boolean
   // Set when the flow was launched from an outreach channel (milestone 2);
   // drives the interstitial and success copy. null on the standalone page.
   channel: ProUpgradeLaunchChannel | null
@@ -25,7 +22,6 @@ export interface ProUpgradeWizardContextValue {
 export const ProUpgradeWizardContext =
   createContext<ProUpgradeWizardContextValue>({
     currentStep: null,
-    purchaseOnly: false,
     channel: null,
     goToStep: noop,
     goToNextStep: noop,

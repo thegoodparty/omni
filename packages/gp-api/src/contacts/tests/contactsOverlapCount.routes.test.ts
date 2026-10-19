@@ -165,7 +165,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     })
   })
 
-  // outreach-pro-gating-v2: the build path prices a list before the upgrade,
+  // the build path prices a list before the upgrade,
   // so the overlap strip is served to a free organization too. With no saved
   // lists there is nothing to overlap with, so people-db is still not asked.
   it('serves a free organization, answering zero without querying people-db when it has no saved lists', async () => {

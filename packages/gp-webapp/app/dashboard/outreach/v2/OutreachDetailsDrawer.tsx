@@ -183,7 +183,7 @@ interface OutreachDetailsDrawerProps {
   detailFetcher?: OutreachDetailFetcher
   // Milestone 2's saved drafts (design: the drawer's `verify` footer). The
   // membership names the step still standing between the row and a send —
-  // with none passed a draft row gets no footer, which is the flag-off hub.
+  // with none passed a draft row gets no footer.
   membership?: MembershipState | null
   // The footer's CTA: back into the flow that saved the row, which opens on
   // whatever the candidate still has to do. Owned by the hub, since it also

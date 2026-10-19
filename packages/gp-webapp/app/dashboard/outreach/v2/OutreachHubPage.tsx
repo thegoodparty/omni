@@ -26,7 +26,6 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type {
   OutreachDetail,
@@ -95,19 +94,8 @@ const OutreachHubContent = ({
 >) => {
   const router = useRouter()
   const [outreaches, setOutreaches] = useOutreach()
-  // A draft outreach can't send yet — behind the flag, a candidate must
-  // never see the row at all (today's behavior), and the membership read it
-  // would take to label one stays idle (`enabled`) rather than paying for a
-  // TCR read no UI here will use.
-  const { enabled: draftsEnabled } = useOutreachProGatingV2Flag(false)
-  const { state: membership } = useMembershipState({ enabled: draftsEnabled })
-  const historyRows = useMemo(
-    () =>
-      draftsEnabled
-        ? (outreaches ?? [])
-        : (outreaches ?? []).filter((o) => o.status !== 'draft'),
-    [draftsEnabled, outreaches],
-  )
+  const { state: membership } = useMembershipState()
+  const historyRows = useMemo(() => outreaches ?? [], [outreaches])
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
@@ -237,7 +225,6 @@ const OutreachHubContent = ({
     (type: OutreachType) => {
       const channel = DRAFT_CHANNELS[type]
       return Boolean(
-        draftsEnabled &&
         channel &&
         historyRows.some(
           (o) =>
@@ -246,7 +233,7 @@ const OutreachHubContent = ({
         ),
       )
     },
-    [draftsEnabled, historyRows],
+    [historyRows],
   )
 
   // Where the open flow was started from, for its stage events and its Pro
@@ -365,7 +352,6 @@ const OutreachHubContent = ({
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ChannelTileGrid
-        tcrCompliance={tcrCompliance}
         preselectedListId={preselectedListId}
         preselectedRecommendedVariant={preselectedRecommendedVariant}
         onCreateSocial={() => setSocialFlowOpen(true)}
@@ -452,7 +438,6 @@ const OutreachHubContent = ({
       />
       <Suspense>
         <OutreachComposeDeepLink
-          tcrCompliance={tcrCompliance}
           onCompose={handleCompose}
           resumesDraft={resumesDraft}
         />

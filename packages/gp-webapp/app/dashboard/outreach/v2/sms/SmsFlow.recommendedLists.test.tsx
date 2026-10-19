@@ -7,6 +7,14 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { createP2pPhoneList } from 'helpers/createP2pPhoneList'
 import { SmsFlow } from './SmsFlow'
 
+// The gate has its own tests; here the flow's own path is under test, so the
+// hook is the shared ungated stand-in.
+vi.mock('../gate/useOutreachGate', async () => {
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
+})
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),

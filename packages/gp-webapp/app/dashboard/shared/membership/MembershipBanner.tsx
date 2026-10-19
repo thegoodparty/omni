@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import {
@@ -8,11 +8,6 @@ import {
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
-import {
-  OUTREACH_PRO_GATING_V2_FLAG_KEY,
-  useOutreachProGatingV2Flag,
-} from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
   SMS_CUTOFF_COPY,
@@ -98,23 +93,12 @@ const bannerCopy = (
 export const MembershipBanner = (): React.JSX.Element | null => {
   const router = useRouter()
   const pathname = usePathname()
-  const { enabled } = useOutreachProGatingV2Flag(false)
-  const { exposure } = useFeatureFlags()
-  const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { ready, state, tcrCompliance } = useMembershipState()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
-  const visible = Boolean(enabled && ready && isMembershipSurfaceVisible(state))
-
-  // Exposure belongs to the population the experiment can treat, so it waits
-  // for a membership surface to actually render. Reading the flag would expose
-  // every candidate the flag is on for, Serve orgs and cleared Pro campaigns
-  // included, diluting the measured effect.
-  useEffect(() => {
-    if (!visible) return
-    exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
-  }, [visible, exposure])
+  const visible = Boolean(ready && isMembershipSurfaceVisible(state))
 
   if (!visible || !state) return null
 

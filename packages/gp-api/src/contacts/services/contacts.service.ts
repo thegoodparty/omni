@@ -1261,7 +1261,7 @@ export class ContactsService {
   ): Promise<{ count: number }> {
     // No Pro gate here, on overlapCount, getListDetail or getFilterDetail:
     // a count is a number about the district, not a voter record, and the
-    // outreach build path (outreach-pro-gating-v2) prices a saved or unsaved
+    // outreach build path prices a saved or unsaved
     // list for a free campaign before it upgrades. Every read that returns a
     // person stays gated.
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(

@@ -251,8 +251,7 @@ there is the agent's to say, once, in its message; no card repeats it.
   to their own pitch (`phone-bank`, `door`); social is free and opens for
   anyone. Once gp-api reports the campaign's SMS compliance window closed
   (`useSmsCompliance`), `textAvailable` is false on Win and an unsent text
-  card renders nothing. Outreach Pro gating is fully rolled out, so the card
-  does not read the `outreach-pro-gating-v2` flag. A text's button waits
+  card renders nothing. A text's button waits
   until the campaign and registration have loaded; the other channels wait
   for the campaign alone (`winResolved`). The card's
   `proposalKey` rides Win's `POST /v1/outreach` create, and

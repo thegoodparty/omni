@@ -57,7 +57,6 @@ describe('EinStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'ein',
-      purchaseOnly: false,
       channel: null,
       goToStep: vi.fn(),
       goToNextStep,
@@ -100,43 +99,6 @@ describe('EinStep', () => {
     for (const button of [back, next]) {
       expect(button).toHaveClass('w-full', 'sm:w-auto')
     }
-  })
-
-  it('renders the EIN input and the IRS link', () => {
-    render(<EinStep />)
-    expect(screen.getByLabelText('Campaign EIN')).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /get a free ein/i })
-    expect(link).toHaveAttribute('href', expect.stringContaining('irs.gov'))
-  })
-
-  it('shows the add-your-EIN banner when Continue is clicked without a complete EIN', () => {
-    // Figma 7490:26881: Continue stays enabled and an attempt with a missing /
-    // incomplete EIN surfaces the error banner — a silently disabled button
-    // gives the candidate nothing to act on.
-    render(<EinStep />)
-
-    const continueButton = screen.getByRole('button', { name: 'Continue' })
-    expect(continueButton).toBeEnabled()
-    fireEvent.click(continueButton)
-
-    expect(screen.getByText('Please add your campaign EIN')).toBeInTheDocument()
-    expect(mockUpdateCampaign).not.toHaveBeenCalled()
-    expect(goToNextStep).not.toHaveBeenCalled()
-  })
-
-  it('clears the banner once the EIN becomes valid after a failed attempt', async () => {
-    render(<EinStep />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(screen.getByText('Please add your campaign EIN')).toBeInTheDocument()
-
-    setEin(CLEAN_EIN)
-
-    await waitFor(() =>
-      expect(
-        screen.queryByText('Please add your campaign EIN'),
-      ).not.toBeInTheDocument(),
-    )
   })
 
   it('shows the Phase 1 error copy and blocks Continue for a non-IRS-prefix EIN', async () => {
@@ -298,83 +260,60 @@ describe('EinStep', () => {
     expect(screen.getByLabelText('Campaign EIN')).toHaveValue('1')
   })
 
-  it('omits the how-to-get-an-EIN collapsible when the flag is off', () => {
+  // Design: the field shows its format as the placeholder, points at the
+  // IRS lookup, and Continue waits for all nine digits.
+  it('holds Continue until the EIN is complete and links to the IRS search', () => {
     render(<EinStep />)
-    expect(screen.queryByText(/how to get a free ein/i)).not.toBeInTheDocument()
+
+    const input = screen.getByLabelText('Campaign EIN')
+    expect(input).toHaveAttribute('placeholder', '12-3456789')
+    expect(
+      screen.getByRole('link', {
+        name: 'IRS Tax Exempt Organization Search',
+      }),
+    ).toHaveAttribute('href', expect.stringContaining('irs.gov'))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(input, { target: { value: '12-34567' } })
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(input, { target: { value: '12-3456789' } })
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  describe('purchase-only', () => {
-    beforeEach(() => {
-      mockUseProUpgradeWizard.mockReturnValue({
-        currentStep: 'ein',
-        purchaseOnly: true,
-        channel: null,
-        goToStep: vi.fn(),
-        goToNextStep,
-        goToPreviousStep,
-        exit: vi.fn(),
-        complete: vi.fn(),
-      })
-    })
+  it('offers the how-to-get-an-EIN steps behind a collapsible', () => {
+    render(<EinStep />)
 
-    // Design: the field shows its format as the placeholder, points at the
-    // IRS lookup, and Continue waits for all nine digits.
-    it('holds Continue until the EIN is complete and links to the IRS search', () => {
-      render(<EinStep />)
+    // Still the same question and input — only the caption and the how-to
+    // alternative are new.
+    expect(
+      screen.getByRole('heading', { name: 'What is your campaign EIN?' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign EIN')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Every campaign needs an EIN (Employer Identification Number) to comply with regulations.',
+      ),
+    ).toBeInTheDocument()
 
-      const input = screen.getByLabelText('Campaign EIN')
-      expect(input).toHaveAttribute('placeholder', '12-3456789')
-      expect(
-        screen.getByRole('link', {
-          name: 'IRS Tax Exempt Organization Search',
-        }),
-      ).toHaveAttribute('href', expect.stringContaining('irs.gov'))
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    // The collapsible is the single how-to, so the field's own IRS helper
+    // link (same destination) is dropped.
+    expect(
+      screen.queryByRole('link', { name: /get a free ein in 3-5 minutes/i }),
+    ).not.toBeInTheDocument()
 
-      fireEvent.change(input, { target: { value: '12-34567' } })
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    const trigger = screen.getByText(/how to get a free ein/i)
+    expect(trigger).toBeInTheDocument()
+    // Collapsed until asked for.
+    expect(
+      screen.queryByText(/political organization/i),
+    ).not.toBeInTheDocument()
 
-      fireEvent.change(input, { target: { value: '12-3456789' } })
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-    })
+    fireEvent.click(trigger)
 
-    it('offers the how-to-get-an-EIN steps behind a collapsible', () => {
-      render(<EinStep />)
-
-      // Still the same question and input — only the caption and the how-to
-      // alternative are new.
-      expect(
-        screen.getByRole('heading', { name: 'What is your campaign EIN?' }),
-      ).toBeInTheDocument()
-      expect(screen.getByLabelText('Campaign EIN')).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'Every campaign needs an EIN (Employer Identification Number) to comply with regulations.',
-        ),
-      ).toBeInTheDocument()
-
-      // The collapsible is the single how-to, so the field's own IRS helper
-      // link (same destination) is dropped.
-      expect(
-        screen.queryByRole('link', { name: /get a free ein in 3-5 minutes/i }),
-      ).not.toBeInTheDocument()
-
-      const trigger = screen.getByText(/how to get a free ein/i)
-      expect(trigger).toBeInTheDocument()
-      // Collapsed until asked for.
-      expect(
-        screen.queryByText(/political organization/i),
-      ).not.toBeInTheDocument()
-
-      fireEvent.click(trigger)
-
-      expect(screen.getByText(/political organization/i)).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: /open irs\.gov/i }),
-      ).toHaveAttribute(
-        'href',
-        'https://sa.www4.irs.gov/applyein/legalStructure',
-      )
-    })
+    expect(screen.getByText(/political organization/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /open irs\.gov/i }),
+    ).toHaveAttribute('href', 'https://sa.www4.irs.gov/applyein/legalStructure')
   })
 })

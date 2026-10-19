@@ -1258,8 +1258,7 @@ var ProductMap = (function () {
     name: 'Pro upgrade flow',
     route: '/dashboard/pro-upgrade',
     src: 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeWizard.tsx + ProUpgradeFlow.tsx + proUpgradeStep.ts',
-    note: 'drawn in the purchase-only order; with outreach-pro-gating-v2 off, the route wizard adds steps not drawn here',
-    intro: [
+        intro: [
       'warn',
       'Two shells, one set of events',
       'The route wizard at <b>/dashboard/pro-upgrade</b> and this flow inside the outreach gate fire the same step events, so every count here is both. Only <b>Pro Upgrade - Flow Started</b> and its <code>source</code> tell them apart.',
@@ -1419,8 +1418,8 @@ var ProductMap = (function () {
     note: 'not a sequence: one screen chosen by what the account still needs before it can send',
     intro: [
       'warn',
-      'Behind a flag, and silent so far',
-      'The gate shows only under <b>outreach-pro-gating-v2</b>. Every event only the gate fires is never observed or newer than the snapshot. The Pro and verification screens are their own flows on this map, and their counts are mostly from elsewhere.',
+      'Silent so far',
+      'Every event only the gate fires is never observed or newer than the snapshot. The Pro and verification screens are their own flows on this map, and their counts are mostly from elsewhere.',
     ],
     zones: [
       {

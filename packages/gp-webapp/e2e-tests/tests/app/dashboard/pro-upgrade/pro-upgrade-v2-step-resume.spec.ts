@@ -10,9 +10,8 @@ import {
   seedEinAndFiled,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) resume. The derivation is flat — a
+// Pro upgrade resume. The derivation is flat — a
 // candidate who is not Pro always re-enters on the guidance overview — so
 // resume means the steps carry what was saved: the EIN fills in, and a filing
 // already on record shows the submitted notice instead of a form whose
@@ -29,10 +28,6 @@ type CampaignWizardState = {
     hasFiledForRace?: boolean | null
   }
 }
-
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

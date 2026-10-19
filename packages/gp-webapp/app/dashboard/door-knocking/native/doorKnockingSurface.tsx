@@ -10,9 +10,8 @@ import { turfsQueryOptions } from './turfQueries'
 // banking — where the Serve caller is a different page passing a `surface`
 // prop — there is nowhere to put the answer except a context.
 //
-// It is decided once, by the page, from the same predicate
-// `DoorKnockingPageGate` uses to grant access at all: a Campaign takes
-// precedence, and an ElectedOffice is consulted only in its absence. An org
+// It is decided once, by the page: a Campaign takes precedence, and an
+// ElectedOffice is consulted only in its absence. An org
 // mid-transition therefore keeps its Win rail, which is the safer of the two
 // wrong answers — its existing lists stay visible — and it matches what
 // gp-api's `POST /v1/door-knocking/turfs` does with the same question, so a

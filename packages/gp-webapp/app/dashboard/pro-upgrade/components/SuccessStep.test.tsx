@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
-import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { Campaign, type TcrCompliance } from 'helpers/types'
@@ -66,7 +65,6 @@ const withWizard = (
   <ProUpgradeWizardContext.Provider
     value={{
       currentStep: PRO_UPGRADE_STEP.SUCCESS,
-      purchaseOnly: false,
       channel: null,
       goToStep: vi.fn(),
       goToNextStep: vi.fn(),
@@ -99,42 +97,6 @@ describe('SuccessStep', () => {
       smsCutoffDate: null,
       generalElectionDate: null,
     })
-  })
-
-  it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
-    render(withWizard(<SuccessStep />))
-
-    expect(
-      screen.getByRole('heading', { name: 'Welcome to Pro!' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        /your PIN will be sent to your email, phone or address/i,
-      ),
-    ).toBeInTheDocument()
-    expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.SuccessViewed,
-    )
-  })
-
-  it('completes the wizard when Continue is clicked', () => {
-    render(withWizard(<SuccessStep />))
-
-    screen.getByRole('button', { name: /continue/i }).click()
-
-    expect(complete).toHaveBeenCalledTimes(1)
-    expect(router.push).not.toHaveBeenCalled()
-    expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.SuccessContinue,
-    )
-  })
-
-  it('does not gate the success content on isPro — it renders with no campaign state', () => {
-    // The screen takes no isPro/campaign input; rendering at all (the assertion
-    // above) proves it can't get stuck waiting on the webhook-driven flip.
-    render(withWizard(<SuccessStep />))
-
-    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
   })
 
   it('polls the campaign query until isPro flips so the dashboard reflects Pro without a manual refresh', async () => {
@@ -194,255 +156,246 @@ describe('SuccessStep', () => {
     }
   })
 
-  describe('purchase-only', () => {
-    it('lists what Pro unlocked and completes the flow from the verification CTA', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+  it('lists what Pro unlocked and completes the flow from the verification CTA', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+    render(withWizard(<SuccessStep />))
 
-      expect(
-        await screen.findByRole('heading', { name: 'Welcome to Pro' }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'Your payment went through. One step left before you can send.',
-        ),
-      ).toBeInTheDocument()
-      expect(screen.getByText('Unlocked now')).toBeInTheDocument()
-      expect(
-        screen.getByText('Individual voter records for your race'),
-      ).toBeInTheDocument()
-      // The standalone page has no channel and still hands off to verification.
-      expect(screen.getByText('Still to do: verification')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Welcome to Pro' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Your payment went through. One step left before you can send.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Unlocked now')).toBeInTheDocument()
+    expect(
+      screen.getByText('Individual voter records for your race'),
+    ).toBeInTheDocument()
+    // The standalone page has no channel and still hands off to verification.
+    expect(screen.getByText('Still to do: verification')).toBeInTheDocument()
 
-      const continueButton = screen.getByRole('button', {
-        name: 'Start verification',
-      })
-      await waitFor(() => expect(continueButton).toBeEnabled())
-      continueButton.click()
-
-      expect(complete).toHaveBeenCalledTimes(1)
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.SuccessContinue,
-      )
+    const continueButton = screen.getByRole('button', {
+      name: 'Start verification',
     })
+    await waitFor(() => expect(continueButton).toBeEnabled())
+    continueButton.click()
 
-    it('points a robocall candidate at their next outreach step instead', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.SuccessContinue,
+    )
+  })
 
-      render(
-        withWizard(<SuccessStep />, {
-          purchaseOnly: true,
-          channel: 'robocall',
-        }),
-      )
+  it('points a robocall candidate at their next outreach step instead', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
 
+    render(
+      withWizard(<SuccessStep />, {
+        channel: 'robocall',
+      }),
+    )
+
+    expect(
+      screen.getByText(
+        'Payment successful. Your next step is to schedule your robocall.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Still to do: schedule your robocall'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Pick a date and time, review the cost, and pay for the calls.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Still to do: verification'),
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  it('points a texting candidate at verification', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+
+    render(withWizard(<SuccessStep />, { channel: 'sms' }))
+
+    expect(
+      await screen.findByText('Still to do: verification'),
+    ).toBeInTheDocument()
+    await waitFor(() =>
       expect(
-        screen.getByText(
-          'Payment successful. Your next step is to schedule your robocall.',
-        ),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText('Still to do: schedule your robocall'),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'Pick a date and time, review the cost, and pay for the calls.',
-        ),
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByText('Still to do: verification'),
-      ).not.toBeInTheDocument()
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
-      )
+        screen.getByRole('button', { name: 'Start verification' }),
+      ).toBeEnabled(),
+    )
+  })
+
+  it('shows the receipt once Pro lands, with the charge and card behind a toggle', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    api.mock('GET /v1/payments/purchase/pro-receipt', {
+      status: 200,
+      data: {
+        amount: 10,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: 'https://stripe.test/invoice.pdf',
+        paidAt: new Date().toISOString(),
+      },
     })
+    const user = userEvent.setup()
 
-    it('points a texting candidate at verification', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    render(withWizard(<SuccessStep />))
 
-      render(
-        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'sms' }),
-      )
-
-      expect(
-        await screen.findByText('Still to do: verification'),
-      ).toBeInTheDocument()
-      await waitFor(() =>
-        expect(
-          screen.getByRole('button', { name: 'Start verification' }),
-        ).toBeEnabled(),
-      )
+    const toggle = await screen.findByRole('button', {
+      name: /Your receipt/,
     })
+    expect(toggle).toHaveTextContent('$10.00')
+    expect(screen.queryByText('Charged today')).not.toBeInTheDocument()
 
-    it('shows the receipt once Pro lands, with the charge and card behind a toggle', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      api.mock('GET /v1/payments/purchase/pro-receipt', {
-        status: 200,
-        data: {
-          amount: 10,
-          cardBrand: 'visa',
-          cardLast4: '4242',
-          receiptUrl: 'https://stripe.test/invoice.pdf',
-          paidAt: new Date().toISOString(),
-        },
-      })
-      const user = userEvent.setup()
+    await user.click(toggle)
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+    expect(screen.getByText('Charged today')).toBeInTheDocument()
+    expect(
+      screen.getByText('Pro subscription, recurring monthly'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Download receipt' }),
+    ).toBeInTheDocument()
+  })
 
-      const toggle = await screen.findByRole('button', {
-        name: /Your receipt/,
-      })
-      expect(toggle).toHaveTextContent('$10.00')
-      expect(screen.queryByText('Charged today')).not.toBeInTheDocument()
+  it('draws no receipt while the subscription is not on record yet', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
 
-      await user.click(toggle)
+    render(withWizard(<SuccessStep />))
 
-      expect(screen.getByText('Charged today')).toBeInTheDocument()
+    await waitFor(() =>
       expect(
-        screen.getByText('Pro subscription, recurring monthly'),
-      ).toBeInTheDocument()
-      expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Download receipt' }),
-      ).toBeInTheDocument()
+        screen.getByRole('button', { name: 'Start verification' }),
+      ).toBeEnabled(),
+    )
+    expect(screen.queryByText('Your receipt')).not.toBeInTheDocument()
+  })
+
+  it('holds the hand-off CTA until the webhook flips isPro', async () => {
+    // Campaign verification reads the Pro state this screen asserts, so
+    // handing off before the flip lands would show a non-Pro surface.
+    api.mockOrdered('GET /v1/campaigns/mine', [
+      { status: 200, data: campaign(false) },
+      { status: 200, data: campaign(true) },
+    ])
+
+    render(withWizard(<SuccessStep />))
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Start verification',
     })
+    expect(continueButton).toBeDisabled()
 
-    it('draws no receipt while the subscription is not on record yet', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
-
-      await waitFor(() =>
-        expect(
-          screen.getByRole('button', { name: 'Start verification' }),
-        ).toBeEnabled(),
-      )
-      expect(screen.queryByText('Your receipt')).not.toBeInTheDocument()
+    await waitFor(() => expect(continueButton).toBeEnabled(), {
+      timeout: 5000,
     })
+    expect(complete).not.toHaveBeenCalled()
+  })
 
-    it('holds the hand-off CTA until the webhook flips isPro', async () => {
-      // Campaign verification reads the Pro state this screen asserts, so
-      // handing off before the flip lands would show a non-Pro surface.
-      api.mockOrdered('GET /v1/campaigns/mine', [
-        { status: 200, data: campaign(false) },
-        { status: 200, data: campaign(true) },
-      ])
+  // The wizard collects the filing before payment now, so a candidate who
+  // just walked it has nothing left to start. The notice is the same one
+  // campaign verification shows once a filing is in, and never a PIN box.
+  it('confirms a filing already submitted and returns to the dashboard', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    mockGetTcrCompliance.mockResolvedValue(submittedTcr)
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+    render(withWizard(<SuccessStep />))
 
-      const continueButton = await screen.findByRole('button', {
-        name: 'Start verification',
-      })
-      expect(continueButton).toBeDisabled()
+    expect(
+      await screen.findByText(
+        'Your campaign has been submitted for verification.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Still to do: verification'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Start verification' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Finish later' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
 
-      await waitFor(() => expect(continueButton).toBeEnabled(), {
-        timeout: 5000,
-      })
-      expect(complete).not.toHaveBeenCalled()
-    })
+    const done = screen.getByRole('button', { name: 'Done' })
+    await waitFor(() => expect(done).toBeEnabled())
+    done.click()
 
-    // The wizard collects the filing before payment now, so a candidate who
-    // just walked it has nothing left to start. The notice is the same one
-    // campaign verification shows once a filing is in, and never a PIN box.
-    it('confirms a filing already submitted and returns to the dashboard', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
+    expect(exit).toHaveBeenCalledTimes(1)
+    expect(complete).not.toHaveBeenCalled()
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.SuccessContinue,
+    )
+  })
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+  // Inside an outreach flow the gate decides what comes after the upgrade,
+  // so the confirmation hands back to it rather than leaving the flow.
+  it('hands a texting flow back to its gate once the filing is in', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    mockGetTcrCompliance.mockResolvedValue(submittedTcr)
 
-      expect(
-        await screen.findByText(
-          'Your campaign has been submitted for verification.',
-        ),
-      ).toBeInTheDocument()
-      expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
-      expect(
-        screen.queryByText('Still to do: verification'),
-      ).not.toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: 'Start verification' }),
-      ).not.toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: 'Finish later' }),
-      ).not.toBeInTheDocument()
-      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    render(withWizard(<SuccessStep />, { channel: 'sms' }))
 
-      const done = screen.getByRole('button', { name: 'Done' })
-      await waitFor(() => expect(done).toBeEnabled())
-      done.click()
+    expect(await screen.findByText('A PIN is on its way')).toBeInTheDocument()
+    const continueButton = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueButton).toBeEnabled())
+    continueButton.click()
 
-      expect(exit).toHaveBeenCalledTimes(1)
-      expect(complete).not.toHaveBeenCalled()
-      expect(mockTrackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.SuccessContinue,
-      )
-    })
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(exit).not.toHaveBeenCalled()
+  })
 
-    // Inside an outreach flow the gate decides what comes after the upgrade,
-    // so the confirmation hands back to it rather than leaving the flow.
-    it('hands a texting flow back to its gate once the filing is in', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
+  // An already-Pro candidate who never got a filing through is routed here
+  // by the entry, and this is the screen that sends them on to finish it.
+  it('keeps the verification hand-off for a filing that was rejected', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    mockGetTcrCompliance.mockResolvedValue({
+      status: 'rejected',
+    } as TcrCompliance)
 
-      render(
-        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'sms' }),
-      )
+    render(withWizard(<SuccessStep />))
 
-      expect(await screen.findByText('A PIN is on its way')).toBeInTheDocument()
-      const continueButton = screen.getByRole('button', { name: 'Continue' })
-      await waitFor(() => expect(continueButton).toBeEnabled())
-      continueButton.click()
+    expect(
+      await screen.findByText('Still to do: verification'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+  })
 
-      expect(complete).toHaveBeenCalledTimes(1)
-      expect(exit).not.toHaveBeenCalled()
-    })
+  // A draft lives in this browser only; nothing reached gp-api, so the
+  // candidate still has verification ahead of them.
+  it('does not read an unsubmitted verification draft as a filing', async () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    saveVerificationDraft(1, { filing: { candidateName: 'Jane Smith' } })
 
-    // An already-Pro candidate who never got a filing through is routed here
-    // by the entry, and this is the screen that sends them on to finish it.
-    it('keeps the verification hand-off for a filing that was rejected', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      mockGetTcrCompliance.mockResolvedValue({
-        status: 'rejected',
-      } as TcrCompliance)
+    render(withWizard(<SuccessStep />))
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+    expect(
+      await screen.findByText('Still to do: verification'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+    window.localStorage.clear()
+  })
 
-      expect(
-        await screen.findByText('Still to do: verification'),
-      ).toBeInTheDocument()
-      expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
-    })
+  it('does not read the filing for a channel with no verification step', () => {
+    api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+    mockGetTcrCompliance.mockResolvedValue(submittedTcr)
 
-    // A draft lives in this browser only; nothing reached gp-api, so the
-    // candidate still has verification ahead of them.
-    it('does not read an unsubmitted verification draft as a filing', async () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      saveVerificationDraft(1, { filing: { candidateName: 'Jane Smith' } })
+    render(withWizard(<SuccessStep />, { channel: 'door' }))
 
-      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
-
-      expect(
-        await screen.findByText('Still to do: verification'),
-      ).toBeInTheDocument()
-      expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
-      window.localStorage.clear()
-    })
-
-    it('does not read the filing for a channel with no verification step', () => {
-      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
-      mockGetTcrCompliance.mockResolvedValue(submittedTcr)
-
-      render(
-        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'door' }),
-      )
-
-      expect(
-        screen.getByText('Still to do: build your walk list'),
-      ).toBeInTheDocument()
-      expect(mockGetTcrCompliance).not.toHaveBeenCalled()
-    })
+    expect(
+      screen.getByText('Still to do: build your walk list'),
+    ).toBeInTheDocument()
+    expect(mockGetTcrCompliance).not.toHaveBeenCalled()
   })
 
   describe('with the SMS compliance window closed', () => {
@@ -468,7 +421,7 @@ describe('SuccessStep', () => {
         })
         mockGetTcrCompliance.mockResolvedValue(tcr)
 
-        render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+        render(withWizard(<SuccessStep />))
 
         expect(
           screen.getByText('Your payment went through.'),
@@ -498,22 +451,9 @@ describe('SuccessStep', () => {
       },
     )
 
-    it('drops the PIN promise from the default-order screen too', () => {
-      render(withWizard(<SuccessStep />))
-
-      expect(
-        screen.getByRole('heading', { name: 'Welcome to Pro' }),
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByText(/your PIN will be sent/i),
-      ).not.toBeInTheDocument()
-      expect(screen.getByRole('alert')).toBeInTheDocument()
-    })
-
     it('keeps a robocall launch on its next outreach step', () => {
       render(
         withWizard(<SuccessStep />, {
-          purchaseOnly: true,
           channel: 'robocall',
         }),
       )

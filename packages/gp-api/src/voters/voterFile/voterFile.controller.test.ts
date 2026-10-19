@@ -165,7 +165,7 @@ describe('VoterFileController', () => {
   })
 
   describe('createVoterFileFilter', () => {
-    // Not Pro-gated (outreach-pro-gating-v2): create never calls
+    // Not Pro-gated: create never calls
     // filterAccessCheck, unlike update/delete below.
     it('creates a filter without checking Pro access', async () => {
       const body = { name: 'My Filter' } as never

@@ -421,9 +421,8 @@ const BASE_STATUS_FILTERS = [
 ] as const
 
 // The six names a saved draft's status can take (historyStatus.util.ts's
-// DRAFT_LABELS). They are offered only when the caller passes a membership:
-// with the flag off the hub passes none AND filters every draft row out, so
-// these would be six checkboxes matching nothing.
+// DRAFT_LABELS). They are offered only when the caller passes a membership,
+// since the label names the next step membership says is still open.
 const DRAFT_STATUS_FILTERS = [
   'Pro needed',
   'Verification needed',
@@ -483,7 +482,7 @@ export const OutreachHistoryTable = ({
   const [statusFilter, setStatusFilter] = useState<Set<StatusFilterKey>>(
     () => new Set(statusFilters),
   )
-  // Membership arrives after the flag read settles, so the five draft names
+  // Membership arrives after the first render, so the five draft names
   // can join the set mid-mount; they start checked like every other filter.
   // Once only — a second widening would undo the candidate's own unchecking.
   const draftFiltersWidenedRef = useRef(hasMembership)

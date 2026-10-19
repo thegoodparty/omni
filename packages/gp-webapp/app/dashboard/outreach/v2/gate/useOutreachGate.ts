@@ -1,7 +1,6 @@
 'use client'
 
 import type { TcrCompliance } from 'helpers/types'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { GateChannel } from './gateCopy'
@@ -15,10 +14,10 @@ export type GateRequirement =
   | null
 
 export interface OutreachGateState {
-  // Flag on and membership ready — the flow can trust `requirement`.
+  // Membership is ready — the flow can trust `requirement`.
   enabled: boolean
-  // The flag has answered and, when it is on, membership has loaded, so
-  // `requirement` is final rather than a placeholder null.
+  // Membership has loaded, so `requirement` is final rather than a
+  // placeholder null.
   resolved: boolean
   requirement: GateRequirement
   // Texting channels (sms only) need Pro AND verification; every other
@@ -55,27 +54,18 @@ const deriveRequirement = (
   }
 }
 
-// Thin over the flag + membership hooks: maps them to what a channel flow
-// needs to decide whether it must pause, and on which screen. A later task
-// mounts this inside each channel flow alongside GateBanner/OutreachGate.
+// Thin over the membership hook: maps it to what a channel flow needs to
+// decide whether it must pause, and on which screen.
 export const useOutreachGate = (channel: GateChannel): OutreachGateState => {
-  const { ready: flagReady, enabled: flagEnabled } =
-    useOutreachProGatingV2Flag(false)
-  const {
-    ready: membershipReady,
-    state,
-    tcrCompliance,
-  } = useMembershipState({
-    enabled: flagEnabled,
-  })
+  const { ready: membershipReady, state, tcrCompliance } = useMembershipState()
 
-  const enabled = flagEnabled && membershipReady
   const twoStep = channel === 'sms'
 
   return {
-    enabled,
-    resolved: flagReady && (!flagEnabled || membershipReady),
-    requirement: enabled && state ? deriveRequirement(channel, state) : null,
+    enabled: membershipReady,
+    resolved: membershipReady,
+    requirement:
+      membershipReady && state ? deriveRequirement(channel, state) : null,
     twoStep,
     membership: state,
     tcrCompliance,

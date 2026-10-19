@@ -520,7 +520,10 @@ import { dirname, join, relative } from 'node:path'
 // runs), the favorite and read marks, and the Gather more feedback flow; the
 // theme list, theme detail, comment list and CRM panel carry no directive and
 // inherit it, and the server page above it only validates the route.
-const BASELINE = 595
+// 2026-10-19: 595 -> 592 removing the outreach-pro-gating-v2 flag. The legacy
+// door-knocking page gate, the value prop step and the candidate profile step
+// were client components that only rendered with the flag off.
+const BASELINE = 592
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

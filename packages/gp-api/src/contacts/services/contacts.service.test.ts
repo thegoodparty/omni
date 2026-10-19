@@ -1417,7 +1417,7 @@ describe('ContactsService', () => {
     })
 
     describe('countContacts (live segment builder count, ENG-10517)', () => {
-      // outreach-pro-gating-v2: the build path prices a list before the
+      // the build path prices a list before the
       // candidate upgrades, so a free campaign gets the count — a figure
       // about the district, never a voter record.
       it('serves a free campaign', async () => {
@@ -1689,7 +1689,7 @@ describe('ContactsService', () => {
     })
 
     describe('getFilterDetail (aggregates for an unsaved filter)', () => {
-      // outreach-pro-gating-v2: aggregates about the district are open to a
+      // aggregates about the district are open to a
       // free campaign; only the voter rows themselves stay behind Pro.
       it('serves a free campaign', async () => {
         const org = makeOrganization({
@@ -1818,7 +1818,7 @@ describe('ContactsService', () => {
         ...channels,
       })
 
-      // outreach-pro-gating-v2: a free campaign reads the saved list's
+      // a free campaign reads the saved list's
       // aggregates too (the audience step shows them before the upgrade);
       // ownership is still checked, so a foreign list 404s as below.
       it('looks the list up for a free campaign instead of refusing', async () => {

@@ -545,8 +545,7 @@ export const ProposalFlowsProvider = ({
         />
       ) : null}
       {/* Win's own surface, not SERVE_SMS_SURFACE, and only once the text
-          gate has passed. The flow's in-flow gate still runs behind
-          outreach-pro-gating-v2. */}
+          gate has passed. The flow's in-flow gate still runs. */}
       {opened && mode === 'win' && proposal?.channel === 'text' ? (
         <SmsFlow
           open

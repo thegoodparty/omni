@@ -9,9 +9,8 @@ import {
   seedCandidateProfileComplete,
   seedEinAndFiled,
 } from 'src/helpers/pro-upgrade.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) front-end gates in the live wizard:
+// Pro upgrade front-end gates in the live wizard:
 // the EIN sanity check and the filing form's field validation, which are
 // the only checks before the data reaches the TCR/Peerly pipeline. Both stop
 // before payment (a valid filing submit creates the record, but a free
@@ -21,10 +20,6 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
 
 type CampaignEinState = { details?: { einNumber?: string | null } }
-
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

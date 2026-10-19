@@ -555,7 +555,7 @@ const TextingComplianceRegistrationForm = ({
   const [validEin, setValidEin] = useState(
     einIndicatorState(getStringValue(ein)),
   )
-  // The verification steps run after the purchase-only wizard, which has
+  // The verification steps run after the Pro upgrade wizard, which has
   // already collected the EIN, so a valid prefill is not asked for again
   // (design: filingdetails has no EIN field). Captured once so a later edit
   // elsewhere cannot make the field pop in mid-form.
