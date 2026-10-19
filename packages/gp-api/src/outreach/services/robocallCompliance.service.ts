@@ -62,10 +62,14 @@ export const NO_SPEECH_ISSUE =
 // The spoken-number check must not hinge on the LLM alone: a number read aloud
 // is transcribed as digits ("414-485-8077", "4144858077") or as spoken digit
 // words ("four one four ..."), and the model sometimes marks it missing (ENG-11359).
+// This backstop overrides the FCC gate, so it only accepts a full ten-digit
+// number whose digits are separated by nothing but spaces, hyphens, dots,
+// parentheses or the commas Transcribe puts between spoken digit groups. A
+// date ("11/3/2026"), an amount ("$1,500,000") or a seven-digit local number
+// is left to the LLM.
 const SPOKEN_DIGIT_WORDS = new Set([
   'zero',
   'oh',
-  'o',
   'one',
   'two',
   'three',
@@ -76,10 +80,14 @@ const SPOKEN_DIGIT_WORDS = new Set([
   'eight',
   'nine',
 ])
-const MIN_PHONE_DIGITS = 7
+const MIN_PHONE_DIGITS = 10
 
 export const transcriptStatesPhoneNumber = (transcript: string): boolean => {
-  const tokens = transcript.toLowerCase().match(/[a-z]+|\d/g) ?? []
+  const tokens =
+    transcript
+      .toLowerCase()
+      .replace(/(\d),(?=\d)/g, '$1/')
+      .match(/[a-z]+|\d|[^a-z\d\s.,()-]/g) ?? []
   let run = 0
   for (const token of tokens) {
     if (/^\d$/.test(token) || SPOKEN_DIGIT_WORDS.has(token)) {
