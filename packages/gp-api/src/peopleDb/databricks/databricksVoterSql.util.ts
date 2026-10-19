@@ -931,11 +931,12 @@ export const buildPageSql = (
 // download would be full of the word "null".
 // Sampling keeps Postgres's hash pre-cut, for a different reason. There it
 // existed to keep the planner off a sequential scan; here it exists to avoid a
-// sort. Ordering the whole population by a seeded hash and taking the top N
-// measured 3-6s because it sorts every matching row, while cutting to a
-// 1/divisor slice and letting LIMIT terminate early measured a flat 2.1-2.3s
-// from a 7.8k-voter ward to a 23M-voter state. The seed rotates which slice is
-// taken, so successive calls return different people.
+// sort. Ordering the whole population by a seeded hash measured 3-6s because
+// it sorts every matching row, so the population is first cut to a 1/divisor
+// slice and only the slice is ordered. The ORDER BY is what makes the draw
+// random: without it LIMIT returns whichever slice rows Spark scans first,
+// which follows file layout, and a small pool (divisor 1) has no slice at all.
+// The id breaks a hash tie so the same seed returns the same rows.
 export const buildSampleSql = (
   args: DbxScopeArgs & {
     columns: readonly string[]
@@ -961,16 +962,16 @@ export const buildSampleSql = (
     parts.push(`AND ${col('id')} NOT IN (${idList(excludeIds)})`)
   }
 
+  const seed = bag.bind(num(args.seed), 'INT')
+  const seededHash = `xxhash64(${col('id')}, ${seed})`
   const divisor = Math.max(1, Math.trunc(num(args.hashDivisor)))
   if (divisor > 1) {
-    parts.push(
-      `AND pmod(xxhash64(${col('id')}, ${bag.bind(num(args.seed), 'INT')}),` +
-        ` ${bag.bind(divisor, 'INT')}) = 0`,
-    )
+    parts.push(`AND pmod(${seededHash}, ${bag.bind(divisor, 'INT')}) = 0`)
   }
 
   const sql =
     `SELECT ${projection} FROM ${args.district.table} v ${parts.join(' ')}` +
+    ` ORDER BY ${seededHash}, ${col('id')}` +
     ` LIMIT ${bag.bind(num(args.size), 'INT')}`
   return { sql, params: bag.params }
 }
