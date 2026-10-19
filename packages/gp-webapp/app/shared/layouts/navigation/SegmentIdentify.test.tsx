@@ -87,6 +87,34 @@ beforeEach(() => {
 })
 
 describe('SegmentIdentify', () => {
+  it('mirrors the signed-in user id into the GTM dataLayer', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = fullUser
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(w.dataLayer).toContainEqual({ user_id: '42' })
+    })
+  })
+
+  it('clears the dataLayer user id when there is no user', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = null
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(w.dataLayer).toContainEqual({ user_id: undefined })
+    })
+  })
+
   it('calls identifyUser with buildUserTraits output when user is logged in', async () => {
     mockUser = fullUser
 
