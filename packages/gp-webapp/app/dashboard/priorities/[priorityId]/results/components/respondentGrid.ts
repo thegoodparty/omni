@@ -1,6 +1,7 @@
-// About 400m on a side at US latitudes: a few blocks, so one square never
-// stands for one household.
-export const CELL_DEGREES = 0.004
+import { DISTRICT_GRID_CELL_DEGREES } from '@goodparty_org/contracts'
+
+// The same squares gp-api draws a district's unreached area from.
+export const CELL_DEGREES = DISTRICT_GRID_CELL_DEGREES
 
 export interface GridCell {
   polygon: [number, number][]

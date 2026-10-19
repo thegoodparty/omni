@@ -517,10 +517,12 @@ const ImageSelectionForm: React.FC<{
         logo or a community photo for credibility.
       </p>
 
-      <PollImageUpload
-        imageUrl={imageUrl}
-        onUploaded={(imageUrl) => setImageUrl(imageUrl)}
-      />
+      <div className="w-full mt-12">
+        <PollImageUpload
+          imageUrl={imageUrl}
+          onUploaded={(imageUrl) => setImageUrl(imageUrl)}
+        />
+      </div>
     </FormStep>
   )
 }

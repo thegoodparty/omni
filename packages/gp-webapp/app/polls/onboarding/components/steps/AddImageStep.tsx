@@ -29,7 +29,9 @@ export default function AddImageStep() {
         Add your official headshot, logo or a community photo for credibility.
       </p>
 
-      <PollImageUpload imageUrl={localImageUrl} onUploaded={handleUpload} />
+      <div className="w-full mt-12">
+        <PollImageUpload imageUrl={localImageUrl} onUploaded={handleUpload} />
+      </div>
     </div>
   )
 }

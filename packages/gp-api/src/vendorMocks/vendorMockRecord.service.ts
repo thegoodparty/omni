@@ -4,6 +4,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, VendorMockVendor } from '@/generated/prisma'
 
 const MAX_REQUESTS = 10
+const ROUTE_FAIL_KIND = 'route_fail'
 
 @Injectable()
 export class VendorMockRecordService extends createPrismaBase(
@@ -55,6 +56,42 @@ export class VendorMockRecordService extends createPrismaBase(
 
   async findByCampaign(campaignId: number) {
     return this.model.findMany({ where: { campaignId } })
+  }
+
+  async campaignIdFor(organizationSlug: string | undefined) {
+    if (!organizationSlug) return undefined
+    const campaign = await this.client.campaign.findUnique({
+      where: { organizationSlug },
+      select: { id: true },
+    })
+    return campaign?.id
+  }
+
+  // One row per campaign, so a seeded failure only ever reaches that
+  // campaign's next route call, never another test's on the same deploy.
+  async armRouteFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.geoapify,
+      ROUTE_FAIL_KIND,
+      String(campaignId),
+      { routeFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent route calls can't both consume it.
+  async consumeRouteFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.geoapify,
+        kind: ROUTE_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['routeFail'], equals: true },
+      },
+      data: { state: { routeFail: false } },
+    })
+    return count > 0
   }
 
   // Merge { [flag]: value } into the state JSON of a specific record.

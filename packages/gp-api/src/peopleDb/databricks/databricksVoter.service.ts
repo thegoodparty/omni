@@ -48,10 +48,12 @@ import {
   HOUSEHOLD_PAGE_COLUMNS,
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
+  buildWalkableAreaSql,
   DOOR_KNOCKING_RESIDENT_COLUMNS,
   type DbxDistrict,
   type DbxEvaluateRow,
   type DbxResidentRow,
+  type DbxWalkableHouseholdRow,
   type DbxScopeArgs,
   peopleTable,
 } from './databricksVoterSql.util'
@@ -61,6 +63,7 @@ import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
+  WalkableAreaDTO,
 } from '../schemas/doorKnocking.schema'
 import {
   buildDistrictStatsSql,
@@ -71,9 +74,18 @@ import { type AffinityColumn } from '../affinityColumns.const'
 import {
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
+  buildRespondentCellsSql,
+  buildTractGridCellsSql,
+  mapAcsCounts,
   mapCensusCompositionRows,
+  mapGridCells,
+  mapRespondentCells,
+  mapTractAdults,
+  sampleWeightSql,
   type CensusCompositionRows,
+  type WeightingInputs,
 } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
@@ -99,7 +111,7 @@ const EMPTY_FILTERS = filtersSchema.parse({})
 // `| 0` because hash32 returns unsigned 32-bit and the parameter binds as INT:
 // a district whose hash lands above 2^31-1 is otherwise rejected outright.
 //
-// A caller that names the draw (`seedKey`) gets the same slice whenever it
+// A caller that names the draw (`seedKey`) gets the same people whenever it
 // asks, so a list's sample can be drawn again the same way.
 const sampleSeed = (districtId: string, seedKey?: string): number =>
   hash32(`${districtId}:${seedKey ?? Math.floor(Date.now() / 60_000)}`) | 0
@@ -512,6 +524,43 @@ export class DatabricksVoterService {
     return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
   }
 
+  // What weighting needs: respondents counted by age band, gender, tenure
+  // and tract, and the district's adults per tract.
+  async findWeightingInputs(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<WeightingInputs> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      personIds.length > 0
+        ? this.client.query(buildRespondentCellsSql(district, personIds))
+        : Promise.resolve({ columns: [], rows: [] }),
+      this.client.query(buildDistrictTractAdultsSql(district)),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapRespondentCells(cellResult.rows),
+      tractAdults: mapTractAdults(tractResult.rows),
+    }
+  }
+
+  async findTractGridCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+    cellDegrees: number,
+  ): Promise<Array<{ row: number; col: number }>> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractGridCellsSql(district, tracts, cellDegrees),
+    )
+    return mapGridCells(result.rows)
+  }
+
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
   // know how big the population is, and the two rejections below are product
   // behavior the Postgres path enforced (a missing-stats district unmounts the
@@ -526,6 +575,7 @@ export class DatabricksVoterService {
     const size = dto.size ?? DEFAULT_SAMPLE_SIZE
     const hasCellPhone = dto.filters ? undefined : (dto.hasCellPhone ?? true)
     const excludeIds = dto.excludeIds ?? []
+    const weights = dto.weights
     const scope: DbxScopeArgs = {
       district,
       filters: dto.filters ?? EMPTY_FILTERS,
@@ -550,23 +600,42 @@ export class DatabricksVoterService {
     }
 
     const desiredRows = size * SAMPLE_OVERSAMPLE_FACTOR
-    const hashDivisor = Math.min(
+    let hashDivisor = Math.min(
       MAX_SAMPLE_HASH_DIVISOR,
       Math.max(1, Math.floor(remaining / desiredRows)),
     )
 
     const { columnNames } = buildVoterSelectSql()
-    const { rows } = await this.run(
-      buildSampleSql({
-        ...scope,
-        columns: columnNames,
-        size,
-        seed: sampleSeed(dto.districtId, dto.seedKey),
-        hashDivisor,
-        hasCellPhone,
-        excludeIds,
-      }),
-    )
+    const seed = sampleSeed(dto.districtId, dto.seedKey)
+    const draw = (divisor: number) =>
+      this.run(
+        buildSampleSql({
+          ...scope,
+          columns: columnNames,
+          size,
+          seed,
+          hashDivisor: divisor,
+          hasCellPhone,
+          excludeIds,
+          weight: weights && ((bag) => sampleWeightSql(bag, weights)),
+        }),
+      )
+    let { rows } = await draw(hashDivisor)
+    // The slice holds three times the request on average, so it can still
+    // land short: a small draw by chance, or a stale pool count. Widen once
+    // to a slice twice the size, then to the whole pool, which either fills
+    // or proves the pool too small. Each step is fixed by the seed, so a seed
+    // still maps to one set of people.
+    for (const wider of [Math.floor(hashDivisor / 2), 1]) {
+      if (rows.length >= size || hashDivisor <= 1) break
+      hashDivisor = Math.max(1, wider)
+      rows = (await draw(hashDivisor)).rows
+    }
+    if (rows.length < size) {
+      throw new BadRequestException(
+        `Not enough non-excluded constituents ${rows.length} to satisfy target: ${size}`,
+      )
+    }
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
@@ -610,6 +679,7 @@ export class DatabricksVoterService {
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,
         requireRooftopAccuracy: opts?.requireRooftopAccuracy,
+        tract: dto.tract,
       }),
     )
     return rows.map((row) => {
@@ -622,6 +692,32 @@ export class DatabricksVoterService {
         lng: Number(record.lng),
         addressKey: String(record.addressKey),
         displayAddress: record.displayAddress ?? '',
+      }
+    })
+  }
+
+  async walkableAreaRows(
+    dto: WalkableAreaDTO,
+    dataset: PeopleDataset,
+  ): Promise<DbxWalkableHouseholdRow[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { columns, rows } = await this.run(
+      buildWalkableAreaSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        households: dto.households,
+        excludePersonIds: dto.excludePersonIds,
+        tract: dto.tract,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      return {
+        lat: Number(record.lat),
+        lng: Number(record.lng),
+        personIds: (record.personIds ?? '').split(',').filter(Boolean),
       }
     })
   }

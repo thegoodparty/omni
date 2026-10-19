@@ -132,6 +132,7 @@ describe('<TaskStack>', () => {
       {
         cardId: 'onboarding:priorities',
         cardType: 'onboarding',
+        cardVariant: 'other',
         stackSize: 1,
         action: 'start',
         cta: ONBOARDING_CARDS.priorities.ctaLabel,
@@ -180,7 +181,13 @@ describe('<TaskStack>', () => {
     )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.TaskActionTaken,
-      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'ask' },
+      {
+        cardId: 'c1',
+        cardType: 'briefing',
+        cardVariant: 'other',
+        stackSize: 1,
+        action: 'ask',
+      },
     )
   })
 
@@ -213,6 +220,7 @@ describe('<TaskStack>', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.ChiefOfStaff.TaskCompleted, {
       cardId: 'c1',
       cardType: 'briefing',
+      cardVariant: 'other',
       stackSize: 2,
     })
   })
@@ -226,7 +234,14 @@ describe('<TaskStack>', () => {
     expect(completeMock).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.TaskActionTaken,
-      { cardId: 'c1', cardType: 'briefing', stackSize: 1, action: 'skip' },
+      {
+        cardId: 'c1',
+        cardType: 'briefing',
+        cardVariant: 'other',
+        stackSize: 1,
+        action: 'skip',
+        skipChoice: 'dismiss',
+      },
     )
   })
 
@@ -262,6 +277,16 @@ describe('<TaskStack>', () => {
     })
     await user.click(explain)
     expect(onDiscussCard).toHaveBeenCalledWith(EXPLAIN_CIVIC_PANEL_MESSAGE)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.TaskActionTaken,
+      {
+        cardId: 'build',
+        cardType: 'civic_panel',
+        cardVariant: 'panel_build',
+        stackSize: 1,
+        action: 'explain',
+      },
+    )
     expect(completeMock).not.toHaveBeenCalled()
     expect(completeOnboardingMock).not.toHaveBeenCalled()
     expect(dismissMock).not.toHaveBeenCalled()
@@ -316,7 +341,10 @@ describe('<TaskStack>', () => {
     // Build my panel opens the panel page, where the plan is made.
     expect(
       screen.getByRole('link', { name: 'Build my panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_home',
+    )
 
     withCards([card({})])
     rerender(<TaskStack onOpenCard={vi.fn()} />)

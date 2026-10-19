@@ -10,7 +10,9 @@ import {
   MAX_CHECK_RAISES,
   PANEL_MAX_HOURS_PER_WEEK,
   PRIORITY_STEP_LABELS,
+  READ_REPRESENTATIVENESS_LABELS,
   SAMPLE_TARGET_REPLIES,
+  UNDERREPRESENTED_GROUP_NAMES,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
@@ -338,10 +340,12 @@ const civicPanelBuildBlock = (
   ].join('\n')
 }
 
-// Every civic panel reply, build or explain. "just" is banned product copy,
-// and the panel brief forbids claiming the panel stands for the community.
+// Every civic panel reply, build or explain. "just" is banned product copy.
+// The panel page's status and its one group to invite next may be repeated
+// in its words (Bryan, 2026-10-18); a promise that the panel will match the
+// community, and any weight, quota, target or race, may not.
 const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". Never say or imply the panel will look like, match, mirror or represent the district, the city or the community. Say instead that picking people at random means it is not only the people who already reach out.'
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too early, Not yet representative, Getting close or Representative) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never suggest inviting or leaving out anyone by race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
 
 // What the agent does when the official presses What's a civic panel? on the
 // build card: it explains, and builds nothing unless they say yes.
@@ -621,7 +625,13 @@ const formatFlow = (p: PriorityRecord): string => {
 const formatRead = (read: PriorityReadStatus | undefined): string =>
   read === undefined
     ? ''
-    : `, answers: ${read.answers} of ${read.needed} needed for a good read, good read: ${read.good ? 'yes' : 'no'}`
+    : `, answers: ${read.answers} of ${read.needed} needed for a good read, representative: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
+        read.underrepresented.length === 0
+          ? 'nobody in particular'
+          : read.underrepresented
+              .map((group) => UNDERREPRESENTED_GROUP_NAMES[group])
+              .join(' and ')
+      }, good read: ${read.good ? 'yes' : 'no'}`
 
 const formatPriority = (
   p: PriorityRecord,
@@ -649,8 +659,9 @@ const prioritiesBlock = (
 // Behind serve-citizen-panels, with each priority's read status in
 // <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
 const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
-- <priorities> says, for each priority, how many people have answered on it and how many a good read of the district takes. Good read: no means they do not have enough yet.
-- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward getting more answers instead, in one line, with the link to the priority, where they get them.
+- <priorities> says, for each priority, how many people have answered on it, how many a good read of the district takes, how closely the people who answered look like the district (Too early, Not yet representative, Getting close, Representative or Enough answers), and who to hear more from. Representative is a good read. Enough answers is a good read the census could not be checked against: say they have enough answers but you could not check them against the census, and never call them representative. Good read: no means they do not have one yet.
+- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: too early, how many more it takes; otherwise the status and who to hear more from, in exactly those words, for example "You've heard from plenty of people on it, but few renters."
+- Never mention weights, weighting, quotas, discounting or an effective number of answers.
 - If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
 
 // The report back is drafted in the priority's own conversation, never here,

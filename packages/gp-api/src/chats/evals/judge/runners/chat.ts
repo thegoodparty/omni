@@ -1,18 +1,7 @@
 import { HttpStatus } from '@nestjs/common'
 import { differenceInMilliseconds } from 'date-fns'
-import {
-  CreateChatResponseSchema,
-  type ChatAnchor,
-  type CreateChatResponse,
-} from '@goodparty_org/contracts'
-import { ChatMessageRole, ChatScope } from '../../../../generated/prisma'
-import {
-  createBriefingChatResponseSchema,
-  type CreateBriefingChatResponse,
-} from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
-import { LlmService } from '@/llm/services/llm.service'
+import type { ChatAnchor } from '@goodparty_org/contracts'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
-import type { TestServiceContext } from '@/test-service'
 import {
   caseTurns,
   CaseListError,
@@ -39,32 +28,24 @@ import { WIN_CONSTITUENT_TABLES } from '@/chats/general/campaign-manager/service
 import { CONSTITUENT_TABLES } from '@/chats/general/chief-of-staff/services/constituentDataScope'
 import {
   buildTrace,
-  configDigest,
-  installLlmCapture,
-  installBriefingFixture,
-  instrumentDatabricksProvider,
   parseStreamEvents,
-  readTurnTokens,
   traceErrorText,
   type ChatTurnScript,
   type DeltaPin,
-  type InstalledBriefingFixture,
-  type InstalledLlmCapture,
   type StreamEvent,
-  type TurnCapture,
 } from './chatSeam'
+import type {
+  AssistantTextRequest,
+  CaseInstrumentation,
+  ChatArmRuntime,
+} from './chatRuntime'
 import { capToolErrorDetails, toolErrorDetail } from '../toolErrorDetails'
 import {
   assertAccountStateSupported,
   chatScopeFor,
   type BriefingChatTarget,
-} from './seedChatOrg'
-import {
-  JUDGE_BRIEFING_ARTIFACT,
-  JUDGE_BRIEFING_BUCKET,
-  JUDGE_BRIEFING_TODAY,
-} from './briefingFixture'
-import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'
+} from '@/testFixtures/judgeChatFixture/seed'
+import { assertTranscriptFits } from './seedTranscript'
 
 // One arm of one case for a chat agent: drive a real turn through the real
 // HTTP routes and return a RunRecord. The orchestrator that runs both arms and
@@ -89,7 +70,6 @@ export const TOOL_BUDGET_FALLBACK_REPLY =
 
 // Compared as numbers: an axios status is a plain number, and comparing it
 // against the enum member directly is what no-unsafe-enum-comparison rejects.
-const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
 
 // The case, as the runner needs it. Structurally the loaded `ChatCase` minus
@@ -113,10 +93,6 @@ export interface ChatJudgeCase {
   // Recorded and CHECKED here, not applied here: the seed happens in the
   // caller, which owns the Prisma client. See assertSeededAccountState.
   accountState?: ChatAccountState
-}
-
-export interface ChatRunnerPorts {
-  service: TestServiceContext
 }
 
 export interface ChatRunRequest {
@@ -359,84 +335,18 @@ export const priceRun = (tokens: TokenUsage, model: string): PricedRun => {
 // compare two arms partly on boilerplate that varies with seed data. No id
 // means the turn persisted nothing, which is not a result.
 const readAssistantText = async (
-  ports: ChatRunnerPorts,
+  runtime: ChatArmRuntime,
+  request: Omit<AssistantTextRequest, 'assistantMessageId'>,
   assistantMessageId: string | undefined,
-): Promise<string | null> => {
-  if (assistantMessageId === undefined) return null
-  const row = await ports.service.prisma.chatMessage.findFirst({
-    where: { id: assistantMessageId, role: ChatMessageRole.assistant },
-  })
-  return row?.content ?? null
-}
+): Promise<string | null> =>
+  assistantMessageId === undefined
+    ? null
+    : runtime.readAssistantText({ ...request, assistantMessageId })
 
 // Re-numbered so several turns' traces read as one sequence. A one-turn case
 // is unchanged in value: buildTrace already numbers from zero.
 export const reindexTrace = (steps: readonly TraceStep[]): TraceStep[] =>
   steps.map((step, index) => ({ ...step, index }))
-
-interface OpenedConversation {
-  conversationId: string
-  // Where each turn of this conversation is posted.
-  messagesPath: string
-}
-
-// THE CONVERSATION, OPENED THE WAY THE PRODUCT OPENS IT.
-//
-// Every registry scope is created through POST /v1/chats. A briefing chat is
-// not: the webapp creates it with POST /v1/briefing-chats, which writes the
-// conversation and its annotation in one transaction, and posts its turns to
-// /v1/briefing-chats/:annotationId/messages. The registry's create path
-// refuses briefing_annotation on purpose, because a conversation with no
-// annotation is one the briefing context cannot load. So this drives the
-// briefing routes — production code untouched, and the turn the judge
-// measures is the one users take, through the same handler the registry
-// holds.
-const openConversation = async (
-  ports: ChatRunnerPorts,
-  request: ChatRunRequest,
-  scope: ChatScope,
-  headers: { headers: Record<string, string> },
-): Promise<OpenedConversation> => {
-  if (scope === ChatScope.briefing_annotation) {
-    const target = request.briefing
-    if (target === undefined) {
-      throw new Error(
-        'briefing_annotation is opened on a briefing, and the request names ' +
-          "none; pass the seeded org's `briefing`",
-      )
-    }
-    const created = await ports.service.client.post<CreateBriefingChatResponse>(
-      '/v1/briefing-chats',
-      { meetingDate: target.meetingDate, anchor: target.anchor },
-      headers,
-    )
-    if (created.status !== HTTP_CREATED) {
-      throw new Error(`POST /v1/briefing-chats returned ${created.status}`)
-    }
-    const { annotationId, conversationId } =
-      createBriefingChatResponseSchema.parse(created.data)
-    return {
-      conversationId,
-      messagesPath: `/v1/briefing-chats/${annotationId}/messages`,
-    }
-  }
-
-  const created = await ports.service.client.post<CreateChatResponse>(
-    '/v1/chats',
-    { scope, ...(request.anchor && { anchor: request.anchor }) },
-    headers,
-  )
-  if (created.status !== HTTP_CREATED) {
-    throw new Error(
-      `POST /v1/chats returned ${created.status} for scope "${scope}"`,
-    )
-  }
-  const { conversationId } = CreateChatResponseSchema.parse(created.data)
-  return {
-    conversationId,
-    messagesPath: `/v1/chats/${conversationId}/messages?scope=${scope}`,
-  }
-}
 
 // EVERY USER TURN OF THE CASE, POSTED TO ONE CONVERSATION.
 //
@@ -446,31 +356,27 @@ const openConversation = async (
 // multi-turn case measures the agent rather than the harness's idea of what
 // a conversation looks like.
 const driveCase = async (
-  ports: ChatRunnerPorts,
+  runtime: ChatArmRuntime,
   request: ChatRunRequest,
-  capture: TurnCapture,
+  instrumentation: CaseInstrumentation,
   turns: readonly string[],
 ): Promise<CaseOutcome> => {
+  const capture = instrumentation.capture
   const scope = chatScopeFor(request.agentId)
-  const headers = {
-    headers: { 'X-Organization-Slug': request.organizationSlug },
-  }
-
-  const { conversationId, messagesPath } = await openConversation(
-    ports,
-    request,
+  const { conversationId, messagesPath } = await runtime.openConversation({
     scope,
-    headers,
-  )
+    organizationSlug: request.organizationSlug,
+    ...(request.anchor && { anchor: request.anchor }),
+    ...(request.briefing && { briefing: request.briefing }),
+  })
 
   // Before the first turn, so the agent's first reply is already a
   // mid-conversation one. No route writes an assistant message, so this
   // reaches the store directly — through the same two methods the live turn
   // uses. See seedTranscript.ts.
   if (request.case.priorTranscript !== undefined) {
-    await seedPriorTranscript(ports.service.app, {
+    await runtime.seedPriorTranscript({
       conversationId,
-      ownerUserId: ports.service.user.id,
       turns: request.case.priorTranscript,
       drivenTurns: turns.length,
     })
@@ -479,36 +385,47 @@ const driveCase = async (
   const outcomes: TurnOutcome[] = []
   const trace: TraceStep[] = []
   const usageErrors: string[] = []
-  for (const content of turns) {
+  for (const [index, content] of turns.entries()) {
     // The outcomes array is shared by every turn of the case, so each turn's
     // trace is built from ITS slice. Handing the whole array to buildTrace
     // would have turn two re-consume turn one's outcomes and attach them a
     // second time.
     const outcomesBefore = capture.outcomes.length
 
-    // No clientMessageId: the route requires a GUID and it only buys
-    // user-turn dedup, which a run that opens its own conversation cannot
-    // need.
-    const streamed = await ports.service.client.post<string>(
+    const streamed = await runtime.postTurn({
       messagesPath,
-      { content },
-      headers,
-    )
+      organizationSlug: request.organizationSlug,
+      content,
+    })
     if (streamed.status !== HTTP_OK) {
       throw new Error(
         `POST ${messagesPath.split('?')[0]} returned ${streamed.status}`,
       )
     }
 
-    const events = parseStreamEvents(String(streamed.data))
+    // Parsed from the body the runtime hands back WHOLE, on both runtimes,
+    // because `toolCallId` on a `tool_call` frame paired with its
+    // `tool_result` is how buildTrace decides a tool failed — and over HTTP
+    // it is the only evidence there is.
+    const events = parseStreamEvents(streamed.body)
     const done = events.find((event) => event.type === 'done')
     const turn: TurnOutcome = {
-      output: await readAssistantText(ports, done?.assistantMessageId),
+      output: await readAssistantText(
+        runtime,
+        { conversationId, scope, organizationSlug: request.organizationSlug },
+        done?.assistantMessageId,
+      ),
       events,
       streamErrored: events.some((event) => event.type === 'error'),
     }
     outcomes.push(turn)
-    trace.push(...buildTrace(events, capture.outcomes.slice(outcomesBefore)))
+    trace.push(
+      ...buildTrace(
+        events,
+        capture.outcomes.slice(outcomesBefore),
+        done !== undefined,
+      ),
+    )
 
     // Per turn, because the capture's usage promise is replaced by the next
     // turn's. Read here and accumulated, rather than once at the end, which
@@ -518,7 +435,11 @@ const driveCase = async (
     // abandoning turn three because turn two's usage promise rejected would
     // discard two answers that are already persisted and judgeable.
     try {
-      await readTurnTokens(capture)
+      await instrumentation.observeTurn({
+        conversationId,
+        drivenTurn: index + 1,
+        completed: done !== undefined,
+      })
     } catch (usageErr) {
       usageErrors.push(traceErrorText(usageErr))
     }
@@ -639,7 +560,7 @@ export const caseInput = (one: ChatJudgeCase): Payload => {
 // Refuses rather than proceeding, and early enough that nothing has been
 // spent: no model is reached until the first message POST below.
 export const assertSeededAccountState = async (
-  ports: ChatRunnerPorts,
+  runtime: ChatArmRuntime,
   request: ChatRunRequest,
 ): Promise<void> => {
   const state = request.case.accountState
@@ -647,45 +568,47 @@ export const assertSeededAccountState = async (
   if (state === undefined) return
 
   const wrong: string[] = []
+  // Read ONCE, and only when a state names a column one of them carries.
+  // The two queries were separate reads at two sites before the runtime seam
+  // existed; keeping the condition means an HTTP arm, whose runtime cannot
+  // serve this read at all, is never asked for rows no case wants.
+  const readsRows =
+    state.district !== undefined ||
+    state.pro !== undefined ||
+    state.campaignDetails !== undefined
+  const rows = readsRows
+    ? await runtime.readSeededAccountRows(request.organizationSlug)
+    : undefined
   if (state.district !== undefined) {
-    const organization = await ports.service.prisma.organization.findFirst({
-      where: { slug: request.organizationSlug },
-      select: { positionId: true },
-    })
+    const organization = rows?.organization
     if (!organization) {
       throw new CaseListError(
         `${request.organizationSlug} was never seeded, so the account ` +
           'state this case declares cannot be checked',
       )
     }
-    if (
-      state.district !== undefined &&
-      state.district !== (organization.positionId !== null)
-    ) {
+    if (state.district !== organization.hasDistrict) {
       wrong.push(
         `district is ${state.district ? 'asked for' : 'asked to be absent'} ` +
           `but organization.positionId is ${
-            organization.positionId === null ? 'null' : 'set'
+            organization.hasDistrict ? 'set' : 'null'
           }`,
       )
     }
   }
   if (state.pro !== undefined || state.campaignDetails !== undefined) {
-    const campaign = await ports.service.prisma.campaign.findFirst({
-      where: { organizationSlug: request.organizationSlug },
-      select: { isPro: true, details: true },
-    })
+    const campaign = rows?.campaign
     if (!campaign) {
       throw new CaseListError(
         `${request.organizationSlug} has no campaign, so the account state ` +
           'this case declares cannot be checked',
       )
     }
-    if (state.pro !== undefined && state.pro !== campaign.isPro) {
-      wrong.push(`pro is ${state.pro} but campaign.isPro is ${campaign.isPro}`)
+    if (state.pro !== undefined && state.pro !== campaign.pro) {
+      wrong.push(`pro is ${state.pro} but campaign.isPro is ${campaign.pro}`)
     }
     if (state.campaignDetails !== undefined) {
-      const seeded = Object.keys(campaign.details).length > 0
+      const seeded = campaign.hasCampaignDetails
       if (state.campaignDetails !== seeded) {
         wrong.push(
           `campaignDetails is ${state.campaignDetails} but the campaign ` +
@@ -797,34 +720,52 @@ export const directiveFailureText = (
 // keeps every record the agent had already written.
 
 export const runChatCase = async (
-  ports: ChatRunnerPorts,
+  runtime: ChatArmRuntime,
   request: ChatRunRequest,
 ): Promise<RunRecord> => {
   // Ahead of any instrumentation: an agent with no registered scope handler
   // cannot be driven at all, and emitting an infraError record for it would
   // put a coverage gap into the delta as though it were a failed run.
-  chatScopeFor(request.agentId)
+  const scope = chatScopeFor(request.agentId)
   // Every directive this run cannot honour, refused HERE — before a
   // conversation is opened and long before the model is reached. A chat turn
   // costs real money, and a directive discovered mid-run has already spent it
   // on a case whose condition was never applied.
+  //
+  // The runtime goes first because its refusals are the broadest: a case an
+  // HTTP arm cannot drive at all is not worth checking the transcript window
+  // of, and the reasons it gives name a setting rather than a case field.
+  runtime.assertCanDrive({
+    agentId: request.agentId,
+    caseId: request.case.caseId,
+    scope,
+    ...(request.case.accountState && {
+      accountState: request.case.accountState,
+    }),
+    ...(request.case.priorTranscript && {
+      priorTranscript: request.case.priorTranscript,
+    }),
+    ...(request.case.toolFailure && { toolFailure: request.case.toolFailure }),
+    ...(request.script && { script: request.script }),
+    ...(request.realModel === true && { realModel: true }),
+    ...(request.dataVersion !== undefined && {
+      dataVersion: request.dataVersion,
+    }),
+  })
   const turns = caseTurns(request.case)
   if (request.case.priorTranscript !== undefined) {
     assertTranscriptFits(request.case.priorTranscript.length, turns.length)
   }
-  await assertSeededAccountState(ports, request)
+  await assertSeededAccountState(runtime, request)
 
   const attempt = request.attempt ?? 1
   const runId = `${request.sweepId}:${request.case.caseId}:${request.arm}:${attempt}`
   const fallbackReplies = buildFallbackReplies(request.fallbackReplies)
 
-  // Both patches are process-global for as long as they are installed, and
-  // BOTH installs can throw — installLlmCapture on a non-test process, on a
-  // second install against the same instance, or on a request that would
-  // spend real money. So the second one failing has to unwind the first by
-  // hand: there is no restore handle to hand back out of here, and a patch
-  // installed and then abandoned would rewrite the SQL of, and answer from a
-  // canned script, every later request in the process.
+  // Resolved here rather than inside the runtime: the pinnable tables come
+  // from the same app-layer allowlist the scope's handler injects into the
+  // tool, and an agent that reads no pinnable table has to be refused before
+  // anything is installed.
   const pin: DeltaPin | undefined =
     request.dataVersion === undefined
       ? undefined
@@ -832,45 +773,16 @@ export const runChatCase = async (
           version: request.dataVersion,
           tables: pinnableTablesFor(request.agentId),
         }
-  const llmService = ports.service.app.get(LlmService)
-  // Installed on DatabricksSqlProvider's prototype rather than on a provider
-  // resolved by token: `CONSTITUENT_DATA_PROVIDER` is registered by two
-  // modules with two factories, so a token lookup cannot say which instance
-  // the handler for this scope holds. Unconditional for the same reason —
-  // there is no instance to be handed, or withheld.
-  const databricks = instrumentDatabricksProvider(pin)
-  let llm: InstalledLlmCapture
-  try {
-    llm = installLlmCapture(llmService, {
-      ...(request.script && { script: request.script }),
-      ...(request.realModel === true && { realModel: true }),
-      ...(request.case.toolFailure && {
-        toolFailure: request.case.toolFailure,
-      }),
-    })
-  } catch (err) {
-    databricks.restore()
-    throw err
-  }
-  // A third patch, for the briefing scope alone, and unwound the same way:
-  // it serves the seeded briefing's artifact and pins the `today` the
-  // briefing prompt renders, so both arms read the same briefing on the same
-  // day. See installBriefingFixture.
-  let briefing: InstalledBriefingFixture | undefined
-  try {
-    briefing =
-      chatScopeFor(request.agentId) === ChatScope.briefing_annotation
-        ? installBriefingFixture({
-            bucket: JUDGE_BRIEFING_BUCKET,
-            artifactContent: JUDGE_BRIEFING_ARTIFACT,
-            today: JUDGE_BRIEFING_TODAY,
-          })
-        : undefined
-  } catch (err) {
-    llm.restore()
-    databricks.restore()
-    throw err
-  }
+  const instrumentation = await runtime.beginCase({
+    scope,
+    ...(request.script && { script: request.script }),
+    ...(request.realModel === true && { realModel: true }),
+    ...(request.case.toolFailure && {
+      toolFailure: request.case.toolFailure,
+    }),
+    ...(pin !== undefined && { pin }),
+  })
+  const capture = instrumentation.capture
 
   const startedAt = new Date()
   let outcome: CaseOutcome
@@ -883,7 +795,7 @@ export const runChatCase = async (
   // rather than replacing one reason with the other.
   let driveError: string | undefined
   try {
-    outcome = await driveCase(ports, request, llm.capture, turns)
+    outcome = await driveCase(runtime, request, instrumentation, turns)
     trace = outcome.trace
     for (const reason of outcome.usageErrors) {
       // Token accounting is not the turn. A rejected usage promise leaves the
@@ -900,9 +812,7 @@ export const runChatCase = async (
     driveError = traceErrorText(err)
     trace = infraTrace(driveError)
   } finally {
-    briefing?.restore()
-    llm.restore()
-    databricks.restore()
+    instrumentation.restore()
   }
   const endedAt = new Date()
 
@@ -912,23 +822,23 @@ export const runChatCase = async (
   // from a case the agent simply never needed the tool for, and the sweep
   // would report a verdict about a condition nobody applied. Nothing was
   // spent — the seam refuses before the model is called.
-  if (llm.capture.directiveError !== undefined) {
+  if (capture.directiveError !== undefined) {
     throw new ChatDirectiveError(
       directiveFailureText(
         request.agentId,
         request.case.caseId,
-        llm.capture.directiveError,
+        capture.directiveError,
         driveError,
       ),
     )
   }
 
-  const tokens = turnTokens(llm.capture.tokens, llm.capture.turnsPriced, turns)
-  const model = llm.capture.model || request.variant.model
-  const priced = !everyTurnPriced(llm.capture.turnsPriced, turns)
+  const tokens = turnTokens(capture.tokens, capture.turnsPriced, turns)
+  const model = capture.model || request.variant.model
+  const priced = !everyTurnPriced(capture.turnsPriced, turns)
     ? {
         unpriceable:
-          `usage resolved for ${llm.capture.turnsPriced} of ` +
+          `usage resolved for ${capture.turnsPriced} of ` +
           `${turns.length} turn(s): the rest ended before the model ` +
           'reported it, so the cost is unknown rather than zero',
       }
@@ -956,10 +866,7 @@ export const runChatCase = async (
   const finalTrace =
     unpriceable === undefined ? trace : errorStep(trace, unpriceable)
   const toolSteps = finalTrace.filter((step) => step.kind === 'tool')
-  const toolErrorDetails = chatToolErrorDetails(
-    toolSteps,
-    llm.capture.toolNames,
-  )
+  const toolErrorDetails = chatToolErrorDetails(toolSteps, capture.toolNames)
 
   return RunRecordSchema.parse({
     schemaVersion: 1,
@@ -974,11 +881,10 @@ export const runChatCase = async (
       model,
       // 'unobserved' rather than a hash of two empty strings: a run that
       // died before the model was reached learned nothing about the config,
-      // and saying so is more useful than a digest that looks real.
-      configDigest:
-        llm.capture.systemPrompt === undefined
-          ? 'unobserved'
-          : configDigest(llm.capture.systemPrompt, llm.capture.toolNames),
+      // and saying so is more useful than a digest that looks real. The two
+      // runtimes hash DIFFERENT INPUTS and say so in the digest's own
+      // prefix — see httpConfigDigest.
+      configDigest: instrumentation.configDigest(),
     },
     caseId: request.case.caseId,
     attempt,
@@ -997,7 +903,7 @@ export const runChatCase = async (
       // this is the retries the runner itself made: none.
       retries: 0,
     },
-    toolQueries: databricks.queries,
+    toolQueries: instrumentation.toolQueries,
     ...(toolErrorDetails.length > 0 && { toolErrorDetails }),
     // Recorded only when a query actually ran against the pinned version. A
     // run that read no versioned table has no version to report, and claiming
@@ -1005,7 +911,7 @@ export const runChatCase = async (
     // no provider is constructed at all wherever no credential is configured,
     // which is every local and CI run.
     ...(request.dataVersion !== undefined &&
-      databricks.queries.length > 0 && {
+      instrumentation.toolQueries.length > 0 && {
         dataVersion: request.dataVersion,
       }),
     liveWeb: toolSteps.some((step) => step.tool === 'web_search'),

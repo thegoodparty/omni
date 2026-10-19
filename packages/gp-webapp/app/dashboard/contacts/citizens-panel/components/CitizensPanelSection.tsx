@@ -7,7 +7,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useContactsTable } from '../../crm/ContactsTableProvider'
 import {
-  CITIZENS_PANEL_PATH,
+  civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import {
@@ -49,7 +49,7 @@ export const CitizensPanelSection = () => {
       <>
         <CitizensPanelStats summary={query.data} />
         <Link
-          href={CITIZENS_PANEL_PATH}
+          href={civicPanelHref('contacts')}
           className="flex items-center gap-1 self-start text-sm font-semibold text-link no-underline hover:underline"
         >
           {COPY.seePanel}

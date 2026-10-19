@@ -2,7 +2,6 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  CIVIC_PANEL_PAGE_HREF,
   type ChatClarifyQuestion,
   type CivicPanelBuildNext,
   type CivicPanelBuildStep,
@@ -20,8 +19,12 @@ import {
   CompactCardUnavailable,
 } from '../../../shared/agent-chat/cards/cardShell'
 import { OPTION_CARD_CLASS } from '../../../shared/agent-chat/optionCard'
-import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../../contacts/citizens-panel/citizensPanelCopy'
+import {
+  civicPanelHref,
+  SERVE_CITIZENS_PANEL_COPY as PANEL_COPY,
+} from '../../../contacts/citizens-panel/citizensPanelCopy'
 import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
+import { CivicPanelBalanceStatus } from '../../../contacts/citizens-panel/components/CivicPanelBalance'
 import {
   keepGoingHref,
   useCivicPanelStepFlow,
@@ -81,6 +84,7 @@ export const CivicPanelNextStepCard = () => {
   const [starting, setStarting] = useState(false)
   const [failed, setFailed] = useState(false)
   const stepFlow = useCivicPanelStepFlow({
+    surface: 'chief_of_staff_chat',
     onChange: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -158,10 +162,11 @@ export const CivicPanelNextStepCard = () => {
           </span>
         ) : null}
       </div>
+      {data.balance ? <CivicPanelBalanceStatus balance={data.balance} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         {action}
         <Link
-          href={CIVIC_PANEL_PAGE_HREF}
+          href={civicPanelHref('chief_of_staff_chat')}
           className="text-sm text-foreground underline underline-offset-2"
         >
           {CIVIC_PANEL_CHAT_COPY.seePlan}

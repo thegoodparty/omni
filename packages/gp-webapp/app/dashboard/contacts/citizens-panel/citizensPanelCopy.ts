@@ -1,6 +1,16 @@
 import { CIVIC_PANEL_SEGMENT } from '@goodparty_org/contracts'
 
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
+
+// Where the official came to the panel page from, for its Panel Viewed event.
+export const CIVIC_PANEL_ENTRY_PARAM = 'from'
+export type CivicPanelEntry =
+  | 'chief_of_staff_home'
+  | 'chief_of_staff_chat'
+  | 'contacts'
+  | 'outreach'
+export const civicPanelHref = (from: CivicPanelEntry): string =>
+  `${CITIZENS_PANEL_PATH}?${CIVIC_PANEL_ENTRY_PARAM}=${from}`
 // The built-in list under Constituent lists. The segment doubles as the list
 // id in the path, the way "all" does for All constituents.
 export const CITIZENS_PANEL_LIST_PATH = `/dashboard/contacts/lists/${CIVIC_PANEL_SEGMENT}`
@@ -63,6 +73,18 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       `People a text can't reach, landlines first. ${time} of your time.`,
     door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
   },
+  // A step's line when its draw leans toward a group the panel trails.
+  stepLean: {
+    text: (group: string) => `This round invites more ${group}.`,
+    phone_banking: (time: string) =>
+      `People a text can't reach. ${time} of your time.`,
+    door_knocking: (time: string) =>
+      `A part of your district we haven't reached. ${time} of your time.`,
+  },
+  balanceTitle: 'How your panel compares with your district',
+  balanceTooEarly: (minimum: number) =>
+    `We'll compare your panel with your district once ${minimum} people join.`,
+  inviteMore: (group: string) => `Invite more ${group} next.`,
   duration: (minutes: number) =>
     minutes < 50
       ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`

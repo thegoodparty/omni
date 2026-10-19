@@ -5,12 +5,19 @@ import {
   BLOCK_GROUP_DEMOGRAPHICS_TABLE,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
+  buildRespondentCellsSql,
+  buildTractGridCellsSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapCensusCompositionRows,
+  mapGridCells,
+  mapRespondentCells,
+  mapTractAdults,
+  sampleWeightSql,
 } from './districtCensusSql.util'
-import type { DbxDistrict } from './databricksVoterSql.util'
+import { createBag, type DbxDistrict } from './databricksVoterSql.util'
 
 const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
 
@@ -112,12 +119,15 @@ describe('buildRespondentBlockGroupsSql', () => {
       'SELECT v.`Census_Block_Group_Geoid` AS block_group_geoid,' +
         ' count(*) AS respondents',
     )
+    expect(sql).toContain(
+      'r.age_band, r.gender, r.tenure, substr(r.block_group_geoid, 1, 11) AS tract',
+    )
     expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
     expect(sql).toContain('v.`State` = :p0')
     expect(sql).toContain('v.`Water_District` = :p1')
     expect(sql).toContain(`v.\`id\` IN ('${ID_A}', '${ID_B}')`)
     expect(sql).toContain('AND v.`Census_Block_Group_Geoid` IS NOT NULL')
-    expect(sql).toContain('GROUP BY v.`Census_Block_Group_Geoid`')
+    expect(sql).toContain('GROUP BY 1, 3, 4, 5')
     expect(sql).toContain(
       `JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
         ' ON bg.block_group_geoid = r.block_group_geoid',
@@ -166,9 +176,166 @@ describe('mapCensusCompositionRows', () => {
     expect(mapped.respondentBlockGroups[0]?.population65Plus).toBeNull()
   })
 
+  it('reads each row profile after its census figures, in step with the people', () => {
+    const mapped = mapCensusCompositionRows(
+      [],
+      [['2', ...acsRow(() => '1'), '65plus', null, 'renter', '53017950100']],
+    )
+    expect(mapped.respondentProfiles).toEqual([
+      {
+        ageBand: '65plus',
+        gender: null,
+        tenure: 'renter',
+        tract: '53017950100',
+      },
+      {
+        ageBand: '65plus',
+        gender: null,
+        tenure: 'renter',
+        tract: '53017950100',
+      },
+    ])
+  })
+
   it('maps a missing district row to null', () => {
     const mapped = mapCensusCompositionRows([], [['2', ...acsRow(() => '1')]])
     expect(mapped.district).toBeNull()
     expect(mapped.respondentBlockGroups).toHaveLength(2)
+  })
+})
+
+const PERSON_ID = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4'
+
+describe('buildRespondentCellsSql', () => {
+  it('reads counts per age band, gender, tenure and tract, never a person', () => {
+    const { sql } = buildRespondentCellsSql(DISTRICT, [PERSON_ID])
+
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+    expect(sql).toContain('count(*) AS respondents')
+    expect(sql).toContain('GROUP BY 1, 2, 3, 4')
+    expect(sql).toContain(PERSON_ID)
+    expect(sql).toContain("THEN '65plus'")
+    expect(sql).toContain("THEN 'renter'")
+    expect(sql).not.toMatch(/FirstName|LastName|Phone|Address/)
+  })
+})
+
+describe('buildDistrictTractAdultsSql', () => {
+  it('sums adults per tract over the block groups the district lives in', () => {
+    const { sql } = buildDistrictTractAdultsSql(DISTRICT)
+
+    expect(sql).toContain(`FROM ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg`)
+    expect(sql).toContain(
+      'sum(bg.total_population - bg.population_under_18) AS adults',
+    )
+    expect(sql).toContain('substr(bg.block_group_geoid, 1, 11)')
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+  })
+})
+
+describe('mapRespondentCells', () => {
+  it('keeps unknowns as null and counts as numbers', () => {
+    expect(
+      mapRespondentCells([
+        ['65plus', 'female', 'owner', '53017950100', '4'],
+        [null, null, null, null, '2'],
+      ]),
+    ).toEqual([
+      {
+        ageBand: '65plus',
+        gender: 'female',
+        tenure: 'owner',
+        tract: '53017950100',
+        count: 4,
+      },
+      { ageBand: null, gender: null, tenure: null, tract: null, count: 2 },
+    ])
+  })
+})
+
+describe('buildTractGridCellsSql', () => {
+  it('reads grid squares for the tracts, binding each tract', () => {
+    const { sql, params } = buildTractGridCellsSql(
+      DISTRICT,
+      ['53017950100', '53017950200'],
+      0.004,
+    )
+    expect(sql).toContain('SELECT DISTINCT floor(')
+    expect(sql).toContain('/ 0.004) AS grid_row')
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+    expect(params.map((p) => p.value)).toEqual([
+      'WA',
+      'EAST WENATCHEE WATER',
+      '53017950100',
+      '53017950200',
+    ])
+    expect(sql).not.toMatch(/FirstName|LastName|Phone|Address_Line/)
+  })
+})
+
+describe('mapGridCells', () => {
+  it('drops rows without both indexes', () => {
+    expect(
+      mapGridCells([
+        ['9000', '-20000'],
+        [null, '1'],
+      ]),
+    ).toEqual([{ row: 9000, col: -20000 }])
+  })
+})
+
+describe('mapTractAdults', () => {
+  it('drops tracts with no adults or no figure', () => {
+    const tracts = mapTractAdults([
+      ['53017950100', '1200'],
+      ['53017950200', null],
+      ['53017950300', '0'],
+    ])
+    expect([...tracts]).toEqual([['53017950100', 1200]])
+  })
+})
+
+describe('sampleWeightSql', () => {
+  const weights = {
+    age: { '18to64': 0.8, '65plus': 2 },
+    gender: {},
+    tract: { '53017950100': 1, '53017950200': 1.5 },
+    minWeight: 0.5,
+    maxWeight: 2,
+  }
+
+  it('multiplies age and tract factors within the bounds, all bound', () => {
+    const bag = createBag()
+    const sql = sampleWeightSql(bag, weights)
+    expect(sql).toBe(
+      'least(CAST(:p7 AS DOUBLE), greatest(CAST(:p6 AS DOUBLE),' +
+        " CASE CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to64' END" +
+        ' WHEN :p0 THEN CAST(:p1 AS DOUBLE)' +
+        ' WHEN :p2 THEN CAST(:p3 AS DOUBLE) ELSE 1.0 END *' +
+        ' CASE substr(v.`Census_Block_Group_Geoid`, 1, 11)' +
+        ' WHEN :p4 THEN CAST(:p5 AS DOUBLE) ELSE 1.0 END))',
+    )
+    // A factor of 1 and an empty dimension add nothing.
+    expect(bag.params.map((p) => p.value)).toEqual([
+      '18to64',
+      '0.8',
+      '65plus',
+      '2',
+      '53017950200',
+      '1.5',
+      '0.5',
+      '2',
+    ])
+  })
+
+  it('weighs everyone the same when no factor moves', () => {
+    expect(
+      sampleWeightSql(createBag(), {
+        ...weights,
+        age: {},
+        tract: { '53017950100': 1 },
+      }),
+    ).toBe('1.0')
   })
 })

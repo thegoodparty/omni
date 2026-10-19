@@ -15,7 +15,7 @@ import { addYears, format, startOfDay, subMonths } from 'date-fns'
 import { Campaign, User } from '../../generated/prisma'
 
 // Same default race the e2e suite provisions against — a live BallotReady
-// office on the dev election-api with voter rows in the dev people-db.
+// office in the dev election database with voter rows in the dev people-db.
 export const DEFAULT_RACE = {
   zip: '82001',
   office: 'Cheyenne City Council - Ward 1',

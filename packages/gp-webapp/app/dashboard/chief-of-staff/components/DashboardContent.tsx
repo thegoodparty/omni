@@ -188,6 +188,7 @@ export default function DashboardContent(): React.JSX.Element {
         showSuggestionsAfterKickoff={explaining}
         hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
+        analyticsSurface="chief_of_staff_page"
       />
     </div>
   )

@@ -157,11 +157,16 @@ export class GeoapifyRoutePlannerService {
     // billed call saved, and it reports as `routingWaypoints: 0` exactly as a
     // failed one does, because in both cases nothing was charged.
     fetchGeometry?: boolean
+    organizationSlug?: string
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
     const planner = new sdk.RoutePlanner({
       apiKey: this.apiKey(),
-      baseUrl: vendorBaseUrl('geoapify', 'https://api.geoapify.com'),
+      baseUrl: vendorBaseUrl(
+        'geoapify',
+        'https://api.geoapify.com',
+        args.organizationSlug,
+      ),
     })
     planner.setMode(args.mode)
     const agent = new sdk.Agent()
@@ -311,6 +316,7 @@ export class GeoapifyRoutePlannerService {
   async routeThrough(args: {
     mode: 'walk' | 'drive'
     waypoints: LngLat[]
+    organizationSlug?: string
   }): Promise<{
     geometry: RoutePathGeometry | null
     legs: Array<{ seconds: number; meters: number }> | null
@@ -319,9 +325,12 @@ export class GeoapifyRoutePlannerService {
     if (args.waypoints.length < 2) {
       return { geometry: null, legs: null, billedWaypoints: 0 }
     }
-    const url = new URL(
-      `${vendorBaseUrl('geoapify', 'https://api.geoapify.com')}/v1/routing`,
+    const baseUrl = vendorBaseUrl(
+      'geoapify',
+      'https://api.geoapify.com',
+      args.organizationSlug,
     )
+    const url = new URL(`${baseUrl}/v1/routing`)
     url.searchParams.set(
       'waypoints',
       args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
