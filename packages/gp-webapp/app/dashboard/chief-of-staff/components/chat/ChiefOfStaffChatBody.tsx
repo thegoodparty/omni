@@ -410,6 +410,8 @@ function ChiefOfStaffChatThread({
   const creatingRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const lastUserContentRef = useRef('')
+  // How that message was sent, so a Retry reports it the same way.
+  const lastUserViaRef = useRef<ChatSendVia>('composer')
   const lastAttachmentIdsRef = useRef<string[]>([])
   // Tracks the pendingKickoff value that has already fired (not a boolean): the
   // parent clears pendingKickoff on close and re-sets the same sentinel on
@@ -1168,6 +1170,7 @@ function ChiefOfStaffChatThread({
         )
       } else {
         lastUserContentRef.current = trimmed
+        lastUserViaRef.current = opts?.via ?? 'composer'
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1297,7 +1300,11 @@ function ChiefOfStaffChatThread({
       return
     }
     if (content) {
-      void deliver(content, { hidden: false, attachmentIds })
+      void deliver(content, {
+        hidden: false,
+        attachmentIds,
+        via: lastUserViaRef.current,
+      })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.

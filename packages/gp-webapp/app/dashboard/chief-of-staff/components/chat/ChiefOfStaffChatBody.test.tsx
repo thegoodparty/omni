@@ -844,6 +844,30 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(chatSends()).toHaveLength(0)
   })
 
+  it('reports a retried assistant bar message as sent from the bar', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue({ conversationId: 'conv_r' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        analyticsSurface="contacts_assistant"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toMatchObject({ via: 'assistant_bar' })
+  })
+
   it('does not report a hidden kickoff as a message sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_h' })
