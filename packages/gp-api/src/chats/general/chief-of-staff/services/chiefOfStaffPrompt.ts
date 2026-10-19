@@ -2,7 +2,6 @@ import { differenceInCalendarMonths, isAfter, parseISO } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
-import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   CIVIC_PANEL_PAGE_HREF,
@@ -776,13 +775,14 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     // found the same gap here that September's found in Win: no description
     // of the platform, so product questions ended in a guess or a handoff.
     // See ../../product-knowledge/AGENTS.md.
-    ...buildProductKnowledgeBlocks(
-      'serve',
-      toolNames.includes('search_help_center'),
-      // Serve's only gate today is per-poll payment, which is not an account
-      // state, so the map carries no Pro line for it.
-      null,
-    ),
+    // PLANTED REGRESSION, DO NOT MERGE. buildProductKnowledgeBlocks('serve',
+    // ...) is removed so the agent no longer knows what the product does or
+    // where its flows live. The judge case `product-how-to` asks how to text
+    // constituents and passes only on a reply that routes inside GoodParty
+    // or to its support; the comment this replaces records that without this
+    // block "product questions ended in a guess or a handoff", which is the
+    // documented failure the case checks for.
+
     INSTRUCTIONS_BLOCK,
     // Last on purpose: every tool rule block above pulls toward more detail,
     // and this is the thing that holds a reply short.
