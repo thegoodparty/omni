@@ -458,8 +458,8 @@ export default function TurfDetailsSheet({
             />
             {/* Exact, with nothing to hedge: these came through the create
                 transaction's own evaluation of the polygon, which is also what
-                dropped the do-not-knock residents. A
-                route whose every resident is flagged reports a real 0. */}
+                dropped the do-not-knock residents. A route whose every
+                resident is flagged reports a real 0. */}
             <Metric
               icon={<UsersIcon />}
               label="People"
