@@ -120,7 +120,21 @@ const MintEnvSchema = z.object({
   [JUDGE_CLERK_ENV.secretKey]: SecretKeySchema,
   // Optional, and usually absent. Set it to pin an existing account; leave
   // it unset and the mint step finds or creates the judge's own by email.
-  [JUDGE_CLERK_ENV.userId]: UserIdSchema.optional(),
+  //
+  // BLANK COUNTS AS UNSET, which `.optional()` alone does not deliver and
+  // which cost the first live HTTP sweep. The workflow passes
+  // `${{ vars.JUDGE_CLERK_USER_ID }}`, and an Actions variable that does not
+  // exist expands to an empty string rather than vanishing, so the value
+  // arrives as `''`. That is not `undefined`, so it reached NON_EMPTY and the
+  // regex and produced two issues about one field: "JUDGE_CLERK_USER_ID is
+  // not set, and JUDGE_CLERK_USER_ID is not set". sweepEnv.ts's
+  // BLANK_IS_UNSET exists for this exact hazard; this is the same shape.
+  [JUDGE_CLERK_ENV.userId]: z
+    .string()
+    .transform((value) => value.trim())
+    .transform((value) => (value === '' ? undefined : value))
+    .optional()
+    .pipe(UserIdSchema.optional()),
   [JUDGE_CLERK_ENV.ttlSeconds]: TtlSchema,
 })
 
