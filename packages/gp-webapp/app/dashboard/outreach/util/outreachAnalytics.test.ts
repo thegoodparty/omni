@@ -140,4 +140,17 @@ describe('outreachChannel', () => {
   it('leaves an unknown type as the catch-all rather than dropping the event', () => {
     expect(outreachChannel('something-new')).toBe('general')
   })
+
+  it('carries the launch source only when an agent surface launched it', () => {
+    expect(
+      outreachEventProps({ channel: 'text', isServe: true }),
+    ).not.toHaveProperty('launchSource')
+    expect(
+      outreachEventProps({
+        channel: 'text',
+        isServe: true,
+        launchSource: 'expand_panel',
+      }).launchSource,
+    ).toBe('expand_panel')
+  })
 })

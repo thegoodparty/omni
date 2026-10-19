@@ -26,16 +26,16 @@ type NoteRow = {
 export class DoorKnockingNotesService extends createPrismaBase(
   MODELS.ContactNote,
 ) {
-  // ADR 0011. Every target's notes for one route, in one query.
+  // Every target's notes for one route, in one query.
   //
   // One statement for the whole route rather than one per resident: the route
   // serve runs on every walk open and every map open, and a 150-stop route
   // would otherwise fire ~150 round trips behind a single GET.
   //
-  // The cap is applied in SQL by the same `ROW_NUMBER()` window ADR 0009 uses
-  // for the activity feed, for the same reason — an org that has been taking
-  // notes on these people all cycle should not have all of them read into Node
-  // heap so three can be kept.
+  // The cap is applied in SQL by the same `ROW_NUMBER()` window the activity
+  // feed uses, for the same reason — an org that has been taking notes on
+  // these people all cycle should not have all of them read into Node heap so
+  // three can be kept.
   //
   // `COUNT(*) OVER` rides the identical partition, so the resident's true note
   // count comes back on the rows the window already produced. That is what

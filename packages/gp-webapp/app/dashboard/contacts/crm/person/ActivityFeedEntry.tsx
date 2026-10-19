@@ -72,8 +72,8 @@ const FOLLOW_UP_ANSWER_LABELS: Record<FollowUpAnswer, string> = {
 // The field's own display name — a fixed title per field, not part of what
 // resolveContactStatusLabel resolves server-side (that's the fromValue/
 // toValue vocabulary, a different and larger axis). Do Not Knock is written
-// from the door rather than edited here (ADR 0007), as is Not A Voter (ADR
-// 0008), but both land in the same event log, so the feed has to name them.
+// from the door rather than edited here, as is Not A Voter, but both land
+// in the same event log, so the feed has to name them.
 const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   voter_likelihood: 'Voter Likelihood',
   support_status: 'Support Status',

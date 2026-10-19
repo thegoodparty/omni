@@ -123,53 +123,68 @@ export const PollQuestionStep = ({
         </p>
         <Button
           type="button"
-          variant="outline"
+          variant="link"
+          size="small"
+          className="h-auto gap-1.5 px-0 no-underline"
           onClick={onRegenerate}
           disabled={drafting || !canRegenerate}
         >
-          <RefreshIcon className="size-4" />
+          {drafting ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <RefreshIcon className="size-4" />
+          )}
           {SERVE_POLL_QUESTION_COPY.regenerate}
         </Button>
       </div>
 
-      <div className="space-y-2">
-        <Label>{SERVE_POLL_QUESTION_COPY.questionLabel}</Label>
-        <Card className="gap-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {SERVE_POLL_QUESTION_COPY.introLabel}
-            </span>{' '}
-            {withSampleFirstName(intro)}
-          </p>
-          {drafting ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 py-6 text-sm text-muted-foreground"
-            >
-              <Loader2Icon className="size-4 animate-spin" />
-              Writing your question…
-            </div>
-          ) : (
-            <PollTextBiasInput
-              value={question}
-              onChange={onQuestionChange}
-              placeholder={SERVE_POLL_QUESTION_COPY.questionPlaceholder}
-              onBiasAnalysisChange={onBiasChange}
-            />
-          )}
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {SERVE_POLL_QUESTION_COPY.footerLabel}
-            </span>{' '}
-            {pollFooter}
-          </p>
+      <div className="space-y-3">
+        <Card className="gap-0 p-4">
+          <div className="mb-4 space-y-2">
+            <Label>{SERVE_POLL_QUESTION_COPY.imageLabel}</Label>
+            <PollImageUpload imageUrl={imageUrl} onUploaded={onImageUploaded} />
+          </div>
+
+          <div className="mb-2 flex items-center justify-between">
+            <Label>{SERVE_POLL_QUESTION_COPY.questionLabel}</Label>
+            <span className="text-xs text-muted-foreground">
+              {SERVE_POLL_QUESTION_COPY.count(
+                composedLength,
+                textSegments(composedLength),
+              )}
+            </span>
+          </div>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {SERVE_POLL_QUESTION_COPY.introLabel}
+              </span>{' '}
+              {withSampleFirstName(intro)}
+            </p>
+            {drafting ? (
+              <div
+                role="status"
+                className="flex items-center gap-2 py-6 text-sm text-muted-foreground"
+              >
+                <Loader2Icon className="size-4 animate-spin" />
+                Writing your question…
+              </div>
+            ) : (
+              <PollTextBiasInput
+                value={question}
+                onChange={onQuestionChange}
+                placeholder={SERVE_POLL_QUESTION_COPY.questionPlaceholder}
+                onBiasAnalysisChange={onBiasChange}
+              />
+            )}
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {SERVE_POLL_QUESTION_COPY.footerLabel}
+              </span>{' '}
+              {pollFooter}
+            </p>
+          </div>
         </Card>
-        <p className="text-xs text-muted-foreground">
-          {SERVE_POLL_QUESTION_COPY.count(
-            composedLength,
-            textSegments(composedLength),
-          )}
-        </p>
         {showValidation && tooShort && (
           <p role="alert" className="text-sm text-destructive">
             {SERVE_POLL_QUESTION_COPY.tooShort}
@@ -196,11 +211,6 @@ export const PollQuestionStep = ({
           </AlertDescription>
         </Alert>
       )}
-
-      <div className="space-y-1">
-        <Label>{SERVE_POLL_QUESTION_COPY.imageLabel}</Label>
-        <PollImageUpload imageUrl={imageUrl} onUploaded={onImageUploaded} />
-      </div>
     </div>
   )
 }

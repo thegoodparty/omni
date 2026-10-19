@@ -63,12 +63,12 @@ const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   />
 )
 
-// ADR 0007 and 0008. Both rosters below list a flagged resident alongside
-// people who are still to knock, so both replace the status with the marker —
-// the same rule the walk list follows. Without it the stop list says "Do not
-// knock" and this sheet, one tap later, says "Support unknown" about the same
-// person: two answers to the same question, which is the contradiction the
-// marker exists to prevent.
+// Do-not-knock and not-a-voter. Both rosters below list a flagged resident
+// alongside people who are still to knock, so both replace the status with the
+// marker — the same rule the walk list follows. Without it the stop list says
+// "Do not knock" and this sheet, one tap later, says "Support unknown" about
+// the same person: two answers to the same question, which is the
+// contradiction the marker exists to prevent.
 const ResidentMarker = ({ marker }: { marker: string }) => (
   <span className="shrink-0 text-xs font-medium text-warning">{marker}</span>
 )
@@ -139,15 +139,15 @@ const FactCard = ({
 // from the most recent knock, which would quietly report one canvasser's answer
 // as the resident's standing position.
 //
-// ADR 0007 and 0008: withheld for a flagged resident. That is `targetMarker`'s
-// rule at panel scale — the marker REPLACES the status rather than sitting
-// beside it, and "Supporter" over a door whose footer says "asked not to be
-// visited again" is exactly the pair of answers to one question the rule exists
-// to prevent. It used to be withheld structurally, by living inside the footer
-// branch that also withholds the script and the form; the card now sits in the
-// body where the canvas draws it, so the footer's flag control is resolved once
-// and the body renders this card only when there is none. Still one predicate,
-// just named instead of implied — see `flagControl` below.
+// Do-not-knock and not-a-voter: withheld for a flagged resident. That is
+// `targetMarker`'s rule at panel scale — the marker REPLACES the status rather
+// than sitting beside it, and "Supporter" over a door whose footer says "asked
+// not to be visited again" is exactly the pair of answers to one question the
+// rule exists to prevent. It used to be withheld structurally, by living inside
+// the footer branch that also withholds the script and the form; the card now
+// sits in the body where the canvas draws it, so the footer's flag control is
+// resolved once and the body renders this card only when there is none. Still
+// one predicate, just named instead of implied — see `flagControl` below.
 const VoterSupportCard = ({
   target,
   status,
@@ -218,7 +218,7 @@ interface PersonSheetProps {
     personId: string,
     knockStatus: DoorKnockStatus,
   ) => void
-  // ADR 0011. Reported up rather than applied here, for the reason the knock
+  // Notes. Reported up rather than applied here, for the reason the knock
   // status is: `WalkView` writes them into the cached route payload, so the
   // list this sheet renders is the same list a reopened sheet renders.
   onNoteCreated: (personId: string, note: ContactNote) => void
@@ -367,11 +367,11 @@ export default function PersonSheet({
     ),
   )
 
-  // ADR 0007 and 0008, resolved once for the whole sheet. A flagged door has
-  // nothing to say and nothing to log, so the footer swaps the script, the form
-  // and the two follow-ups for the flag's own control — and the body's support
-  // card is withheld by the presence of that control rather than by a second
-  // reading of the same two fields, which is what would drift.
+  // Do-not-knock and not-a-voter, resolved once for the whole sheet. A flagged
+  // door has nothing to say and nothing to log, so the footer swaps the script,
+  // the form and the two follow-ups for the flag's own control — and the body's
+  // support card is withheld by the presence of that control rather than by a
+  // second reading of the same two fields, which is what would drift.
   const flagControl = target.doNotKnock ? (
     <DoNotKnockControl
       key={target.stopTargetId}
@@ -543,10 +543,10 @@ export default function PersonSheet({
             headed for a constituent, and the fifth is Follow-up in place of
             Voter support. The sequence itself is the same on both rails.
 
-            **Notes moving to seventh reverses a position ADR 0011 recorded.**
-            The ADR argued it second, above the profile, because it is the only
-            card here read BEFORE the knock — "dog in the yard, use the side
-            gate" under a dozen rows of reference material is a note nobody
+            **Notes moving to seventh reverses an earlier recorded position.**
+            That position put it second, above the profile, because it is the
+            only card here read BEFORE the knock — "dog in the yard, use the
+            side gate" under a dozen rows of reference material is a note nobody
             standing at a gate finds. That argument is unchanged and is worth
             re-reading before this moves again; what overrules it is the design
             call that this panel's card order is the canvas's. Nothing about the
@@ -714,7 +714,7 @@ export default function PersonSheet({
             facts={demographicFacts(target, isServe)}
           />
 
-          {/* ADR 0011, seventh, where the canvas draws Notes — see the sequence
+          {/* Notes, seventh, where the canvas draws them — see the sequence
               note at the top of this body for what that reversed and why.
 
               In the scrolling body rather than the footer fragment, for the same
@@ -747,8 +747,8 @@ export default function PersonSheet({
             onDeleted={(noteId) => onNoteDeleted(target.personId, noteId)}
           />
 
-          {/* ADR 0009. Scoped to `target`, so switching resident switches the
-              feed — two people behind one door disagree, and attributing a
+          {/* Activity feed. Scoped to `target`, so switching resident switches
+              the feed — two people behind one door disagree, and attributing a
               housemate's refusal to whoever answered is worse than showing
               nothing.
 
@@ -778,12 +778,12 @@ export default function PersonSheet({
             talking points card has moved to the top of the body where the canvas
             draws it. */}
         <div className="flex flex-col gap-4 border-t border-border px-5 pb-4 pt-3">
-          {/* ADR 0007 and 0008. The form is withheld rather than disabled: a
-              flagged door has nothing to log, and an inert set of pills invites
-              someone to work out why they don't respond. `flagControl` is
-              resolved above, where do-not-knock is checked first because it is
-              the stronger instruction — it is about the door, not the
-              resident. */}
+          {/* Do-not-knock and not-a-voter. The form is withheld rather than
+              disabled: a flagged door has nothing to log, and an inert set of
+              pills invites someone to work out why they don't respond.
+              `flagControl` is resolved above, where do-not-knock is checked
+              first because it is the stronger instruction — it is about the
+              door, not the resident. */}
           {flagControl ?? (
             <>
               {/* No heading over the ladder. The design's log bar starts

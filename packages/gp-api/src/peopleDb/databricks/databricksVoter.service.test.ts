@@ -703,12 +703,33 @@ describe('DatabricksVoterService', () => {
       ).toHaveLength(1)
     })
 
-    it('takes the same slice again for the same seed key', async () => {
+    const twoPeople = {
+      columns: [],
+      rows: [
+        personRow('11111111-1111-4111-8111-111111111111'),
+        personRow('22222222-2222-4222-8222-222222222222'),
+      ],
+    }
+    const onePerson = { columns: [], rows: twoPeople.rows.slice(0, 1) }
+    const drawCalls = () =>
+      query.mock.calls.slice(1).map(
+        ([statement]) =>
+          statement as {
+            sql: string
+            params: { name: string; value: string | null; type: string }[]
+          },
+      )
+    const intParams = (draw: {
+      params: { value: string | null; type: string }[]
+    }) =>
+      draw.params.filter((param) => param.type === 'INT').map((p) => p.value)
+
+    it('takes the same draw again for the same seed key', async () => {
       const seedOf = async (seedKey: string) => {
         stubDistrict('US_Congressional_District', '29')
         query
           .mockResolvedValueOnce({ columns: [], rows: [['60']] })
-          .mockResolvedValueOnce({ columns: [], rows: [] })
+          .mockResolvedValueOnce(twoPeople)
         await service.samplePeople(sampleWithin(seedKey), 'voters')
         const draw = query.mock.calls.at(-1)?.[0] as {
           params: { value: string | null; type: string }[]
@@ -719,6 +740,104 @@ describe('DatabricksVoterService', () => {
       const first = await seedOf('proposal-1')
       expect(await seedOf('proposal-1')).toBe(first)
       expect(await seedOf('proposal-2')).not.toBe(first)
+    })
+
+    it('orders the slice by the seed it was cut with', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValueOnce(twoPeople)
+
+      await service.samplePeople(sampleWithin('proposal-1'), 'voters')
+
+      const [draw] = drawCalls()
+      const [seed, divisor, size] = intParams(draw!)
+      expect(divisor).toBe('10')
+      expect(size).toBe('2')
+      const seedParam = draw!.params.find((param) => param.value === seed)
+      expect(draw!.sql).toContain(
+        `ORDER BY xxhash64(v.\`id\`, :${seedParam!.name}), v.\`id\``,
+      )
+    })
+
+    it('orders a weighted draw by its weights, inside the same slice', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValueOnce(twoPeople)
+
+      await service.samplePeople(
+        samplePeopleSchema.parse({
+          ...sampleWithin('proposal-1'),
+          weights: {
+            age: { '65plus': 2 },
+            gender: {},
+            tract: {},
+            race: {},
+            minWeight: 0.5,
+            maxWeight: 2,
+          },
+        }),
+        'voters',
+      )
+
+      const [draw] = drawCalls()
+      expect(intParams(draw!)[1]).toBe('10')
+      expect(draw!.sql).toContain('ORDER BY -ln((pmod(xxhash64(v.`id`')
+      expect(draw!.sql).toContain("THEN '65plus'")
+    })
+
+    it('orders the whole pool when it is too small to slice', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['10']] })
+        .mockResolvedValueOnce(twoPeople)
+
+      const people = await service.samplePeople(
+        sampleWithin('proposal-1'),
+        'voters',
+      )
+
+      expect(people).toHaveLength(2)
+      const [draw] = drawCalls()
+      expect(draw!.sql).not.toContain('pmod')
+      expect(draw!.sql).toContain('ORDER BY xxhash64')
+    })
+
+    it('widens a slice that came back short instead of returning it', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValueOnce(onePerson)
+        .mockResolvedValueOnce(twoPeople)
+
+      const people = await service.samplePeople(
+        sampleWithin('proposal-1'),
+        'voters',
+      )
+
+      expect(people).toHaveLength(2)
+      const draws = drawCalls()
+      expect(draws).toHaveLength(2)
+      expect(intParams(draws[0]!)[1]).toBe('10')
+      expect(intParams(draws[1]!)[1]).toBe('5')
+      expect(intParams(draws[1]!)[0]).toBe(intParams(draws[0]!)[0])
+    })
+
+    it('falls back to the whole pool, then refuses a short sample', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({ columns: [], rows: [['60']] })
+        .mockResolvedValue(onePerson)
+
+      await expect(
+        service.samplePeople(sampleWithin('proposal-1'), 'voters'),
+      ).rejects.toThrow('Not enough non-excluded constituents 1')
+
+      const draws = drawCalls()
+      expect(draws).toHaveLength(3)
+      expect(draws[1]!.sql).toContain('pmod')
+      expect(draws[2]!.sql).not.toContain('pmod')
     })
 
     it('still refuses an audience smaller than the draw', async () => {
@@ -864,7 +983,11 @@ describe('DatabricksVoterService', () => {
       )
 
       expect(query).toHaveBeenCalledTimes(1)
-      expect(result).toEqual({ district: null, respondentBlockGroups: [] })
+      expect(result).toEqual({
+        district: null,
+        respondentBlockGroups: [],
+        respondentProfiles: [],
+      })
     })
 
     // The caller turns a failure into "unavailable" and answers 200, so
@@ -879,6 +1002,43 @@ describe('DatabricksVoterService', () => {
         service.findCensusComposition(DISTRICT_ID, 'voters', [PERSON_ID]),
       ).rejects.toBeInstanceOf(PeopleDbxUnavailableError)
       expect(logger.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('walkableAreaRows', () => {
+    it('reads each picked door with its residents, one row per door', async () => {
+      stubDistrict('City', 'SPRINGFIELD')
+      const a = '11111111-1111-4111-8111-111111111111'
+      const b = '22222222-2222-4222-8222-222222222222'
+      query.mockResolvedValueOnce({
+        columns: ['lat', 'lng', 'personIds'],
+        rows: [['39.78', '-89.65', `${a},${b}`]],
+      })
+
+      const rows = await service.walkableAreaRows(
+        {
+          districtId: DISTRICT_ID,
+          filters: filtersSchema.parse({}),
+          households: 40,
+          tract: '17167000100',
+        } as never,
+        'voters',
+      )
+
+      expect(rows).toEqual([
+        {
+          lat: 39.78,
+          lng: -89.65,
+          personIds: [a, b],
+        },
+      ])
+      const [statement] = query.mock.calls[0] as [
+        { sql: string; params: Array<{ value: string | null }> },
+      ]
+      expect(statement.sql).toContain('WITH points AS')
+      expect(statement.params.map((p) => p.value)).toEqual(
+        expect.arrayContaining(['40', '17167000100']),
+      )
     })
   })
 })

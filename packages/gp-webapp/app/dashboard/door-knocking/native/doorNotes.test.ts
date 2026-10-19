@@ -26,7 +26,7 @@ describe('seedDoorNotes', () => {
     })
   })
 
-  // ADR 0011 keeps `notes` optional so that absent and empty stay different
+  // The payload keeps `notes` optional so that absent and empty stay different
   // claims: an empty block says nobody has written about this resident, while
   // an absent one says the phone is holding a route snapshotted before the
   // field existed. Collapsing the second into `total: 0` would put the first
@@ -88,9 +88,10 @@ describe('withUpdatedNote', () => {
       }),
     )
 
-    // ADR 0011 orders this list by createdAt and never by updatedAt, precisely
-    // so that editing a two-year-old note does not float it above one written
-    // this morning. A client that re-sorted would undo that at the door.
+    // The payload orders this list by createdAt and never by updatedAt,
+    // precisely so that editing a two-year-old note does not float it above one
+    // written this morning. A client that re-sorted would undo that at the
+    // door.
     expect(next.entries.map((entry) => entry.id)).toEqual(['new', 'old'])
     expect(next.entries[1]?.body).toBe('Fixed a typo')
     expect(next.total).toBe(2)
@@ -181,15 +182,16 @@ describe('editServedNotes', () => {
   })
 
   // The one thing the wire shape cannot carry. `total` is an int, so a payload
-  // that predates ADR 0011 has no count to write back once a note is added to
-  // it — and the two alternatives are both worse than materialising what the
-  // browser actually has: leaving the block absent would drop the note the
-  // moment it was written, which is the defect this path exists to close, and
-  // deriving a count from the served rows is the inference ADR 0011 rejected.
-  // What is given up is the card's "saved before notes rode the route" line for
-  // that resident, and that line does its work on an *empty* card, where a
-  // blank section otherwise reads as "nobody has ever written about this
-  // person". A card showing a note written thirty seconds ago is not that.
+  // that predates notes on the route payload has no count to write back once a
+  // note is added to it — and the two alternatives are both worse than
+  // materialising what the browser actually has: leaving the block absent would
+  // drop the note the moment it was written, which is the defect this path
+  // exists to close, and deriving a count from the served rows is the inference
+  // `total` exists to prevent. What is given up is the card's "saved before
+  // notes rode the route" line for that resident, and that line does its work
+  // on an *empty* card, where a blank section otherwise reads as "nobody has
+  // ever written about this person". A card showing a note written thirty
+  // seconds ago is not that.
   it('materialises a count for a payload that predates the field', () => {
     const next = editServedNotes(undefined, (list) =>
       withCreatedNote(list, note()),

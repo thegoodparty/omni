@@ -213,6 +213,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'voter-data-databricks',
   },
 
+  // The election-db client connects fail-soft (electionDb.service.ts), so
+  // gp-api boots without it and every election read throws at request time.
+  // The deploy entrypoint's migration step is what fails a deploy without it.
+  ELECTION_DATABASE_URL: { tier: 'degradable', feature: 'election-data' },
+
   // --- Optional: everything else ---------------------------------------
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
@@ -228,7 +233,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ASSET_DOMAIN: { tier: 'optional' },
   PUBLIC_API_URL: { tier: 'optional' },
   API_PUBLIC_ROOT_URL: { tier: 'optional' },
-  ELECTION_API_URL: { tier: 'optional' },
   GP_ADMIN_BASE_URL: { tier: 'optional' },
   MARKETING_REVALIDATE_SECRET: { tier: 'optional' },
   MARKETING_REVALIDATE_URL: { tier: 'optional' },
@@ -266,6 +270,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MAILGUN_API_KEY: { tier: 'optional' },
   MAILGUN_INTERCEPT_EMAIL: { tier: 'optional' },
   TRACK_MAILGUN_EMAILS: { tier: 'optional', default: 'false' },
+  PCT_DISTRICTZIP_TO_ZIP_THRESHOLD: { tier: 'optional', default: '0.005' },
 
   AI_MODELS: { tier: 'optional' },
   AI_FALLBACK_MODEL: { tier: 'optional' },
@@ -350,6 +355,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   SESSIONS_FLUSH_INTERVAL_MS: { tier: 'optional' },
   TEST_SEND_COOLDOWN_MS: { tier: 'optional' },
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },
+  // Routes vendor HTTP clients at in-process mocks instead of live APIs.
+  // Accepted values: 'live' | 'mock'. Default logic lives in
+  // appEnvironment.util.ts — absent (local/test) or 'preview' → mock,
+  // 'dev' → live, 'prod' → always live (never overridable).
+  VENDOR_MODE: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

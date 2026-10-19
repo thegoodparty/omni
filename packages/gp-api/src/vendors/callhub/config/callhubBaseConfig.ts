@@ -1,4 +1,5 @@
 import { PinoLogger } from 'nestjs-pino'
+import { vendorBaseUrl, VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 
 // The generic https://api.callhub.io host is deprecated and 403s; accounts are
 // pinned to a regional host (ours is https://api-na1.callhub.io). Keep the
@@ -10,7 +11,7 @@ const {
 } = process.env
 
 export class CallhubBaseConfig {
-  readonly baseUrl = CALLHUB_API_BASE_URL
+  readonly baseUrl = vendorBaseUrl('callhub', CALLHUB_API_BASE_URL)
   readonly httpTimeoutMs = parseInt(CALLHUB_HTTP_TIMEOUT, 10)
 
   constructor(protected readonly logger: PinoLogger) {
@@ -22,6 +23,7 @@ export class CallhubBaseConfig {
   // OutreachModule wired CallhubModule in. Missing config must break the
   // CallHub endpoints, never app startup.
   get apiKey(): string {
+    if (VENDOR_MODE === 'mock') return 'mock-key'
     if (!CALLHUB_API_KEY) {
       throw new Error('Missing CALLHUB_API_KEY config')
     }

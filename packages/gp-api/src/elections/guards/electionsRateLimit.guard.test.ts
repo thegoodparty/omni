@@ -22,6 +22,21 @@ describe('ElectionsRateLimitGuard', () => {
     vi.useRealTimers()
   })
 
+  it('never meters a verified machine caller', () => {
+    const ctx = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          ip: '9.9.9.9',
+          serviceReader: { id: 'm2m_x', subject: 'mch_marketing' },
+        }),
+      }),
+    } as unknown as ExecutionContext
+    for (let i = 0; i < 200; i++) {
+      expect(guard.canActivate(ctx)).toBe(true)
+    }
+    expect(guard.canActivate(ctxForIp('9.9.9.9'))).toBe(true)
+  })
+
   it('allows requests within the burst capacity', () => {
     for (let i = 0; i < 60; i++) {
       expect(guard.canActivate(ctxForIp('1.2.3.4'))).toBe(true)

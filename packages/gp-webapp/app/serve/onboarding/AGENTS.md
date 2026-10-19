@@ -25,6 +25,12 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `priorities`, then `pledge` (button "Meet your Chief of Staff", lands on the
   Chief of Staff home).
 
+Each story step has its own `Viewed` / `Completed` pair, named for what it
+tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
+Voices, Where Your Community Stands, Build And Grow Your List), and
+`priorities` fires Priorities Viewed / Completed with shown and selected
+counts.
+
 Every Continue writes the step id to `ElectedOffice.onboardingStep`. gp-api
 validates it against `SERVE_ONBOARDING_STEPS`
 (`gp-api/src/electedOffice/schemas/electedOffice.schema.ts`); a new step id
@@ -47,7 +53,10 @@ behind, so the save never holds the motion.
   implies (`basemapZoom`) frames the basemap, so each dot sits on its street.
 - **Basemap** (`DistrictBasemap`): maplibre with Geoapify's light `positron`
   style and the `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` the contacts and
-  door-knocking maps use, with the same compact attribution. One map instance
+  door-knocking maps use, with the same compact attribution. maplibre opens
+  a compact attribution expanded and collapses it only on the first drag, so
+  every one of these maps collapses it on `load` to its "i" button; the
+  attribution itself stays (OSM ODbL and the Geoapify plan require it). One map instance
   for all four steps; `interactive: false`, so it is a picture with no
   drag, zoom or scroll capture. maplibre is imported inside the effect, the
   dots never wait for it, and no key, no WebGL or a refused tile leaves the

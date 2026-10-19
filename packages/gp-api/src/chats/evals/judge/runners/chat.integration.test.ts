@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
 import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
+import { inProcessChatRuntime } from './chatRuntime'
 import {
   ChatDirectiveError,
   TOOL_BUDGET_FALLBACK_REPLY,
@@ -12,7 +13,11 @@ import {
 } from './chat'
 import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
-import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
+import { seedChatOrg } from './seedChatOrg'
+import {
+  chatOrgSlug,
+  seedOptionsFor,
+} from '@/testFixtures/judgeChatFixture/seed'
 import {
   AnnotationKind,
   ChatMessageRole,
@@ -26,12 +31,12 @@ import {
 import { ElectionsService } from '@/elections/services/elections.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
-import { JUDGE_POSITION } from './seedChatOrg'
+import { JUDGE_POSITION } from '@/testFixtures/judgeChatFixture/seed'
+import { JUDGE_BRIEFING_TODAY } from './briefingFixture'
 import {
-  JUDGE_BRIEFING_TODAY,
   JUDGE_HIGHLIGHT_ANCHOR,
   TOP_LEVEL_ANCHOR,
-} from './briefingFixture'
+} from '@/testFixtures/judgeChatFixture/briefingRows'
 
 // The chat runner against the real app: real routes, real scope handlers, real
 // stream service, real tools, a throwaway Postgres — and a canned model, so
@@ -59,6 +64,10 @@ const ANSWER = 'You have three priorities on file. Housing is the oldest.'
 // from the seam that watched the turn.
 const UNOBSERVED_MODEL = 'model-not-observed'
 
+// The one sweep every case in this file belongs to. It is in the fixture
+// slug, so a test that reads a slug back has to derive it the same way.
+const SWEEP_ID = 'swp_integration'
+
 const textOnlyScript: ChatTurnScript = {
   steps: [{ kind: 'text', text: ANSWER }],
   usage: TOKENS,
@@ -71,7 +80,7 @@ const request = (
   },
 ): ChatRunRequest => ({
   case: { caseId: 'judge-case', question: 'What are my top priorities?' },
-  sweepId: 'swp_integration',
+  sweepId: SWEEP_ID,
   arm: 'candidate',
   variant: {
     ref: 'judge-track-a',
@@ -89,6 +98,7 @@ const runFor = async (
   const seeded = await seedChatOrg(
     service.prisma,
     service.user.id,
+    SWEEP_ID,
     agentId,
     // Keyed on the case id the way the sweep's arm suite keys it, so a test
     // that drives two cases in one database does not collide on
@@ -99,7 +109,7 @@ const runFor = async (
     seedOptionsFor(agentId, overrides.case?.accountState),
   )
   return runChatCase(
-    { service },
+    inProcessChatRuntime(service),
     request({
       agentId,
       organizationSlug: seeded.organizationSlug,
@@ -320,7 +330,7 @@ describe('runChatCase', () => {
     'reports a harness failure as infraError with no output',
     async () => {
       const record = await runChatCase(
-        { service },
+        inProcessChatRuntime(service),
         request({
           agentId: 'chief_of_staff',
           organizationSlug: 'judge-org-that-does-not-exist',
@@ -403,7 +413,7 @@ describe('runChatCase', () => {
       // handed in: this unwind is on the path every case takes.
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'chief_of_staff',
             organizationSlug: 'judge-unused',
@@ -430,7 +440,7 @@ describe('runChatCase', () => {
     async () => {
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'ordinance_flow',
             organizationSlug: 'judge-unused',
@@ -459,7 +469,7 @@ describe('runChatCase', () => {
     async () => {
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             // A real registry agent, but a background one: no scope handler
             // answers for it.
@@ -908,13 +918,14 @@ describe('runChatCase', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'campaign_assistant',
         'judge-case',
       )
 
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'campaign_assistant',
             organizationSlug: seeded.organizationSlug,
@@ -981,7 +992,7 @@ describe('runChatCase', () => {
 
       expect(record.status).toBe('produced')
       const organization = await service.prisma.organization.findFirst({
-        where: { slug: chatOrgSlug('chief_of_staff', 'no-district') },
+        where: { slug: chatOrgSlug(SWEEP_ID, 'chief_of_staff', 'no-district') },
       })
       expect(organization?.positionId).toBeNull()
     },
@@ -1017,13 +1028,14 @@ describe('runChatCase', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'ordinance_flow',
         'judge-case',
       )
 
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'ordinance_flow',
             organizationSlug: seeded.organizationSlug,
@@ -1277,8 +1289,8 @@ describe('runChatCase on briefing chat', () => {
         .mockResolvedValue(JUDGE_POSITION)
       const sql =
         'SELECT COUNT(*) AS n FROM serve_agent_voters ' +
-        "WHERE state_postal_code = 'WA' " +
-        "AND `City Council` = 'Judge City Council District 1'"
+        "WHERE state_postal_code = 'WY' " +
+        "AND `City_Ward` = 'CHEYENNE CITY WARD 1'"
       let record: RunRecord
       try {
         record = await runFor('briefing_annotation', {
@@ -1321,12 +1333,13 @@ describe('runChatCase on briefing chat', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'briefing_annotation',
         'mismatch',
       )
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'briefing_annotation',
             organizationSlug: seeded.organizationSlug,
@@ -1351,11 +1364,12 @@ describe('runChatCase on briefing chat', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'briefing_annotation',
         'unnamed',
       )
       const record = await runChatCase(
-        { service },
+        inProcessChatRuntime(service),
         request({
           agentId: 'briefing_annotation',
           organizationSlug: seeded.organizationSlug,

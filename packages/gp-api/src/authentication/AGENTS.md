@@ -78,7 +78,6 @@ Auth state is enforced globally via three guards registered in order. Most route
 ## Gotchas
 
 - `AUTH_SECRET` must be set at boot — module throws otherwise. No fallback path.
-- ADR for the M2M flow is `docs/adr/0004-clerk-m2m-auth.md` — read before adding new M2M-callable endpoints.
 - `effectiveUser.util.ts` returns `req.actorUser ?? req.user` — **the admin**
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated

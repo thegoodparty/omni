@@ -7,6 +7,7 @@ import {
   type PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import {
   PhoneBankingFlow,
@@ -50,6 +51,7 @@ const doorFlowHref = (data: PrepareCivicPanelBuildStepResponse): string => {
     create: '1',
     listId: String(data.voterFileFilterId),
     purpose: data.purpose,
+    launchSource: 'civic_panel',
   })
   const area = data.area ? walkableAreaParam(data.area) : null
   if (area) params.set('area', area)
@@ -68,10 +70,14 @@ const doorFlowHref = (data: PrepareCivicPanelBuildStepResponse): string => {
  * `onChange` runs when a flow closes or sends, so the caller reads the plan
  * again.
  */
+export type CivicPanelStepSurface = 'panel_page' | 'chief_of_staff_chat'
+
 export const useCivicPanelStepFlow = ({
   onChange,
+  surface,
 }: {
   onChange: () => Promise<void>
+  surface: CivicPanelStepSurface
 }) => {
   const router = useRouter()
   const sms = useServeSmsFlag(false)
@@ -84,6 +90,12 @@ export const useCivicPanelStepFlow = ({
       'POST /v1/contacts/civic-panel/plan/steps/:id/prepare',
       { id: step.id },
     )
+    trackEvent(EVENTS.CivicPanel.StepOpened, {
+      stepId: step.id,
+      channel: data.channel,
+      wave: step.wave,
+      surface,
+    })
     if (data.channel === 'door_knocking') {
       router.push(doorFlowHref(data))
       return 'navigating'
@@ -130,6 +142,7 @@ export const useCivicPanelStepFlow = ({
           preselectedListId={opened.listId}
           audienceSettled
           source="deep_link"
+          launchSource="civic_panel"
         />
       ) : null}
       {opened?.channel === 'phone_banking' ? (
@@ -142,6 +155,7 @@ export const useCivicPanelStepFlow = ({
           initialPurpose={opened.purpose}
           initialName={COPY.callListName}
           source="deep_link"
+          launchSource="civic_panel"
         />
       ) : null}
     </>

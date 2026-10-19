@@ -77,6 +77,10 @@ const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 export const col = (name: string): string => `v.${ident(name)}`
 
+// A person's census tract: the first 11 digits of their block group GEOID.
+export const tractSql = (): string =>
+  `substr(${col('Census_Block_Group_Geoid')}, 1, 11)`
+
 // Each component COALESCE'd so a NULL doesn't void the key, TRIM'd and UPPER'd
 // so formatting differences group together, joined on a delimiter that cannot
 // occur inside a component. Columns come from contracts, so a key composed
@@ -925,17 +929,22 @@ export const buildPageSql = (
   return { sql, params: bag.params }
 }
 
+// A weighted draw's u: the seeded hash's low 32 bits over 2^32, offset
+// half a step so it is never 0 or 1.
+const HASH_UNIT_RANGE = '4294967296'
+
 // CSV export projection. Every column is cast to string and null-coalesced
 // because the Statement Execution API renders a SQL NULL as the literal text
 // `null` in CSV, where Postgres COPY writes an empty field — without this the
 // download would be full of the word "null".
 // Sampling keeps Postgres's hash pre-cut, for a different reason. There it
 // existed to keep the planner off a sequential scan; here it exists to avoid a
-// sort. Ordering the whole population by a seeded hash and taking the top N
-// measured 3-6s because it sorts every matching row, while cutting to a
-// 1/divisor slice and letting LIMIT terminate early measured a flat 2.1-2.3s
-// from a 7.8k-voter ward to a 23M-voter state. The seed rotates which slice is
-// taken, so successive calls return different people.
+// sort. Ordering the whole population by a seeded hash measured 3-6s because
+// it sorts every matching row, so the population is first cut to a 1/divisor
+// slice and only the slice is ordered. The ORDER BY is what makes the draw
+// random: without it LIMIT returns whichever slice rows Spark scans first,
+// which follows file layout, and a small pool (divisor 1) has no slice at all.
+// The id breaks a hash tie so the same seed returns the same rows.
 export const buildSampleSql = (
   args: DbxScopeArgs & {
     columns: readonly string[]
@@ -944,6 +953,8 @@ export const buildSampleSql = (
     hashDivisor: number
     hasCellPhone?: boolean
     excludeIds?: readonly string[]
+    // Each row's draw weight, as SQL. Without it every row weighs the same.
+    weight?: (bag: Bag) => string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -961,16 +972,24 @@ export const buildSampleSql = (
     parts.push(`AND ${col('id')} NOT IN (${idList(excludeIds)})`)
   }
 
+  const seed = bag.bind(num(args.seed), 'INT')
+  const seededHash = `xxhash64(${col('id')}, ${seed})`
   const divisor = Math.max(1, Math.trunc(num(args.hashDivisor)))
   if (divisor > 1) {
-    parts.push(
-      `AND pmod(xxhash64(${col('id')}, ${bag.bind(num(args.seed), 'INT')}),` +
-        ` ${bag.bind(divisor, 'INT')}) = 0`,
-    )
+    parts.push(`AND pmod(${seededHash}, ${bag.bind(divisor, 'INT')}) = 0`)
   }
 
+  // Weighted, the slice is ordered by -ln(u) / w, u the same hash mapped
+  // into (0, 1): the smallest n keys are a weighted draw without
+  // replacement (Efraimidis and Spirakis), and equal weights order exactly
+  // as the hash does.
+  const order = args.weight
+    ? `-ln((pmod(${seededHash}, ${HASH_UNIT_RANGE}) + 0.5)` +
+      ` / ${HASH_UNIT_RANGE}) / (${args.weight(bag)})`
+    : seededHash
   const sql =
     `SELECT ${projection} FROM ${args.district.table} v ${parts.join(' ')}` +
+    ` ORDER BY ${order}, ${col('id')}` +
     ` LIMIT ${bag.bind(num(args.size), 'INT')}`
   return { sql, params: bag.params }
 }
@@ -1029,6 +1048,8 @@ export const buildDoorKnockingEvaluateSql = (
     // interpolated dot on screen was silently uncountable. Defaults to the
     // door-knocking rule so that path is unchanged.
     requireRooftopAccuracy?: boolean
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -1046,6 +1067,9 @@ export const buildDoorKnockingEvaluateSql = (
   if (excluded.length > 0) {
     parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
   }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
+  }
 
   const sql =
     `SELECT ${col('id')} AS ${ident('id')},` +
@@ -1059,6 +1083,78 @@ export const buildDoorKnockingEvaluateSql = (
     // LIMIT cap + 1 so an overflowing polygon is detected without counting.
     // The caller rejects rather than truncating.
     ` LIMIT ${bag.bind(num(args.maxPeople) + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+const METERS_PER_DEGREE_LAT = 110_540
+const METERS_PER_DEGREE_LNG_AT_EQUATOR = 111_320
+
+// About two blocks: small enough that a cell and its neighbors are a walk,
+// big enough that a suburban street still fills one.
+const WALKABLE_CELL_METERS = 200
+
+// The densest walkable cluster of households, over every eligible household
+// in scope rather than a capped first slice of rows: a LIMIT without an
+// ORDER BY returns whichever rows Spark scans first, which follows file
+// layout and can sit in one corner of a large district. Households (by unit
+// key) go into ~200m cells on a grid scaled at their mean latitude; the cell
+// whose 3x3 neighborhood holds the most households is the seed (ties to the
+// lower `cx:cy` key, compared as text), and the households nearest the
+// mean position of that neighborhood's households are taken, closest first
+// and then by key, up to `households`. Only those doors leave the
+// warehouse: a position and resident ids each, no name or address.
+export const buildWalkableAreaSql = (
+  args: DbxScopeArgs & {
+    households: number
+    excludePersonIds?: readonly string[]
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const parts = [
+    buildScopeSql(bag, args),
+    `AND ${ROOFTOP_ONLY}`,
+    `AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`,
+  ]
+  const excluded = args.excludePersonIds ?? []
+  if (excluded.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
+  }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
+  }
+  const cell = WALKABLE_CELL_METERS
+  const sql =
+    `WITH points AS (SELECT ${col('id')} AS id, ${latDouble} AS lat,` +
+    ` ${lngDouble} AS lng, ${currentUnitKey()} AS addressKey` +
+    ` FROM ${args.district.table} v ${parts.join(' ')}),` +
+    ` homes AS (SELECT addressKey, min(lat) AS lat, min(lng) AS lng` +
+    ` FROM points GROUP BY addressKey),` +
+    ` grid AS (SELECT ${METERS_PER_DEGREE_LNG_AT_EQUATOR}` +
+    ` * cos(radians(avg(lat))) AS lngScale FROM homes),` +
+    ` placed AS (SELECT h.addressKey, h.lng * g.lngScale AS x,` +
+    ` h.lat * ${METERS_PER_DEGREE_LAT} AS y FROM homes h CROSS JOIN grid g),` +
+    ` cells AS (SELECT floor(x / ${cell}) AS cx, floor(y / ${cell}) AS cy,` +
+    ` count(*) AS n, sum(x) AS sx, sum(y) AS sy FROM placed` +
+    ` GROUP BY floor(x / ${cell}), floor(y / ${cell})),` +
+    ` spread AS (SELECT c.cx + ox.d AS kx, c.cy + oy.d AS ky, c.n, c.sx,` +
+    ` c.sy FROM cells c CROSS JOIN (VALUES (-1), (0), (1)) AS ox(d)` +
+    ` CROSS JOIN (VALUES (-1), (0), (1)) AS oy(d)),` +
+    ` scored AS (SELECT s.kx, s.ky, sum(s.n) AS score,` +
+    ` sum(s.sx) / sum(s.n) AS centerX, sum(s.sy) / sum(s.n) AS centerY` +
+    ` FROM spread s JOIN cells c ON c.cx = s.kx AND c.cy = s.ky` +
+    ` GROUP BY s.kx, s.ky),` +
+    ` seed AS (SELECT centerX, centerY FROM scored` +
+    ` ORDER BY score DESC, concat(kx, ':', ky) LIMIT 1),` +
+    ` picked AS (SELECT p.addressKey FROM placed p CROSS JOIN seed s` +
+    ` ORDER BY hypot(p.x - s.centerX, p.y - s.centerY), p.addressKey` +
+    ` LIMIT ${bag.bind(num(args.households), 'INT')})` +
+    ` SELECT min(p.lat) AS ${ident('lat')}, min(p.lng) AS ${ident('lng')},` +
+    ` concat_ws(',', array_sort(collect_list(p.id)))` +
+    ` AS ${ident('personIds')}` +
+    ` FROM points p JOIN picked k ON k.addressKey = p.addressKey` +
+    ` GROUP BY p.addressKey ORDER BY ${ident('personIds')}`
   return { sql, params: bag.params }
 }
 
@@ -1237,6 +1333,12 @@ export type DbxEvaluateRow = {
   lng: number
   addressKey: string
   displayAddress: string
+}
+
+export type DbxWalkableHouseholdRow = {
+  lat: number
+  lng: number
+  personIds: string[]
 }
 
 export type DbxResidentRow = {

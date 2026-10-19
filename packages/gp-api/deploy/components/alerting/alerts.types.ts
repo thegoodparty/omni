@@ -1,5 +1,3 @@
-export type SlackGroup = 'serve-bugs' | 'win-bugs'
-
 /**
  * A cause we already understand for an alert that has already fired.
  *
@@ -209,16 +207,6 @@ export type Alert = {
    * from the rule name.
    */
   summaryDetail?: string
-
-  /**
-   * The Slack group, or groups, to notify when the alert is triggered.
-   *
-   * A list because plenty of routes are not one team's: shared platform
-   * surfaces — auth, users, payments, elections — are used by both products,
-   * and picking one owner for them means the other finds out second-hand.
-   * Order is preserved, so the mentions read in the order they are declared.
-   */
-  notify?: SlackGroup | SlackGroup[]
 
   /**
    * The rule's window in Grafana, in seconds. Defaults to 600 (10 minutes).

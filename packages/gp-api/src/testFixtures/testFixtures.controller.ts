@@ -3,6 +3,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   DeleteTestFixtureUsersResponseSchema,
+  RunJobResponseSchema,
   SeedTestFixtureActivityRequestSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityRequest,
@@ -88,6 +89,13 @@ export class TestFixturesController {
   ) {
     this.assertNonProdDeploy()
     return this.activitySeed.seed(slug, body)
+  }
+
+  @Post('jobs/:name/run')
+  @ResponseSchema(RunJobResponseSchema)
+  runJob(@Param('name') name: string) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.runJob(name)
   }
 
   // Fail-closed to the known non-prod deploys, and 404 rather than 403 so the

@@ -40,6 +40,22 @@ the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
 
+A priority's read weights its answers to the census
+(`districtCensusSql.util.ts`, read through `StatsService`):
+`buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure,
+tract (the first 11 digits of `Census_Block_Group_Geoid`) and race (L2's
+`EthnicGroups_EthnicGroup1Desc` folded into the census categories),
+`buildDistrictTractAdultsSql` sums adults per tract, and
+`buildTractGridCellsSql` returns the grid squares a set of tracts' people
+live in, from which gp-api draws the area a priority has not reached. All
+three return counts or square indexes, never a person. The civic panel reads
+the same cells for its members to steer its invites (see the contacts
+AGENTS.md, "Steering by census"); its door draws keep to one tract through
+the walkable-area read's `tract` (`tractSql`). The grid stands in
+for tract outlines until the warehouse publishes them
+(https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
+is the one place to swap.
+
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
 `hf_ideology_general`, every `hs_*` score) and most have no `LALVOTERID`,
@@ -185,10 +201,17 @@ targeting later; today only this read uses it.
 ## Random samples: a seeded slice, not a sort
 
 `samplePeople` (`buildSampleSql`) cuts the population to a 1/divisor slice by
-`pmod(xxhash64(id, seed), divisor) = 0` and lets `LIMIT` stop early. Sorting
-everyone by a seeded hash measured 3-6s; the slice is a flat ~2s from a ward
-to a state. The divisor is sized from the pool so the slice holds about three
-times what was asked for, and a pool smaller than the request is a 400
+`pmod(xxhash64(id, seed), divisor) = 0`, then orders only the slice by
+`xxhash64(id, seed), id` before `LIMIT`. Sorting everyone by the hash measured
+3-6s; the slice keeps the sort to a few times the request, and measured no
+slower than the unordered `LIMIT` it replaced. The `ORDER BY` is what makes it
+random: without it `LIMIT` takes the slice rows Spark scans first, which
+follow file layout. A pool under six times the request has no slice (divisor
+1), and the whole pool is ordered by the hash instead.
+
+The divisor is sized from the pool so the slice holds about three times what
+was asked for. A slice that still comes back short is widened once to half
+the divisor, then to the whole pool. A pool smaller than the request is a 400
 ("Not enough non-excluded constituents"), never a short sample.
 
 Two kinds of draw share it:
@@ -202,11 +225,21 @@ Two kinds of draw share it:
   top: the audience already says how it is reached, and a forced cell cut
   would make the count and the draw read different rows.
 
+A weighted draw (`weights`, set by gp-api only: the civic panel's census
+steering) keeps the same slice and orders it by `-ln(u) / w` instead, `u`
+the seeded hash's low 32 bits over 2^32 (offset half a step), `w` each
+row's weight from `sampleWeightSql` (`districtCensusSql.util.ts`): the
+product of bound age band, gender and tract factors, held within the
+weights' bounds, 1 for a value with no factor. The smallest n keys are a
+weighted draw without replacement (Efraimidis and Spirakis) from the slice,
+which holds about three times the request, so how far a draw can lean is
+bounded by the slice as well as the weights.
+
 The seed rotates every minute by default. A caller that passes `seedKey`
-(the list sample uses the proposal key) gets the same slice whenever it asks.
-`LIMIT` without `ORDER BY` still lets Spark pick which rows of the slice come
-back, so a draw is repeatable in its slice, not row for row; that is why a
-saved sample freezes the ids it got rather than redrawing on read.
+(the list sample uses the proposal key) gets the same people, row for row,
+whenever it asks of the same pool. The pool moves when the mart refreshes or
+the excluded ids change, so a saved sample still freezes the ids it got
+rather than redrawing on read.
 
 ## Street lines come from AddressLine
 
@@ -292,6 +325,14 @@ when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
 
+The civic panel's door step does not go through either. `walkableArea()`
+(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+eligible rooftop household in scope (or one tract): households into 200m
+cells, the densest 3x3 block of cells as the seed, the `households` nearest
+that block's center. Only the picked doors come back, as a position and
+resident ids, so it has no cap to reject or truncate at, and no scan-order
+slice decides where a large district's doors are.
+
 Related arithmetic worth knowing: `residentsCap = targetPersonIds.length * 10`,
 applied as `LIMIT residentsCap + 1`. The cap bounds the _result_, never the
 scan. It exists to reject rather than truncate, not to make the query cheap.
@@ -314,30 +355,30 @@ signatures rather than callers reaching into `databricks/` directly.
 
 ## Key files
 
-| Path                                            | Purpose                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------- |
-| `databricks/voterReadLog.service.ts`            | Times each read and emits the `people-db voter read` line           |
-| `databricks/peopleDbx.config.ts`                | `PEOPLE_DATABRICKS_*` resolution; catalog/schema/hostname constants |
-| `databricks/peopleDbxStatement.client.ts`       | Statement Execution API: inline JSON, CSV external links, polling   |
-| `databricks/databricksVoterSql.util.ts`         | Spark SQL builders + the bound-parameter/inlining rules             |
-| `databricks/databricksVoter.service.ts`         | List/person/aggregates/stats/sample/precincts + door-knocking rows  |
-| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                            |
-| `databricks/databricksVoterPack.service.ts`     | Voter pack built from CSV chunks (never the inline path)            |
-| `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services              |
-| `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                       |
-| `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
+| Path                                            | Purpose                                                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `databricks/voterReadLog.service.ts`            | Times each read and emits the `people-db voter read` line                                                  |
+| `databricks/peopleDbx.config.ts`                | `PEOPLE_DATABRICKS_*` resolution; catalog/schema/hostname constants                                        |
+| `databricks/peopleDbxStatement.client.ts`       | Statement Execution API: inline JSON, CSV external links, polling                                          |
+| `databricks/databricksVoterSql.util.ts`         | Spark SQL builders + the bound-parameter/inlining rules                                                    |
+| `databricks/databricksVoter.service.ts`         | List/person/aggregates/stats/sample/precincts + door-knocking rows                                         |
+| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                                                                   |
+| `databricks/databricksVoterPack.service.ts`     | Voter pack built from CSV chunks (never the inline path)                                                   |
+| `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services                                                     |
+| `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                                                              |
+| `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)                                               |
 | `partySource.ts`                                | How L2 fills party per state (registration, primary ballot, modeled); the one source for every party label |
-| `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
-| `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
-| `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition    |
-| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups |
-| `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)          |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
-| `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
-| `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
-| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                     |
-| `schemas/filters.schema.ts`                     | Zod filter input schema                                             |
-| `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                        |
-| `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes              |
-| `utils/transformToPersonOutput.util.ts`         | Display mapping shared by contacts and the door                     |
-| `util/hash.util.ts`                             | `hash32`, the murmur hash behind the random-sample seed             |
+| `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts                                                     |
+| `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                                                                   |
+| `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
+| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups                                        |
+| `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
+| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                         |
+| `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
+| `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
+| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |
+| `schemas/filters.schema.ts`                     | Zod filter input schema                                                                                    |
+| `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                                                               |
+| `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes                                                     |
+| `utils/transformToPersonOutput.util.ts`         | Display mapping shared by contacts and the door                                                            |
+| `util/hash.util.ts`                             | `hash32`, the murmur hash behind the random-sample seed                                                    |

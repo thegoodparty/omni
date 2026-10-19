@@ -7,6 +7,7 @@ import type {
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -20,6 +21,12 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCountKey,
+  type AcsCounts,
+  type RespondentCell,
+} from '@/peopleDb/databricks/districtCensusSql.util'
 
 const service = useTestService()
 
@@ -88,24 +95,57 @@ const household = (n: number, lat: number) =>
     displayAddress: `${n} Main St`,
   }))
 
+type DoorPoint = ReturnType<typeof household>[number]
+
+// The warehouse's walkable-area pick, over the given people: the first
+// `households` doors left once the excluded people are out.
+const pickFrom = (
+  people: DoorPoint[],
+  dto: { households: number; excludePersonIds?: string[] },
+) => {
+  const excluded = new Set(dto.excludePersonIds ?? [])
+  const doors = new Map<
+    string,
+    { lat: number; lng: number; personIds: string[] }
+  >()
+  for (const p of people) {
+    if (excluded.has(p.id)) continue
+    const door = doors.get(p.addressKey)
+    if (door) door.personIds.push(p.id)
+    else {
+      doors.set(p.addressKey, {
+        lat: p.lat,
+        lng: p.lng,
+        personIds: [p.id],
+      })
+    }
+  }
+  return [...doors.values()].slice(0, dto.households)
+}
+
+// Where the people drawn live, for the area a door step opens on.
+const stubAreaPoints = (people: DoorPoint[]) =>
+  vi
+    .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+    .mockClear()
+    .mockImplementation(async (dto) => {
+      const id = (dto as FilterArg).filters?.filterOperators?.id
+      const only = id?.operator === 'in' ? id.values : []
+      return {
+        people: people.filter((p) => only.includes(p.id)),
+        truncated: false,
+      }
+    })
+
 const stubDoors = (households: number) => {
   const people = Array.from({ length: households }, (_, n) =>
     household(n, 40 + n * 0.0001),
   ).flat()
+  stubAreaPoints(people)
   return vi
-    .spyOn(service.app.get(VoterDoorKnockingService), 'evaluatePoints')
+    .spyOn(service.app.get(VoterDoorKnockingService), 'walkableArea')
     .mockClear()
-    .mockImplementation(async (dto) => {
-      const only = (dto.filters as { id?: { in?: string[] } } | undefined)?.id
-        ?.in
-      const excluded = new Set(dto.excludePersonIds ?? [])
-      return {
-        people: people.filter((p) =>
-          only ? only.includes(p.id) : !excluded.has(p.id),
-        ),
-        truncated: false,
-      }
-    })
+    .mockImplementation(async (dto) => pickFrom(people, dto))
 }
 
 const seedOffice = async (prefix: 'eo' | 'campaign' = 'eo') => {
@@ -199,8 +239,55 @@ const stubPopulation = (population: number | null) =>
     .spyOn(service.app.get(StatsService), 'findDistrictPopulation')
     .mockResolvedValue(population)
 
+// Members counted by age band and tract beside the district's census, as
+// the warehouse would read them. No district row by default: no census to
+// compare with.
+const stubMix = (cells: RespondentCell[] | null) =>
+  vi
+    .spyOn(service.app.get(StatsService), 'findWeightingInputs')
+    .mockClear()
+    .mockResolvedValue({
+      district: cells ? DISTRICT_ACS : null,
+      cells: cells ?? [],
+      tractAdults: TRACT_ADULTS,
+    })
+
+const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
+  Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
+  ) as AcsCounts
+
+// 1,000 adults, 20% of them 65 and over, in tracts of 50%, 40% and 10%.
+const DISTRICT_ACS = acs({
+  totalPopulation: 1_250,
+  populationUnder18: 250,
+  population65Plus: 200,
+})
+const TRACT_A = '53017950100'
+const TRACT_B = '53017950200'
+const TRACT_C = '53017950300'
+const TRACT_ADULTS = new Map([
+  [TRACT_A, 500],
+  [TRACT_B, 400],
+  [TRACT_C, 100],
+])
+
+const members = (
+  count: number,
+  overrides: Partial<RespondentCell> = {},
+): RespondentCell => ({
+  ageBand: '18to64',
+  gender: null,
+  tenure: null,
+  tract: TRACT_A,
+  race: null,
+  count,
+  ...overrides,
+})
+
 beforeEach(() => {
   stubPopulation(CITY)
+  stubMix(null)
 })
 
 const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }
@@ -352,6 +439,7 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
         answersNeeded: 96,
         expectedAnswers: 0,
       },
+      balance: { status: 'tooEarly', inviteMore: null },
     })
   })
 
@@ -538,7 +626,7 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     stubPools(LARGE)
     const plan = await createPlan(slug, 1)
     const draw = stubDraws()
-    stubDoors(60)
+    const doorDraw = stubDoors(60)
 
     const text = await prepare(slug, stepOf(plan, 'text').id)
     const calls = await prepare(slug, stepOf(plan, 'phone_banking').id)
@@ -552,6 +640,9 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     // Landlines first, so the first call draw asks for landlines.
     const callDraw = draw.mock.calls[1]?.[0] as FilterArg
     expect(filterKeys(callDraw)).toContain('hasLandline')
+    expect(stepOf(await readPlan(slug), 'phone_banking').landlineFirst).toBe(
+      true,
+    )
     const textIds = await sampleIds(text.data.voterFileFilterId)
     expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
     expect(doors.data).toMatchObject({
@@ -560,6 +651,11 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     })
     expect(doors.data.size).toBe(80)
     expect(doors.data.area?.type).toBe('Polygon')
+    // The warehouse picks the step's doors over the whole district, leaving
+    // out everyone the earlier steps drew.
+    const doorDto = doorDraw.mock.calls[0]?.[0]
+    expect(doorDto?.households).toBe(40)
+    expect(doorDto?.excludePersonIds).toEqual(expect.arrayContaining(textIds))
     const all = [
       ...textIds,
       ...(await sampleIds(calls.data.voterFileFilterId)),
@@ -604,6 +700,201 @@ const sampleIds = (voterFileFilterId: number) =>
   service.prisma.voterFileFilterSampleMember
     .findMany({ where: { voterFileFilterId }, select: { personId: true } })
     .then((rows) => rows.map((r) => r.personId))
+
+const joinPanel = async (slug: string, count: number) => {
+  for (let i = 0; i < count; i++) {
+    await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+  }
+}
+
+describe('steering the plan by census', () => {
+  it('is too early under 30 members, without reading the census', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    const mix = stubMix([members(29)])
+    await joinPanel(slug, 29)
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.balance).toEqual({ status: 'tooEarly', inviteMore: null })
+    expect(mix).not.toHaveBeenCalled()
+    expect(res.data.plan?.steps.map((step) => step.steeredToward)).toEqual([
+      null,
+      null,
+      null,
+    ])
+  })
+
+  it('reads no comparison when the census cannot be read', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    await joinPanel(slug, 30)
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.balance).toBeNull()
+    expect(res.data.next?.line).toBe(
+      'Invite residents to your civic panel by text',
+    )
+  })
+
+  it('names who to invite next and leans each step toward them', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    // Every member 18 to 64 and in tract A: B and C, and people 65 and
+    // over, are behind.
+    stubMix([members(40)])
+    await joinPanel(slug, 40)
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.balance).toEqual({
+      status: 'notYetRepresentative',
+      inviteMore: 'unreachedAreas',
+    })
+    expect(
+      res.data.plan?.steps.map(({ channel, steeredToward }) => ({
+        channel,
+        steeredToward,
+      })),
+    ).toEqual([
+      { channel: 'text', steeredToward: 'unreachedAreas' },
+      // Too few people 65 and over yet: landlines first, unweighted.
+      { channel: 'phone_banking', steeredToward: null },
+      { channel: 'door_knocking', steeredToward: 'unreachedAreas' },
+    ])
+    expect(stepOf(res, 'phone_banking').landlineFirst).toBe(true)
+    expect(stepOf(res, 'text').landlineFirst).toBeNull()
+  })
+
+  it('draws the text weighted toward the groups the panel trails', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubMix([members(40)])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    const draw = stubDraws()
+
+    const res = await prepare(slug, stepOf(plan, 'text').id)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const weights = draw.mock.calls[0]?.[0].weights
+    expect(weights).toMatchObject({
+      age: { '18to64': 0.8, '65plus': 2 },
+      minWeight: 0.5,
+      maxWeight: 2,
+    })
+    expect(weights?.tract[TRACT_A]).toBe(0.5)
+    expect(weights?.tract[TRACT_B]).toBe(2)
+    const read = await readPlan(slug)
+    expect(stepOf(read, 'text').steeredToward).toBe('unreachedAreas')
+  })
+
+  it('drops landline-first once the panel holds its share of people 65 and over', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubMix([
+      members(20, { ageBand: '65plus', tract: TRACT_A }),
+      members(16, { tract: TRACT_B }),
+      members(4, { tract: TRACT_C }),
+    ])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    const draw = stubDraws()
+
+    await prepare(slug, stepOf(plan, 'phone_banking').id)
+
+    expect(draw).toHaveBeenCalledTimes(1)
+    const callDraw = draw.mock.calls[0]?.[0]
+    expect(filterKeys(callDraw as FilterArg)).not.toContain('hasLandline')
+    expect(filterKeys(callDraw as FilterArg)).toContain('hasAnyPhone')
+    expect(callDraw?.weights?.age['18to64']).toBeGreaterThan(1)
+    const read = stepOf(await readPlan(slug), 'phone_banking')
+    expect(read.landlineFirst).toBe(false)
+    expect(read.steeredToward).toBe('age18to64')
+  })
+
+  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
+    // nobody trails by enough to lean toward.
+    stubMix([
+      members(9, { ageBand: '65plus', tract: TRACT_A }),
+      members(11, { tract: TRACT_A }),
+      members(16, { tract: TRACT_B }),
+      members(4, { tract: TRACT_C }),
+    ])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    expect(stepOf(plan, 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
+    const draw = stubDraws()
+
+    await prepare(slug, stepOf(plan, 'phone_banking').id)
+
+    expect(draw).toHaveBeenCalledTimes(1)
+    expect(filterKeys(draw.mock.calls[0]?.[0] as FilterArg)).not.toContain(
+      'hasLandline',
+    )
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
+  })
+
+  it('walks the tract the panel has reached least, or district-wide when it is too small', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubMix([members(40)])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    const everyone = Array.from({ length: 60 }, (_, n) =>
+      household(n, 40 + n * 0.0001),
+    ).flat()
+    stubAreaPoints(everyone)
+    const inTract = (households: number) =>
+      vi
+        .spyOn(service.app.get(VoterDoorKnockingService), 'walkableArea')
+        .mockClear()
+        .mockImplementation(async (dto) =>
+          pickFrom(
+            dto.tract
+              ? everyone.slice(0, households * 2)
+              : everyone.slice(households * 2),
+            dto,
+          ),
+        )
+    const draws = (spy: ReturnType<typeof inTract>) =>
+      spy.mock.calls.map(([dto]) => dto)
+
+    const doors = inTract(45)
+    const steered = await prepare(slug, stepOf(plan, 'door_knocking').id)
+    expect(draws(doors).map((dto) => dto.tract)).toEqual([TRACT_B])
+    expect(steered.data.size).toBe(80)
+    expect(stepOf(await readPlan(slug), 'door_knocking').steeredToward).toBe(
+      'unreachedAreas',
+    )
+
+    const other = await seedOffice()
+    stubPools(LARGE)
+    await joinPanel(other, 40)
+    const otherPlan = await createPlan(other, 1)
+    const fallback = inTract(10)
+    await prepare(other, stepOf(otherPlan, 'door_knocking').id)
+    expect(draws(fallback).map((dto) => dto.tract)).toEqual([
+      TRACT_B,
+      undefined,
+    ])
+    const read = await readPlan(other)
+    expect(stepOf(read, 'door_knocking').steeredToward).toBeNull()
+    expect(read.data.next?.line).toBe(
+      'Invite residents to your civic panel by text',
+    )
+  })
+})
 
 describe('step status and waves', () => {
   it('reads a text from scheduled to waiting on replies to done', async () => {
@@ -1043,5 +1334,187 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/skip', () => {
     const res = await skip(mine, stepOf(plan, 'text').id)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('civic panel analytics', () => {
+  const spyTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    onTestFinished(() => track.mockRestore())
+    return track
+  }
+
+  it('tracks the plan made, its hours changed, a skip and a step ticked done', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    stubPools(LARGE)
+
+    const plan = await createPlan(slug, 1)
+    await changeHours(slug, 1)
+    await changeHours(slug, 3)
+    await skip(slug, stepOf(plan, 'text').id)
+    await skip(slug, stepOf(plan, 'text').id)
+    await mark(slug, stepOf(plan, 'phone_banking').id, true)
+    await mark(slug, stepOf(plan, 'phone_banking').id, true)
+
+    const calls = (event: string) =>
+      track.mock.calls.filter(([, name]) => name === event)
+    expect(calls('Civic Panel - Plan Created')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Plan Created',
+        {
+          organizationSlug: slug,
+          planId: plan.data.plan?.id,
+          hoursPerWeek: 1,
+          goalMembers: 240,
+          membersAtStart: 0,
+          stepCount: 3,
+          textSteps: 1,
+          callSteps: 1,
+          doorSteps: 1,
+          surface: 'panel_page',
+        },
+      ],
+    ])
+    // Saving the same hours changes nothing, so only the move to 3 counts.
+    expect(calls('Civic Panel - Plan Updated')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Plan Updated',
+        {
+          organizationSlug: slug,
+          planId: plan.data.plan?.id,
+          fromHours: 1,
+          toHours: 3,
+          surface: 'panel_page',
+        },
+      ],
+    ])
+    expect(calls('Civic Panel - Step Skipped')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Skipped',
+        {
+          organizationSlug: slug,
+          stepId: stepOf(plan, 'text').id,
+          channel: 'text',
+          wave: 1,
+        },
+      ],
+    ])
+    expect(calls('Civic Panel - Step Completed')).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Completed',
+        {
+          organizationSlug: slug,
+          stepId: stepOf(plan, 'phone_banking').id,
+          channel: 'phone_banking',
+          wave: 1,
+          how: 'marked',
+        },
+      ],
+    ])
+  })
+
+  it('reports a ticked step done once, even when its walk finishes after', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubDraws()
+    stubDoors(60)
+    const plan = await createPlan(slug, 1)
+    const doors = stepOf(plan, 'door_knocking')
+    const { data: list } = await prepare(slug, doors.id)
+    if (!list.area) throw new Error('a door step draws an area')
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: list.voterFileFilterId,
+        name: 'Civic panel doors',
+        color: '#000000',
+        geoPoly: list.area,
+      },
+    })
+    const envelope = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingTurfId: turf.id,
+        status: OutreachStatus.in_progress,
+      },
+    })
+    await readPlan(slug)
+    const track = spyTrack()
+
+    await mark(slug, doors.id, true)
+    await service.prisma.outreach.update({
+      where: { id: envelope.id },
+      data: { status: OutreachStatus.completed },
+    })
+    await readPlan(slug)
+
+    const completed = track.mock.calls.filter(
+      ([, name]) => name === 'Civic Panel - Step Completed',
+    )
+    expect(completed).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Step Completed',
+        {
+          organizationSlug: slug,
+          stepId: doors.id,
+          channel: 'door_knocking',
+          wave: 1,
+          how: 'marked',
+        },
+      ],
+    ])
+  })
+
+  it('tracks a member joining and the goal reached, never who joined', async () => {
+    stubPopulation(2_000)
+    const slug = await seedOffice()
+    stubPools(TEXT_ONLY)
+    await createPlan(slug, 1)
+    const track = spyTrack()
+    for (let i = 0; i < 230; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    await readPlan(slug)
+    await readPlan(slug)
+
+    const joined = track.mock.calls.filter(
+      ([, name]) => name === 'Civic Panel - Membership Changed',
+    )
+    expect(joined).toHaveLength(230)
+    expect(joined[0]).toEqual([
+      service.user.id,
+      'Civic Panel - Membership Changed',
+      {
+        organizationSlug: slug,
+        fromStatus: CivicPanelStatus.left,
+        toStatus: CivicPanelStatus.member,
+        source: ContactStatusSource.manual,
+      },
+    ])
+    expect(
+      track.mock.calls.filter(
+        ([, name]) => name === 'Civic Panel - Goal Reached',
+      ),
+    ).toEqual([
+      [
+        service.user.id,
+        'Civic Panel - Goal Reached',
+        expect.objectContaining({
+          organizationSlug: slug,
+          members: 230,
+          goalMembers: 230,
+          waves: 1,
+        }),
+      ],
+    ])
   })
 })

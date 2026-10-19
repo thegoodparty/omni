@@ -5,7 +5,10 @@ import {
   HIGH_CONFIDENCE_MIN_SHARE,
   MAX_CHECK_RAISES,
   PROPOSAL_SENT_MARKER,
+  READ_REPRESENTATIVENESS_LABELS,
   REPORT_BACK_MARKER,
+  UNDERREPRESENTED_GROUP_NAMES,
+  type PriorityReadStatus,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   type PriorityStep,
@@ -364,14 +367,28 @@ const buildReadingRepliesBlock = (
     '- Past that bar, still say what it is: a directional read from the people who chose to answer, not a measure of everyone.',
   ].join('\n')
 
+const READ_STATUS_NAMES = Object.values(READ_REPRESENTATIVENESS_LABELS).join(
+  ', ',
+)
+
+const hearMoreFrom = (read: PriorityReadStatus): string =>
+  read.underrepresented.length === 0
+    ? 'nobody in particular'
+    : read.underrepresented
+        .map((group) => UNDERREPRESENTED_GROUP_NAMES[group])
+        .join(' and ')
+
 // Behind serve-citizen-panels, with the read status in <priority>. A good
 // read is decided in gp-api (priorityReadStatus), never by the model.
 const buildGoodReadBlock = (canPropose: boolean): string =>
   [
     'BEFORE A GOOD READ',
-    '- <priority> says how many people have answered on this priority, across texts, calls and doors, and how many a good read of the district takes. Good read: no means they do not have enough yet.',
+    `- <priority> says how many people have answered on this priority, across texts, calls and doors, how many a good read of the district takes, and how closely the people who answered look like the district: ${READ_STATUS_NAMES}. Representative is a good read. Enough answers is a good read the census could not be checked against: say they have enough answers, but you could not check them against the census, and never call them representative. Good read: no means they do not have one yet.`,
+    '- <priority> also names who to hear more from: the groups the answers trail the district on. Use exactly those words.',
     '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
-    '- Nudge toward getting more answers instead, in one line: how many more a good read takes, and the way to get them.',
+    '- Nudge toward a good read instead, in one line. Too early: how many more answers it takes. Otherwise: say the status and who to hear more from, for example "You\'ve heard from plenty of people, but few renters." Then offer outreach aimed at that group.',
+    '- Aim the outreach with the filters for that group: renters or homeowners, an age band. For "people in parts of your district we haven\'t reached", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
+    '- Never mention weights, weighting, quotas, discounting or an effective number of answers. The official sees the status and the groups, nothing more.',
     '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
     '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
     ...(canPropose
@@ -448,7 +465,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     ...(ctx.readStatus === undefined
       ? []
       : [
-          `Answers: ${ctx.readStatus.answers} of ${ctx.readStatus.needed} needed for a good read. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
+          `Answers: ${ctx.readStatus.answers} of ${ctx.readStatus.needed} needed for a good read. Representative: ${READ_REPRESENTATIVENESS_LABELS[ctx.readStatus.status]}. Hear more from: ${hearMoreFrom(ctx.readStatus)}. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
         ]),
     '</priority>',
   ].join('\n')

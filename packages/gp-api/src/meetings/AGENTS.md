@@ -227,6 +227,4 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
 | Shared contracts (annotation, feedback, chat) | `contracts/src/annotations/`, `contracts/src/artifactFeedback/`, `contracts/src/briefingChats/` |
 | Frontend route                                | `gp-webapp` → `/elected-official/meetings/*`                                                    |
 | Agent runbooks                                | `runbooks/` repo — `meeting_schedule` and `meeting_briefing` experiments                        |
-| Module shape ADR                              | `docs/adr/0001-prisma-base-pattern.md`                                                          |
-| Single-queue ADR                              | `docs/adr/0003-fifo-sqs-single-queue.md`                                                        |
 | Sibling module docs                           | `src/agentExperiments/CLAUDE.md`, `src/queue/CLAUDE.md`, `prisma/CLAUDE.md`                     |

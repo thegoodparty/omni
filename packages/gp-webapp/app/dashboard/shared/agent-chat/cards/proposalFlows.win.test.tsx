@@ -384,6 +384,7 @@ describe('a Campaign Manager card for another channel', () => {
       create: '1',
       listId: '77',
       proposalKey: PROPOSAL_KEY,
+      launchSource: 'campaign_manager',
     })
   })
 })

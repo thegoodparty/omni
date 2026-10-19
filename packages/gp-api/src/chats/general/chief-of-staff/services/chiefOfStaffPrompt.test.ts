@@ -132,19 +132,34 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         ctx: baseCtx({
           priorities: [priority],
           priorityReads: new Map([
-            ['pri-1', { answers: 54, needed: 96, good: false }],
+            [
+              'pri-1',
+              {
+                answers: 54,
+                needed: 96,
+                good: false,
+                status: 'gettingClose',
+                underrepresented: ['renters'],
+              },
+            ],
           ]),
         }),
         toolNames: TOOLS,
       })
       expect(prompt).toContain(
-        '- Downtown parking, answers: 54 of 96 needed for a good read, good read: no: Not enough spaces near Main.',
+        '- Downtown parking, answers: 54 of 96 needed for a good read, representative: Getting close, hear more from: renters, good read: no: Not enough spaces near Main.',
       )
       expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
       expect(prompt).toContain(
         "Before a good read, do not share that priority's results: no themes, no splits, no quotes",
       )
-      expect(prompt).toContain('Nudge toward getting more answers instead')
+      expect(prompt).toContain('Nudge toward a good read instead')
+      expect(prompt).toContain(
+        'you could not check them against the census, and never call them representative',
+      )
+      expect(prompt).toContain(
+        'Never mention weights, weighting, quotas, discounting',
+      )
       expect(prompt).toContain(
         'If they ask directly what people have said so far, answer honestly in one or two sentences',
       )

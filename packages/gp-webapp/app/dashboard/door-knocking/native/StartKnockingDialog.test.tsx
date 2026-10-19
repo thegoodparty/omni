@@ -28,6 +28,7 @@ const routed = {
   peopleCount: 9,
   loggedCount: 0,
   routeSeconds: 900,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   // Strings, not Dates: the mock serialises the response the way the API

@@ -20,19 +20,27 @@ import {
 import { installBriefingFixture } from './chatSeam'
 import {
   JUDGE_BRIEFING_ARTIFACT,
-  JUDGE_BRIEFING_BUCKET,
   JUDGE_BRIEFING_TODAY,
+} from './briefingFixture'
+import {
+  JUDGE_BRIEFING_BUCKET,
   JUDGE_MEETING_DATE,
   JUDGE_NOTE,
-} from './briefingFixture'
+} from '@/testFixtures/judgeChatFixture/briefingRows'
 import { ExperimentRunStatus } from '../../../../generated/prisma'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { seedChatOrg } from './seedChatOrg'
 import {
+  chatOrgSlug,
   chatScopeFor,
   JUDGE_POSITION,
-  seedChatOrg,
   type SeedChatOrgOptions,
-} from './seedChatOrg'
+} from '@/testFixtures/judgeChatFixture/seed'
+
+// Two sweeps, because the fixture slug carries the sweep id and the briefing
+// retirement is scoped to it.
+const SWEEP_ID = 'judge-19284756312-1'
+const OTHER_SWEEP_ID = 'judge-19284756312-2'
 
 // WHAT THE SEEDER BUYS THE AGENT, asserted as tool names.
 //
@@ -158,6 +166,7 @@ const seedAndOpen = async (
   const seeded = await seedChatOrg(
     service.prisma,
     service.user.id,
+    SWEEP_ID,
     agentId,
     caseId,
     options,
@@ -179,12 +188,12 @@ describe('the constituent-data tools a seeded Serve scope registers', () => {
       const ctx = await handler.loadContext(conversationId, service.user.id)
       // The gate itself, so a failure says which half broke: the resolver
       // produced server-bound filters, and they are the district the seeded
-      // id names rather than some other org's. Both halves read WA — a state
+      // id names rather than some other org's. Both halves read WY — a state
       // and a district from two different sources would bind a scope that
       // matches nothing.
       expect(ctx.districtFilters).toEqual([
-        { column: 'state_postal_code', value: 'WA' },
-        { column: 'City Council', value: 'Judge City Council District 1' },
+        { column: 'state_postal_code', value: 'WY' },
+        { column: 'City_Ward', value: 'CHEYENNE CITY WARD 1' },
       ])
       return handler.buildTools(ctx)
     })
@@ -229,8 +238,8 @@ describe('the constituent-data tools a seeded Serve scope registers', () => {
     const tools = await withConstituentDeps(handler, async () => {
       const ctx = await handler.loadContext(conversationId, service.user.id)
       expect(ctx.districtFilters).toEqual([
-        { column: 'state_postal_code', value: 'WA' },
-        { column: 'City Council', value: 'Judge City Council District 1' },
+        { column: 'state_postal_code', value: 'WY' },
+        { column: 'City_Ward', value: 'CHEYENNE CITY WARD 1' },
       ])
       return handler.buildTools(ctx)
     })
@@ -405,6 +414,7 @@ describe('the tools a seeded briefing registers', () => {
     const seeded = await seedChatOrg(
       service.prisma,
       service.user.id,
+      SWEEP_ID,
       'briefing_annotation',
       caseId,
       options,
@@ -516,9 +526,11 @@ describe('the tools a seeded briefing registers', () => {
   })
 
   // THE RETIREMENT IS NARROW, and every filter on it is load-bearing. It
-  // deletes only this user's judge-seeded briefings on the fixture date; a
-  // filter dropped would delete, respectively, a real briefing of the same
-  // user, another user's judge briefing, or a judge briefing on another day.
+  // deletes only THIS SWEEP's judge-seeded briefings of this user on the
+  // fixture date; a filter dropped would delete, respectively, a real
+  // briefing of the same user, another user's judge briefing, a judge
+  // briefing on another day, or another sweep's judge briefing — the last of
+  // which is the one two concurrent sweeps on dev actually hit.
   it('retires nothing but its own judge briefings on the fixture date', async () => {
     const briefingFor = async (
       userId: number,
@@ -561,11 +573,19 @@ describe('the tools a seeded briefing registers', () => {
       await briefingFor(otherUser.id, 'judge-other-user', JUDGE_MEETING_DATE),
       // This user's judge briefing on another day.
       await briefingFor(service.user.id, 'judge-other-day', '2026-05-20'),
+      // ANOTHER SWEEP's judge briefing of this user on the fixture date,
+      // slugged the way that sweep's chatOrgSlug would slug it.
+      await briefingFor(
+        service.user.id,
+        chatOrgSlug(OTHER_SWEEP_ID, 'briefing_annotation', 'a'),
+        JUDGE_MEETING_DATE,
+      ),
     ]
 
     await seedChatOrg(
       service.prisma,
       service.user.id,
+      SWEEP_ID,
       'briefing_annotation',
       'a',
     )
@@ -584,12 +604,14 @@ describe('the tools a seeded briefing registers', () => {
     await seedChatOrg(
       service.prisma,
       service.user.id,
+      SWEEP_ID,
       'briefing_annotation',
       'a',
     )
     const second = await seedChatOrg(
       service.prisma,
       service.user.id,
+      SWEEP_ID,
       'briefing_annotation',
       'b',
     )

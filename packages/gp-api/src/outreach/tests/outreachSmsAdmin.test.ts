@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { HubspotService } from 'src/crm/hubspot.service'
@@ -1194,11 +1195,73 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(item.approvalStatus).toBe('canceled')
     })
 
-    it('still refuses to cancel a booked send past its send time', async () => {
+    it('cancels an unbooked row the sweep moved to in_progress on its send day', async () => {
+      // Prod outreach 85286 (2026-10-15): the completion sweep ratchets a
+      // never-approved row to in_progress when its send day begins, and the
+      // console's cancel 400'd on it.
       const row = await seedOutreach({
         stripeCheckoutSessionId: null,
+        status: OutreachStatus.in_progress,
+        date: subDays(new Date(), 1),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    })
+
+    it('cancels a booked send past its send time and refunds it', async () => {
+      // Staff unbook canvassers through this console, not Peerly, so the
+      // candidate's send-time refusal does not apply to them; the console
+      // warns instead.
+      const stripe = service.app.get(StripeService)
+      const retrieveSession = vi
+        .spyOn(stripe, 'retrieveCheckoutSession')
+        .mockResolvedValue({
+          payment_intent: 'pi_booked_1',
+        } as Awaited<ReturnType<StripeService['retrieveCheckoutSession']>>)
+      const refund = vi
+        .spyOn(stripe, 'refundPaymentIntent')
+        .mockResolvedValue(
+          {} as Awaited<ReturnType<StripeService['refundPaymentIntent']>>,
+        )
+      const row = await seedOutreach({
+        status: OutreachStatus.in_progress,
         date: subDays(new Date(), 1),
         approvedAt: new Date(),
+        canvassRequestedAt: new Date(),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+      expect(retrieveSession).toHaveBeenCalledWith('cs_test_seed')
+      expect(refund).toHaveBeenCalledWith(
+        'pi_booked_1',
+        `outreach-cancel-${row.id}`,
+      )
+      // No live booking read gates a staff cancel.
+      expect(getJob).not.toHaveBeenCalled()
+    })
+
+    it('still refuses a completed (sent) row', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        status: OutreachStatus.completed,
+        date: subDays(new Date(), 1),
+        canvassRequestedAt: new Date(),
       })
 
       const res = await service.client.post(
@@ -1211,7 +1274,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const unchanged = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
       })
-      expect(unchanged.status).toBe(OutreachStatus.pending)
+      expect(unchanged.status).toBe(OutreachStatus.completed)
     })
 
     it('refuses a second cancel via the idempotent early-return', async () => {
