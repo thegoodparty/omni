@@ -87,6 +87,17 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   first turf. With `serve-sms-outreach` off a text step says texting is not
   set up instead of offering the action. `?step=<id>` (the API's
   `next.href`) scrolls to that step and rings it.
+  A step whose draw leans toward a group (the API's `steeredToward`) says
+  so instead: a not-started text reads "This round invites more {group}."
+  and a door step "A part of your district we haven't reached." before its
+  time; calls keep their line.
+- **How your panel compares with your district** (`CivicPanelBalance.tsx`,
+  under the plan, from the API's `balance`; hidden when it is null): the
+  priority read's status label and dot (`READ_REPRESENTATIVENESS_LABELS`,
+  `READ_STATUS_DOT`), then one line, "Invite more {group} next." from
+  `inviteMore`, or for Too early "We'll compare your panel with your
+  district once 30 people join." Never a share, weight or target. The Chief
+  of Staff's next step card shows the same `CivicPanelBalanceStatus`.
 - **Your time** (`CivicPanelRail`, beside the plan from `lg`, below it on a
   phone): "Your time", the weekly hours and Change (`PATCH`, only later
   waves change).

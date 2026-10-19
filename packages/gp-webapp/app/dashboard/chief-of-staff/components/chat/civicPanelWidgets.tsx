@@ -24,6 +24,7 @@ import {
   SERVE_CITIZENS_PANEL_COPY as PANEL_COPY,
 } from '../../../contacts/citizens-panel/citizensPanelCopy'
 import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
+import { CivicPanelBalanceStatus } from '../../../contacts/citizens-panel/components/CivicPanelBalance'
 import {
   keepGoingHref,
   useCivicPanelStepFlow,
@@ -161,6 +162,7 @@ export const CivicPanelNextStepCard = () => {
           </span>
         ) : null}
       </div>
+      {data.balance ? <CivicPanelBalanceStatus balance={data.balance} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         {action}
         <Link

@@ -15,8 +15,9 @@ import {
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  sampleWeightSql,
 } from './districtCensusSql.util'
-import type { DbxDistrict } from './databricksVoterSql.util'
+import { createBag, type DbxDistrict } from './databricksVoterSql.util'
 
 const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
 
@@ -291,5 +292,50 @@ describe('mapTractAdults', () => {
       ['53017950300', '0'],
     ])
     expect([...tracts]).toEqual([['53017950100', 1200]])
+  })
+})
+
+describe('sampleWeightSql', () => {
+  const weights = {
+    age: { '18to64': 0.8, '65plus': 2 },
+    gender: {},
+    tract: { '53017950100': 1, '53017950200': 1.5 },
+    minWeight: 0.5,
+    maxWeight: 2,
+  }
+
+  it('multiplies age and tract factors within the bounds, all bound', () => {
+    const bag = createBag()
+    const sql = sampleWeightSql(bag, weights)
+    expect(sql).toBe(
+      'least(CAST(:p7 AS DOUBLE), greatest(CAST(:p6 AS DOUBLE),' +
+        " CASE CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to64' END" +
+        ' WHEN :p0 THEN CAST(:p1 AS DOUBLE)' +
+        ' WHEN :p2 THEN CAST(:p3 AS DOUBLE) ELSE 1.0 END *' +
+        ' CASE substr(v.`Census_Block_Group_Geoid`, 1, 11)' +
+        ' WHEN :p4 THEN CAST(:p5 AS DOUBLE) ELSE 1.0 END))',
+    )
+    // A factor of 1 and an empty dimension add nothing.
+    expect(bag.params.map((p) => p.value)).toEqual([
+      '18to64',
+      '0.8',
+      '65plus',
+      '2',
+      '53017950200',
+      '1.5',
+      '0.5',
+      '2',
+    ])
+  })
+
+  it('weighs everyone the same when no factor moves', () => {
+    expect(
+      sampleWeightSql(createBag(), {
+        ...weights,
+        age: {},
+        tract: { '53017950100': 1 },
+      }),
+    ).toBe('1.0')
   })
 })

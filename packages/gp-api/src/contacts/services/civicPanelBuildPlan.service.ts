@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -9,10 +11,13 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   panelExpectedAnswers,
   panelGoalMembers,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
+  UnderrepresentedGroupSchema,
   type CivicPanelBuildPlanResponse,
   type PrepareCivicPanelBuildStepResponse,
+  type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import { addBusinessDays, addDays, isBefore, parseISO } from 'date-fns'
 import {
@@ -38,6 +43,10 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
+import {
   areaAround,
   CHANNEL_ORDER,
   nextStep,
@@ -47,6 +56,11 @@ import {
   waveIsDue,
   type PanelWavePools,
 } from '../utils/civicPanelBuild.util'
+import {
+  panelSteering,
+  type PanelMix,
+  type PanelSteering,
+} from '../utils/civicPanelSteering.util'
 import { ContactsService } from './contacts.service'
 
 // Every list a step draws is never invited to the panel and not reached in
@@ -87,6 +101,7 @@ const STEP_SELECT = {
   skippedAt: true,
   markedDone: true,
   markedAt: true,
+  steeredToward: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -101,6 +116,31 @@ type Office = { id: string; organizationSlug: string }
 
 // Where the official answered the weekly time question.
 export type CivicPanelPlanSurface = 'panel_page' | 'chief_of_staff'
+
+// A panel's census read is kept this long per set of members, so the plan
+// page, its cards and the Chief of Staff do not each re-read the warehouse.
+const MIX_CACHE_MS = 15 * 60 * 1000
+
+// What a step's draw would lean toward with the panel as it stands. Doors
+// lean only once their tract is known to hold enough doors, at the draw.
+const predictedLean = (
+  channel: CivicPanelBuildChannel,
+  steering: PanelSteering,
+): UnderrepresentedGroup | null => {
+  if (channel === CivicPanelBuildChannel.door_knocking) {
+    return steering.doorTract ? 'unreachedAreas' : null
+  }
+  if (!steering.weights) return null
+  if (channel === CivicPanelBuildChannel.phone_banking) {
+    return steering.landlineFirst ? null : steering.leansToward
+  }
+  return steering.leansToward
+}
+
+const storedLean = (value: string | null): UnderrepresentedGroup | null => {
+  const parsed = UnderrepresentedGroupSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
 
 type StepLinks = Partial<
   Pick<
@@ -153,6 +193,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly analytics: AnalyticsService,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
   ) {
     super()
   }
@@ -168,6 +210,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       events,
     )
   }
+
+  private readonly mixes = new Map<
+    string,
+    { key: string; mix: PanelMix; expiresAt: number }
+  >()
 
   async create(
     organization: Organization,
@@ -427,19 +474,39 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       answersNeeded: needed,
       expectedAnswers: panelExpectedAnswers(members),
     })
-    if (!plan)
-      return { plan: null, next: null, progress: progressToward(districtGoal) }
+    const goal =
+      plan?.status === CivicPanelBuildPlanStatus.active
+        ? plan.goalMembers
+        : districtGoal
+    const steering = await this.steeringFor(organization, memberIds, goal)
+    if (!plan) {
+      return {
+        plan: null,
+        next: null,
+        progress: progressToward(districtGoal),
+        balance: steering.balance,
+      }
+    }
     const now = new Date()
     const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
     const steps = await Promise.all(
       plan.steps
         .map(withMark)
         .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
-        .map(async (step) => ({
-          ...step,
-          status: stepStatus(step, step.wave < currentWave, now),
-          ...(await this.reachOf(organization, step, memberIds)),
-        })),
+        .map(async (step) => {
+          const status = stepStatus(step, step.wave < currentWave, now)
+          return {
+            ...step,
+            status,
+            steeredToward:
+              step.voterFileFilterId !== null
+                ? storedLean(step.steeredToward)
+                : status === 'not_started'
+                  ? predictedLean(step.channel, steering)
+                  : null,
+            ...(await this.reachOf(organization, step, memberIds)),
+          }
+        }),
     )
     return {
       plan: {
@@ -456,11 +523,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         plan.status === CivicPanelBuildPlanStatus.active
           ? nextStep(steps.filter((s) => s.wave === currentWave))
           : null,
-      progress: progressToward(
-        plan.status === CivicPanelBuildPlanStatus.active
-          ? plan.goalMembers
-          : districtGoal,
-      ),
+      progress: progressToward(goal),
+      balance: steering.balance,
     }
   }
 
@@ -476,7 +540,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       select: {
         ...STEP_SELECT,
         plan: {
-          select: { status: true, steps: { select: { wave: true } } },
+          select: {
+            status: true,
+            goalMembers: true,
+            steps: { select: { wave: true } },
+          },
         },
       },
     })
@@ -496,7 +564,17 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This step is no longer part of the plan')
     }
     const exclude = await this.excludedPersonIds(organization)
-    const personIds = await this.draw(organization, step, exclude)
+    const steering = await this.steeringFor(
+      organization,
+      await this.memberIds(organization),
+      step.plan.goalMembers,
+    )
+    const { personIds, steeredToward } = await this.draw(
+      organization,
+      step,
+      exclude,
+      steering,
+    )
     if (personIds.length === 0) {
       throw new ConflictException('Nobody is left to invite this way')
     }
@@ -512,7 +590,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     )
     const claimed = await this.client.civicPanelBuildStep.updateMany({
       where: { id: step.id, voterFileFilterId: null },
-      data: { voterFileFilterId: list.id, preparedAt: new Date() },
+      data: {
+        voterFileFilterId: list.id,
+        preparedAt: new Date(),
+        steeredToward,
+      },
     })
     if (claimed.count === 0) {
       // A second press drew too; the first list is the step's.
@@ -839,25 +921,38 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return isBefore(now, windowEnds) ? null : windowEnds
   }
 
+  // Texts, and calls once the panel holds its share of people 65 and over,
+  // are weighted draws toward the groups the panel trails. Doors walk the
+  // part of the district the panel has reached least, when it holds a
+  // step's worth of households.
   private async draw(
     organization: Organization,
     step: StepRow,
     exclude: string[],
-  ): Promise<string[]> {
-    if (step.channel === CivicPanelBuildChannel.text) {
-      return (
+    steering: PanelSteering,
+  ): Promise<{
+    personIds: string[]
+    steeredToward: UnderrepresentedGroup | null
+  }> {
+    const weighted = async (seedKey: string) => ({
+      personIds:
         (await this.contactsService.drawListSample(
           organization,
           this.criteriaFor(step.channel),
           {
             size: step.targetSize,
-            seedKey: step.id,
+            seedKey,
             excludePersonIds: exclude,
+            weights: steering.weights ?? undefined,
           },
-        )) ?? []
-      )
+        )) ?? [],
+      steeredToward: predictedLean(step.channel, steering),
+    })
+    if (step.channel === CivicPanelBuildChannel.text) {
+      return weighted(step.id)
     }
     if (step.channel === CivicPanelBuildChannel.phone_banking) {
+      if (!steering.landlineFirst) return weighted(`${step.id}:any`)
       // Landlines first: the residents a text cannot reach. Anyone else
       // with a phone fills what is left.
       const landlines =
@@ -871,7 +966,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           },
         )) ?? []
       const short = step.targetSize - landlines.length
-      if (short <= 0) return landlines
+      if (short <= 0) return { personIds: landlines, steeredToward: null }
       const others =
         (await this.contactsService.drawListSample(
           organization,
@@ -882,16 +977,84 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
             excludePersonIds: [...exclude, ...landlines],
           },
         )) ?? []
-      return [...landlines, ...others]
+      return { personIds: [...landlines, ...others], steeredToward: null }
+    }
+    if (steering.doorTract) {
+      const inTract = await this.contactsService.doorPointsWithin(
+        organization,
+        this.criteriaFor(step.channel),
+        exclude,
+        steering.doorTract,
+      )
+      const households = new Set(inTract.map((point) => point.addressKey))
+      if (households.size >= step.targetSize) {
+        return {
+          personIds: pickWalkableArea(inTract, step.targetSize).flatMap(
+            (household) => household.personIds,
+          ),
+          steeredToward: 'unreachedAreas',
+        }
+      }
     }
     const points = await this.contactsService.doorPointsWithin(
       organization,
       this.criteriaFor(step.channel),
       exclude,
     )
-    return pickWalkableArea(points, step.targetSize).flatMap(
-      (household) => household.personIds,
-    )
+    return {
+      personIds: pickWalkableArea(points, step.targetSize).flatMap(
+        (household) => household.personIds,
+      ),
+      steeredToward: null,
+    }
+  }
+
+  // How the panel compares with its district, and how the next draws lean.
+  // The census is read only from PANEL_MIN_MEMBERS_FOR_BALANCE members up,
+  // and a failed read leans nowhere.
+  private async steeringFor(
+    organization: Organization,
+    memberIds: Set<string>,
+    goal: number,
+  ): Promise<PanelSteering> {
+    const members = memberIds.size
+    if (members < PANEL_MIN_MEMBERS_FOR_BALANCE) {
+      return panelSteering({ members, goal, mix: null })
+    }
+    return panelSteering({
+      members,
+      goal,
+      mix: await this.mixOf(organization, [...memberIds]),
+    })
+  }
+
+  private async mixOf(
+    organization: Organization,
+    personIds: string[],
+  ): Promise<PanelMix | null> {
+    const key = createHash('sha256')
+      .update([...personIds].sort().join(','))
+      .digest('hex')
+    const now = Date.now()
+    const cached = this.mixes.get(organization.slug)
+    if (cached && cached.key === key && cached.expiresAt > now) {
+      return cached.mix
+    }
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const mix = await this.census.weightingInputs({ ...district, personIds })
+      if (mix) {
+        this.mixes.set(organization.slug, {
+          key,
+          mix,
+          expiresAt: now + MIX_CACHE_MS,
+        })
+      }
+      return mix
+    } catch {
+      return null
+    }
   }
 
   private criteriaFor(channel: CivicPanelBuildChannel) {

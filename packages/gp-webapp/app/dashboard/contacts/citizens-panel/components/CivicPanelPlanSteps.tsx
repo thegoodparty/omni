@@ -6,6 +6,7 @@ import {
   PANEL_CALLS_PER_HOUR,
   PANEL_DOORS_PER_HOUR,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
+  UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelBuildNext,
   type CivicPanelBuildPlan,
   type CivicPanelBuildPlanResponse,
@@ -78,7 +79,9 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     if (step.status === 'in_progress' && sent) {
       return COPY.textGoesOut(format(sent, 'EEEE, MMMM d'))
     }
-    return COPY.stepDetail.text
+    return step.steeredToward && step.status === 'not_started'
+      ? COPY.stepLean.text(UNDERREPRESENTED_GROUP_NAMES[step.steeredToward])
+      : COPY.stepDetail.text
   }
   const calls = step.channel === 'phone_banking'
   if (step.status === 'done') {
@@ -91,8 +94,9 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     return calls ? COPY.calledSoFar(reached) : COPY.knockedSoFar(reached)
   }
   const time = COPY.duration(minutesOf(step))
-  return calls
-    ? COPY.stepDetail.phone_banking(time)
+  if (calls) return COPY.stepDetail.phone_banking(time)
+  return step.steeredToward === 'unreachedAreas'
+    ? COPY.stepLean.door_knocking(time)
     : COPY.stepDetail.door_knocking(time)
 }
 

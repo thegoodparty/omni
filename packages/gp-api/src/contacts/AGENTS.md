@@ -703,9 +703,14 @@ and answers (1, 2, 3, or 4 or more hours a week). The answer goes to
 `save_panel_weekly_time`, which calls `CivicPanelBuildPlanService.create`
 (4 for "4 or more", a written number as given, 1 to 20); then
 `present_panel_next_step` shows the plan's next step as a card that reads the
-plan itself (`GET …/plan`): the Next line, members of the goal, the page's
-button for that step (it opens the step's own text, call or door flow the way
-the page does, not `next.href`), and See your plan. With a plan, it shows that
+plan itself (`GET …/plan`): the Next line, members of the goal, the
+panel page's status and its line naming who to invite next (`balance`), the
+page's button for that step (it opens the step's own text, call or door flow
+the way the page does, not `next.href`), and See your plan. The tools return
+that status and group in the page's words (`panelStatus`,
+`inviteMoreNext`); the agent may repeat them, but never promises the panel
+will match the district, never mentions weights, quotas or targets, and never
+steers by race (`CIVIC_PANEL_CLAIM_RULE`). With a plan, it shows that
 card and never asks again (`ask_panel_weekly_time` refuses), and "I can give
 2 hours now" goes to the same save, which then calls `updateHours` (PATCH's
 path). A 409 it cannot settle (nobody left to reach, the goal already met)
@@ -902,8 +907,9 @@ Each draw also leaves out, by id, everyone any step of the office's plans
 already drew and everyone opted out of the office's texts, so steps never
 overlap across channels or waves (`drawListSample`'s server-only
 `excludePersonIds`, which always freezes the draw). Calls draw `hasLandline`
-first, the residents a text cannot reach, and fill from anyone with a phone.
-Doors pick a walkable area (`pickWalkableArea`): eligible rooftop-geocoded
+first, the residents a text cannot reach, and fill from anyone with a phone
+(until the panel holds its share of people 65 and over; see "Steering by
+census"). Doors pick a walkable area (`pickWalkableArea`): eligible rooftop-geocoded
 people (`doorPointsWithin`, capped like the map) grouped into households by
 `addressKey`, households into ~200m grid cells, the cell whose 3x3
 neighborhood holds the most households is the seed, and the households
@@ -920,6 +926,41 @@ records ("Do they want to join your civic panel?"). That purpose is in
 its draft endpoints (`/v1/outreach/serve/phone-banking/draft`,
 `…/door-knocking/draft`) 404 it with `serve-citizen-panels` off, as the SMS
 draft does.
+
+**Steering by census** (`utils/civicPanelSteering.util.ts`, Bryan,
+2026-10-18). Each draw leans toward the groups the panel trails, so the
+panel drifts toward the district's census mix. Dimensions are age (18 to
+64, 65+) and tract, plus gender once the marts publish sex by age (wired
+through `WeightingCensus.genderShares`, inactive until then). Tenure is out
+until a statistician rules on its household target; race is never steered.
+`CensusCompositionSource.weightingInputs` reads the members' cells and the
+census (`findWeightingInputs`), cached 15 minutes per office and member set
+in the plan service; a failed read leans nowhere. Gaps are census share
+(`weightingTargets`: ACS adults for age, adults per tract over the block
+groups the district's people live in) against the members' unweighted share
+among those with a known value, values under
+`MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.
+Texts (and calls, below) draw weighted: per value `clamp(c / p, 0.5, 2)`
+(2 where `p = 0`), a person's weight the product clamped to [0.5, 2],
+passed as `drawListSample`'s server-only `weights` and applied in
+`buildSampleSql`'s order. Doors walk the barely reached tract
+(`tractShortfalls`, the `unreachedTracts` rule on members) trailing most,
+through `doorPointsWithin`'s `tract`, and fall back to the district-wide
+pick when it holds fewer households than the step. Calls drop landline-first
+once the panel's 65+ share reaches the census's, and draw weighted from
+the whole phone pool. Nothing leans below `PANEL_MIN_MEMBERS_FOR_BALANCE`
+(30) members, and the census is not read then. A step's
+`steeredToward` (`UnderrepresentedGroup`) is written when it is drawn;
+before that the read predicts it for a not-started step. A door step
+leaning toward `unreachedAreas` reads "Knock on doors in a part of your
+district we haven't reached" as its Next line. The response's `balance`
+(null when the census cannot be read) is the panel's one status, in the
+priority read's labels: `tooEarly` under 30 members; with `D` the largest
+|c − p| and bar `max(0.10, 1.96·sqrt(0.25 / members))`,
+`notYetRepresentative` past the bar, else `gettingClose` under the goal and
+`representative` at it. `inviteMore` is the group trailing furthest by the
+priority read's rule (at least 5 points), null once representative. The
+official never sees a share, weight or target.
 
 **Statuses** (`stepStatus`, read on every GET, never stored).
 `not_started` until something is made from the step's list; `in_progress`

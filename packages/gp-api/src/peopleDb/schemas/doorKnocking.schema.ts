@@ -15,6 +15,11 @@ const evaluateSchema = DoorKnockingEvaluateRequestSchema.extend({
   filters: filtersSchema,
   // See people.schema.ts. Set by gp-api only.
   affinityColumn: z.enum(AFFINITY_COLUMNS).optional(),
+  // Set by gp-api only: the civic panel's doors in one census tract.
+  tract: z
+    .string()
+    .regex(/^\d{11}$/)
+    .optional(),
 })
 
 export class DoorKnockingEvaluateDTO extends createZodDto(evaluateSchema) {}

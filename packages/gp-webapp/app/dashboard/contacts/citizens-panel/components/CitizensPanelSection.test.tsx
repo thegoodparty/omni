@@ -89,6 +89,7 @@ describe('CitizensPanelSection', () => {
           answersNeeded: 96,
           expectedAnswers: 48,
         },
+        balance: null,
       },
     })
 

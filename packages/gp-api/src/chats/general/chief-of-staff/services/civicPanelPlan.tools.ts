@@ -4,6 +4,8 @@ import {
   CIVIC_PANEL_PAGE_HREF,
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_MIN_HOURS_PER_WEEK,
+  READ_REPRESENTATIVENESS_LABELS,
+  UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelBuildPlanResponse,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../../generated/prisma'
@@ -46,6 +48,14 @@ const standing = (panel: CivicPanelBuildPlanResponse) => ({
   expectedAnswers: panel.progress.expectedAnswers,
   hoursPerWeek: panel.plan?.hoursPerWeek ?? null,
   next: panel.next?.line ?? null,
+  // The panel page's status label and the group it says to invite next,
+  // in its words. Null when the census could not be compared.
+  panelStatus: panel.balance
+    ? READ_REPRESENTATIVENESS_LABELS[panel.balance.status]
+    : null,
+  inviteMoreNext: panel.balance?.inviteMore
+    ? UNDERREPRESENTED_GROUP_NAMES[panel.balance.inviteMore]
+    : null,
 })
 
 const isStatus = (error: unknown, status: number): boolean =>
@@ -137,10 +147,10 @@ export const buildCivicPanelPlanTools = ({
 
   const present: LlmStreamTool<typeof noInput> = {
     description:
-      "Show the panel plan's next step as a card: the panel page's Next " +
-      'line, how many members of the goal, and a button that opens that ' +
-      'step. The card reads the plan itself, so never restate it. Returns ' +
-      'what it shows.',
+      "Show the panel plan's next step as a card: the panel page's status " +
+      'and group to invite next, its Next line, how many members of the ' +
+      'goal, and a button that opens that step. The card reads the plan ' +
+      'itself, so never restate it. Returns what it shows.',
     inputSchema: noInput,
     execute: async () => {
       const panel = await plans.read(organization)

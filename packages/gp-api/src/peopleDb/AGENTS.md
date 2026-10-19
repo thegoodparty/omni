@@ -47,7 +47,10 @@ and tract (the first 11 digits of `Census_Block_Group_Geoid`),
 `buildDistrictTractAdultsSql` sums adults per tract, and
 `buildTractGridCellsSql` returns the grid squares a set of tracts' people
 live in, from which gp-api draws the area a priority has not reached. All
-three return counts or square indexes, never a person. The grid stands in
+three return counts or square indexes, never a person. The civic panel reads
+the same cells for its members to steer its invites (see the contacts
+AGENTS.md, "Steering by census"); its door draws keep to one tract through
+the door evaluate's server-only `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
 (https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
 is the one place to swap.
@@ -220,6 +223,16 @@ Two kinds of draw share it:
   stats total describes the district, not the audience. Nothing is forced on
   top: the audience already says how it is reached, and a forced cell cut
   would make the count and the draw read different rows.
+
+A weighted draw (`weights`, set by gp-api only: the civic panel's census
+steering) keeps the same slice and orders it by `-ln(u) / w` instead, `u`
+the seeded hash's low 32 bits over 2^32 (offset half a step), `w` each
+row's weight from `sampleWeightSql` (`districtCensusSql.util.ts`): the
+product of bound age band, gender and tract factors, held within the
+weights' bounds, 1 for a value with no factor. The smallest n keys are a
+weighted draw without replacement (Efraimidis and Spirakis) from the slice,
+which holds about three times the request, so how far a draw can lean is
+bounded by the slice as well as the weights.
 
 The seed rotates every minute by default. A caller that passes `seedKey`
 (the list sample uses the proposal key) gets the same people, row for row,

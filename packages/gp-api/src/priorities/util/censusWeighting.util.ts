@@ -97,13 +97,19 @@ export const toRakingCells = (cells: RespondentCell[]): RakingCell[] =>
 // small to send anyone to on its own.
 const MIN_TRACT_SHARE = 0.01
 
-// The tracts outreach has barely reached: their share of the answers is
+export interface TractShortfall {
+  tract: string
+  censusShare: number
+  share: number
+}
+
+// The tracts outreach has barely reached: their share of the people is
 // half their share of the district's adults or less, or trails it by the
-// gap that names a group. Measured before weighting, on who answered.
-export const unreachedTracts = (
+// gap that names a group. Measured before weighting, on who was reached.
+export const tractShortfalls = (
   respondents: RespondentCell[],
   tractAdults: Map<string, number>,
-): string[] => {
+): TractShortfall[] => {
   const census = shares(Object.fromEntries(tractAdults))
   if (!census) return []
   const answered = new Map<string, number>()
@@ -114,17 +120,25 @@ export const unreachedTracts = (
     placed += cell.count
   }
   return Object.entries(census)
-    .filter(([tract, censusShare]) => {
-      if (censusShare < MIN_TRACT_SHARE) return false
-      const share = placed === 0 ? 0 : (answered.get(tract) ?? 0) / placed
-      return (
-        share <= censusShare / 2 ||
-        censusShare - share >= MIN_UNDERREPRESENTED_GAP
-      )
-    })
-    .map(([tract]) => tract)
-    .sort()
+    .map(([tract, censusShare]) => ({
+      tract,
+      censusShare,
+      share: placed === 0 ? 0 : (answered.get(tract) ?? 0) / placed,
+    }))
+    .filter(
+      ({ censusShare, share }) =>
+        censusShare >= MIN_TRACT_SHARE &&
+        (share <= censusShare / 2 ||
+          censusShare - share >= MIN_UNDERREPRESENTED_GAP),
+    )
+    .sort((a, b) => a.tract.localeCompare(b.tract))
 }
+
+export const unreachedTracts = (
+  respondents: RespondentCell[],
+  tractAdults: Map<string, number>,
+): string[] =>
+  tractShortfalls(respondents, tractAdults).map(({ tract }) => tract)
 
 // Weights the answers to the district's census mix, pooling small groups
 // first. A respondent living outside every known tract sits out the
