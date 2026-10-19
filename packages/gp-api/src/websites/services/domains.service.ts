@@ -27,7 +27,6 @@ import { Records } from '@vercel/sdk/models/getrecordsop'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { VerifyProjectDomainResponseBody } from '@vercel/sdk/models/verifyprojectdomainop'
 import { isAxiosError } from 'axios'
-import { differenceInMilliseconds } from 'date-fns'
 import { PaymentStatus } from 'src/payments/payments.types'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { PaymentsService } from 'src/payments/services/payments.service'
@@ -77,7 +76,7 @@ const MAX_PATTERN_CANDIDATES = 50
 // ~25% 502s on /domains/purchase), and throttled candidates are silently
 // dropped from search results. Search is agent-driven, so the added latency
 // from batching is fine.
-const AVAILABILITY_CHECK_BATCH_SIZE = 5
+const AVAILABILITY_CHECK_CONCURRENCY = 5
 
 // The compliance agent reaches this endpoint through the broker, whose
 // upstream read timeout is 30s (gp-ai broker/main.py). An exhaustive check of
@@ -628,43 +627,35 @@ export class DomainsService
     }
     const candidates = expandedCandidates.slice(0, MAX_AVAILABILITY_CHECKS)
 
-    const startedAt = new Date()
     const found: PatternedDomainCandidate[] = []
     let unchecked = 0
     let outOfBudget = false
-    for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
-      const remainingMs =
-        SEARCH_TIME_BUDGET_MS - differenceInMilliseconds(new Date(), startedAt)
-      if (remainingMs <= 0) {
-        outOfBudget = true
-        break
-      }
-      const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
-      // The budget has to bound the request from inside a batch — a single
-      // throttled Route53 check can back off for tens of seconds, so an
-      // elapsed check between batches cannot do it — but it must not cost us
-      // verdicts we already hold. Racing the batch as one unit discarded every
-      // result the batch had settled: on 2026-09-30 four candidates came back
-      // available and priced in 1.6s, the fifth answered 0.2s after the
-      // deadline, and all four were thrown away, so a search that had found
-      // four domains reported that nothing could be checked and 502'd.
-      //
-      // So race each check on its own against one shared deadline: whatever
-      // has an answer when the budget runs out is kept, and only the checks
-      // still in flight are lost. Those settle later into nothing.
-      const budgetExpired = this.deadline(remainingMs)
-      const checked = await Promise.all(
-        batch.map((domain) =>
-          Promise.race([
-            this.checkPatternedCandidate(domain, maxPrice).then(
-              (value) => ({ status: 'fulfilled', value }) as const,
-              (reason: unknown) => ({ status: 'rejected', reason }) as const,
-            ),
-            budgetExpired,
-          ]),
-        ),
-      )
-      for (const r of checked) {
+    // A fixed pool rather than batches: Route53 answers some TLDs in ~10s and
+    // others in ~200ms, and a batch barrier made every group of five wait for
+    // its slowest member. On 2026-10-13 one slow group per batch burned the
+    // whole budget on 36 candidates and the request 502'd with nothing found.
+    // Each worker takes the next candidate as soon as it is free, so slow TLDs
+    // occupy a slot without stalling the quick ones.
+    //
+    // Each check is raced on its own against one shared deadline: whatever has
+    // an answer when the budget runs out is kept, and only the checks still in
+    // flight are lost. Those settle later into nothing.
+    const budgetExpired = this.deadline(SEARCH_TIME_BUDGET_MS)
+    let nextIndex = 0
+    const worker = async () => {
+      while (!outOfBudget && found.length < SEARCH_TARGET_CANDIDATE_COUNT) {
+        const candidate = candidates[nextIndex]
+        nextIndex += 1
+        if (candidate === undefined) {
+          return
+        }
+        const r = await Promise.race([
+          this.checkPatternedCandidate(candidate, maxPrice).then(
+            (value) => ({ status: 'fulfilled', value }) as const,
+            (reason: unknown) => ({ status: 'rejected', reason }) as const,
+          ),
+          budgetExpired,
+        ])
         if (r === null) {
           // Still in flight when the budget ran out, so it never reached a
           // verdict — the same thing a throttled check is, and counted the
@@ -688,10 +679,13 @@ export class DomainsService
           found.push(r.value)
         }
       }
-      if (outOfBudget || found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
-        break
-      }
     }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(AVAILABILITY_CHECK_CONCURRENCY, candidates.length) },
+        worker,
+      ),
+    )
 
     if (outOfBudget) {
       this.logger.warn(
