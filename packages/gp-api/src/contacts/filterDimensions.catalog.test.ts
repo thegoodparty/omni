@@ -281,6 +281,19 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(serveKeys).not.toContain('ethnicity')
   })
 
+  // Named for the same reason as ethnicity: 'audience' (turnout likelihood)
+  // is still 'both', so early vote could plausibly be "fixed" to match it.
+  it('offers early vote likelihood to Win and never to an eo- organization', () => {
+    const winKeys = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .map((d) => d.key)
+    const serveKeys = buildService()
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
+      .map((d) => d.key)
+    expect(winKeys).toContain('earlyVote')
+    expect(serveKeys).not.toContain('earlyVote')
+  })
+
   // Each mode sees the shared dimensions plus only its own. Stated
   // symmetrically because both products now have exclusives — this used to
   // assert Win-minus-win-only === Serve outright, which held only while
