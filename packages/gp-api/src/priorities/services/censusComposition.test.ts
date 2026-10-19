@@ -112,6 +112,155 @@ describe('DistrictCensusComposition', () => {
   })
 })
 
+describe('DistrictCensusComposition.mrpInputs', () => {
+  // Asian under 2% of the district, so it folds into other.
+  const DISTRICT = {
+    ...counts(0),
+    populationWhiteNh: 600,
+    populationBlackNh: 300,
+    populationHispanic: 80,
+    populationAsianNh: 10,
+    populationNativeAmericanNh: 5,
+    populationOtherNh: 5,
+  }
+  const MODEL_INPUT = {
+    districtId: 'd-1',
+    dataset: 'voters' as const,
+    answers: [{ personId: '0190a1b2-0000-7000-8000-00000000000a', yes: 1 }],
+  }
+
+  const withCells = (
+    findDistrictCells: StatsService['findDistrictCells'],
+    findAnswerCells: StatsService['findAnswerCells'],
+  ) => {
+    const warn = vi.fn()
+    const source = new DistrictCensusComposition(
+      { findDistrictCells, findAnswerCells } as StatsService,
+      { setContext: vi.fn(), warn } as never,
+    )
+    return { source, warn }
+  }
+
+  it('puts the district and the answers in the same cells, race folded', async () => {
+    const { source } = withCells(
+      vi.fn().mockResolvedValue({
+        district: DISTRICT,
+        cells: [
+          {
+            ageBand: '18to64',
+            gender: 'female',
+            tract: '53017950100',
+            race: 'asian',
+            count: 40,
+          },
+          {
+            ageBand: '65plus',
+            gender: null,
+            tract: null,
+            race: null,
+            count: 9,
+          },
+        ],
+      }),
+      vi.fn().mockResolvedValue([
+        {
+          ageBand: '18to64',
+          gender: 'female',
+          tract: '53017950100',
+          race: 'black',
+          yes: 1.5,
+          count: 2,
+        },
+      ]),
+    )
+
+    expect(await source.mrpInputs(MODEL_INPUT)).toEqual({
+      frame: [
+        {
+          count: 40,
+          values: {
+            age: '18to64',
+            gender: 'female',
+            tract: '53017950100',
+            race: 'other',
+          },
+        },
+        { count: 9, values: { age: '65plus' } },
+      ],
+      answers: [
+        {
+          yes: 1.5,
+          answers: 2,
+          values: {
+            age: '18to64',
+            gender: 'female',
+            tract: '53017950100',
+            race: 'black',
+          },
+        },
+      ],
+      raceNameable: false,
+    })
+  })
+
+  it('leaves race out when the census has no race figures', async () => {
+    const { source } = withCells(
+      vi.fn().mockResolvedValue({
+        district: { ...DISTRICT, populationWhiteNh: null },
+        cells: [
+          {
+            ageBand: '18to64',
+            gender: null,
+            tract: null,
+            race: 'white',
+            count: 4,
+          },
+        ],
+      }),
+      vi.fn().mockResolvedValue([]),
+    )
+
+    const inputs = await source.mrpInputs(MODEL_INPUT)
+    expect(inputs?.frame).toEqual([{ count: 4, values: { age: '18to64' } }])
+  })
+
+  it('reads a district with no census row as no read', async () => {
+    const { source } = withCells(
+      vi.fn().mockResolvedValue({ district: null, cells: [] }),
+      vi.fn().mockResolvedValue([]),
+    )
+    expect(await source.mrpInputs(MODEL_INPUT)).toBeNull()
+  })
+
+  it('reads the district once for every priority, and again after a failure', async () => {
+    const district = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('warehouse down'))
+      .mockResolvedValue({
+        district: DISTRICT,
+        cells: [
+          {
+            ageBand: '18to64',
+            gender: null,
+            tract: null,
+            race: null,
+            count: 4,
+          },
+        ],
+      })
+    const { source, warn } = withCells(district, vi.fn().mockResolvedValue([]))
+
+    expect(await source.mrpInputs(MODEL_INPUT)).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+    await Promise.all([
+      source.mrpInputs(MODEL_INPUT),
+      source.mrpInputs({ ...MODEL_INPUT, answers: [] }),
+    ])
+    expect(await source.mrpInputs(MODEL_INPUT)).not.toBeNull()
+    expect(district).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('representationFrom', () => {
   const placed = (n: number) => Array.from({ length: n }, () => counts(10))
 
