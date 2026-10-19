@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import type { CivicPanelRepresentation } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CitizensPanelView } from './CitizensPanelView'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const SUMMARY = {
   members: 40,
@@ -40,6 +46,44 @@ beforeEach(() => {
 })
 
 describe('CitizensPanelView', () => {
+  it('records the visit with how close the panel is to the district', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={{
+          ...PLAN,
+          balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+        }}
+      />,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.CivicPanel.PanelViewed, {
+      members: 40,
+      goalMembers: 240,
+      expectedAnswers: 16,
+      answersNeeded: 96,
+      planStatus: 'none',
+      howCloseStatus: 'not_yet_representative',
+      entry: 'direct',
+    })
+  })
+
+  it('records no status while the comparison is hidden', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={PLAN}
+      />,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CivicPanel.PanelViewed,
+      expect.objectContaining({ howCloseStatus: null }),
+    )
+  })
+
   it('says how the panel compares with the district and who to invite next', () => {
     render(
       <CitizensPanelView

@@ -15,6 +15,7 @@ import {
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { WEIGHTING_STATUS } from 'app/dashboard/priorities/[priorityId]/underHeardAnalytics'
 import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import {
   CITIZENS_PANEL_LIST_PATH,
@@ -64,6 +65,9 @@ export const CitizensPanelView = ({
       expectedAnswers: progress.expectedAnswers,
       answersNeeded: progress.answersNeeded,
       planStatus: initialPlan?.plan?.status ?? 'none',
+      howCloseStatus: initialPlan?.balance
+        ? WEIGHTING_STATUS[initialPlan.balance.status]
+        : null,
       entry,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

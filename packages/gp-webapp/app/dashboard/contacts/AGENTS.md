@@ -33,7 +33,8 @@ The panel page is where the panel is built, from gp-api's plan
 whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
 
 - **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
-  (members, goal, expected answers, plan status, and `entry` from the
+  (members, goal, expected answers, plan status, `howCloseStatus` from the
+  plan's `balance`, snake case or null while hidden, and `entry` from the
   `?from=` every in-app link adds through `civicPanelHref`: chief_of_staff_home,
   chief_of_staff_chat, contacts, outreach, else direct). Opening a step's
   flow fires `Civic Panel - Step Opened` (`surface` panel_page or
