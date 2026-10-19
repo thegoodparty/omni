@@ -5,7 +5,7 @@ import type {
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 
-// ADR 0009's per-resident history, as the paper surfaces read it. The default
+// The per-resident history, as the paper surfaces read it. The default
 // date is mid-month so it names the same month in UTC and in every US zone —
 // the one test that cares about the boundary passes its own.
 export const doorKnock = (
@@ -64,7 +64,7 @@ export const target = (
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,
-  // ADR 0011, and carried for the same reason as the block above. Saved contact
+  // Carried for the same reason as the block above. Saved contact
   // notes ride the route payload for `PersonSheet`'s Notes section and are
   // absent from both paper surfaces with more force again than the profile is: a
   // page of free text a named person typed about a named voter is the largest

@@ -50,7 +50,7 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           estimatedIncomeAmount: 82000,
           language: 'Spanish',
           ethnicityGroup: 'Hispanic',
-          // ADR 0011, carried for the same reason and with more force again:
+          // Carried for the same reason and with more force again:
           // saved contact notes are free text a named person typed about a
           // named voter, which is the largest disclosure on this payload.
           notes: {
@@ -515,10 +515,10 @@ describe('WalkSheet', () => {
     }
   })
 
-  // ADR 0011, and the same argument once more. The fixture carries a saved note
-  // and a count of nine, so both halves of the block can fail — the count is a
-  // disclosure of its own, since "9 notes on file" says how much has been
-  // written about this voter even with none of it printed.
+  // Contact notes, and the same argument once more. The fixture carries a
+  // saved note and a count of nine, so both halves of the block can fail —
+  // the count is a disclosure of its own, since "9 notes on file" says how
+  // much has been written about this voter even with none of it printed.
   //
   // Named by its body rather than by the word "Notes", because the sheet rules a
   // Notes column for every person to write in: that blank is the point of the
@@ -582,7 +582,7 @@ describe('WalkSheet', () => {
     expect(row.querySelectorAll('.ws-box')).toHaveLength(0)
   })
 
-  // ADR 0007. Turf evaluation keeps flagged people off new lists, but paper
+  // Do-not-knock. Turf evaluation keeps flagged people off new lists, but paper
   // freezes the moment it prints, so the sheet has to carry the instruction
   // itself — otherwise the one surface used without the app is the one that
   // ignores it.
@@ -666,9 +666,10 @@ describe('WalkSheet', () => {
     expect(screen.getByText('Marisol Vega')).toBeInTheDocument()
   })
 
-  // ADR 0008. Paper freezes at print time and is the surface used without the
-  // app, so a resident who moved away or died carries their instruction on the
-  // page — a blank form beside their name is how a door gets knocked anyway.
+  // Not-a-voter. Paper freezes at print time and is the surface used without
+  // the app, so a resident who moved away or died carries their instruction on
+  // the page — a blank form beside their name is how a door gets knocked
+  // anyway.
   it('prints the reason instead of a form, and words the two reasons apart', () => {
     const resident = {
       personId: 'person-1',
@@ -945,7 +946,7 @@ describe('WalkSheet', () => {
     expect(screen.getByAltText('GoodParty.org')).toBeInTheDocument()
   })
 
-  // ENG-10876. On screen ADR 0009's activity feed answers "have we been here
+  // ENG-10876. On screen the activity feed answers "have we been here
   // before"; paper carried no history at all, so an answered-but-unsure door and
   // a door nobody has ever knocked printed the same blank form. The line prints
   // for a flagged resident too — whether we have been here is a fact about them

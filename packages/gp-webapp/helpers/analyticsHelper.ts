@@ -880,13 +880,14 @@ export const EVENTS = {
     SessionCompleted: 'Outreach - Door Knocking Session Completed',
     SessionAbandoned: 'Outreach - Door Knocking Session Abandoned',
     DoorLogged: 'Outreach - Door Knocking Door Logged',
-    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
-    // (DoNotKnockControl), so nothing in the product sets the flag.
+    // Do-not-knock, clear direction only: the walk's door is
+    // read-only-plus-Undo (DoNotKnockControl), so nothing in the product sets
+    // the flag.
     DoNotKnockCleared: 'Outreach - Door Knocking Do Not Knock Cleared',
-    // ADR 0008. Both directions for the same reason, and the Set event carries
-    // which reason was given: the follow-up is optional, so how often it is
-    // answered at all — and how the two answers split — is the only way to tell
-    // whether the question is worth asking.
+    // Not-a-voter. Both directions for the same reason, and the Set event
+    // carries which reason was given: the follow-up is optional, so how often
+    // it is answered at all — and how the two answers split — is the only way
+    // to tell whether the question is worth asking.
     NotAVoterReasonSet: 'Outreach - Door Knocking Not A Voter Reason Set',
     NotAVoterReasonCleared:
       'Outreach - Door Knocking Not A Voter Reason Cleared',

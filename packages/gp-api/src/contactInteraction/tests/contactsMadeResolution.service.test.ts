@@ -126,9 +126,10 @@ describe('ContactsMadeResolutionService', () => {
       await expect(resolution.contactsMadeBuckets(org, 1)).resolves.toBeNull()
     })
 
-    // ADR 0010: the map's shading and the list's membership are one quantity,
-    // so the plane and the resolution below must agree person-for-person for
-    // EVERY selection, not just the ones a test happens to pick. Disagreeing
+    // The map's shading and the list's membership are one quantity, so one
+    // number: the plane and the resolution below must agree
+    // person-for-person for EVERY selection, not just the ones a test
+    // happens to pick. Disagreeing
     // here would replace the honest "the map can't shade this" caveat with a
     // silent superset, which is strictly worse.
     it('agrees with resolveContactsMade on every selection', async () => {

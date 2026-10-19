@@ -56,9 +56,9 @@ export const followUpAnswerFor = (
 // held at the door.
 //
 // A month rather than a timestamp: the activity feed one card away already
-// carries the exact time and the author, so the only thing this line has to
-// add is how fresh the answer is. It is also the granularity ADR 0009 argued
-// the door's history at — "we spoke in June about the sidewalks".
+// carries the exact time and the author, so the only thing this line has to add
+// is how fresh the answer is. It is also how a door's history is remembered —
+// "we spoke in June about the sidewalks".
 const supportMonth = new Intl.DateTimeFormat('en-US', {
   month: 'long',
   year: 'numeric',
@@ -108,14 +108,15 @@ const supportClaim = (activity: RouteTargetActivity): SupportClaim | null => {
 // read off the newest history row that speaks to support, and only if that row
 // states the status being shown. Scanning stops at the FIRST such row rather
 // than hunting for one that agrees, because a newer answer supersedes an older
-// one — an override for this resident that fell outside ADR 0009's five-row
+// one — an override for this resident that fell outside the history's five-row
 // window would otherwise let a June door knock date a stance recorded in
 // August. Disagreement therefore means silence, not an older date.
 //
 // Absent history is a fact about the payload and not about the person: a route
-// the service worker snapshotted before ADR 0009 shipped carries no `history`
-// key at all, and the phone holding it cannot refetch. Same reason
-// `lastContactLine` prints nothing rather than "never contacted".
+// the service worker snapshotted before the activity feed was added to the
+// route payload carries no `history` key at all, and the phone holding it
+// cannot refetch. Same reason `lastContactLine` prints nothing rather than
+// "never contacted".
 export const supportAsOf = (
   target: RoutePayloadTarget,
   status: SupportStatus,

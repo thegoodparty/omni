@@ -207,7 +207,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       this.status.notAVoterReasons(organization.slug, targetPersonIds),
       this.activity.historyByPersonId(organization.slug, targetPersonIds),
       // Every target's notes in one query, alongside the other live reads
-      // rather than per target inside the map below — see ADR 0011.
+      // rather than per target inside the map below.
       this.notes.notesByPersonId(organization.slug, targetPersonIds),
       this.resolveRepresenting(organization),
     ])
@@ -382,12 +382,12 @@ export class DoorKnockingServeService extends createPrismaBase(
             mayHaveMoved: !livePerson,
             doNotKnock: doNotKnockPersonIds.has(target.personId),
             notAVoterReason: notAVoterReasons.get(target.personId),
-            // ADR 0009. Keyed by personId, so it is this resident's history
+            // Keyed by personId, so it is this resident's history
             // and not the household's — the two people behind one door often
             // answered differently, and merging them at the door attributes a
             // neighbor's refusal to whoever opens it.
             history: historyByPersonId.get(target.personId) ?? [],
-            // ADR 0011. Per-resident like the feed above, and always present
+            // Notes. Per-resident like the feed above, and always present
             // even when empty: a resident nobody has written anything about is
             // a fact the sheet states, and it has to read differently from a
             // payload snapshotted before this field existed, where the key is

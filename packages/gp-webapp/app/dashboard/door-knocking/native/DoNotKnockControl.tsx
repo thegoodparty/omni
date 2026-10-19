@@ -13,12 +13,12 @@ interface DoNotKnockControlProps {
   onChanged: (personId: string, doNotKnock: boolean) => void
 }
 
-// ADR 0007, now read-only-plus-Undo. The design's door carries no "Don't knock
-// again", so this no longer SETS the flag — it explains a door that is already
-// flagged, which is what withholds the script and the log form above it, and
-// offers the one gesture that has to stay reachable from here: taking it back.
-// A mis-press elsewhere is foreseeable, and the alternative is a candidate
-// standing at a doorstep who has to open the CRM to undo it.
+// Do-not-knock, now read-only-plus-Undo. The design's door carries no "Don't
+// knock again", so this no longer SETS the flag — it explains a door that is
+// already flagged, which is what withholds the script and the log form above
+// it, and offers the one gesture that has to stay reachable from here: taking
+// it back. A mis-press elsewhere is foreseeable, and the alternative is a
+// candidate standing at a doorstep who has to open the CRM to undo it.
 export default function DoNotKnockControl({
   target,
   onChanged,

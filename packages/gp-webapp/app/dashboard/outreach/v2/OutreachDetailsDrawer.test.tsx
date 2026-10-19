@@ -1112,8 +1112,8 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   })
 
   // A finished walk keeps its progress rather than swapping it for a Results
-  // table, because door knocking has no outcomes surface here (ADR 0012) and a
-  // walk is routinely ended with doors left unlogged.
+  // table, because door knocking has no outcomes surface here and a walk is
+  // routinely ended with doors left unlogged.
   it('keeps its progress on a finished walk', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
