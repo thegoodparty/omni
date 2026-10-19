@@ -1,6 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ApiException } from '@hubspot/api-client/lib/codegen/crm/contacts'
-import { of } from 'rxjs'
+import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Campaign, User } from '../../generated/prisma'
 import { CrmUsersService } from './crmUsers.service'
@@ -380,5 +380,63 @@ describe('CrmUsersService test-user guard', () => {
     )
 
     expect(post).not.toHaveBeenCalled()
+  })
+
+  describe('retry', () => {
+    it('retries once when HubSpot gives no response', async () => {
+      const failing = vi.fn()
+      const err = Object.assign(new Error('socket hang up'), {
+        isAxiosError: true,
+        code: 'ECONNRESET',
+        request: {},
+      })
+      failing
+        .mockReturnValueOnce(throwError(() => err))
+        .mockReturnValueOnce(of({ data: {} }))
+      const svc = new CrmUsersService(
+        { client: { config: { accessToken: 't' } } } as never,
+        {} as never,
+        {} as never,
+        { post: failing } as never,
+        {} as never,
+        createMockLogger(),
+      )
+
+      await svc.submitCrmForm(
+        'form-1',
+        [{ name: 'email', value: 'a@b.co', objectTypeId: '0-1' }],
+        'registerPage',
+        'https://app.goodparty.org/sign-up',
+      )
+
+      expect(failing).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry a 4xx and reports a readable message', async () => {
+      const failing = vi.fn()
+      const err = Object.assign(new Error('bad'), {
+        isAxiosError: true,
+        response: { status: 400, data: { message: 'bad field' } },
+      })
+      failing.mockReturnValue(throwError(() => err))
+      const svc = new CrmUsersService(
+        { client: { config: { accessToken: 't' } } } as never,
+        {} as never,
+        {} as never,
+        { post: failing } as never,
+        { errorMessage: vi.fn() } as never,
+        createMockLogger(),
+      )
+
+      await expect(
+        svc.submitCrmForm(
+          'form-1',
+          [{ name: 'email', value: 'a@b.co', objectTypeId: '0-1' }],
+          'registerPage',
+          'https://app.goodparty.org/sign-up',
+        ),
+      ).rejects.toThrow('bad field')
+      expect(failing).toHaveBeenCalledTimes(1)
+    })
   })
 })
