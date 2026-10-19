@@ -65,8 +65,8 @@ describe('the pack age buckets', () => {
 })
 
 // THE test. Every key, every age: the people a key's buckets shade on the map
-// are exactly the people its range serves at knock time. Anything less is the
-// two-denominator failure ADR 0010 forbids, and it is what the previous
+// are exactly the people its range serves at knock time. Anything less shows
+// two different numbers for one quantity, and it is what the previous
 // mapping did for age50_64 (shaded 50+, served 50-64) and age65Plus (shaded
 // nothing at all).
 describe('every age key maps onto its buckets exactly', () => {
