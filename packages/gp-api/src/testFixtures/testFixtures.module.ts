@@ -1,5 +1,6 @@
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { OutreachModule } from '@/outreach/outreach.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { Module } from '@nestjs/common'
@@ -17,6 +18,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
     ClerkModule,
     ElectionsModule,
     OrganizationsModule,
+    OutreachModule,
     StateTransitionsModule,
     VendorMocksModule,
   ],

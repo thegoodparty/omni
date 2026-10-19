@@ -1,5 +1,9 @@
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
+import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -12,6 +16,7 @@ import {
   type MockAction,
   type MockActionResponse,
   type MockRecordsResponse,
+  type RunJobResponse,
   DeleteTestFixtureUsersResponse,
   TestFixtureSessionResponse,
   TestFixtureUserResponse,
@@ -26,7 +31,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { addSeconds, formatISO } from 'date-fns'
+import { addSeconds, differenceInMilliseconds, formatISO } from 'date-fns'
 import { User } from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
@@ -55,6 +60,10 @@ export class TestFixturesService {
     private readonly activitySeed: ActivitySeedService,
     private readonly elections: ElectionsService,
     private readonly vendorMockRecord: VendorMockRecordService,
+    private readonly robocallStaging: OutreachRobocallStagingService,
+    private readonly robocallSend: OutreachRobocallSendService,
+    private readonly robocallCompletion: OutreachRobocallCompletionService,
+    private readonly robocallCapture: OutreachRobocallCaptureService,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
   ) {}
@@ -294,8 +303,21 @@ export class TestFixturesService {
     return { vendorMode: VENDOR_MODE, records }
   }
 
-  runJob(name: string): never {
-    throw new NotFoundException(`Unknown job: ${name}`)
+  async runJob(name: string): Promise<RunJobResponse> {
+    const jobs: Record<string, () => Promise<void>> = {
+      'robocall.staging': () => this.robocallStaging.runStaging(),
+      'robocall.send': () => this.robocallSend.runSend(),
+      'robocall.completion': () => this.robocallCompletion.runCompletion(),
+      'robocall.capture': () => this.robocallCapture.runCapture(),
+    }
+    const job = jobs[name]
+    if (!job) throw new NotFoundException(`Unknown job: ${name}`)
+    const ranAt = new Date()
+    await job()
+    return {
+      ranAt: formatISO(ranAt),
+      durationMs: differenceInMilliseconds(new Date(), ranAt),
+    }
   }
 
   private buildCookies(user: User, token: string, orgSlug: string) {
