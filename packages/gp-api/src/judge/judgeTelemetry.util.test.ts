@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JUDGE_ORG_SLUG_PREFIX as RUNNER_PREFIX } from '@/chats/evals/judge/runners/background'
 import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
-import { chatOrgSlug } from '@/chats/evals/judge/runners/seedChatOrg'
+import { chatOrgSlug } from '@/testFixtures/judgeChatFixture/seed'
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 
 // The real derivation, driven by a stubbed OTEL_SERVICE_ENVIRONMENT, so these
