@@ -41,6 +41,10 @@ interface PeerlyAuthenticationResponseBody {
   token: string
 }
 
+export interface PeerlyRequestOptions {
+  retry: boolean
+}
+
 @Injectable()
 export class PeerlyHttpService extends PeerlyBaseConfig {
   private token: string | null = null
@@ -74,8 +78,9 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
   async get<T>(
     path: string,
     config?: AxiosRequestConfig,
+    options?: PeerlyRequestOptions,
   ): Promise<AxiosResponse<T>> {
-    return this.request<T>(Methods.GET, path, undefined, config)
+    return this.request<T>(Methods.GET, path, undefined, config, options)
   }
 
   async post<T>(
@@ -106,28 +111,37 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     path: string,
     data: unknown,
     config?: AxiosRequestConfig,
+    options?: PeerlyRequestOptions,
   ): Promise<AxiosResponse<T>> {
     const mergedConfig = await this.getAuthenticatedConfig(config)
     const url = `${this.baseUrl}${path}`
     this.logRequest(method, url, data, mergedConfig)
+    const response$ = this.httpService.request<T>({
+      ...mergedConfig,
+      method,
+      url,
+      data,
+    })
     return lastValueFrom(
-      this.httpService.request<T>({ ...mergedConfig, method, url, data }).pipe(
-        retry({
-          count: RETRY_MAX,
-          delay: (error: AxiosError, retryCount: number) => {
-            if (!this.isRetryableError(error)) throw error
-            this.logger.warn(
-              {
-                retryCount,
-                code: error.code,
-                status: error.response?.status,
+      options?.retry === false
+        ? response$
+        : response$.pipe(
+            retry({
+              count: RETRY_MAX,
+              delay: (error: AxiosError, retryCount: number) => {
+                if (!this.isRetryableError(error)) throw error
+                this.logger.warn(
+                  {
+                    retryCount,
+                    code: error.code,
+                    status: error.response?.status,
+                  },
+                  `Peerly API request retry attempt ${retryCount}`,
+                )
+                return timer(Math.pow(2, retryCount) * 100)
               },
-              `Peerly API request retry attempt ${retryCount}`,
-            )
-            return timer(Math.pow(2, retryCount) * 100)
-          },
-        }),
-      ),
+            }),
+          ),
     )
   }
 
