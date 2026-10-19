@@ -7,6 +7,7 @@ import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
+import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
 import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -170,6 +171,7 @@ export class OutreachServeSmsPurchaseHandlerService
         textCount: true,
         reportBackForOutreachId: true,
         outreachType: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
       },
     })
 
@@ -235,6 +237,17 @@ export class OutreachServeSmsPurchaseHandlerService
         'Serve poll claimed after payment; held for review',
       )
       await this.notifyPollAwaitingReview(outreachId, organizationSlug)
+      return
+    }
+
+    // A priority's round 2 is paid for now and handed off once its list is
+    // drawn, close to its send date. The draw enqueues it then.
+    if (isUndrawnSample(row.voterFileFilter)) {
+      this.logger.info(
+        { outreachId, organizationSlug, sessionId },
+        'Serve round 2 text claimed after payment; held for its draw',
+      )
+      await this.priorityStatus.recordOutreachSent(outreachId)
       return
     }
 
@@ -726,7 +739,10 @@ export class OutreachServeSmsPurchaseHandlerService
   ): Promise<void> {
     const row = await this.model.findFirst({
       where: { id: outreachId, organizationSlug, campaignId: null },
-      select: { status: true },
+      select: {
+        status: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+      },
     })
 
     if (!row) {
@@ -756,6 +772,14 @@ export class OutreachServeSmsPurchaseHandlerService
 
     if (row.status === OutreachStatus.pending && isPoll) {
       // Held for review on purpose: the approval enqueues it, not payment.
+      return
+    }
+
+    if (
+      row.status === OutreachStatus.pending &&
+      isUndrawnSample(row.voterFileFilter)
+    ) {
+      // A round 2 text waiting on its draw, which enqueues it.
       return
     }
 

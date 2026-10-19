@@ -41,3 +41,30 @@ is not flag-gated.
   `CronLockService` ten-minute slot), over priority sends created in the last
   30 days. It reads before it claims. No deploy allowlist: it calls the model
   only for replies on its own database.
+
+## Round 2 draw
+
+`services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is
+paid for at setup and drawn later: the `priorityRoundTwoDraw` cron
+(`41 7 * * *` ET, `CronLockService` daily slot, reads before it claims)
+draws every paid send whose list is still an undrawn sample and whose send
+date is on or before `roundTwoDrawCutoff` (three business days out, the last
+day a Serve text for that date could be booked).
+
+- **Claim.** A CAS stamping the list's `sampledAt` where it is null. A
+  failure before the enqueue lands deletes the members and clears it again.
+- **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
+  `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
+  once per code, against a frame of the census shares
+  (`util/roundTwo.util.ts`). Race joins only when `raceNameable` holds for
+  the answerers. Any read or fit failure draws the send unsteered.
+- **Draw.** `drawListSample` twice over the list's criteria with cell phones
+  forced: 85% with `batchWeights`, the rest unsteered, both leaving out
+  `roundTwoExclusions` and the unsteered one the steered picks. Then the
+  members are written and `outreachTextSend` enqueued with the purchase
+  handler's message group and deduplication id.
+- **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
+  preview and local only, 404 on prod; the office's own sends) draws one now.
+
+No deploy allowlist: it reads the warehouse and enqueues only for sends on
+its own database. Design: `docs/features/civic-panel-mrp.md`.

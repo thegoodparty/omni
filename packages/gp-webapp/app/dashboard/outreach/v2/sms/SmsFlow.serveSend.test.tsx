@@ -380,6 +380,52 @@ describe('SmsFlow serve send path', () => {
     expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
   })
 
+  it("carries a round 2 card's size onto the create", async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 93,
+          recipientCount: 300,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    openServeFlow({
+      initialScript:
+        'this is Jane, your City Council Member. Is parking near the school the problem to fix first?',
+      preselectedListId: 41,
+      roundTwoSize: 300,
+      proposalLink: {
+        proposalKey: '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7',
+        priorityId: 'priority-1',
+      },
+    })
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/parking near the school/)
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      roundTwoSize: 300,
+      voterFileFilterId: 41,
+      priorityId: 'priority-1',
+    })
+  })
+
   // The one screen that promises a preview used to show the raw merge
   // token. It now reads like the text a constituent receives — and the
   // create payload still carries the token, which is what fulfilment

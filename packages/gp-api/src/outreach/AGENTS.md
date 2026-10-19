@@ -152,6 +152,18 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
 - **No edit route.** A `pending_payment` draft is immutable; re-entering the
   flow creates a fresh draft. That is what keeps the priced count and the row
   the purchase handler re-reads the same thing.
+- **A priority's round 2 is drawn later, not at checkout.** `roundTwoSize`
+  (behind `serve-citizen-panels` too) needs a `priorityId`, a list that is not
+  itself a sample, and a send date past `roundTwoDrawCutoff` (more than three
+  business days out). `textCount` is `min(roundTwoSize, pool)`, the pool
+  being the list's cell phones less `roundTwoExclusions` (the priority's
+  other sends' people and every opt-out), and the row points at a copy of
+  the list (`createUndrawnSampleOf`, named `<list>, round 2`) with
+  `sampleSize` set and no `sampledAt`. That undrawn state is the only round
+  2 marker (`isUndrawnSample`); there is no column for it. The excluded and
+  duplicate counts come back 0, not measured. Who gets it is drawn by
+  `priorities/services/priorityRoundTwoDraw.service.ts`; see
+  `docs/features/civic-panel-mrp.md`.
 
 Both WRITE routes on this controller are gated by the `serve-sms-outreach`
 feature flag (404 when off), and only those two: the delivery service, the
@@ -243,6 +255,12 @@ or unapproved) and delivers a `sample` of its `textCount` that excludes every
 `OutreachTextRecipient` of the outreach, capped at that count. A sample is clamped to what the
 pool still holds, with a warn log of the shortfall, rather than failing the
 paid send.
+
+A paid round 2 text (its list an undrawn sample) is claimed the same way
+and held at `pending` too, but with no notice: the round 2 draw enqueues it
+on the last day staff can still take it (`roundTwoDrawCutoff`), and a lost
+claim on such a row does not re-enqueue. The consumer acks, without sending, any text whose list is
+still undrawn.
 
 The enqueue is `outreachTextSend { outreachId, sendSeq }` on the FIFO queue,
 message group `outreachTextSend-<outreachId>` so two deliveries for one send
