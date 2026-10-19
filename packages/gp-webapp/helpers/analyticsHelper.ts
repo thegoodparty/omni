@@ -391,9 +391,6 @@ export const EVENTS = {
       InterstitialViewed: 'Pro Upgrade - Upgrade Interstitial Viewed',
       InterstitialCompleted: 'Pro Upgrade - Upgrade Interstitial Completed',
       InterstitialDismissed: 'Pro Upgrade - Upgrade Interstitial Dismissed',
-      ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
-      ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
-      ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
       FilingStatusViewed: 'Pro Upgrade - Filing Status Viewed',
       FilingStatusAlreadyFiled:
         'Pro Upgrade - Filing Status: Click already filed',
@@ -407,7 +404,6 @@ export const EVENTS = {
       GuidanceContinue: "Pro Upgrade - Guidance: Click let's go",
       EinViewed: 'Pro Upgrade - EIN Viewed',
       EinContinue: 'Pro Upgrade - EIN: Click continue',
-      EinHoverHelp: 'Pro Upgrade - EIN: Hover help',
       EinInstructionsEmail: 'Pro Upgrade - EIN: Click email me these steps',
       CandidateProfileViewed: 'Pro Upgrade - Candidate Profile Viewed',
       FilingDetailsViewed: 'Pro Upgrade - Filing Details Viewed',
@@ -629,7 +625,6 @@ export const EVENTS = {
   Outreach: {
     P2PCompliance: {
       ComplianceModalViewed: 'Voter Outreach - 10DLC Compliance Modal Viewed',
-      ComplianceStarted: 'Voter Outreach - 10DLC Compliance Started',
     },
     DlcCompliance: {
       RegistrationSubmitted: 'Pro Upgrade - Filing Details Submitted',
