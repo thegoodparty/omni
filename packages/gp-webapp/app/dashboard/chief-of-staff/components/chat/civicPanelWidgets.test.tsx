@@ -216,7 +216,7 @@ describe('CivicPanelNextStepCard', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&launchSource=civic_panel',
       ),
     )
   })

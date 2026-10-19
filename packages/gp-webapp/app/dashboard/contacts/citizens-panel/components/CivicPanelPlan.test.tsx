@@ -648,7 +648,7 @@ describe('starting a step', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&area=-97.75%2C30.25%2C-97.74%2C30.26',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&launchSource=civic_panel&area=-97.75%2C30.25%2C-97.74%2C30.26',
       ),
     )
   })

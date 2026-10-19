@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
@@ -146,6 +149,8 @@ interface NativeDoorKnockingPageProps {
   // on the first arrival at the draw step. Spent once, like `?listId=`.
   initialPurpose?: ServeDoorKnockingPurpose
   prefillArea?: PolygonRing
+  // The agent surface that opened the create flow, for the Outreach events.
+  launchSource?: OutreachLaunchSource
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -192,6 +197,7 @@ export default function NativeDoorKnockingPage({
   createSource,
   initialPurpose,
   prefillArea,
+  launchSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   // Doors logged with no signal wait on the phone; this sends them when it
@@ -1617,6 +1623,7 @@ export default function NativeDoorKnockingPage({
                   joinSaveRequest={joinSaveRequest}
                   onJoinSaveStateChange={setJoinSave}
                   {...(proposalLink && { proposalLink })}
+                  launchSource={launchSource}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
                   onSelectDraft={selectDraft}

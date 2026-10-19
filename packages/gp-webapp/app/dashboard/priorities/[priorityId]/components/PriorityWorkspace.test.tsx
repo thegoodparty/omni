@@ -78,9 +78,11 @@ vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
     ChatCardRenderer: ({
       card,
       detailKey,
+      launchSource,
     }: {
       card: { kind: string; proposalKey?: string }
       detailKey?: string
+      launchSource?: string
     }) =>
       card.kind === 'outside_contact' ? (
         <OutsideContactCard
@@ -92,6 +94,7 @@ vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
           data-testid="chat-card"
           data-kind={card.kind}
           data-proposal-key={card.proposalKey ?? ''}
+          data-launch-source={launchSource ?? ''}
         />
       ),
   }
@@ -224,7 +227,7 @@ describe('PriorityWorkspace', () => {
       entry: 'direct',
     })
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Priorities.MessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
   })
@@ -421,6 +424,50 @@ describe('PriorityWorkspace', () => {
     )
   })
 
+  it('launches a card that answered Get answers as expand_panel, even after a reload', async () => {
+    const proposalTurn = (id: string, toolCallId: string): ChatMessageDto => ({
+      id,
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: '',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [
+        {
+          kind: 'tool',
+          toolName: 'present_outreach_proposal',
+          toolCallId,
+          payload: proposalArgs,
+        },
+      ],
+    })
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: GET_ANSWERS_MESSAGE,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      } satisfies ChatMessageDto,
+      proposalTurn('a1', 'tc-1'),
+      {
+        id: 'u2',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'Make it a call list instead.',
+        createdAt: '2026-09-01T00:00:00.000Z',
+      } satisfies ChatMessageDto,
+      proposalTurn('a2', 'tc-2'),
+    ])
+
+    renderWorkspace()
+
+    const cards = await screen.findAllByTestId('chat-card')
+    expect(cards.map((card) => card.dataset.launchSource)).toEqual([
+      'expand_panel',
+      '',
+    ])
+  })
+
   it('opens a card in a sheet over the page, leaving the rail, and the X closes it', async () => {
     mocks.listMessages.mockResolvedValue([
       {
@@ -535,9 +582,12 @@ describe('PriorityWorkspace', () => {
     await waitFor(() =>
       expect(screen.getAllByText('The two by the school')).toHaveLength(2),
     )
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
-      priorityId: 'pri-1',
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.AIChat.MessageSent, {
+      agent: 'priority_flow',
+      surface: 'priority_workspace',
       via: 'clarify',
+      product: 'serve',
+      priorityId: 'pri-1',
     })
     gate.resolve()
   })
@@ -1167,42 +1217,6 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Representative/)).not.toBeInTheDocument()
     })
 
-    it('counts Get answers against each group the read names', async () => {
-      renderWorkspace(emptyPriorityStatus(), null, {
-        initialReadStatus: skewed,
-      })
-      await screen.findByText('Here is where this stands.')
-
-      fireEvent.click(
-        within(screen.getByRole('complementary')).getByRole('button', {
-          name: 'Get answers',
-        }),
-      )
-
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.Priorities.UnderHeardGroupTargeted,
-        {
-          priorityId: 'pri-1',
-          dimension: 'tenure',
-          group: 'renters',
-          targetType: 'group',
-          rank: 1,
-          source: 'rail',
-        },
-      )
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.Priorities.UnderHeardGroupTargeted,
-        {
-          priorityId: 'pri-1',
-          dimension: 'age',
-          group: 'age_65_plus',
-          targetType: 'group',
-          rank: 2,
-          source: 'rail',
-        },
-      )
-    })
-
     it('names who to hear more from once there are enough answers', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: skewed,
@@ -1244,18 +1258,21 @@ describe('PriorityWorkspace', () => {
         expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
       )
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
-      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
-        priorityId: 'pri-1',
-        via: 'get_answers',
-        source: 'rail',
-      })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.GetAnswersClicked,
+        { priorityId: 'pri-1', source: 'rail' },
+      )
       expect(
         vi
           .mocked(trackEvent)
           .mock.calls.filter(
-            ([event]) => event === EVENTS.Priorities.MessageSent,
+            ([event]) => event === EVENTS.Priorities.GetAnswersClicked,
           ),
       ).toHaveLength(1)
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.AIChat.MessageSent,
+        expect.anything(),
+      )
     })
 
     it('asks once when the results page sent the official here', async () => {
@@ -1273,11 +1290,10 @@ describe('PriorityWorkspace', () => {
         '/dashboard/priorities/pri-1',
         { scroll: false },
       )
-      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
-        priorityId: 'pri-1',
-        via: 'get_answers',
-        source: 'results_page',
-      })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.GetAnswersClicked,
+        { priorityId: 'pri-1', source: 'results_page' },
+      )
     })
 
     it('does not ask again when a reload kept the results page link', async () => {
@@ -1309,7 +1325,7 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(mocks.streamMessage).not.toHaveBeenCalled()
       expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Priorities.MessageSent,
+        EVENTS.Priorities.GetAnswersClicked,
         expect.anything(),
       )
     })

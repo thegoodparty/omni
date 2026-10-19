@@ -4,7 +4,10 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalLinkSchema } from '@goodparty_org/contracts'
 import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { parseWalkableAreaParam } from './native/walkableAreaParam'
@@ -17,6 +20,16 @@ const CREATE_SOURCES: OutreachFlowSource[] = [
   'outreach_page',
   'voter_data',
   'campaign_plan',
+  'campaign_manager',
+]
+
+// The agent surfaces that open this page's create flow. Allowlisted for the
+// same reason as the sources above.
+const LAUNCH_SOURCES: OutreachLaunchSource[] = [
+  'expand_panel',
+  'priorities',
+  'civic_panel',
+  'chief_of_staff',
   'campaign_manager',
 ]
 
@@ -46,6 +59,7 @@ interface PageParams {
     phase?: string
     purpose?: string
     area?: string
+    launchSource?: string
   }>
 }
 
@@ -71,6 +85,7 @@ export default async function Page({
       phase,
       purpose,
       area,
+      launchSource,
     },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
@@ -135,6 +150,8 @@ export default async function Page({
       (value) => value === purpose,
     ),
     prefillArea: parseWalkableAreaParam(area),
+    // The agent surface that sent the official here, for the Outreach events.
+    launchSource: LAUNCH_SOURCES.find((value) => value === launchSource),
   }
 
   return <DoorKnockingPageGate {...childProps} />

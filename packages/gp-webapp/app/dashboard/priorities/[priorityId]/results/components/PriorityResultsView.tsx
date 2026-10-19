@@ -16,7 +16,7 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
-import { WEIGHTING_STATUS } from '../../underHeardAnalytics'
+import { WEIGHTING_STATUS } from '../../weightingStatus'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 

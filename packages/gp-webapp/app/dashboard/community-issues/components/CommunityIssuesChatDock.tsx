@@ -138,6 +138,7 @@ const CommunityIssuesChatDock = ({
         initialConversationId={conversationId}
         opener={opener}
         openerKey={openerKey}
+        analyticsSurface="community_issues_dock"
       />
     </>
   )

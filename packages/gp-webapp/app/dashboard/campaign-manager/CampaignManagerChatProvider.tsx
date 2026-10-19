@@ -373,6 +373,7 @@ export function CampaignManagerChatProvider({
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
+        analyticsSurface="campaign_manager_page"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         // The greeting rides on `opener` alone. This only keeps the entries
         // that pass no opener from falling through to the body's Chief of

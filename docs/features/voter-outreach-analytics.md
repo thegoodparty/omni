@@ -203,6 +203,20 @@ The campaign reached voters. One event, every channel.
 | `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | text, phone banking and door knocking, when the flow's purpose picker set one       |
 | `priorityId`           | string (cuid)                                                                 | when a priority's chat card opened the flow                                         |
 | `asksToJoinCivicPanel` | boolean                                                                       | Serve texts only                                                                    |
+| `launchSource`         | agent surface slug, below                                                     | when an agent surface launched it; never on robocall                                |
+
+`launchSource` names the agent surface that launched the outreach:
+`expand_panel` is a priority card that answers the hidden Get answers turn
+(read from the user turn before it, so it survives a reload), `priorities`
+any other priority card, `civic_panel` a plan step opened through
+`useCivicPanelStepFlow`, and `chief_of_staff` / `campaign_manager` a card in
+those chats. It rides on Campaign Created and Completed for text, phone
+banking and door knocking, on `Call List Created`, and on social when a card
+opened it. Analytics only: it is a flow prop (door knocking reads one
+`?launchSource=` param), never part of `ProposalLink` or a server payload.
+Door knocking and phone banking complete on another page, so the source is
+kept per list in `localStorage` (`rememberLaunchSource`); a list finished on
+another browser reports none.
 
 `sendDate` is the scheduled or actual send date, **not** the event timestamp —
 paid sends are scheduled days ahead.

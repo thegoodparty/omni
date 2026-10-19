@@ -51,6 +51,7 @@ const doorFlowHref = (data: PrepareCivicPanelBuildStepResponse): string => {
     create: '1',
     listId: String(data.voterFileFilterId),
     purpose: data.purpose,
+    launchSource: 'civic_panel',
   })
   const area = data.area ? walkableAreaParam(data.area) : null
   if (area) params.set('area', area)
@@ -141,6 +142,7 @@ export const useCivicPanelStepFlow = ({
           preselectedListId={opened.listId}
           audienceSettled
           source="deep_link"
+          launchSource="civic_panel"
         />
       ) : null}
       {opened?.channel === 'phone_banking' ? (
@@ -153,6 +155,7 @@ export const useCivicPanelStepFlow = ({
           initialPurpose={opened.purpose}
           initialName={COPY.callListName}
           source="deep_link"
+          launchSource="civic_panel"
         />
       ) : null}
     </>

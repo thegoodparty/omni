@@ -66,15 +66,15 @@ it is, what to do next, and where it has got to.
 Everything fires under `Priorities -`. The browser fires what only it sees:
 `List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
 opened on, whether the thread is new, its `entry` and the read it opened
-with) and `Message Sent` (`via` composer, clarify or get_answers, the last
-with `source` strip, rail or results_page and only when the turn is actually
-queued; the hidden kickoff and sent markers are not counted). `Results Viewed`
-fires on the results page with `heldBack` and `weightingStatus` (the read's
-status, snake case). `Under-Heard Group Targeted` fires once per group a read
-names when the official presses Get answers, and once when a card kept to the
-parts of the district not reached yet is opened (`underHeardAnalytics.ts`):
-`dimension` age, tenure, gender or area, a `group` bucket, `targetType` group
-or area, never a coordinate. Creates,
+with) and `Get Answers Clicked` (`source` strip, rail or results_page, only
+when the turn is actually queued). What the official types or picks in a
+clarify card is `AI Chat - Message Sent` (`shared/agent-chat/chatAnalytics.ts`);
+the hidden kickoff, sent markers and Get answers turn never fire it.
+`Results Viewed` fires on the results page with `heldBack` and
+`weightingStatus` (the read's status, snake case, `weightingStatus.ts`). A
+priority card's outreach carries `launchSource` on the `Outreach -` events:
+`expand_panel` when the card answers a Get answers turn (read from the user
+turn before it, so it survives a reload), `priorities` otherwise. Creates,
 archives, step moves, check moves and `Plan Completed` are server truth and
 fire from gp-api (`EVENTS.Priorities` in `segment.types.ts`), because the Chief
 of Staff and Community Issues create and archive too, and only the agent's

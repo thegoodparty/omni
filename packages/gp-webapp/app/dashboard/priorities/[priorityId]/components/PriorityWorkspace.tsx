@@ -72,6 +72,7 @@ import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackChatMessageSent } from '../../../shared/agent-chat/chatAnalytics'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { priorityFlowChatApi } from '../data/chat-api'
 import {
@@ -96,7 +97,6 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
-import { trackUnderHeardTargeted } from '../underHeardAnalytics'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -374,10 +374,14 @@ const PriorityWorkspaceBody = ({
     },
   })
 
+  // Whether the turn in flight answers Get answers. A hidden turn is not in
+  // `messages` until the turn settles, so the live cards read it from here.
+  const [liveTurnGetsAnswers, setLiveTurnGetsAnswers] = useState(false)
   const send = useCallback(
     (content: string, opts?: { hidden?: boolean; idOverride?: string }) => {
       const id = opts?.idOverride ?? conversationId
       if (!id) return
+      setLiveTurnGetsAnswers(isGetAnswersMessage(content))
       void sendTurn(id, content, { hidden: opts?.hidden })
     },
     [conversationId, sendTurn],
@@ -387,7 +391,12 @@ const PriorityWorkspaceBody = ({
   // step and calls update_priority_status.
   const answerClarify = useCallback(
     (answer: string): void => {
-      trackEvent(EVENTS.Priorities.MessageSent, { priorityId, via: 'clarify' })
+      trackChatMessageSent({
+        agent: 'priority_flow',
+        surface: 'priority_workspace',
+        via: 'clarify',
+        priorityId,
+      })
       send(answer)
     },
     [send, priorityId],
@@ -440,20 +449,11 @@ const PriorityWorkspaceBody = ({
     (source: 'strip' | 'rail'): void => {
       // A second click before the button disables would queue it twice.
       if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
-      trackEvent(EVENTS.Priorities.MessageSent, {
-        priorityId,
-        via: 'get_answers',
-        source,
-      })
-      trackUnderHeardTargeted(
-        priorityId,
-        readStatus?.underrepresented ?? [],
-        source,
-      )
+      trackEvent(EVENTS.Priorities.GetAnswersClicked, { priorityId, source })
       pendingSent.current.push(GET_ANSWERS_MESSAGE)
       setSentTick((tick) => tick + 1)
     },
-    [priorityId, readStatus],
+    [priorityId],
   )
 
   useEffect(() => {
@@ -506,16 +506,10 @@ const PriorityWorkspaceBody = ({
           reportBackId === null ? null : reportBackMessage(reportBackId)
         const getAnswersTurn = getAnswers ? GET_ANSWERS_MESSAGE : null
         const trackGetAnswers = () => {
-          trackEvent(EVENTS.Priorities.MessageSent, {
+          trackEvent(EVENTS.Priorities.GetAnswersClicked, {
             priorityId,
-            via: 'get_answers',
             source: 'results_page',
           })
-          trackUnderHeardTargeted(
-            priorityId,
-            openedReadRef.current?.underrepresented ?? [],
-            'results_page',
-          )
         }
         if (history.length === 0) {
           if (reportBackTurn === null && getAnswersTurn !== null) {
@@ -625,6 +619,19 @@ const PriorityWorkspaceBody = ({
     () => messages.filter((m) => !(m.role === 'user' && isAppTurn(m.content))),
     [messages],
   )
+  // The replies to a Get answers turn, read from the user turn before each,
+  // so a card in one still launches as expand_panel after a reload.
+  const getAnswersReplyIds = useMemo(() => {
+    const ids = new Set<string>()
+    let lastUserTurn: string | null = null
+    for (const message of messages) {
+      if (message.role === 'user') lastUserTurn = message.content
+      else if (lastUserTurn !== null && isGetAnswersMessage(lastUserTurn)) {
+        ids.add(message.id)
+      }
+    }
+    return ids
+  }, [messages])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
@@ -818,6 +825,9 @@ const PriorityWorkspaceBody = ({
                         toolLabel={priorityToolLabel}
                         context={{
                           priorityId,
+                          ...(getAnswersReplyIds.has(message.id) && {
+                            launchSource: 'expand_panel' as const,
+                          }),
                           clarifyInteractive:
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
@@ -835,6 +845,9 @@ const PriorityWorkspaceBody = ({
                       toolLabel={priorityToolLabel}
                       context={{
                         priorityId,
+                        ...(liveTurnGetsAnswers && {
+                          launchSource: 'expand_panel' as const,
+                        }),
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
                       }}
@@ -859,9 +872,11 @@ const PriorityWorkspaceBody = ({
               onSubmit={() => {
                 const text = composer
                 setComposer('')
-                trackEvent(EVENTS.Priorities.MessageSent, {
-                  priorityId,
+                trackChatMessageSent({
+                  agent: 'priority_flow',
+                  surface: 'priority_workspace',
                   via: 'composer',
+                  priorityId,
                 })
                 send(text)
               }}

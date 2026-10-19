@@ -136,7 +136,7 @@ describe('OutreachProposalCard', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: cta }))
 
-      expect(flows.open).toHaveBeenCalledWith(card, 'priority-1')
+      expect(flows.open).toHaveBeenCalledWith(card, 'priority-1', undefined)
     },
   )
 
@@ -279,7 +279,7 @@ describe('OutreachProposalCard in Campaign Manager', () => {
     expect(await screen.findByText('SMS · 412 voters')).toBeInTheDocument()
     expect(screen.queryByText(/constituent/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Start the text' }))
-    expect(flows.open).toHaveBeenCalledWith(card, undefined)
+    expect(flows.open).toHaveBeenCalledWith(card, undefined, undefined)
   })
 
   it('holds the button until the text gate can run', async () => {
@@ -318,7 +318,7 @@ describe('OutreachProposalCard in Campaign Manager', () => {
       await screen.findByText('Phone banking · 412 voters'),
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Start the calls' }))
-    expect(flows.open).toHaveBeenCalledWith(card, undefined)
+    expect(flows.open).toHaveBeenCalledWith(card, undefined, undefined)
   })
 
   it('reads as sent and leads to the Voter Outreach row', async () => {
