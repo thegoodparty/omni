@@ -662,7 +662,7 @@ describe('buildVoterFiltersSql', () => {
     const bag = createBag()
     const sql = buildVoterFiltersSql(
       bag,
-      parseFilters({ earlyVoteStatus: { in: ['Very likely', 'Unknown'] } }),
+      parseFilters({ earlyVoteStatus: { in: ['Very Likely', 'Unknown'] } }),
     )
 
     expect(sql).toBe(
@@ -672,6 +672,19 @@ describe('buildVoterFiltersSql', () => {
     expect(bag.params).toEqual([
       { name: 'p0', value: 'Very likely', type: 'STRING' },
       { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('binds a Title Case early-vote value as the column spells it', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Very Unlikely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very unlikely', type: 'STRING' },
     ])
   })
 

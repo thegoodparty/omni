@@ -213,7 +213,7 @@ describe('convertVoterFileFilterToFilters early vote status', () => {
   it('maps a single selection with eq', () => {
     expect(
       convertVoterFileFilterToFilters({ earlyVoteVeryLikely: true }),
-    ).toEqual({ earlyVoteStatus: { eq: 'Very likely' } })
+    ).toEqual({ earlyVoteStatus: { eq: 'Very Likely' } })
   })
 
   it('maps several selections with in, Unknown included', () => {
@@ -222,7 +222,7 @@ describe('convertVoterFileFilterToFilters early vote status', () => {
         earlyVoteVeryUnlikely: true,
         earlyVoteUnknown: true,
       }),
-    ).toEqual({ earlyVoteStatus: { in: ['Very unlikely', 'Unknown'] } })
+    ).toEqual({ earlyVoteStatus: { in: ['Very Unlikely', 'Unknown'] } })
   })
 
   it('stays separate from voterStatus', () => {

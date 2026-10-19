@@ -104,10 +104,10 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
 // Early-vote boolean -> people-api earlyVoteStatus value, exported for the
 // catalog for the same reason as the audience list above.
 export const EARLY_VOTE_STATUS_VALUES = [
-  { field: 'earlyVoteVeryLikely', value: 'Very likely' },
+  { field: 'earlyVoteVeryLikely', value: 'Very Likely' },
   { field: 'earlyVoteLikely', value: 'Likely' },
   { field: 'earlyVoteUnlikely', value: 'Unlikely' },
-  { field: 'earlyVoteVeryUnlikely', value: 'Very unlikely' },
+  { field: 'earlyVoteVeryUnlikely', value: 'Very Unlikely' },
   { field: 'earlyVoteUnknown', value: 'Unknown' },
 ] as const
 
