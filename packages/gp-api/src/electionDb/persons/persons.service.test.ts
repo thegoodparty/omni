@@ -325,6 +325,25 @@ describe('PersonsService', () => {
       expect(result.slug).toBe('jane-doe-a1b2c3d4')
     })
 
+    it('retries once on a PrismaClientInitializationError P1001', async () => {
+      findMany
+        .mockRejectedValueOnce(
+          new Prisma.PrismaClientInitializationError(
+            "Can't reach database server",
+            'test',
+            'P1001',
+          ),
+        )
+        .mockResolvedValueOnce([
+          { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
+        ])
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+      expect(result.slug).toBe('jane-doe-a1b2c3d4')
+    })
+
     it('does not retry other database errors', async () => {
       findMany.mockRejectedValueOnce(
         new Prisma.PrismaClientKnownRequestError('pool timeout', {
