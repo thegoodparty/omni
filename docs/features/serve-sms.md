@@ -511,7 +511,7 @@ new purchase type, because the `TEXT` handler hard-requires a `campaignId` and
 
 Draft-first is required, not preferred: the poll pattern puts message content
 in Stripe checkout metadata, which caps values at 500 characters, and
-`SMS_COMPOSED_MAX_LENGTH` is 1000.
+`SMS_COMPOSED_MAX_LENGTH` is 2000.
 
 **Results.** `getSmsResults` with its campaign predicate parametrized to an org
 scope, the same way `findByScope` already handles Win and Serve. Plus a

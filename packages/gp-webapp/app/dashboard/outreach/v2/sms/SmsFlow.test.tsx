@@ -978,7 +978,7 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
-    // The polish endpoint takes a message within the 1000-character limit,
+    // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
     it('sends no polish for a message over the length limit', async () => {
@@ -987,7 +987,7 @@ describe('SmsFlow', () => {
       act(() => {
         editor.commands.insertContentAt(
           endOf(editor, 'introduce_myself'),
-          ` ${'Vote early. '.repeat(80)}`,
+          ` ${'Vote early. '.repeat(180)}`,
         )
       })
 
@@ -995,7 +995,7 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: 'Improve with AI' }),
       ).toBeDisabled()
       expect(
-        screen.getByText(/Keep the whole message .* under 1000 characters/),
+        screen.getByText(/Keep the whole message .* under 2000 characters/),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))

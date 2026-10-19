@@ -33,7 +33,7 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // --- Create --------------------------------------------------------------
 
 // Draft-first, like the Win p2p flow: the row is persisted `pending_payment`
-// before checkout, because the composed message can reach 1000 characters and
+// before checkout, because the composed message can reach 2000 characters and
 // Stripe metadata caps a value at 500, so the poll pattern of carrying content
 // through checkout metadata cannot work here.
 //
