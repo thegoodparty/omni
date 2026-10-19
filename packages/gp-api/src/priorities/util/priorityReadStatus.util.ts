@@ -35,7 +35,11 @@ const groupOf = (gap: RakingGap): UnderrepresentedGroup | null => {
   if (gap.dimension === 'tract') return 'unreachedAreas'
   const key = `${gap.dimension}:${gap.value}`
   const groups: Record<string, UnderrepresentedGroup> = {
-    'age:18to64': 'age18to64',
+    'age:18to24': 'age18to24',
+    'age:25to34': 'age25to34',
+    'age:35to44': 'age35to44',
+    'age:45to54': 'age45to54',
+    'age:55to64': 'age55to64',
     'age:65plus': 'age65plus',
     'tenure:owner': 'owners',
     'tenure:renter': 'renters',

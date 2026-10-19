@@ -257,11 +257,12 @@ place, `priorityReadStatus`
 
 The answers are raked to the district's census marginals
 (`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
-ACS adults 18 to 64 and 65 and over, adult men and women (census sex, against
-the voter file's `M`/`F`), owner and renter households, and adults per census
-tract. Small groups pool, weights are capped at 0.2x to 5x the average, and an
-unknown value, such as a blank gender, sits out its dimension. Race is never
-weighted. `underrepresented` names the one or two groups whose raw share
+ACS adults in six age bands (18 to 24, 25 to 34, 35 to 44, 45 to 54, 55 to 64,
+65 and over), adult men and women (census sex, against the voter file's
+`M`/`F`), owner and renter households, and adults per census tract. Small
+groups pool (an age band with under 5 answers joins the other small ones),
+weights are capped at 0.2x to 5x the average, and an unknown value, such as a
+blank gender, sits out its dimension. Race is never weighted. `underrepresented` names the one or two groups whose raw share
 trails the census most, by at least 5 points
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
 read, enough answers are a good read labeled "Enough answers", never

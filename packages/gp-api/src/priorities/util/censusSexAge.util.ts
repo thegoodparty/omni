@@ -1,4 +1,8 @@
-import type { AcsCounts } from '@/peopleDb/databricks/districtCensusSql.util'
+import {
+  ADULT_AGE_BANDS,
+  type AcsCounts,
+  type AdultAgeBand,
+} from '@/peopleDb/databricks/districtCensusSql.util'
 
 // Census targets for weighting answers by sex and age. Adults only: the
 // people who can answer. Census sex is male or female, the same two values
@@ -11,18 +15,6 @@ export interface AdultSexShares {
   female: number
 }
 
-// The census's adult bands, youngest first. `minAge` is where each starts;
-// each runs to the next one's start, and the last is open-ended.
-export const ADULT_AGE_BANDS = [
-  { key: '18to24', minAge: 18 },
-  { key: '25to34', minAge: 25 },
-  { key: '35to44', minAge: 35 },
-  { key: '45to54', minAge: 45 },
-  { key: '55to64', minAge: 55 },
-  { key: '65plus', minAge: 65 },
-] as const
-export type AdultAgeBand = (typeof ADULT_AGE_BANDS)[number]['key']
-
 const BAND_COUNTS: Record<
   AdultAgeBand,
   (c: AcsCounts) => [number | null, number | null]
@@ -33,16 +25,6 @@ const BAND_COUNTS: Record<
   '45to54': (c) => [c.populationMale45To54, c.populationFemale45To54],
   '55to64': (c) => [c.populationMale55To64, c.populationFemale55To64],
   '65plus': (c) => [c.populationMale65Plus, c.populationFemale65Plus],
-}
-
-// The band a voter-file age falls in; null below 18 or when unknown.
-export const adultAgeBand = (age: number | null): AdultAgeBand | null => {
-  if (age === null || !Number.isFinite(age)) return null
-  let band: AdultAgeBand | null = null
-  for (const { key, minAge } of ADULT_AGE_BANDS) {
-    if (age >= minAge) band = key
-  }
-  return band
 }
 
 // Any suppressed or negative part makes the whole split unknown: a split

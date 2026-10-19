@@ -16,10 +16,21 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
     ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
   ) as AcsCounts
 
+// 1,000 adults: 160 in each band under 65 (80 men, 80 women) and 200 at 65
+// and over.
 const DISTRICT = acs({
-  totalPopulation: 1_250,
-  populationUnder18: 250,
-  population65Plus: 200,
+  populationMale18To24: 80,
+  populationFemale18To24: 80,
+  populationMale25To34: 80,
+  populationFemale25To34: 80,
+  populationMale35To44: 80,
+  populationFemale35To44: 80,
+  populationMale45To54: 80,
+  populationFemale45To54: 80,
+  populationMale55To64: 80,
+  populationFemale55To64: 80,
+  populationMale65Plus: 100,
+  populationFemale65Plus: 100,
   households: 400,
   ownerOccupiedHouseholds: 240,
 })
@@ -32,7 +43,7 @@ const TRACTS = new Map([
 const cell = (
   overrides: Partial<RespondentCell> & { count: number },
 ): RespondentCell => ({
-  ageBand: '18to64',
+  ageBand: '35to44',
   gender: null,
   tenure: 'owner',
   tract: '53017950100',
@@ -46,7 +57,8 @@ describe('weightingTargets', () => {
       tractAdults: TRACTS,
     })
     expect(targets.age?.['65plus']).toBeCloseTo(0.2)
-    expect(targets.age?.['18to64']).toBeCloseTo(0.8)
+    expect(targets.age?.['18to24']).toBeCloseTo(0.16)
+    expect(Object.keys(targets.age ?? {})).toHaveLength(6)
     expect(targets.tenure?.owner).toBeCloseTo(0.6)
     expect(targets.tract?.['53017950200']).toBeCloseTo(0.4)
     expect(targets.gender).toBeUndefined()
@@ -118,12 +130,16 @@ describe('weighToCensus', () => {
   it('brings a sample that skews old and owner to the census mix', () => {
     const result = weighToCensus(
       [
-        cell({ count: 40, ageBand: '65plus' }),
-        cell({ count: 30, tract: '53017950200' }),
-        cell({ count: 20, tenure: 'renter' }),
-        cell({ count: 10, tenure: 'renter', tract: '53017950200' }),
+        cell({ count: 30, ageBand: '65plus' }),
+        cell({ count: 10, ageBand: '65plus', tenure: 'renter' }),
+        ...(
+          ['18to24', '25to34', '35to44', '45to54', '55to64'] as const
+        ).flatMap((ageBand) => [
+          cell({ count: 6, ageBand }),
+          cell({ count: 6, ageBand, tenure: 'renter' }),
+        ]),
       ],
-      { district: DISTRICT, tractAdults: TRACTS },
+      { district: DISTRICT, tractAdults: new Map() },
     )
     expect(result.largestGap).toBeLessThan(0.01)
     expect(result.effectiveSampleSize).toBeLessThan(100)
@@ -145,6 +161,28 @@ describe('weighToCensus', () => {
     )
     expect(pooled?.censusShare).toBeCloseTo(0.7)
     expect(result.largestGap).toBeGreaterThan(0.1)
+  })
+
+  it('pools age bands with too few answers rather than leaning on a handful', () => {
+    const result = weighToCensus(
+      [
+        cell({ count: 30, ageBand: '65plus' }),
+        cell({ count: 30, ageBand: '45to54' }),
+        cell({ count: 2, ageBand: '18to24' }),
+        cell({ count: 1, ageBand: '25to34' }),
+      ],
+      { district: DISTRICT, tractAdults: new Map() },
+    )
+    const pooled = result.gaps.find(
+      (gap) => gap.dimension === 'age' && gap.value === 'other',
+    )
+    // 18-24, 25-34, 35-44 and 55-64 pool: 4 x 0.16 of the adults.
+    expect(pooled?.censusShare).toBeCloseTo(0.64)
+    expect(
+      result.gaps.some(
+        (gap) => gap.dimension === 'age' && gap.value === '18to24',
+      ),
+    ).toBe(false)
   })
 
   it('weights a sample that skews female to the census sex split, leaving blank Gender out', () => {

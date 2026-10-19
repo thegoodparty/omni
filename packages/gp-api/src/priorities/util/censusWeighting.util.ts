@@ -10,7 +10,7 @@ import {
   type RakingTargets,
 } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
-import { adultSexShares } from './censusSexAge.util'
+import { adultAgeBandShares, adultSexShares } from './censusSexAge.util'
 
 // A value with fewer answers than this pools with the other small ones, so
 // no handful of people carries a whole group's weight.
@@ -27,21 +27,6 @@ const shares = (
   return Object.fromEntries(
     entries.map(([key, value]) => [key, (value ?? 0) / total]),
   )
-}
-
-const ageTargets = (district: AcsCounts): Record<string, number> | null => {
-  const { totalPopulation, populationUnder18, population65Plus } = district
-  if (
-    totalPopulation === null ||
-    populationUnder18 === null ||
-    population65Plus === null
-  ) {
-    return null
-  }
-  return shares({
-    '18to64': totalPopulation - populationUnder18 - population65Plus,
-    '65plus': population65Plus,
-  })
 }
 
 // Households, not people: the census publishes tenure per household, and a
@@ -68,7 +53,8 @@ export interface WeightingCensus {
 // cannot give for this district is left out rather than guessed.
 export const weightingTargets = (census: WeightingCensus): RakingTargets => {
   const targets: RakingTargets = {}
-  const age = ageTargets(census.district)
+  // Adults in the census's six age bands, both sexes together.
+  const age = adultAgeBandShares(census.district)
   if (age) targets.age = age
   const tenure = tenureTargets(census.district)
   if (tenure) targets.tenure = tenure

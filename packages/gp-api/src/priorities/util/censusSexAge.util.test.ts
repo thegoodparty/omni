@@ -3,11 +3,7 @@ import {
   ACS_COUNT_KEYS,
   type AcsCounts,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import {
-  adultAgeBand,
-  adultAgeBandShares,
-  adultSexShares,
-} from './censusSexAge.util'
+import { adultAgeBandShares, adultSexShares } from './censusSexAge.util'
 
 const counts = (overrides: Partial<AcsCounts> = {}): AcsCounts => ({
   ...(Object.fromEntries(ACS_COUNT_KEYS.map((key) => [key, 0])) as AcsCounts),
@@ -60,26 +56,5 @@ describe('adultAgeBandShares', () => {
         counts({ populationMale18To24: 10, populationFemale55To64: null }),
       ),
     ).toBeNull()
-  })
-})
-
-describe('adultAgeBand', () => {
-  it.each([
-    [18, '18to24'],
-    [24, '18to24'],
-    [25, '25to34'],
-    [44, '35to44'],
-    [54, '45to54'],
-    [64, '55to64'],
-    [65, '65plus'],
-    [101, '65plus'],
-  ])('puts %i in %s', (age, band) => {
-    expect(adultAgeBand(age)).toBe(band)
-  })
-
-  it('leaves minors and unknown ages out', () => {
-    expect(adultAgeBand(17)).toBeNull()
-    expect(adultAgeBand(null)).toBeNull()
-    expect(adultAgeBand(Number.NaN)).toBeNull()
   })
 })

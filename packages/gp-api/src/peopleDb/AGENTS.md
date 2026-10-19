@@ -178,7 +178,8 @@ published:
   about 2.4% under, like `district_population`. No MOEs, no medians.
   Adults by census sex and age band (`population_{male,female}_*`) are
   there for weighting; `priorities/util/censusSexAge.util.ts` turns them
-  into shares and puts a voter-file `Age_Int` in the same bands. Census
+  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
+  bands (`ADULT_AGE_BANDS`). Census
   sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
   (about 1% of voters) sits the dimension out.
 - `buildRespondentBlockGroupsSql`: the given ids scoped to the district,

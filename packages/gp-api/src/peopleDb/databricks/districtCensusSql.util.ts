@@ -124,11 +124,31 @@ export const buildDistrictCompositionSql = (
 // works on tracts: a block group holds too few answers to carry a weight.
 const TRACT_GEOID_LENGTH = 11
 
-// The census reads age in two adult bands (18 to 64, 65 and over), so the
-// voter file's exact age folds into the same two.
+// The census's adult age bands (B01001, both sexes), youngest first.
+// `minAge` is where each starts; each runs to the next one's start, and the
+// last is open-ended. The voter file's exact age folds into the same bands.
+export const ADULT_AGE_BANDS = [
+  { key: '18to24', minAge: 18 },
+  { key: '25to34', minAge: 25 },
+  { key: '35to44', minAge: 35 },
+  { key: '45to54', minAge: 45 },
+  { key: '55to64', minAge: 55 },
+  { key: '65plus', minAge: 65 },
+] as const
+export type AdultAgeBand = (typeof ADULT_AGE_BANDS)[number]['key']
+const ADULT_AGE_BAND_KEYS = ADULT_AGE_BANDS.map(({ key }) => key)
+
+// Oldest first, so each age takes the highest band it reaches. The band
+// keys and ages are constants, never input, so they are written in.
 const ageBandSql = (): string =>
-  `CASE WHEN ${col('Age_Int')} >= 65 THEN '65plus'` +
-  ` WHEN ${col('Age_Int')} >= 18 THEN '18to64' END`
+  'CASE' +
+  [...ADULT_AGE_BANDS]
+    .reverse()
+    .map(
+      ({ key, minAge }) => ` WHEN ${col('Age_Int')} >= ${minAge} THEN '${key}'`,
+    )
+    .join('') +
+  ' END'
 
 // L2's modeled tenure. "Probable" owners count as owners because the census
 // has only owner and renter.
@@ -210,7 +230,7 @@ export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
 }
 
 const RespondentProfileSchema = z.object({
-  ageBand: z.enum(['18to64', '65plus']).nullable(),
+  ageBand: z.enum(ADULT_AGE_BAND_KEYS).nullable(),
   gender: z.enum(['male', 'female']).nullable(),
   tenure: z.enum(['owner', 'renter']).nullable(),
   tract: z.string().nullable(),
