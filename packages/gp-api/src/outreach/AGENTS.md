@@ -436,8 +436,8 @@ false`: it hands back what was built, not a fresh build. A text holds the
   hidden), so its dial records only the aggregate count on the `OutreachRobocall`
   row. `OutreachInboundSweep` is text/p2p only and must stay that way — **do not
   build a partial robocall sweep**; half-populating the legacy rows' disposition
-  columns turns "we never looked" into a disposition. ADR 0013 costs the real
-  thing.
+  columns turns "we never looked" into a disposition. The real thing is a
+  full robocall twin of `OutreachInboundSweep`.
 - **The spine is org-scoped, not just campaign-scoped (ENG-10976).**
   `campaignId` is nullable — a Serve elected-office org (`eo-*` slug) has no
   campaign row, so a serve outreach row persists as `campaignId: null` +
@@ -492,9 +492,10 @@ false`: it hands back what was built, not a fresh build. A text holds the
   Its three counts come from
   `DoorKnockingTurfCountsService` — the SAME aggregate the door-knocking rail
   reads — and must keep coming from there: a second derivation is the
-  two-denominator failure ADR 0010 forbids. `OutreachModule` imports
-  `DoorKnockingModule` behind a `forwardRef` for it (the module graph loops back
-  through contacts → campaigns → peerly). A tombstoned turf yields no block.
+  two-denominator failure: two different numbers for one quantity.
+  `OutreachModule` imports `DoorKnockingModule` behind a `forwardRef` for it
+  (the module graph loops back through contacts → campaigns → peerly). A
+  tombstoned turf yields no block.
 
 ## Contracts / models
 

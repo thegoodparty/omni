@@ -2,28 +2,8 @@
  "changes": {
   "escalated": [],
   "new": [
-   "Constituent Data - Follow Up List Created",
-   "Ordinances - Authority Completed",
-   "Ordinances - Authority Viewed",
-   "Ordinances - Clarify Completed",
-   "Ordinances - Current Law Completed",
-   "Ordinances - Current Law Viewed",
-   "Ordinances - Draft Creation Completed",
-   "Ordinances - Draft Creation Viewed",
-   "Ordinances - Draft Details Downloaded",
-   "Ordinances - How Others Solved It Completed",
-   "Ordinances - How Others Solved It Viewed",
-   "Serve Onboarding - BR Suggestion Changed",
-   "Serve Onboarding - Build And Grow Your List Completed",
-   "Serve Onboarding - Build And Grow Your List Viewed",
-   "Serve Onboarding - Hear From The Loudest Voices Completed",
-   "Serve Onboarding - Hear From The Loudest Voices Viewed",
-   "Serve Onboarding - Priorities Completed",
-   "Serve Onboarding - Priorities Viewed",
-   "Serve Onboarding - Where Your Community Stands Completed",
-   "Serve Onboarding - Where Your Community Stands Viewed",
-   "Serve Onboarding - You Represent Completed",
-   "Serve Onboarding - You Represent Viewed"
+   "Contacts - Assistant Message Sent",
+   "Priorities - Message Sent"
   ],
   "resolved": [],
   "still_open": [
@@ -37,12 +17,23 @@
    "Community Issues - Ask AI Started",
    "Community Issues - Dispatch Skipped",
    "Constituent Data - Activity List Created",
+   "Constituent Data - Follow Up List Created",
    "Constituent Data - Note Added",
    "Content Builder: Generation Completed",
    "Content Builder: Generation Started",
    "Dashboard - Campaign Plan: Plan Shared",
+   "Ordinances - Authority Completed",
+   "Ordinances - Authority Viewed",
+   "Ordinances - Clarify Completed",
+   "Ordinances - Current Law Completed",
+   "Ordinances - Current Law Viewed",
+   "Ordinances - Draft Creation Completed",
+   "Ordinances - Draft Creation Viewed",
    "Ordinances - Draft Details Deleted",
+   "Ordinances - Draft Details Downloaded",
    "Ordinances - Draft Details Status Updated",
+   "Ordinances - How Others Solved It Completed",
+   "Ordinances - How Others Solved It Viewed",
    "Payment - Completed",
    "Payment - Review and Pay Screen Viewed",
    "Poll - Results Synthesis Complete",
@@ -56,11 +47,22 @@
    "Profile - Running Against: Click Save",
    "Profile - Running Against: Submit Add New",
    "Profile - Running Against: Submit Edit",
+   "Serve Onboarding - BR Suggestion Changed",
+   "Serve Onboarding - Build And Grow Your List Completed",
+   "Serve Onboarding - Build And Grow Your List Viewed",
+   "Serve Onboarding - Hear From The Loudest Voices Completed",
+   "Serve Onboarding - Hear From The Loudest Voices Viewed",
    "Serve Onboarding - Know Your Constituents Completed",
    "Serve Onboarding - Know Your Constituents Viewed",
+   "Serve Onboarding - Priorities Completed",
+   "Serve Onboarding - Priorities Viewed",
    "Serve Onboarding - SMS Poll Creation Failed",
    "Serve Onboarding - SMS Poll Sent",
    "Serve Onboarding - Success Page Viewed",
+   "Serve Onboarding - Where Your Community Stands Completed",
+   "Serve Onboarding - Where Your Community Stands Viewed",
+   "Serve Onboarding - You Represent Completed",
+   "Serve Onboarding - You Represent Viewed",
    "Voter Data - Activity List Created",
    "Win - Opponent Activity Viewed",
    "Win - Self Research Completed",
@@ -699,7 +701,7 @@
     "instrumented_date": "2026-07-22",
     "instrumented_pr": "https://github.com/thegoodparty/omni/pull/959",
     "retired_author_email": "",
-    "retired_date": "",
+    "retired_date": "2026-10-19",
     "retired_pr": ""
    },
    "questions": [],
@@ -714,7 +716,7 @@
     70,
     43
    ],
-   "status": "active",
+   "status": "deprecating",
    "supersession": "",
    "tags": [
     "product:shared"
@@ -3636,6 +3638,53 @@
    "used_by": [],
    "watchlist_status": "proposed"
   },
+  "Priorities - Message Sent": {
+   "anchor_confidence": "",
+   "anchor_flag_reason": "",
+   "area": "Priorities",
+   "call_site_count": 4,
+   "call_site_retired_date": null,
+   "count_30d": 48,
+   "count_total": 48,
+   "declared_intent": "in use",
+   "description": "How much do officials talk to the agent while working a priority, typing versus answering its question cards?",
+   "display_name": "Priorities - Message Sent",
+   "fires_on": "Serve priority detail page, when the official sends a message or answers a question card.",
+   "fires_on_source": "govern",
+   "first_seen": "2026-10-08",
+   "last_seen": "2026-10-16",
+   "okr": "",
+   "okr_metrics": [],
+   "provenance": {
+    "instrumented_author_email": "swain.molster@gmail.com",
+    "instrumented_date": "2026-10-07",
+    "instrumented_pr": "https://github.com/thegoodparty/omni/pull/2538",
+    "retired_author_email": "",
+    "retired_date": "2026-10-19",
+    "retired_pr": ""
+   },
+   "questions": [],
+   "series": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    37,
+    11
+   ],
+   "status": "deprecating",
+   "supersession": "",
+   "tags": [
+    "surface:priorities",
+    "product:serve"
+   ],
+   "url": "/dashboard/priorities/:priorityId",
+   "used_by": [],
+   "watchlist_status": "\u2014"
+  },
   "Pro Upgrade - Banner Clicked": {
    "anchor_confidence": "",
    "anchor_flag_reason": "",
@@ -5476,7 +5525,7 @@
    "watchlist_status": "\u2014"
   }
  },
- "generated_at": "2026-10-19T11:11:03+00:00",
+ "generated_at": "2026-10-19T17:34:50+00:00",
  "okr_labels": {
   "activated_serve_users": "Activated Serve Users",
   "serve_users": "Serve Users",
@@ -5595,12 +5644,12 @@
    },
    {
     "counts": {
-     "active": 2,
-     "dormant": 11,
-     "instrumented_never_observed": 7
+     "active": 16,
+     "deprecating": 2,
+     "retired": 1
     },
-    "name": "Ordinances",
-    "total": 20
+    "name": "Contacts",
+    "total": 19
    },
    {
     "counts": {
@@ -5613,11 +5662,11 @@
    },
    {
     "counts": {
-     "active": 17,
-     "deprecating": 1,
-     "retired": 1
+     "active": 2,
+     "dormant": 11,
+     "instrumented_never_observed": 6
     },
-    "name": "Contacts",
+    "name": "Ordinances",
     "total": 19
    },
    {
@@ -5664,7 +5713,8 @@
    },
    {
     "counts": {
-     "active": 5,
+     "active": 4,
+     "deprecating": 1,
      "instrumented_never_observed": 5
     },
     "name": "Priorities",
@@ -5884,6 +5934,13 @@
    },
    {
     "counts": {
+     "instrumented_never_observed": 1
+    },
+    "name": "AI Chat",
+    "total": 1
+   },
+   {
+    "counts": {
      "active": 1
     },
     "name": "10DLC",
@@ -5926,9 +5983,9 @@
    }
   ],
   "by_status": {
-   "active": 332,
+   "active": 330,
    "code_unknown": 33,
-   "deprecating": 79,
+   "deprecating": 81,
    "dormant": 42,
    "instrumented_never_observed": 64,
    "retired": 148,
@@ -5963,7 +6020,7 @@
   },
   "totals": {
    "events": 737,
-   "flagged": 60,
+   "flagged": 62,
    "open_decisions": 99
   }
  },
@@ -5980,6 +6037,7 @@
   "Constituent Data - Activity List Created": "instrumented_never_observed",
   "Constituent Data - Follow Up List Created": "instrumented_never_observed",
   "Constituent Data - Note Added": "dormant",
+  "Contacts - Assistant Message Sent": "deprecating",
   "Content Builder: Generation Completed": "dormant",
   "Content Builder: Generation Started": "dormant",
   "Dashboard - Campaign Plan: Plan Shared": "dormant",
@@ -6001,6 +6059,7 @@
   "Polls - Expand Poll Recommendations Completed": "dormant",
   "Polls - Expand Poll Recommendations Viewed": "dormant",
   "Polls - Expand Poll Review Viewed": "dormant",
+  "Priorities - Message Sent": "deprecating",
   "Pro Upgrade - Texting Setup Banner Viewed": "dormant",
   "Pro Upgrade - Texting Setup Banner: Click Start": "dormant",
   "Profile - Running Against: Click Add New": "dormant",
@@ -6205,15 +6264,17 @@
       "reference": "books/analytics-governance-gotchas.md",
       "wrong": "The same unbuilt-rename trap as the group above. A 'not in use' declaration naming a replacement that was never written reads here as a problem with the event, when the problem is the declaration."
      },
-     "count": 2,
+     "count": 4,
      "dismissable": true,
      "dismissed": null,
      "elevated": [
       "Serve Onboarding - Know Your Constituents Completed",
       "Serve Onboarding - Know Your Constituents Viewed"
      ],
-     "elevated_note": "2 of 2 elevated: on the curated watchlist, or in an onboarding, activation or compliance family.",
+     "elevated_note": "2 of 4 elevated: on the curated watchlist, or in an onboarding, activation or compliance family.",
      "events": [
+      "Contacts - Assistant Message Sent",
+      "Priorities - Message Sent",
       "Serve Onboarding - Know Your Constituents Completed",
       "Serve Onboarding - Know Your Constituents Viewed"
      ],
@@ -6240,6 +6301,34 @@
        "event_type": "Serve Onboarding - Know Your Constituents Viewed",
        "instrumented_date": "2026-06-24",
        "instrumented_pr": "https://github.com/thegoodparty/omni/pull/323",
+       "last_seen_date": "2026-10-16",
+       "okr": null,
+       "provenance": "full",
+       "removed_by_pr": null,
+       "status": "deprecating"
+      },
+      {
+       "days_since_instrumented": 89,
+       "divergence": "declared in-use but code removed + quiet",
+       "elevated": false,
+       "event_count_30d": 123,
+       "event_type": "Contacts - Assistant Message Sent",
+       "instrumented_date": "2026-07-22",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/959",
+       "last_seen_date": "2026-10-18",
+       "okr": null,
+       "provenance": "full",
+       "removed_by_pr": null,
+       "status": "deprecating"
+      },
+      {
+       "days_since_instrumented": 12,
+       "divergence": "declared in-use but code removed + quiet",
+       "elevated": false,
+       "event_count_30d": 48,
+       "event_type": "Priorities - Message Sent",
+       "instrumented_date": "2026-10-07",
+       "instrumented_pr": "https://github.com/thegoodparty/omni/pull/2538",
        "last_seen_date": "2026-10-16",
        "okr": null,
        "provenance": "full",
@@ -7142,6 +7231,40 @@
      "dismissed": null,
      "evidence": [
       {
+       "first_seen": "2026-10-16",
+       "judge_reason": "Creates a civic panel plan (an outcome) and has distinct blocked/failed error paths with no tracking",
+       "last_seen": "2026-10-19",
+       "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
+       "rubric_rule": "outcome-and-blocker",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit",
+     "label": "How many users start a civic panel plan, and how often is it blocked by a conflicting plan or failure?",
+     "queue": "gaps",
+     "rank": 1,
+     "recommendation_reason": "Creates a civic panel plan (an outcome) and has distinct blocked/failed error paths with no tracking",
+     "recommended": "accept",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
        "first_seen": "2026-10-19",
        "judge_reason": "Multi-stage wizard with no visible tracking and tracked_in_hook false; OutreachFlowShell usage here doesn't show trackedStep prop in snippet, so stages may be uninstrumented.",
        "last_seen": "2026-10-19",
@@ -7211,18 +7334,18 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "StepIndicator-based wizard with Back/Next buttons but no evidence of Viewed/Completed events per stage.",
+       "judge_reason": "Multi-step wizard with StepIndicator and Back/Next controls has no evidence of per-stage Viewed/Completed events",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx",
-       "rubric_rule": "multi-step flow stage",
+       "rubric_rule": "multi-step-flow-stage",
        "surface_type": "wizard_stage"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage",
-     "label": "Where do users drop off across the poll creation step sequence?",
+     "label": "Where do users drop off in the poll creation wizard, by step?",
      "queue": "gaps",
      "rank": 1,
-     "recommendation_reason": "StepIndicator-based wizard with Back/Next buttons but no evidence of Viewed/Completed events per stage.",
+     "recommendation_reason": "Multi-step wizard with StepIndicator and Back/Next controls has no evidence of per-stage Viewed/Completed events",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -7313,18 +7436,18 @@
      "evidence": [
       {
        "first_seen": "2026-10-16",
-       "judge_reason": "A form submit handler saving user name with no visible tracking call for success or failure.",
+       "judge_reason": "Form submit updates user profile with no tracking of success/failure outcome",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx",
-       "rubric_rule": "primary CTA / form submit outcome",
+       "rubric_rule": "primary-cta-or-outcome",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit",
-     "label": "How often do users successfully update their personal information (name)?",
+     "label": "How many users successfully update their personal information (name) and how often does it fail?",
      "queue": "gaps",
      "rank": 2,
-     "recommendation_reason": "A form submit handler saving user name with no visible tracking call for success or failure.",
+     "recommendation_reason": "Form submit updates user profile with no tracking of success/failure outcome",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -7381,15 +7504,15 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "Submit and delete handlers for bug reports have no tracking; outcome and error paths (Couldn't submit) are blockers worth instrumenting.",
+       "judge_reason": "Bug-report creation/deletion outcome and its error path (couldn't submit) have no tracking",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
-       "rubric_rule": "form_submit / error blocker",
+       "rubric_rule": "blocker-or-outcome",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet",
-     "label": "How many users submit or fail to submit a briefing error report, and how often do they delete one?",
+     "label": "How many bug reports are submitted on briefings, and how often does submission fail?",
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "Ruled accepted at this location on 2026-08-06: Bug-report submit success and failure is worth tracking as briefing-quality feedback.. Usually the same call.",
@@ -7415,15 +7538,15 @@
      "evidence": [
       {
        "first_seen": "2026-10-01",
-       "judge_reason": "handleSubmit for notes intake has no tracking call for success or the submitError blocker path.",
+       "judge_reason": "handleSubmit is the dialog's primary action producing an outcome (notes saved) with no success/error tracking",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx",
-       "rubric_rule": "form_submit outcome",
+       "rubric_rule": "primary-cta-outcome",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog",
-     "label": "How often do users successfully submit notes (and how often does submission fail)?",
+     "label": "How many users successfully submit notes via the Add Notes dialog, and how often does it fail?",
      "queue": "gaps",
      "rank": 2,
      "recommendation_reason": "Ruled accepted at this location on 2026-08-06: Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.. Usually the same call.",
@@ -7449,52 +7572,18 @@
      "evidence": [
       {
        "first_seen": "2026-10-16",
-       "judge_reason": "Plan creation submit with multiple distinct outcomes (success, blocked-conflict, failed) has no tracking despite being the primary action of this surface.",
-       "last_seen": "2026-10-19",
-       "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
-       "rubric_rule": "form_submit outcome / blocker",
-       "surface_type": "form_submit"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit",
-     "label": "How often do users successfully create a civic panel plan, and how often are they blocked (409 conflict) or fail?",
-     "queue": "gaps",
-     "rank": 2,
-     "recommendation_reason": "Plan creation submit with multiple distinct outcomes (success, blocked-conflict, failed) has no tracking despite being the primary action of this surface.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
-      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
-      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
-      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-10-16",
-       "judge_reason": "Save handler for editing an existing plan has no tracking for success or failure outcome.",
+       "judge_reason": "Patches the civic panel plan (outcome update) with a failure path and no tracking",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
-       "rubric_rule": "form_submit outcome",
+       "rubric_rule": "outcome-and-blocker",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit",
-     "label": "How often do users successfully edit their civic panel plan hours, and how often does that fail?",
+     "label": "How many users successfully update their civic panel plan hours, and how often does it fail?",
      "queue": "gaps",
      "rank": 2,
-     "recommendation_reason": "Save handler for editing an existing plan has no tracking for success or failure outcome.",
+     "recommendation_reason": "Patches the civic panel plan (outcome update) with a failure path and no tracking",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -7686,19 +7775,53 @@
      "dismissed": null,
      "evidence": [
       {
+       "first_seen": "2026-10-19",
+       "judge_reason": "Save action persists campaign detail data with no completion event; lower priority as it's a settings-style edit",
+       "last_seen": "2026-10-19",
+       "location": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx",
+       "rubric_rule": "form_submit-outcome",
+       "surface_type": "form_submit"
+      }
+     ],
+     "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#RunningAgainstForm",
+     "label": "How many users save or edit their 'running against' opponent details?",
+     "queue": "gaps",
+     "rank": 3,
+     "recommendation_reason": "Ruled dismissed at this location on 2026-08-06: Low-frequency single-field save; not a funnel milestone.. Usually the same call.",
+     "recommended": "dismiss",
+     "verbs": {
+      "accept": "Accept",
+      "defer": "Defer",
+      "dismiss": "Dismiss"
+     }
+    },
+    {
+     "caveat": {
+      "check": "Treat a missing tracking call as weak evidence, not proof. If the snippet shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, it is probably tracked already. And never read an empty backend queue as coverage.",
+      "means": "This screen looks like it should send an event, and we found no tracking call on it.",
+      "measured": "We scan product screens for places an event ought to fire, such as a form being submitted or a step being completed, and check whether any tracking call sits nearby. An LLM then judges what the scan found.",
+      "names": "has_tracking_call, tracked_in_hook (DATA-2560)",
+      "reference": "books/analytics-governance-gotchas.md",
+      "wrong": "Two ways. The scan recognises only three ways of sending an event, so a screen that sends one through a private helper, or by handing the event name to a local function, reads as untracked when it is not. Separately, three of the five patterns we use to scan backend code match nothing in gp-api at all, so an empty backend queue means we are not looking rather than that there is nothing to find."
+     },
+     "count": 1,
+     "dismissable": true,
+     "dismissed": null,
+     "evidence": [
+      {
        "first_seen": "2026-10-01",
-       "judge_reason": "submitBugReport action produces an outcome (bug report created) with no tracking call visible.",
+       "judge_reason": "Bug report submission is an outcome/blocker-relevant action with no analytics event, though it's a secondary feedback path",
        "last_seen": "2026-10-19",
        "location": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx",
-       "rubric_rule": "form_submit outcome",
+       "rubric_rule": "outcome-blocker",
        "surface_type": "form_submit"
       }
      ],
      "id": "packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit",
-     "label": "How often do users submit a bug report on an ordinance draft?",
+     "label": "How many ordinance bug reports are submitted, and does the submission succeed?",
      "queue": "gaps",
      "rank": 3,
-     "recommendation_reason": "submitBugReport action produces an outcome (bug report created) with no tracking call visible.",
+     "recommendation_reason": "Bug report submission is an outcome/blocker-relevant action with no analytics event, though it's a secondary feedback path",
      "recommended": "accept",
      "verbs": {
       "accept": "Accept",
@@ -8343,11 +8466,7 @@
        "page_path_agreement": 0.283,
        "page_path_coverage": 0.864,
        "page_path_users": 266,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -8357,6 +8476,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Campaign Story",
+       "claimed_kind": "prefix",
+       "display_name": "Campaign Story - Rewrite Accepted"
+      },
+      "options": [
+       {
+        "area": "Your Story",
+        "display_name": "Your Story - Rewrite Accepted",
+        "fires_on": "Your Story (/dashboard/campaign-story)",
+        "surface": "your-story",
+        "url": "/dashboard/campaign-story"
+       },
+       {
+        "area": "Candidate Onboarding",
+        "display_name": "Candidate Onboarding - Rewrite Accepted",
+        "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+        "surface": "candidate-onboarding",
+        "url": "/onboarding/office-selection"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8386,11 +8529,7 @@
        "page_path_agreement": 0.455,
        "page_path_coverage": 0.805,
        "page_path_users": 30,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -8400,6 +8539,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Campaign Story",
+       "claimed_kind": "prefix",
+       "display_name": "Campaign Story - Rewrite Discarded"
+      },
+      "options": [
+       {
+        "area": "Your Story",
+        "display_name": "Your Story - Rewrite Discarded",
+        "fires_on": "Your Story (/dashboard/campaign-story)",
+        "surface": "your-story",
+        "url": "/dashboard/campaign-story"
+       },
+       {
+        "area": "Candidate Onboarding",
+        "display_name": "Candidate Onboarding - Rewrite Discarded",
+        "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+        "surface": "candidate-onboarding",
+        "url": "/onboarding/office-selection"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8429,11 +8592,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -8443,6 +8602,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Campaign Story",
+       "claimed_kind": "prefix",
+       "display_name": "Campaign Story - Rewrite Limit Reached"
+      },
+      "options": [
+       {
+        "area": "Your Story",
+        "display_name": "Your Story - Rewrite Limit Reached",
+        "fires_on": "Your Story (/dashboard/campaign-story)",
+        "surface": "your-story",
+        "url": "/dashboard/campaign-story"
+       },
+       {
+        "area": "Candidate Onboarding",
+        "display_name": "Candidate Onboarding - Rewrite Limit Reached",
+        "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+        "surface": "candidate-onboarding",
+        "url": "/onboarding/office-selection"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8472,11 +8655,7 @@
        "page_path_agreement": 0.278,
        "page_path_coverage": 0.867,
        "page_path_users": 270,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -8486,6 +8665,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Campaign Story",
+       "claimed_kind": "prefix",
+       "display_name": "Campaign Story - Rewrite Requested"
+      },
+      "options": [
+       {
+        "area": "Your Story",
+        "display_name": "Your Story - Rewrite Requested",
+        "fires_on": "Your Story (/dashboard/campaign-story)",
+        "surface": "your-story",
+        "url": "/dashboard/campaign-story"
+       },
+       {
+        "area": "Candidate Onboarding",
+        "display_name": "Candidate Onboarding - Rewrite Requested",
+        "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+        "surface": "candidate-onboarding",
+        "url": "/onboarding/office-selection"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8515,11 +8718,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 0.946,
        "page_path_users": 34,
-       "proposed_display_name": "Voter Data - Assistant Chat Opened",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8529,49 +8728,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
-     "verbs": {
-      "accept": "Relabel it",
-      "defer": "Defer",
-      "dismiss": "Label is right"
-     }
-    },
-    {
-     "caveat": {
-      "check": "Open the removal commit and the page-path numbers in the evidence. A low coverage figure means most fires could not be placed on a page.",
-      "means": "The event fires somewhere other than where its label says, so anyone filtering by area or reading its name is looking in the wrong place.",
-      "measured": "We traced each event from the code that sends it up to the pages that show that code, and compared those pages with the area its name or surface tag claims. Where we could, we also checked which page people were on when it fired.",
-      "names": "event_reach.py, surface_drift.py, surface_drift.json",
-      "reference": "books/analytics-governance-gotchas.md",
-      "wrong": "Code that is imported is not always shown, and a live page may have no link to it. A suggested relabel is only offered when the page people were on agrees."
-     },
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "events": [
-      "Contacts - Assistant Message Sent"
-     ],
-     "evidence": [
-      {
-       "confidence": "proposed",
-       "live_routes": "/dashboard/contacts/[[...attr]]",
-       "okr": false,
-       "page_path_agreement": 1.0,
-       "page_path_coverage": 0.927,
-       "page_path_users": 33,
-       "proposed_display_name": "Voter Data - Assistant Message Sent",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
-       "removal_commit": null,
-       "surface_options": "constituents, voter-data",
-       "verdict": "stale_area_name"
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Assistant Chat Opened"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Assistant Chat Opened",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
       }
-     ],
-     "id": "Contacts - Assistant Message Sent",
-     "label": "Contacts - Assistant Message Sent: labeled Contacts, fires from Voter Data",
-     "queue": "surface",
-     "rank": 45,
-     "recommendation_reason": "",
-     "recommended": "",
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8601,11 +8775,7 @@
        "page_path_agreement": 0.945,
        "page_path_coverage": 0.94,
        "page_path_users": 850,
-       "proposed_display_name": "Voter Data - Contacts Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8615,6 +8785,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Contacts Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Contacts Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8644,11 +8832,7 @@
        "page_path_agreement": 0.995,
        "page_path_coverage": 0.983,
        "page_path_users": 221,
-       "proposed_display_name": "Voter Data - Download",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8658,6 +8842,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Download"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Download",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8687,11 +8889,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 0.976,
        "page_path_users": 53,
-       "proposed_display_name": "Voter Data - List Wizard Boundary Completed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8701,6 +8899,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Boundary Completed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Boundary Completed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8730,11 +8946,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 0.953,
        "page_path_users": 54,
-       "proposed_display_name": "Voter Data - List Wizard Boundary Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8744,6 +8956,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Boundary Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Boundary Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8773,11 +9003,7 @@
        "page_path_agreement": 0.991,
        "page_path_coverage": 0.945,
        "page_path_users": 184,
-       "proposed_display_name": "Voter Data - List Wizard Conditions Completed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8787,6 +9013,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Conditions Completed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Conditions Completed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8816,11 +9060,7 @@
        "page_path_agreement": 0.993,
        "page_path_coverage": 0.94,
        "page_path_users": 247,
-       "proposed_display_name": "Voter Data - List Wizard Conditions Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8830,6 +9070,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Conditions Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Conditions Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8859,11 +9117,7 @@
        "page_path_agreement": 0.992,
        "page_path_coverage": 0.949,
        "page_path_users": 235,
-       "proposed_display_name": "Voter Data - List Wizard Method Completed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8873,6 +9127,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Method Completed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Method Completed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8902,11 +9174,7 @@
        "page_path_agreement": 0.992,
        "page_path_coverage": 0.953,
        "page_path_users": 253,
-       "proposed_display_name": "Voter Data - List Wizard Method Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8916,6 +9184,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Method Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Method Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8945,11 +9231,7 @@
        "page_path_agreement": 0.988,
        "page_path_coverage": 0.95,
        "page_path_users": 176,
-       "proposed_display_name": "Voter Data - List Wizard Name Completed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -8959,6 +9241,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Name Completed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Name Completed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -8988,11 +9288,7 @@
        "page_path_agreement": 0.991,
        "page_path_coverage": 0.949,
        "page_path_users": 183,
-       "proposed_display_name": "Voter Data - List Wizard Name Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9002,6 +9298,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - List Wizard Name Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - List Wizard Name Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9031,11 +9345,7 @@
        "page_path_agreement": 0.985,
        "page_path_coverage": 1.0,
        "page_path_users": 13,
-       "proposed_display_name": "Voter Data - Segment Created",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9045,6 +9355,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Segment Created"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Segment Created",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9074,11 +9402,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 0.96,
        "page_path_users": 42,
-       "proposed_display_name": "Voter Data - Segment Deleted",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9088,6 +9412,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Segment Deleted"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Segment Deleted",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9117,11 +9459,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 0.988,
        "page_path_users": 44,
-       "proposed_display_name": "Voter Data - Segment Updated",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9131,6 +9469,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Segment Updated"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Segment Updated",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9160,11 +9516,7 @@
        "page_path_agreement": 0.986,
        "page_path_coverage": 0.957,
        "page_path_users": 264,
-       "proposed_display_name": "Voter Data - Segment Viewed",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9174,6 +9526,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Segment Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Segment Viewed",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9203,11 +9573,7 @@
        "page_path_agreement": 0.93,
        "page_path_coverage": 0.957,
        "page_path_users": 69,
-       "proposed_display_name": "Voter Data - Voter Data Unavailable",
-       "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-       "proposed_surface": "voter-data",
        "removal_commit": null,
-       "surface_options": "constituents, voter-data",
        "verdict": "stale_area_name"
       }
      ],
@@ -9217,6 +9583,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Contacts",
+       "claimed_kind": "prefix",
+       "display_name": "Contacts - Voter Data Unavailable"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Voter Data",
+       "display_name": "Voter Data - Voter Data Unavailable",
+       "fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
+       "surface": "voter-data",
+       "surface_options": [
+        "constituents",
+        "voter-data"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9246,11 +9630,7 @@
        "page_path_agreement": 0.922,
        "page_path_coverage": 0.926,
        "page_path_users": 717,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Media Displayed",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9260,6 +9640,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Media Displayed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Media Displayed",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9289,11 +9684,7 @@
        "page_path_agreement": 0.562,
        "page_path_coverage": 0.875,
        "page_path_users": 744,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Media Requested",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9303,6 +9694,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Media Requested"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Media Requested",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9332,11 +9738,7 @@
        "page_path_agreement": 0.916,
        "page_path_coverage": 0.92,
        "page_path_users": 717,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Media Results Received",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9346,6 +9748,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Media Results Received"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Media Results Received",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9375,11 +9792,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Plan Shared",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9389,6 +9802,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Plan Shared"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Plan Shared",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9418,11 +9846,7 @@
        "page_path_agreement": 0.946,
        "page_path_coverage": 0.93,
        "page_path_users": 628,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Displayed",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9432,6 +9856,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Strategic Landscape Displayed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Displayed",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9461,11 +9900,7 @@
        "page_path_agreement": 0.595,
        "page_path_coverage": 0.881,
        "page_path_users": 744,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Requested",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9475,6 +9910,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Strategic Landscape Requested"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Requested",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9504,11 +9954,7 @@
        "page_path_agreement": 0.941,
        "page_path_coverage": 0.928,
        "page_path_users": 628,
-       "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Results Received",
-       "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-       "proposed_surface": "campaign-plan",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9518,6 +9964,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Plan: Strategic Landscape Results Received"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Campaign Plan",
+       "display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Results Received",
+       "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+       "surface": "campaign-plan",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9547,11 +10008,7 @@
        "page_path_agreement": 0.995,
        "page_path_coverage": 0.948,
        "page_path_users": 201,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9561,6 +10018,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Campaign Task Completed"
+      },
+      "options": [
+       {
+        "area": "Home",
+        "display_name": "Home - Campaign Task Completed",
+        "fires_on": "Home (/dashboard, /dashboard/campaign-plan)",
+        "surface": "home",
+        "url": ""
+       },
+       {
+        "area": "Campaign Plan",
+        "display_name": "Campaign Plan - Campaign Task Completed",
+        "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+        "surface": "campaign-plan",
+        "url": "/dashboard/campaign-plan"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9590,11 +10071,7 @@
        "page_path_agreement": 0.968,
        "page_path_coverage": 0.969,
        "page_path_users": 133,
-       "proposed_display_name": "Home - Path to Victory: Exit Understand Path to Victory",
-       "proposed_fires_on": "Home (/dashboard)",
-       "proposed_surface": "home",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9604,6 +10081,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Dashboard",
+       "claimed_kind": "prefix",
+       "display_name": "Dashboard - Path to Victory: Exit Understand Path to Victory"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Home",
+       "display_name": "Home - Path to Victory: Exit Understand Path to Victory",
+       "fires_on": "Home (/dashboard)",
+       "surface": "home",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9633,11 +10125,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9647,6 +10135,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Issue Capture",
+       "claimed_kind": "prefix",
+       "display_name": "Issue Capture - Pending Memo Confirmed"
+      },
+      "options": [
+       {
+        "area": "Notes to review",
+        "display_name": "Notes to review - Pending Memo Confirmed",
+        "fires_on": "Notes to review (/dashboard/issue-capture/[outreachId]/review)",
+        "surface": "notes-to-review",
+        "url": "/dashboard/issue-capture/[outreachId]/review"
+       },
+       {
+        "area": "Notes to review",
+        "display_name": "Notes to review - Pending Memo Confirmed",
+        "fires_on": "Notes to review (/volunteer/door-knocking/[turfId]/review)",
+        "surface": "notes-to-review",
+        "url": "/volunteer/door-knocking/[turfId]/review"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9676,11 +10188,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "What we heard - Report Viewed",
-       "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-       "proposed_surface": "what-we-heard",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9690,6 +10198,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Issue Capture",
+       "claimed_kind": "prefix",
+       "display_name": "Issue Capture - Report Viewed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "What we heard",
+       "display_name": "What we heard - Report Viewed",
+       "fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
+       "surface": "what-we-heard",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9719,11 +10242,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "What we heard - Synthesis Requested",
-       "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-       "proposed_surface": "what-we-heard",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9733,6 +10252,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Issue Capture",
+       "claimed_kind": "prefix",
+       "display_name": "Issue Capture - Synthesis Requested"
+      },
+      "options": [],
+      "proposed": {
+       "area": "What we heard",
+       "display_name": "What we heard - Synthesis Requested",
+       "fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
+       "surface": "what-we-heard",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9762,11 +10296,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "What we heard - Tag Accepted",
-       "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-       "proposed_surface": "what-we-heard",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9776,6 +10306,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Issue Capture",
+       "claimed_kind": "prefix",
+       "display_name": "Issue Capture - Tag Accepted"
+      },
+      "options": [],
+      "proposed": {
+       "area": "What we heard",
+       "display_name": "What we heard - Tag Accepted",
+       "fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
+       "surface": "what-we-heard",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9805,11 +10350,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "What we heard - Tag Dismissed",
-       "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-       "proposed_surface": "what-we-heard",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "stale_area_name"
       }
      ],
@@ -9819,6 +10360,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Issue Capture",
+       "claimed_kind": "prefix",
+       "display_name": "Issue Capture - Tag Dismissed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "What we heard",
+       "display_name": "What we heard - Tag Dismissed",
+       "fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
+       "surface": "what-we-heard",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9848,11 +10404,7 @@
        "page_path_agreement": 0.933,
        "page_path_coverage": 0.955,
        "page_path_users": 58,
-       "proposed_display_name": "Profile - Office Details: Office Completed",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -9862,6 +10414,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Profile - Office Details: Office Completed"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Office Details: Office Completed",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9891,11 +10461,7 @@
        "page_path_agreement": 0.917,
        "page_path_coverage": 0.918,
        "page_path_users": 140,
-       "proposed_display_name": "Profile - Office Details: Office Searched",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -9905,6 +10471,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Profile - Office Details: Office Searched"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Office Details: Office Searched",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9934,11 +10518,7 @@
        "page_path_agreement": 0.836,
        "page_path_coverage": 0.869,
        "page_path_users": 45,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -9948,6 +10528,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Onboarding",
+       "claimed_kind": "prefix",
+       "display_name": "Onboarding - Magic Link Clicked"
+      },
+      "options": [
+       {
+        "area": "welcome",
+        "display_name": "welcome - Magic Link Clicked",
+        "fires_on": "welcome (/serve/welcome)",
+        "surface": "welcome",
+        "url": "/serve/welcome"
+       },
+       {
+        "area": "welcome",
+        "display_name": "welcome - Magic Link Clicked",
+        "fires_on": "welcome (/win/welcome)",
+        "surface": "welcome",
+        "url": "/win/welcome"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -9977,11 +10581,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "Profile - Office Details: Click Can't Find Office",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -9991,6 +10591,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Profile - Office Details: Click Can't Find Office"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Office Details: Click Can't Find Office",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10020,11 +10638,7 @@
        "page_path_agreement": 0.921,
        "page_path_coverage": 0.974,
        "page_path_users": 45,
-       "proposed_display_name": "Profile - Office Details: Click Next",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -10034,6 +10648,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Profile - Office Details: Click Next"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Office Details: Click Next",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10063,11 +10695,7 @@
        "page_path_agreement": 0.899,
        "page_path_coverage": 0.958,
        "page_path_users": 71,
-       "proposed_display_name": "Profile - Office Details: Office Selected",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -10077,6 +10705,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Profile - Office Details: Office Selected"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Office Details: Office Selected",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10106,11 +10752,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10120,6 +10762,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Do Not Knock Cleared"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Do Not Knock Cleared",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Do Not Knock Cleared",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10149,11 +10815,7 @@
        "page_path_agreement": 0.461,
        "page_path_coverage": 0.842,
        "page_path_users": 23,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10163,6 +10825,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Door Logged"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Door Logged",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Door Logged",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10192,11 +10878,7 @@
        "page_path_agreement": 0.952,
        "page_path_coverage": 0.598,
        "page_path_users": 81,
-       "proposed_display_name": "Door knocking - Door Knocking List Created",
-       "proposed_fires_on": "Door knocking (/dashboard/door-knocking)",
-       "proposed_surface": "door-knocking",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10206,6 +10888,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking List Created"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Door knocking",
+       "display_name": "Door knocking - Door Knocking List Created",
+       "fires_on": "Door knocking (/dashboard/door-knocking)",
+       "surface": "door-knocking",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10235,11 +10932,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "Door knocking - Door Knocking List Edited",
-       "proposed_fires_on": "Door knocking (/dashboard/door-knocking)",
-       "proposed_surface": "door-knocking",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10249,6 +10942,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking List Edited"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Door knocking",
+       "display_name": "Door knocking - Door Knocking List Edited",
+       "fires_on": "Door knocking (/dashboard/door-knocking)",
+       "surface": "door-knocking",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10278,11 +10986,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10292,6 +10996,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Not A Voter Reason Cleared"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Not A Voter Reason Cleared",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Not A Voter Reason Cleared",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10321,11 +11049,7 @@
        "page_path_agreement": null,
        "page_path_coverage": null,
        "page_path_users": null,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10335,6 +11059,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Not A Voter Reason Set"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Not A Voter Reason Set",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Not A Voter Reason Set",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10364,11 +11112,7 @@
        "page_path_agreement": 1.0,
        "page_path_coverage": 1.0,
        "page_path_users": 2,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10378,6 +11122,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Route Build Failed"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Route Build Failed",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Route Build Failed",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10407,11 +11175,7 @@
        "page_path_agreement": 0.805,
        "page_path_coverage": 0.959,
        "page_path_users": 48,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10421,6 +11185,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Session Abandoned"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Session Abandoned",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Session Abandoned",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10450,11 +11238,7 @@
        "page_path_agreement": 0.375,
        "page_path_coverage": 0.774,
        "page_path_users": 14,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10464,6 +11248,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Session Completed"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Session Completed",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Session Completed",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10493,11 +11301,7 @@
        "page_path_agreement": 0.651,
        "page_path_coverage": 0.958,
        "page_path_users": 90,
-       "proposed_display_name": "",
-       "proposed_fires_on": "",
-       "proposed_surface": "",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved"
       }
      ],
@@ -10507,6 +11311,30 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Outreach",
+       "claimed_kind": "prefix",
+       "display_name": "Outreach - Door Knocking Session Started"
+      },
+      "options": [
+       {
+        "area": "Door knocking",
+        "display_name": "Door knocking - Door Knocking Session Started",
+        "fires_on": "Door knocking (/dashboard/door-knocking)",
+        "surface": "door-knocking",
+        "url": "/dashboard/door-knocking"
+       },
+       {
+        "area": "Walk a route",
+        "display_name": "Walk a route - Door Knocking Session Started",
+        "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+        "surface": "walk-a-route",
+        "url": "/volunteer/door-knocking/[turfId]"
+       }
+      ],
+      "proposed": null
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10536,11 +11364,7 @@
        "page_path_agreement": 0.553,
        "page_path_coverage": 0.974,
        "page_path_users": 14,
-       "proposed_display_name": "Additional Questions - Running Against: Click Add New",
-       "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-       "proposed_surface": "additional-questions",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10550,6 +11374,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Profile",
+       "claimed_kind": "prefix",
+       "display_name": "Profile - Running Against: Click Add New"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Additional Questions",
+       "display_name": "Additional Questions - Running Against: Click Add New",
+       "fires_on": "Additional Questions (/dashboard/questions)",
+       "surface": "additional-questions",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10579,11 +11418,7 @@
        "page_path_agreement": 0.0,
        "page_path_coverage": 1.0,
        "page_path_users": 2,
-       "proposed_display_name": "Additional Questions - Running Against: Click Edit",
-       "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-       "proposed_surface": "additional-questions",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10593,6 +11428,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Profile",
+       "claimed_kind": "prefix",
+       "display_name": "Profile - Running Against: Click Edit"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Additional Questions",
+       "display_name": "Additional Questions - Running Against: Click Edit",
+       "fires_on": "Additional Questions (/dashboard/questions)",
+       "surface": "additional-questions",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10622,11 +11472,7 @@
        "page_path_agreement": 0.812,
        "page_path_coverage": 0.941,
        "page_path_users": 17,
-       "proposed_display_name": "Additional Questions - Running Against: Click Save",
-       "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-       "proposed_surface": "additional-questions",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10636,6 +11482,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Profile",
+       "claimed_kind": "prefix",
+       "display_name": "Profile - Running Against: Click Save"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Additional Questions",
+       "display_name": "Additional Questions - Running Against: Click Save",
+       "fires_on": "Additional Questions (/dashboard/questions)",
+       "surface": "additional-questions",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10665,11 +11526,7 @@
        "page_path_agreement": 0.533,
        "page_path_coverage": 1.0,
        "page_path_users": 8,
-       "proposed_display_name": "Additional Questions - Running Against: Submit Add New",
-       "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-       "proposed_surface": "additional-questions",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10679,6 +11536,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Profile",
+       "claimed_kind": "prefix",
+       "display_name": "Profile - Running Against: Submit Add New"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Additional Questions",
+       "display_name": "Additional Questions - Running Against: Submit Add New",
+       "fires_on": "Additional Questions (/dashboard/questions)",
+       "surface": "additional-questions",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10708,11 +11580,7 @@
        "page_path_agreement": 0.0,
        "page_path_coverage": 0.929,
        "page_path_users": 2,
-       "proposed_display_name": "Additional Questions - Running Against: Submit Edit",
-       "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-       "proposed_surface": "additional-questions",
        "removal_commit": null,
-       "surface_options": "",
        "verdict": "moved_then_quiet"
       }
      ],
@@ -10722,6 +11590,21 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "Profile",
+       "claimed_kind": "prefix",
+       "display_name": "Profile - Running Against: Submit Edit"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Additional Questions",
+       "display_name": "Additional Questions - Running Against: Submit Edit",
+       "fires_on": "Additional Questions (/dashboard/questions)",
+       "surface": "additional-questions",
+       "surface_options": []
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",
@@ -10751,11 +11634,7 @@
        "page_path_agreement": 0.974,
        "page_path_coverage": 0.975,
        "page_path_users": 64,
-       "proposed_display_name": "Profile - Personal Info: Click Upload",
-       "proposed_fires_on": "Profile (/dashboard/profile)",
-       "proposed_surface": "profile",
        "removal_commit": null,
-       "surface_options": "my-profile, profile",
        "verdict": "stale_area_name"
       }
      ],
@@ -10765,6 +11644,24 @@
      "rank": 45,
      "recommendation_reason": "",
      "recommended": "",
+     "relabel": {
+      "now": {
+       "claimed": "campaign-details",
+       "claimed_kind": "tag",
+       "display_name": "Settings - Personal Info: Click Upload"
+      },
+      "options": [],
+      "proposed": {
+       "area": "Profile",
+       "display_name": "Profile - Personal Info: Click Upload",
+       "fires_on": "Profile (/dashboard/profile)",
+       "surface": "profile",
+       "surface_options": [
+        "my-profile",
+        "profile"
+       ]
+      }
+     },
      "verbs": {
       "accept": "Relabel it",
       "defer": "Defer",

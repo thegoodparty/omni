@@ -31,6 +31,7 @@ export const MockRecordsQuerySchema = z.object({
 export type MockRecordsQuery = z.infer<typeof MockRecordsQuerySchema>
 
 export const MockRecordsResponseSchema = z.object({
+  vendorMode: z.enum(['live', 'mock']),
   records: z.array(VendorMockRecordSummarySchema),
 })
 export type MockRecordsResponse = z.infer<typeof MockRecordsResponseSchema>

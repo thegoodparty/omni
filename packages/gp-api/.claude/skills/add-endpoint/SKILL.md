@@ -72,8 +72,6 @@ export class ThingsService extends createPrismaBase(MODELS.Thing) {
 }
 ```
 
-ADR: `docs/adr/0001-prisma-base-pattern.md`.
-
 ## 4. Controller: HTTP only
 
 ```ts
@@ -101,8 +99,6 @@ export class ThingsController {
 ```
 
 `@ResponseSchema` runs through the global `ZodResponseInterceptor` and validates the outgoing payload at runtime.
-
-ADR: `docs/adr/0002-zod-everywhere.md`.
 
 ## 5. Auth posture
 

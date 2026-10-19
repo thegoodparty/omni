@@ -84,6 +84,21 @@ def proposed_display_name(display_name: str, area: er.Area | None) -> str:
     return f"{area.label} - {rest}"
 
 
+def area_option(display_name: str, area: er.Area, routes: Sequence[str]) -> dict:
+    """What an accept would write if the human files a multi-area event under ``area``."""
+    mine = sorted(r for r in routes if r == area.key or r.startswith(area.key.rstrip("/") + "/"))
+    option = {
+        "area": area.label,
+        "surface": er.slug(area.label),
+        "display_name": proposed_display_name(display_name, area),
+        "fires_on": f"{area.label} ({', '.join(mine)})" if mine else area.label,
+        "url": mine[0] if len(mine) == 1 else "",
+    }
+    if len(area.names) > 1:
+        option["surface_options"] = sorted(area.names)
+    return option
+
+
 STATE = PY / "instrumentation_data" / "surface_drift.json"
 EXPLORER = PY.parent.parent.parent / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
 AGREEMENT = 0.8
@@ -261,6 +276,8 @@ def build_row(name: str, verdict: str, label: tuple[str, str], reach: er.Reach, 
     }
     if single and len(single.names) > 1:
         row["surface_options"] = sorted(single.names)
+    if len(reach.areas) > 1:
+        row["area_options"] = [area_option(display, a, routes) for a in reach.areas]
     return row
 
 
@@ -282,6 +299,8 @@ def merge(prev: Mapping, fresh: Mapping, today: str) -> dict:
                           reason=old.get("reason", ""), proposed_surface=old.get("proposed_surface", ""),
                           proposed_display_name=old.get("proposed_display_name", ""),
                           proposed_fires_on=old.get("proposed_fires_on", ""), proposed_url=old.get("proposed_url", ""))
+                if old.get("chosen_area"):
+                    row["chosen_area"] = old["chosen_area"]
             elif kept == "open":
                 row.update(disposition="open", reason=old.get("reason", ""))
         out[name] = row
@@ -308,10 +327,25 @@ def ingest_relabels(rows: dict, relabels: Sequence[Mapping], today: str) -> dict
     return rows
 
 
-def dispose(state: dict, event: str, disposition: str, reason: str, today: str) -> dict:
+def dispose(state: dict, event: str, disposition: str, reason: str, today: str, area: str = "") -> dict:
     if disposition not in DISPOSITIONS:
         raise ValueError(f"disposition must be one of {sorted(DISPOSITIONS)}")
     row = state["rows"][event]
+    options = row.get("area_options") or []
+    if area:
+        if disposition != "accepted":
+            raise ValueError("--area picks where an accepted relabel files the event; it needs --as accepted")
+        chosen = next((o for o in options if o["area"].casefold() == area.casefold()), None)
+        if chosen is None:
+            raise ValueError(f"{event} does not fire from {area!r}; its areas are {[o['area'] for o in options]}")
+        row.update(proposed_surface=chosen["surface"], proposed_display_name=chosen["display_name"],
+                   proposed_fires_on=chosen["fires_on"], proposed_url=chosen["url"], chosen_area=chosen["area"])
+        row.pop("surface_options", None)
+        if chosen.get("surface_options"):
+            row["surface_options"] = chosen["surface_options"]
+    elif disposition == "accepted" and options and not row.get("proposed_surface"):
+        # Accepting without a target would hand event-metadata a relabel with no surface.
+        raise ValueError(f"{event} fires from several areas; pass --area, one of {[o['area'] for o in options]}")
     row["disposition"] = disposition
     if reason:
         row["reason"] = reason
@@ -381,6 +415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     d.add_argument("event")
     d.add_argument("--as", dest="disposition", required=True, choices=sorted(DISPOSITIONS))
     d.add_argument("--reason", default="")
+    d.add_argument("--area", default="", help="for an event that fires from several areas: the one to file it under")
     args = parser.parse_args(argv)
     today = date.today().isoformat()
     if args.command == "run":
@@ -398,9 +433,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"unmapped prefixes: {m['unmapped_prefixes']}")
         return 0
     state = json.loads(STATE.read_text())
-    dispose(state, args.event, args.disposition, args.reason, today)
+    dispose(state, args.event, args.disposition, args.reason, today, area=args.area)
     STATE.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
-    print(f"{args.event}: {args.disposition}")
+    print(f"{args.event}: {args.disposition}" + (f" under {args.area}" if args.area else ""))
     return 0
 
 

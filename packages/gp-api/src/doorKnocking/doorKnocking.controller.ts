@@ -455,7 +455,7 @@ export class DoorKnockingController {
     })
   }
 
-  // The draw step's address list (ADR 0010). A read of voter data, so it is
+  // The draw step's address list. A read of voter data, so it is
   // Pro-gated with the rest — the two holes below are instructions about a
   // door, and this is neither. A POST because the shape and the filter draft
   // are a body, not a query string; nothing is written and no vendor credit
@@ -478,7 +478,7 @@ export class DoorKnockingController {
   // nothing is written and no vendor credit is spent.
   //
   // The cost difference between the two is the point. address-preview buys a
-  // people-db scan and ADR 0010 made it explicit for that reason; this
+  // people-db scan and is an explicit request for that reason; this
   // resolves person-id sets out of our own tables and buys nothing, which is
   // what lets it fire on every list pick rather than on a button.
   //
@@ -512,7 +512,8 @@ export class DoorKnockingController {
     return this.interactionService.record(organization, user.id, input, role)
   }
 
-  // ADR 0007, and the first of the two deliberate holes in the Pro gate above.
+  // Do-not-knock, and the first of the two deliberate holes in the Pro gate
+  // above.
   // Deliberately not the CRM's PATCH /contacts/:personId/status, which is
   // Pro-gated — a candidate who cannot honor "don't come back" is worse than
   // one who never had the button, so suppression outlives the entitlement: if
@@ -537,7 +538,7 @@ export class DoorKnockingController {
     )
   }
 
-  // ADR 0008, and the second hole. Ungated for the same reason as
+  // Not-a-voter reason, and the second hole. Ungated for the same reason as
   // do-not-knock: the reason a door is wrong is worth capturing from whoever
   // is standing at it, and "moved" / "deceased" suppress future evaluation the
   // same way a refusal does. Both are instructions about a door rather than

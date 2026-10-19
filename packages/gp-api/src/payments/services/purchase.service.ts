@@ -119,6 +119,7 @@ export class PurchaseService {
     id: string
     clientSecret: string
     amount: number
+    isHold: boolean
   }> {
     this.logger.info({
       user: user.id,
@@ -196,6 +197,7 @@ export class PurchaseService {
         id: freeSessionId,
         clientSecret: '',
         amount: 0,
+        isHold: false,
       }
     }
 
@@ -246,7 +248,7 @@ export class PurchaseService {
       },
     }
 
-    return this.stripeService.createCustomCheckoutSession(
+    const session = await this.stripeService.createCustomCheckoutSession(
       {
         id: user.id,
         email: user.email,
@@ -254,6 +256,10 @@ export class PurchaseService {
       },
       checkoutPayload,
     )
+    // The webapp's review step reads this to know the amount is the
+    // undiscounted hold, so it can take the free texts off the total it
+    // shows the way capture will — never its own read of the flag.
+    return { ...session, isHold: manualCapture }
   }
 
   /**

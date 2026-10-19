@@ -257,11 +257,13 @@ place, `priorityReadStatus`
 
 The answers are raked to the district's census marginals
 (`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
-ACS adults 18 to 64 and 65 and over, owner and renter households, and adults
-per census tract. Small groups pool, weights are capped at 0.2x to 5x the
+ACS adults 18 to 64 and 65 and over, owner and renter households, adults
+per census tract, and race (white, Black, Hispanic, Asian, other; all-ages
+ACS shares against L2's modeled ethnicity, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`). Small groups pool, weights are capped at 0.2x to 5x the
 average, and an unknown value sits out its dimension. Gender is wired as a
-dimension and joins once the census marts publish sex by age. Race is never
-weighted. `underrepresented` names the one or two groups whose raw share
+dimension and joins once the census marts publish sex by age. A race group
+is named only when `raceNameable` holds (10 answers with a known race, 70%
+of all); otherwise race only weights. `other` is never named. `underrepresented` names the one or two groups whose raw share
 trails the census most, by at least 5 points
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
 read, enough answers are a good read labeled "Enough answers", never

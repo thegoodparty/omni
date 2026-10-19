@@ -547,8 +547,8 @@ continue`, `No doors in this area`).
 - The canvas's own navigation chevrons are labelled with the icon's name
   (`'aria-label':icon` — literally "chevron-left"). Ours say "Previous door" and
   "Next door".
-- The canvas has no equivalent of our do-not-knock control (ADR 0007) or "not a
-  voter" outcome (ADR 0008), both of which suppress people from routes and
+- The canvas has no equivalent of our do-not-knock control or "not a voter"
+  outcome, both of which suppress people from routes and
   counts throughout.
 
 ---
@@ -578,7 +578,7 @@ Checked specifically, because this feature is used one-handed at a doorstep.
   a difference textual inspection can show.
 - **The District voters legend wraps rather than scrolling sideways**, as of the
   same date and the same reviewer. The canvas's own legend is a wrapping flow of
-  six chips; ours is seven, because `not_a_voter` is ours (ADR 0008). Checked at
+  six chips; ours is seven, because `not_a_voter` is ours. Checked at
   320px, where all seven still lay out two to a row with nothing clipped.
 - **The door panel.** Bottom sheet under `lg`, right-hand panel above it, same as
   the canvas. The panel is 430px wide against the canvas's 448px; not worth a

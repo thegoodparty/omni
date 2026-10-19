@@ -148,8 +148,7 @@ type StepId =
   | 'schedule'
   | 'compose'
   | 'review'
-// The message before the date, on every entry (docs/decisions/
-// 2026-10-14-outreach-flow-order-and-deep-links.md).
+// The message before the date, on every entry.
 const STEP_ORDER: StepId[] = [
   'purpose',
   'audience',

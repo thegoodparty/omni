@@ -26,6 +26,14 @@ const { live, providerError } = vi.hoisted(() => {
   return { live: { dollars: null as number | null }, providerError }
 })
 
+// The session gp-api priced and the campaign's free-texts offer. A hold
+// prices the undiscounted count; an immediate charge has the offer off.
+const checkout = vi.hoisted(() => ({
+  amount: 1197.42,
+  isHold: false,
+  hasFreeTextsOffer: false,
+}))
+
 const DECLINE = 'Your card has insufficient funds. Try a different card.'
 
 vi.mock('app/dashboard/purchase/components/CheckoutPayment', async () => {
@@ -79,7 +87,8 @@ vi.mock(
         checkoutSession: {
           id: 'cs_test',
           clientSecret: 'secret',
-          amount: 1197.42,
+          amount: checkout.amount,
+          isHold: checkout.isHold,
         },
         error: useSyncExternalStore(
           providerError.subscribe,
@@ -93,7 +102,7 @@ vi.mock(
 )
 
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ hasFreeTextsOffer: false }],
+  useCampaign: () => [{ hasFreeTextsOffer: checkout.hasFreeTextsOffer }],
 }))
 
 const renderStep = (
@@ -124,6 +133,9 @@ const renderStep = (
 beforeEach(() => {
   live.dollars = null
   providerError.value = null
+  checkout.amount = 1197.42
+  checkout.isHold = false
+  checkout.hasFreeTextsOffer = false
 })
 
 describe('SmsReviewStep totals', () => {
@@ -196,6 +208,86 @@ describe('SmsReviewStep pay-before-ready ceiling copy', () => {
 
     expect(await screen.findByText('$1197.42 due today')).toBeInTheDocument()
     expect(screen.queryByText('Up to $1197.42')).not.toBeInTheDocument()
+  })
+})
+
+// 34,212 texts at $0.035 is $1197.42; the 5,000 free texts are $175.00.
+describe('SmsReviewStep free texts', () => {
+  it('takes the free texts off a hold, which prices the undiscounted count', async () => {
+    checkout.hasFreeTextsOffer = true
+    checkout.isHold = true
+
+    renderStep()
+
+    expect(await screen.findByText('$1022.42 due today')).toBeInTheDocument()
+    expect(screen.getByText('$1022.42')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
+    expect(screen.queryByText('$1197.42')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Your bank may show a temporary hold of $1197.42.'),
+    ).toBeInTheDocument()
+  })
+
+  it('states the discounted ceiling when paying before the list is ready', async () => {
+    checkout.hasFreeTextsOffer = true
+    checkout.isHold = true
+
+    renderStep({ priceIsCeiling: true })
+
+    expect(await screen.findByText('Up to $1022.42')).toBeInTheDocument()
+  })
+
+  it('takes the free texts off the promo-discounted hold', async () => {
+    checkout.hasFreeTextsOffer = true
+    checkout.isHold = true
+    live.dollars = 598.71
+
+    renderStep()
+
+    expect(await screen.findByText('$423.71 due today')).toBeInTheDocument()
+    expect(screen.getByText('$423.71')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your bank may show a temporary hold of $598.71.'),
+    ).toBeInTheDocument()
+  })
+
+  it('never shows a negative total when a promo covers most of the hold', async () => {
+    checkout.hasFreeTextsOffer = true
+    checkout.isHold = true
+    live.dollars = 100
+
+    renderStep()
+
+    expect(await screen.findByText('$0.00 due today')).toBeInTheDocument()
+  })
+
+  it('does not take the free texts off twice on an immediate charge', async () => {
+    checkout.hasFreeTextsOffer = true
+    checkout.amount = 1022.42
+
+    renderStep()
+
+    expect(await screen.findByText('$1022.42 due today')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
+    expect(screen.queryByText('$847.42')).not.toBeInTheDocument()
+    expect(screen.queryByText(/temporary hold/)).not.toBeInTheDocument()
+  })
+
+  it('does not mention a larger hold when the hold is the total', async () => {
+    checkout.isHold = true
+
+    renderStep({ priceIsCeiling: true })
+
+    expect(await screen.findByText('Up to $1197.42')).toBeInTheDocument()
+    expect(screen.queryByText(/temporary hold/)).not.toBeInTheDocument()
+  })
+
+  it('takes the free texts off the estimate in the read-only summary', () => {
+    checkout.hasFreeTextsOffer = true
+
+    renderStep({ readOnlySummary: true })
+
+    expect(screen.getByText('$1022.42')).toBeInTheDocument()
   })
 })
 

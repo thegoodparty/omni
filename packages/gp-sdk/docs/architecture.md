@@ -131,7 +131,3 @@ client.destroy()
 - **Errors collapse to `SdkError`** — `HttpClient.request` catches both `FetchError` and unknown thrown values and re-throws `SdkError(status, message, response?)`. Consumers handle one error type.
 - **Token renewal lives in vendor code** — `ClerkService` owns caching + renewal + a `pendingTokenPromise` so concurrent first calls don't race. Don't replicate this elsewhere; if a new auth path is needed, extend the vendor module.
 - **Enum objects are derived, not duplicated** — `enums.ts` builds `{ X: 'X', Y: 'Y' }` from the contracts' `*_VALUES` arrays via `Object.fromEntries`. New enums follow the same pattern.
-
-## ADRs
-
-`docs/adr/` is not yet seeded. Add one when a non-obvious decision lands (e.g., why `ofetch`, why CJS+ESM dual-format, why Clerk M2M instead of static API keys, why types live in a separate `contracts` package). Use `ai-rules/adr-template.md`.

@@ -158,14 +158,29 @@ export const SmsReviewStep = ({
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  // A send the offer fully covers is never a hold: gp-api prices it $0, and
+  // the flow waits for the built list before it opens checkout for one.
   const isFree =
     checkoutSession?.amount === 0 ||
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
+  const freeTextsDollars =
+    hasFreeTextsOffer && contactCount !== null
+      ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT) * pricePerContact
+      : 0
+  const stripeDollars = liveTotalDollars ?? checkoutSession?.amount ?? 0
+  // An immediate charge already has the free texts off its amount. A hold
+  // does not, so the total takes them off here the way capture will.
   const totalDollars = isFree
     ? 0
-    : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
+    : Math.max(
+        0,
+        stripeDollars - (checkoutSession?.isHold ? freeTextsDollars : 0),
+      )
+  // The card is authorized for the hold, not the total, until capture.
+  const showsLargerHold =
+    Boolean(checkoutSession?.isHold) && stripeDollars > totalDollars
   // The provider's error is set both when the session could not be created
   // and, by the form, when a confirm fails. Only the first is fatal to the
   // step; once a session exists an error is a card problem to show inline.
@@ -174,7 +189,11 @@ export const SmsReviewStep = ({
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
-    contactCount === null ? null : isFree ? 0 : contactCount * pricePerContact
+    contactCount === null
+      ? null
+      : isFree
+        ? 0
+        : contactCount * pricePerContact - freeTextsDollars
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -322,11 +341,14 @@ export const SmsReviewStep = ({
               <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
             </div>
             {hasFreeTextsOffer && (
-              <div className="flex items-center gap-2 pt-1 text-link">
-                <GiftIcon className="size-4" />
-                <span className="text-sm font-medium">
+              <div className="flex items-center justify-between gap-4 pt-1 text-sm font-medium text-link">
+                <span className="flex items-center gap-2">
+                  <GiftIcon className="size-4" />
                   {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
                 </span>
+                {freeTextsDollars > 0 && (
+                  <span>{`\u2212$${money(freeTextsDollars)}`}</span>
+                )}
               </div>
             )}
           </dl>
@@ -466,10 +488,15 @@ export const SmsReviewStep = ({
                 : `$${money(totalDollars)} due today`}
             </AlertTitle>
             <AlertDescription>
-              {priceIsCeiling
-                ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
-                : (copy?.chargeNote ??
-                  'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+              <p>
+                {priceIsCeiling
+                  ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
+                  : (copy?.chargeNote ??
+                    'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+              </p>
+              {showsLargerHold && (
+                <p>{`Your bank may show a temporary hold of $${money(stripeDollars)}.`}</p>
+              )}
             </AlertDescription>
           </Alert>
         </>
