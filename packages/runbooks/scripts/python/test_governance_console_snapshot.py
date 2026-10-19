@@ -968,9 +968,12 @@ def test_surface_queue_lists_only_open_rows_and_prechecks_high_confidence():
     assert by_id["Profile - Running Against: Click Save"]["recommended"] == "accept"
     assert by_id["Contacts - Segment Created"]["recommended"] == ""
     assert all(i["queue"] == "surface" and i["verbs"] == gcs.SURFACE_VERBS for i in items)
-    ev = by_id["Profile - Running Against: Click Save"]["evidence"][0]
-    assert ev["proposed_surface"] == "additional-questions"
-    assert ev["removal_commit"] == "93cb4a414 2026-06-19"
+    item = by_id["Profile - Running Against: Click Save"]
+    assert item["relabel"]["proposed"]["surface"] == "additional-questions"
+    assert item["relabel"]["proposed"]["display_name"] == "Additional Questions - Running Against: Click Save"
+    assert item["relabel"]["now"]["claimed"] == "Profile"
+    assert item["evidence"][0]["removal_commit"] == "93cb4a414 2026-06-19"
+    assert "proposed_surface" not in item["evidence"][0]
 
 
 def test_surface_verbs_all_have_effects_and_rows_get_event_cards():
@@ -990,5 +993,22 @@ def test_surface_queue_shows_the_slug_options_and_uses_us_spelling():
         "verdict": "moved", "confidence": "proposed", "claimed": "Settings", "areas": ["Profile"],
         "proposed_surface": "profile", "surface_options": ["my-profile", "profile"], "disposition": "new"}}}
     [item] = gcs.build_surface_queue(drift)
-    assert item["evidence"][0]["surface_options"] == "my-profile, profile"
+    assert item["relabel"]["proposed"]["surface_options"] == ["my-profile", "profile"]
     assert item["label"] == "Settings - Personal Info: Click Upload: labeled Settings, fires from Profile"
+
+
+def test_a_multi_area_row_has_no_proposal_and_one_option_per_area():
+    options = [{"area": "Your Story", "surface": "your-story", "display_name": "Your Story - Rewrite Accepted",
+                "fires_on": "Your Story (/dashboard/campaign-story)", "url": "/dashboard/campaign-story"},
+               {"area": "Candidate Onboarding", "surface": "candidate-onboarding",
+                "display_name": "Candidate Onboarding - Rewrite Accepted",
+                "fires_on": "Candidate Onboarding (/onboarding/office-selection)", "url": ""}]
+    drift = {"rows": {"Campaign Story - Rewrite Accepted": {
+        "verdict": "stale_area_name", "confidence": "proposed", "claimed": "Campaign Story",
+        "claimed_kind": "prefix", "areas": ["Your Story", "Candidate Onboarding"], "proposed_surface": "",
+        "display_name": "Campaign Story - Rewrite Accepted", "area_options": options, "disposition": "new"}}}
+    [item] = gcs.build_surface_queue(drift)
+    assert item["relabel"]["proposed"] is None
+    assert item["relabel"]["options"] == options
+    assert item["relabel"]["now"] == {"display_name": "Campaign Story - Rewrite Accepted",
+                                      "claimed": "Campaign Story", "claimed_kind": "prefix"}
