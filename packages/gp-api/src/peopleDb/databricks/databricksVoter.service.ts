@@ -57,6 +57,11 @@ import {
   type DbxScopeArgs,
   peopleTable,
 } from './databricksVoterSql.util'
+import {
+  isOrgLayerPocEnabled,
+  orgLayerStorage,
+  personViewSql,
+} from './orgLayer.poc'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
 import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
@@ -198,7 +203,25 @@ export class DatabricksVoterService {
   ): Promise<DbxDistrict> {
     const withTable = (
       identity: Omit<DbxDistrict, 'dataset' | 'table'>,
-    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
+    ): DbxDistrict => {
+      const orgLayer = isOrgLayerPocEnabled()
+        ? orgLayerStorage.getStore()
+        : undefined
+      const table = orgLayer
+        ? personViewSql({
+            baseTable: peopleTable(dataset),
+            orgSlug: orgLayer.orgSlug,
+            state: identity.state,
+            districtType: identity.useVoterOnlyPath
+              ? undefined
+              : identity.districtType,
+            districtName: identity.useVoterOnlyPath
+              ? undefined
+              : identity.districtName,
+          })
+        : peopleTable(dataset)
+      return { ...identity, dataset, table }
+    }
     const cached = this.districts.get(districtId)
     if (cached) return withTable(cached)
     const { type, name, state } =

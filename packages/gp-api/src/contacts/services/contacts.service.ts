@@ -1,3 +1,4 @@
+import { orgLayerStorage } from '@/peopleDb/databricks/orgLayer.poc'
 import {
   BadRequestException,
   ForbiddenException,
@@ -1086,7 +1087,9 @@ export class ContactsService {
     await this.assertVoterDataEligibility(org)
 
     const dataset = resolvedDataset ?? (await this.peopleDataset.resolve(org))
-    return fn({ districtId, dataset })
+    return orgLayerStorage.run({ orgSlug: org.slug }, () =>
+      fn({ districtId, dataset }),
+    )
   }
 
   // Serve / elected-office orgs keep their existing access untouched. For Win
