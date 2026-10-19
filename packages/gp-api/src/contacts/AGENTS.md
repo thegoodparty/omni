@@ -280,8 +280,10 @@ max skews high, which is why the cuts sit above `Voter_Status`'s. It reaches the
 filter as the `earlyVote*` booleans → `earlyVoteStatus`, with the same
 `Unknown`-also-matches-NULL rule as `voterStatus`, but none of the
 per-person override handling below: there is no editable early-vote status.
-Like Voter Likelihood it is Win-only in the UI and dropped from Serve
-downloads.
+It is Win-only everywhere: hidden in the UI and dropped from Serve downloads
+like Voter Likelihood, and also `modes: 'win'` in the filter catalog, which
+Voter Likelihood (`audience`) is not, so the assistant never offers it to an
+`eo-` org.
 
 ### Override-aware Voter Likelihood filtering (ENG-10838)
 
