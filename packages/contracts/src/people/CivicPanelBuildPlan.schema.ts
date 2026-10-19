@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { zDate } from '../shared/Date.schema'
 import { GeoJsonPolygonSchema } from '../doorKnocking/DoorKnockingTurf.schema'
+import {
+  ReadRepresentativenessSchema,
+  UnderrepresentedGroupSchema,
+} from '../priorities/PriorityResults.schema'
 
 // Building the civic panel across texts, calls and doors, in waves
 // (/v1/contacts/civic-panel/plan). Texts are cheap and go first; calls reach
@@ -128,6 +132,19 @@ export type MarkCivicPanelBuildStepInput = z.infer<
   typeof MarkCivicPanelBuildStepInputSchema
 >
 
+// How the panel compares with the district's census, unweighted, on age
+// and tract (gender once the census publishes it). The official sees the
+// status, in the priority read's labels, and the one group to invite more
+// of, never a share, a weight or a target. Below this many members it is
+// too early to tell.
+export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
+
+export const CivicPanelBalanceSchema = z.object({
+  status: ReadRepresentativenessSchema.exclude(['enoughAnswers']),
+  inviteMore: UnderrepresentedGroupSchema.nullable(),
+})
+export type CivicPanelBalance = z.infer<typeof CivicPanelBalanceSchema>
+
 // targetSize is residents to text, residents to call, or households to
 // knock, by channel. `markedDone` is the official's own tick (true) or
 // untick (false), null while the step reads off its list. `reached` is the
@@ -151,6 +168,11 @@ export const CivicPanelBuildStepSchema = z.object({
   markedDone: z.boolean().nullable(),
   reached: z.number().int().nullable(),
   joined: z.number().int().nullable(),
+  // The group the step's draw leans toward: the one its text or calls
+  // weight up, or unreachedAreas for doors in a part of the district the
+  // panel has barely reached. Before the list is drawn, what it would lean
+  // toward now; after, what it did. Null when it leans toward nobody.
+  steeredToward: UnderrepresentedGroupSchema.nullable(),
 })
 export type CivicPanelBuildStep = z.infer<typeof CivicPanelBuildStepSchema>
 
@@ -193,11 +215,14 @@ export type CivicPanelBuildProgress = z.infer<
 >
 
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the
-// official has made one; progress is always the panel as it stands.
+// official has made one; progress and balance are always the panel as it
+// stands.
 export const CivicPanelBuildPlanResponseSchema = z.object({
   plan: CivicPanelBuildPlanSchema.nullable(),
   next: CivicPanelBuildNextSchema.nullable(),
   progress: CivicPanelBuildProgressSchema,
+  // Null when the district's census or the members could not be read.
+  balance: CivicPanelBalanceSchema.nullable(),
 })
 export type CivicPanelBuildPlanResponse = z.infer<
   typeof CivicPanelBuildPlanResponseSchema

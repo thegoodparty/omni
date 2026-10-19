@@ -340,10 +340,12 @@ const civicPanelBuildBlock = (
   ].join('\n')
 }
 
-// Every civic panel reply, build or explain. "just" is banned product copy,
-// and the panel brief forbids claiming the panel stands for the community.
+// Every civic panel reply, build or explain. "just" is banned product copy.
+// The panel page's status and its one group to invite next may be repeated
+// in its words (Bryan, 2026-10-18); a promise that the panel will match the
+// community, and any weight, quota, target or race, may not.
 const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". Never say or imply the panel will look like, match, mirror or represent the district, the city or the community. Say instead that picking people at random means it is not only the people who already reach out.'
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too early, Not yet representative, Getting close or Representative) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never suggest inviting or leaving out anyone by race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
 
 // What the agent does when the official presses What's a civic panel? on the
 // build card: it explains, and builds nothing unless they say yes.

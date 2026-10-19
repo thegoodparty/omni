@@ -1,0 +1,222 @@
+import { describe, expect, it } from 'vitest'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCountKey,
+  type AcsCounts,
+  type RespondentCell,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import {
+  balanceBar,
+  doorTractFor,
+  panelBalance,
+  panelGaps,
+  panelSteering,
+  type PanelMix,
+} from './civicPanelSteering.util'
+
+const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
+  Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
+  ) as AcsCounts
+
+// 1,000 adults, 20% of them 65 and over, in three tracts of 50%, 40% and
+// 10%. Tenure is in the census but never steered.
+const DISTRICT = acs({
+  totalPopulation: 1_250,
+  populationUnder18: 250,
+  population65Plus: 200,
+  households: 400,
+  ownerOccupiedHouseholds: 240,
+})
+const A = '53017950100'
+const B = '53017950200'
+const C = '53017950300'
+const TRACTS = new Map([
+  [A, 500],
+  [B, 400],
+  [C, 100],
+])
+
+const cell = (
+  overrides: Partial<RespondentCell> & { count: number },
+): RespondentCell => ({
+  ageBand: '18to64',
+  gender: null,
+  tenure: 'owner',
+  tract: A,
+  ...overrides,
+})
+
+const mixOf = (cells: RespondentCell[]): PanelMix => ({
+  cells,
+  census: { district: DISTRICT, tractAdults: TRACTS },
+})
+
+describe('panelGaps', () => {
+  it('compares unweighted member shares with the census, leaving tenure out', () => {
+    const { gaps } = panelGaps(
+      mixOf([
+        cell({ count: 30, tract: A }),
+        cell({ count: 10, ageBand: '65plus', tract: B }),
+        cell({ count: 10, ageBand: null, tract: B }),
+      ]),
+    )
+    const gap = (dimension: string, value: string) =>
+      gaps.find((g) => g.dimension === dimension && g.value === value)
+    // Unknown ages sit out the age base: 10 of 40.
+    expect(gap('age', '65plus')?.panelShare).toBeCloseTo(0.25)
+    expect(gap('age', '65plus')?.censusShare).toBeCloseTo(0.2)
+    expect(gap('tract', B)?.panelShare).toBeCloseTo(0.4)
+    expect(new Set<string>(gaps.map((g) => g.dimension)).has('tenure')).toBe(
+      false,
+    )
+  })
+
+  it('pools tracts holding fewer than 5 members', () => {
+    const { gaps, pooled } = panelGaps(
+      mixOf([
+        cell({ count: 40, tract: A }),
+        cell({ count: 3, tract: B }),
+        cell({ count: 2, tract: C }),
+      ]),
+    )
+    expect([...pooled.tract].sort()).toEqual([B, C])
+    const other = gaps.find((g) => g.value === 'other')
+    expect(other?.censusShare).toBeCloseTo(0.5)
+    expect(other?.panelShare).toBeCloseTo(5 / 45)
+  })
+})
+
+describe('balanceBar', () => {
+  it('is the 95% margin at small sizes and never under 10 points', () => {
+    expect(balanceBar(30)).toBeCloseTo(0.1789, 3)
+    expect(balanceBar(96)).toBeGreaterThan(0.1)
+    expect(balanceBar(97)).toBe(0.1)
+    expect(balanceBar(400)).toBe(0.1)
+  })
+})
+
+describe('panelBalance', () => {
+  const gaps = (panelShare: number) => [
+    {
+      dimension: 'age' as const,
+      value: '65plus',
+      censusShare: 0.2,
+      panelShare,
+    },
+    {
+      dimension: 'age' as const,
+      value: '18to64',
+      censusShare: 0.8,
+      panelShare: 1 - panelShare,
+    },
+  ]
+
+  it('is too early under 30 members', () => {
+    expect(panelBalance({ members: 29, goal: 240, gaps: gaps(0) })).toEqual({
+      status: 'tooEarly',
+      inviteMore: null,
+    })
+  })
+
+  it('is not yet representative past the bar, naming who to invite', () => {
+    expect(panelBalance({ members: 100, goal: 240, gaps: gaps(0.05) })).toEqual(
+      { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+    )
+  })
+
+  it('reads the wider bar on a small panel', () => {
+    // 15 points behind: past 10, inside 30 members' 17.9.
+    expect(
+      panelBalance({ members: 30, goal: 240, gaps: gaps(0.05) }).status,
+    ).toBe('gettingClose')
+  })
+
+  it('is getting close inside the bar below the goal, representative at it', () => {
+    expect(panelBalance({ members: 200, goal: 240, gaps: gaps(0.18) })).toEqual(
+      { status: 'gettingClose', inviteMore: null },
+    )
+    expect(panelBalance({ members: 240, goal: 240, gaps: gaps(0.12) })).toEqual(
+      { status: 'representative', inviteMore: null },
+    )
+  })
+})
+
+describe('doorTractFor', () => {
+  it('walks the barely reached tract trailing its share most', () => {
+    // A holds 90% of members (50% of adults), B 10% (40%), C none (10%).
+    const mix = mixOf([
+      cell({ count: 90, tract: A }),
+      cell({ count: 10, tract: B }),
+    ])
+    expect(doorTractFor(mix)).toBe(B)
+  })
+
+  it('is null when every tract is reached', () => {
+    const mix = mixOf([
+      cell({ count: 50, tract: A }),
+      cell({ count: 40, tract: B }),
+      cell({ count: 10, tract: C }),
+    ])
+    expect(doorTractFor(mix)).toBeNull()
+  })
+})
+
+describe('panelSteering', () => {
+  it('leans nowhere below 30 members', () => {
+    expect(
+      panelSteering({
+        members: 29,
+        goal: 240,
+        mix: mixOf([cell({ count: 29 })]),
+      }),
+    ).toEqual({
+      balance: { status: 'tooEarly', inviteMore: null },
+      weights: null,
+      leansToward: null,
+      doorTract: null,
+      landlineFirst: true,
+    })
+  })
+
+  it('leans nowhere when the census could not be read', () => {
+    expect(panelSteering({ members: 100, goal: 240, mix: null })).toMatchObject(
+      { balance: null, weights: null, landlineFirst: true },
+    )
+  })
+
+  it('weights each value by census over panel share, within 0.5 to 2', () => {
+    // No one 65 and over; tracts A 85%, B 15%, C none.
+    const steering = panelSteering({
+      members: 100,
+      goal: 240,
+      mix: mixOf([
+        cell({ count: 85, tract: A }),
+        cell({ count: 15, tract: B }),
+      ]),
+    })
+    expect(steering.weights?.age).toEqual({ '18to64': 0.8, '65plus': 2 })
+    expect(steering.weights?.tract[A]).toBeCloseTo(0.5 / 0.85)
+    expect(steering.weights?.tract[B]).toBe(2)
+    expect(steering.weights?.tract[C]).toBe(2)
+    expect(steering.weights?.minWeight).toBe(0.5)
+    expect(steering.weights?.maxWeight).toBe(2)
+    expect(steering.leansToward).toBe('unreachedAreas')
+    expect(steering.balance?.status).toBe('notYetRepresentative')
+    expect(steering.landlineFirst).toBe(true)
+  })
+
+  it('drops landline-first once the panel holds its share of people 65 and over', () => {
+    const steering = panelSteering({
+      members: 100,
+      goal: 240,
+      mix: mixOf([
+        cell({ count: 50, ageBand: '18to64', tract: A }),
+        cell({ count: 40, ageBand: '65plus', tract: B }),
+        cell({ count: 10, ageBand: '18to64', tract: C }),
+      ]),
+    })
+    expect(steering.landlineFirst).toBe(false)
+    expect(steering.leansToward).toBe('age18to64')
+  })
+})

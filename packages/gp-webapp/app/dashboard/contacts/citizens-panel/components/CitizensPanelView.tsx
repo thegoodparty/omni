@@ -19,6 +19,7 @@ import {
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import { CitizensPanelStats } from './CitizensPanelStats'
+import { CivicPanelBalanceSection } from './CivicPanelBalance'
 import { CivicPanelPlanStart } from './CivicPanelPlanStart'
 import { CivicPanelPlanSteps } from './CivicPanelPlanSteps'
 import { CivicPanelProgress } from './CivicPanelProgress'
@@ -82,6 +83,10 @@ export const CitizensPanelView = ({
             />
           ) : underGoal ? (
             <CivicPanelPlanStart onPlan={setPlanState} />
+          ) : null}
+
+          {planState?.balance ? (
+            <CivicPanelBalanceSection balance={planState.balance} />
           ) : null}
 
           {hasMembers ? (

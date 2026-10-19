@@ -90,6 +90,7 @@ import {
   OverlapCountDTO,
   SamplePeopleDTO,
   StatsDTO,
+  type SampleWeights,
 } from '@/peopleDb/schemas/people.schema'
 import {
   StatsResponse,
@@ -2207,6 +2208,9 @@ export class ContactsService {
       // Server-side only: draw only from these people, such as who a
       // boundary gp-api drew encloses.
       withinPersonIds?: string[]
+      // Server-side only: a weighted draw, such as the civic panel's
+      // census steering. Only for a draw with no panelSize.
+      weights?: SampleWeights
     },
   ): Promise<string[] | null> {
     if (sample.recipientsOfOutreachId !== undefined) {
@@ -2258,6 +2262,7 @@ export class ContactsService {
         seedKey: sample.seedKey,
         wholeWhenItFits:
           excludeIds.length === 0 && sample.excludePersonIds === undefined,
+        weights: sample.weights,
       })
     }
     if (!this.hasElectedOfficeAccess(organization)) {
@@ -2315,7 +2320,12 @@ export class ContactsService {
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     within: IdFilterResolution,
-    draw: { size: number; seedKey?: string; wholeWhenItFits: boolean },
+    draw: {
+      size: number
+      seedKey?: string
+      wholeWhenItFits: boolean
+      weights?: SampleWeights
+    },
   ): Promise<string[] | null> {
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
@@ -2362,6 +2372,7 @@ export class ContactsService {
             ...scope,
             size: Math.min(draw.size, pool),
             seedKey: draw.seedKey,
+            weights: draw.weights,
           }),
           dataset,
         )
@@ -2414,10 +2425,12 @@ export class ContactsService {
   // Where the people the criteria match live, with their household, for
   // picking a walkable area. Rooftop-geocoded only, like a turf's doors, so
   // every household picked is one a route can reach. Capped like the map.
+  // With a tract, only the people living in it.
   async doorPointsWithin(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
     excludePersonIds: string[],
+    tract?: string,
   ): Promise<{ id: string; lat: number; lng: number; addressKey: string }[]> {
     const resolved = await this.resolveSavedFilterForQuery(
       organization,
@@ -2436,6 +2449,7 @@ export class ContactsService {
             contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
             maxPeople: MAP_POINTS_MAX,
             ...(excludePersonIds.length > 0 && { excludePersonIds }),
+            ...(tract !== undefined && { tract }),
           }),
           dataset,
         )

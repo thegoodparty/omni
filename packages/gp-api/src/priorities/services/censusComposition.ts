@@ -8,11 +8,16 @@ import {
 } from '@goodparty_org/contracts'
 import type {
   AcsCounts,
+  RespondentCell,
   RespondentProfile,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import { unreachedTracts, weighToCensus } from '../util/censusWeighting.util'
+import {
+  unreachedTracts,
+  weighToCensus,
+  type WeightingCensus,
+} from '../util/censusWeighting.util'
 import { gridAreaShape } from '../util/gridArea.util'
 import type { ReadWeighting } from '../util/priorityReadStatus.util'
 import { computeRepresentation } from '../util/representation.util'
@@ -61,6 +66,14 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<GeoJsonShape | null>
+  // These people counted by age band, gender, tenure and tract, beside the
+  // district's census, unweighted: what the civic panel steers its invites
+  // by. Null when the district's census or the people could not be read.
+  weightingInputs(input: {
+    districtId: string
+    dataset: PeopleDataset
+    personIds: string[]
+  }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
   // The district's census population, or null when it has no row or the
   // warehouse could not be read.
   population(input: {
@@ -150,6 +163,28 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       this.logger.warn(
         { err, districtId: input.districtId },
         'census weighting read failed; reading the count alone',
+      )
+      return null
+    }
+  }
+
+  async weightingInputs(input: {
+    districtId: string
+    dataset: PeopleDataset
+    personIds: string[]
+  }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null> {
+    try {
+      const { district, cells, tractAdults } =
+        await this.stats.findWeightingInputs(
+          input.districtId,
+          input.dataset,
+          input.personIds,
+        )
+      return district ? { cells, census: { district, tractAdults } } : null
+    } catch (err) {
+      this.logger.warn(
+        { err, districtId: input.districtId },
+        'weighting inputs read failed; no census comparison',
       )
       return null
     }

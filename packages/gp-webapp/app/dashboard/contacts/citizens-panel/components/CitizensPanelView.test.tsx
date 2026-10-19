@@ -31,6 +31,7 @@ const PLAN = {
   plan: null,
   next: null,
   progress: { members: 40, goal: 240, answersNeeded: 96, expectedAnswers: 16 },
+  balance: null,
 }
 
 beforeEach(() => {
@@ -39,6 +40,55 @@ beforeEach(() => {
 })
 
 describe('CitizensPanelView', () => {
+  it('says how the panel compares with the district and who to invite next', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={{
+          ...PLAN,
+          balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByText('How your panel compares with your district'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Not yet representative')).toBeInTheDocument()
+    expect(
+      screen.getByText('Invite more people 65 and over next.'),
+    ).toBeInTheDocument()
+  })
+
+  it('waits for 30 members before comparing, and hides without the census', () => {
+    const { unmount } = render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={{ ...PLAN, balance: { status: 'tooEarly', inviteMore: null } }}
+      />,
+    )
+    expect(screen.getByText('Too early')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "We'll compare your panel with your district once 30 people join.",
+      ),
+    ).toBeInTheDocument()
+    unmount()
+
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={PLAN}
+      />,
+    )
+    expect(
+      screen.queryByText('How your panel compares with your district'),
+    ).not.toBeInTheDocument()
+  })
+
   it('compares the members with the district', () => {
     render(
       <CitizensPanelView

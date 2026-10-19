@@ -871,6 +871,29 @@ describe('aggregate and page queries', () => {
     expect(sql).toMatch(/ORDER BY xxhash64\(v\.`id`, :p\d+\), v\.`id`/)
   })
 
+  it('orders a weighted draw by -ln(u) / w, u the same seeded hash', () => {
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 500,
+      seed: 7,
+      hashDivisor: 400,
+      weight: (bag) => `CAST(${bag.bind('2')} AS DOUBLE)`,
+    })
+
+    // Still cut to the slice first; only the order within it changes.
+    expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    expect(sql).toContain(
+      'ORDER BY -ln((pmod(xxhash64(v.`id`, :p2), 4294967296) + 0.5)' +
+        ' / 4294967296) / (CAST(:p4 AS DOUBLE)), v.`id` LIMIT :p5',
+    )
+    expect(params.slice(4)).toEqual([
+      { name: 'p4', value: '2', type: 'STRING' },
+      { name: 'p5', value: '500', type: 'INT' },
+    ])
+  })
+
   it('excludes the requested ids and negates hasCellPhone', () => {
     const id = '0ac8551e-b5ab-2ef0-a941-94e8b43b1e1e'
     const { sql } = buildSampleSql({
