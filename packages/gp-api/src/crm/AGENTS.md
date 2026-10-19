@@ -24,7 +24,7 @@ form — so gp-webapp loads that script in production only (`app/layout.tsx`,
 
 | Path                                | Owns                                                             |
 | ------------------------------------ | ----------------------------------------------------------------- |
-| `hubspot.service.ts`                 | The configured `@hubspot/api-client` `Client` instance            |
+| `hubspot.service.ts`                 | The configured `@hubspot/api-client` `Client` instance. Keep-alive is off: the SDK's node-fetch 2.7 fails every chunked response on a reused socket under Node 22.23 with a false `ERR_STREAM_PREMATURE_CLOSE` (ENG-11319) |
 | `crmTeamMembers.service.ts`          | Team-member contact upsert + company association (ENG-10826)      |
 | `util/hubspotErrors.util.ts`         | `extractExistingContactId` — shared 409-conflict parsing (ENG-11029), used by this module and `crmUsers.service.ts` |
 | `crm.types.ts`                       | `CRMContactProperties` / `CRMTeamMemberContactProperties` shapes   |
