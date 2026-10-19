@@ -7,6 +7,7 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
+import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
 
 export const SYSTEM_PROMPT = [
@@ -66,6 +67,14 @@ interface ComplianceParams {
   userId: string
 }
 
+// In mock mode (previews, tests, local) Transcribe is skipped: a fixture
+// recording can't speak a fresh test user's name, so the transcript is built
+// from the expected values and the real LLM verdict still runs on it.
+const mockTranscript = (params: ComplianceParams): string =>
+  `Hi, this is ${params.candidateName} running for office. ` +
+  `Paid for by ${params.organizationName}. ` +
+  `Questions? Call us back at 555-123-4567.`
+
 // Fail-closed compliance gate: transcribe the recording, then confirm (via the
 // LLM, temperature 0) that the required disclosures are actually spoken. A
 // transcription or LLM failure propagates as a 502 — it never silently passes.
@@ -87,11 +96,14 @@ export class RobocallComplianceService {
   async checkRecording(
     params: ComplianceParams,
   ): Promise<RobocallComplianceVerdict> {
-    const transcript = await this.transcription.transcribe({
-      bucket: this.bucket,
-      key: params.audioKey,
-      contentType: params.contentType,
-    })
+    const transcript =
+      VENDOR_MODE === 'mock'
+        ? mockTranscript(params)
+        : await this.transcription.transcribe({
+            bucket: this.bucket,
+            key: params.audioKey,
+            contentType: params.contentType,
+          })
 
     if (transcript.trim() === '') {
       this.logger.warn(

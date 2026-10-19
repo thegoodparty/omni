@@ -9,6 +9,22 @@ import {
 } from './robocallCompliance.service'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
 
+// VENDOR_MODE is a module-level constant evaluated at import time.
+// Use a getter so it stays mutable per-test.
+const { mockMode } = vi.hoisted(() => ({
+  mockMode: { value: 'live' as 'live' | 'mock' },
+}))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return mockMode.value
+    },
+  }
+})
+
 const params = {
   audioKey: 'robocall/1/clip.webm',
   contentType: 'audio/webm',
@@ -33,6 +49,7 @@ describe('RobocallComplianceService', () => {
   let logger: { debug: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
+    mockMode.value = 'live'
     transcription = { transcribe: vi.fn() }
     llm = { jsonCompletion: vi.fn() }
     const mockLogger = createMockLogger()
@@ -143,5 +160,53 @@ describe('RobocallComplianceService', () => {
     await expect(service.checkRecording(params)).rejects.toBeInstanceOf(
       BadGatewayException,
     )
+  })
+
+  it('live mode: calls transcription.transcribe with bucket, key, and contentType', async () => {
+    transcription.transcribe.mockResolvedValue('some transcript')
+    llm.jsonCompletion.mockResolvedValue(checks())
+
+    await service.checkRecording(params)
+
+    expect(transcription.transcribe).toHaveBeenCalledWith({
+      bucket: 'robocall-audio-test',
+      key: params.audioKey,
+      contentType: params.contentType,
+    })
+  })
+
+  describe('mock mode', () => {
+    beforeEach(() => {
+      mockMode.value = 'mock'
+    })
+
+    it('skips transcription.transcribe and passes a synthesized transcript to the LLM', async () => {
+      llm.jsonCompletion.mockResolvedValue(checks())
+
+      await service.checkRecording(params)
+
+      expect(transcription.transcribe).not.toHaveBeenCalled()
+      const call = llm.jsonCompletion.mock.calls[0]?.[0]
+      const userPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )?.content
+      expect(userPrompt).toContain(params.candidateName)
+      expect(userPrompt).toContain(params.organizationName)
+      // The synthesized transcript must include a phone number so the LLM
+      // can verify hasCallbackNumber against real content.
+      expect(userPrompt).toMatch(/\d[\d\s\-().]{6,}\d/)
+    })
+
+    it('still runs the LLM verdict; a failing verdict fails the check', async () => {
+      llm.jsonCompletion.mockResolvedValue(
+        checks({ hasSelfIdentification: false }),
+      )
+
+      const verdict = await service.checkRecording(params)
+
+      expect(verdict.passed).toBe(false)
+      expect(verdict.checks.hasSelfIdentification).toBe(false)
+      expect(transcription.transcribe).not.toHaveBeenCalled()
+    })
   })
 })
