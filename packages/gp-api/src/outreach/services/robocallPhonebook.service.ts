@@ -29,11 +29,14 @@ const CSV_URL_EXPIRES_IN = 3600
 
 // The import is asynchronous with no job id; poll the phonebook count until it
 // reflects the load. CallHub loads ~2,500 numbers/min, so the old two-minute
-// ceiling (30 attempts) gave up mid-load on a large list — a send observed
-// only 4,999 of 6,963 numbers imported before the poll expired. 120 attempts
-// × 4s is ~8 minutes, enough for ~20k numbers plus CallHub's slow start.
-// Bounded so a genuinely stuck import still fails loudly rather than hanging
-// the send step forever.
+// ceiling (30 attempts) gave up mid-load on a large list. A send observed only
+// 4,999 of 6,963 numbers imported before the poll expired. 120 attempts × 4s
+// is ~8 minutes, covering the common case: up to ~20k numbers at that rate,
+// plus CallHub's slow start. This is a stopgap, not the full cap. A list
+// toward MAX_PHONEBOOK_NUMBERS (100k) still outruns the window, but it throws
+// LOUDLY here rather than making a silent partial send. Loading a six-figure
+// list across staging sweeps without re-uploading is the resumable-load
+// follow-up, not this change.
 const IMPORT_POLL_ATTEMPTS = 120
 const IMPORT_POLL_DELAY_MS = 4000
 
