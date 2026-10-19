@@ -311,6 +311,32 @@ describe('the plan', () => {
     ).toBeInTheDocument()
   })
 
+  it('says landlines first on a call step only while its round puts them first', () => {
+    renderPage(
+      withPlan([
+        CALLS,
+        step({
+          id: 'step-calls-2',
+          wave: 2,
+          channel: 'phone_banking',
+          targetSize: 40,
+          steeredToward: 'age18to64',
+        }),
+      ]),
+    )
+
+    expect(
+      within(rowOf('Call 30 residents')).getByText(
+        "People a text can't reach, landlines first. About 2 hours of your time.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(rowOf('Call 40 residents')).getByText(
+        /^People a text can't reach\. About .+ of your time\.$/,
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('checks off done steps at the bottom, a sent text included, and hides skipped ones', () => {
     renderPage(
       withPlan(

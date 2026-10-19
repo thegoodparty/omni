@@ -48,10 +48,12 @@ import {
   HOUSEHOLD_PAGE_COLUMNS,
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
+  buildWalkableAreaSql,
   DOOR_KNOCKING_RESIDENT_COLUMNS,
   type DbxDistrict,
   type DbxEvaluateRow,
   type DbxResidentRow,
+  type DbxWalkableHouseholdRow,
   type DbxScopeArgs,
   peopleTable,
 } from './databricksVoterSql.util'
@@ -61,6 +63,7 @@ import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
+  WalkableAreaDTO,
 } from '../schemas/doorKnocking.schema'
 import {
   buildDistrictStatsSql,
@@ -688,6 +691,32 @@ export class DatabricksVoterService {
         lng: Number(record.lng),
         addressKey: String(record.addressKey),
         displayAddress: record.displayAddress ?? '',
+      }
+    })
+  }
+
+  async walkableAreaRows(
+    dto: WalkableAreaDTO,
+    dataset: PeopleDataset,
+  ): Promise<DbxWalkableHouseholdRow[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { columns, rows } = await this.run(
+      buildWalkableAreaSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        households: dto.households,
+        excludePersonIds: dto.excludePersonIds,
+        tract: dto.tract,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      return {
+        lat: Number(record.lat),
+        lng: Number(record.lng),
+        personIds: (record.personIds ?? '').split(',').filter(Boolean),
       }
     })
   }

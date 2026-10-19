@@ -50,7 +50,6 @@ import {
   areaAround,
   CHANNEL_ORDER,
   nextStep,
-  pickWalkableArea,
   sizePanelWave,
   stepStatus,
   waveIsDue,
@@ -985,31 +984,28 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       return { personIds: [...landlines, ...others], steeredToward: null }
     }
     if (steering.doorTract) {
-      const inTract = await this.contactsService.doorPointsWithin(
+      const inTract = await this.contactsService.walkableAreaWithin(
         organization,
         this.criteriaFor(step.channel),
         exclude,
+        step.targetSize,
         steering.doorTract,
       )
-      const households = new Set(inTract.map((point) => point.addressKey))
-      if (households.size >= step.targetSize) {
+      if (inTract.length >= step.targetSize) {
         return {
-          personIds: pickWalkableArea(inTract, step.targetSize).flatMap(
-            (household) => household.personIds,
-          ),
+          personIds: inTract.flatMap((household) => household.personIds),
           steeredToward: 'unreachedAreas',
         }
       }
     }
-    const points = await this.contactsService.doorPointsWithin(
+    const area = await this.contactsService.walkableAreaWithin(
       organization,
       this.criteriaFor(step.channel),
       exclude,
+      step.targetSize,
     )
     return {
-      personIds: pickWalkableArea(points, step.targetSize).flatMap(
-        (household) => household.personIds,
-      ),
+      personIds: area.flatMap((household) => household.personIds),
       steeredToward: null,
     }
   }
