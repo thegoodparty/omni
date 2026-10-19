@@ -77,7 +77,6 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
-import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { outreachLandingStep } from '../landingStep'
 
@@ -386,16 +385,10 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
-  // The question-asking card is offered only where issue capture is on. The
-  // filter is here, not in the surface's vocabulary, so an effort already on
-  // that purpose keeps its labels and its question step when the flag goes off.
-  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   // The civic panel invite is offered behind the panel's flag, as on texts.
   const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
   const offeredPurposes = surface.purposes.filter(
-    ({ id }) =>
-      (issueCaptureOn || id !== COMMUNITY_INPUT_PURPOSE) &&
-      (citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE),
+    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
   )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's

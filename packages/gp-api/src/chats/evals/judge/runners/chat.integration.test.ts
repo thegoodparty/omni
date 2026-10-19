@@ -1277,8 +1277,8 @@ describe('runChatCase on briefing chat', () => {
         .mockResolvedValue(JUDGE_POSITION)
       const sql =
         'SELECT COUNT(*) AS n FROM serve_agent_voters ' +
-        "WHERE state_postal_code = 'WA' " +
-        "AND `City Council` = 'Judge City Council District 1'"
+        "WHERE state_postal_code = 'WY' " +
+        "AND `City_Ward` = 'CHEYENNE CITY WARD 1'"
       let record: RunRecord
       try {
         record = await runFor('briefing_annotation', {

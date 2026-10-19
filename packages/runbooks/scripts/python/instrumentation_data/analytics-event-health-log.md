@@ -22,6 +22,79 @@ Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firi
 drop, active elevated · 3 anomaly drop, active/system · 4 intent divergence · 5 dormant
 elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a tail line).
 
+## 2026-10-16
+
+Basis: complete weeks before 2026-10-12. 712 events — active 333, retired 147, deprecating 80, instrumented_never_observed 48, system 39, code_unknown 34, dormant 31. 38 flagged (14 priority in 3 cause(s), 24 dormant tail).
+
+### Flagged (by cause)
+
+- **intent divergence** — 2 event(s) · elevated: Serve Onboarding - Know Your Constituents Completed, Serve Onboarding - Know Your Constituents Viewed
+  Serve Onboarding - Know Your Constituents Completed · Serve Onboarding - Know Your Constituents Viewed
+- **dormant, elevated** — 7 event(s) · elevated: Community Issues - Ask AI Started, Poll - Results Synthesis Complete, Pro Upgrade - Texting Setup Banner: Click Start, Serve Onboarding - SMS Poll Creation Failed, Serve Onboarding - SMS Poll Sent, Serve Onboarding - Success Page Viewed, Voter Data - Activity List Created
+  Community Issues - Ask AI Started · Poll - Results Synthesis Complete · Pro Upgrade - Texting Setup Banner: Click Start · Serve Onboarding - SMS Poll Creation Failed · Serve Onboarding - SMS Poll Sent · Serve Onboarding - Success Page Viewed · Voter Data - Activity List Created
+- **instrumented, never observed** — 5 event(s)
+  Community Issues - Dispatch Skipped · Constituent Data - Activity List Created · Ordinances - Draft Details Deleted · Win - Opponent Activity Viewed · Win - Self Research Completed
+
+<details><summary>Per-event detail (14)</summary>
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 5 intent divergence | Serve Onboarding - Know Your Constituents Completed | deprecating | yes | 30d=10; last_seen 2026-10-14; PR https://github.com/thegoodparty/omni/pull/323 | declared in-use but code removed + quiet |
+| 5 intent divergence | Serve Onboarding - Know Your Constituents Viewed | deprecating | yes | 30d=10; last_seen 2026-10-14; PR https://github.com/thegoodparty/omni/pull/323 | declared in-use but code removed + quiet |
+| 6 dormant (elevated) | Pro Upgrade - Texting Setup Banner: Click Start | dormant | yes | 30d=0; last_seen 2026-09-13; PR https://github.com/thegoodparty/omni/pull/1114 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Creation Failed | dormant | yes | 30d=0; last_seen 2026-06-17; PR https://github.com/thegoodparty/gp-webapp/pull/1374 |  |
+| 6 dormant (elevated) | Poll - Results Synthesis Complete | dormant | yes | 30d=0; last_seen 2026-09-11; PR https://github.com/thegoodparty/gp-api/pull/636 |  |
+| 6 dormant (elevated) | Serve Onboarding - Success Page Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1098 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Sent | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Community Issues - Ask AI Started | dormant | yes | 30d=0; last_seen 2026-08-05; PR https://github.com/thegoodparty/omni/pull/246 |  |
+| 6 dormant (elevated) | Voter Data - Activity List Created | dormant | yes | 30d=0; last_seen 2026-08-25; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Community Issues - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Constituent Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Ordinances - Draft Details Deleted | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/1039 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+</details>
+
+**Dormant tail (24)** — code present, 0 fires/30d, not elevated: Account - Pro Subscription Confirmed · Payment - Completed · Pro Upgrade - Texting Setup Banner Viewed · Content Builder: Generation Completed · Polls - Expand Poll Recommendations Completed · Profile - Running Against: Click Add New · AI Assistant - Response Completed · Profile - Running Against: Submit Edit · Polls - Expand Poll Recommendations Viewed · Profile - Running Against: Submit Add New · Polls - Expand Poll Review Viewed · question_complete · Candidate Website - Purchased domain · Payment - Review and Pay Screen Viewed · Profile - Running Against: Click Edit · Profile - Running Against: Click Save · Content Builder: Generation Started · AI Assistant - Response Failed · Dashboard - Campaign Plan: Plan Shared · Briefing Assistant - Agenda Submission Failed · Ordinances - Draft Details Status Updated · Constituent Data - Note Added · Campaign - Follow-On Blocked · Briefing Assistant - Attachment Clicked
+
+**Too new to judge (43)**: instrumented in the last 30 days and not fired yet, so not flagged: 10DLC - Compliance Submission Blocked · Chief Of Staff - Task Completed · Constituent Data - Follow Up List Created · Constituent Feedback - Issue Captured · Constituent Feedback - Issue Confirmed · Constituent Feedback - Issue Skipped · Issue Capture - Memo Confirmed · Issue Capture - Memo Queued Offline · Issue Capture - Memo Recorded · Issue Capture - Memo Skipped · Issue Capture - Memo Uploaded · Issue Capture - Pending Memo Confirmed · Issue Capture - Report Viewed · Issue Capture - Synthesis Completed · Issue Capture - Synthesis Requested · Issue Capture - Tag Accepted · Issue Capture - Tag Dismissed · Ordinances - Bug Report Errored · Ordinances - Bug Report Submitted · Ordinances - Draft Chat Message Sent · Ordinances - Draft Chat Opened · Ordinances - New Ordinance Created · Ordinances - New Ordinance Errored · Outreach - Door Knocking Do Not Knock Cleared · Outreach - Door Knocking List Deleted · Outreach - Door Knocking List Edited · Outreach - Door Knocking Not A Voter Reason Cleared · Outreach - Door Knocking Not A Voter Reason Set · Outreach - SMS Cutoff Notice Completed · Outreach - SMS Cutoff Notice Viewed · Polls - Gather More Started · Priorities - Check State Changed · Priorities - Plan Completed · Priorities - Priority Archived · Priorities - Priority Created · Pro Upgrade - SMS Cutoff Notice Completed · Pro Upgrade - SMS Cutoff Notice Viewed · Questions - Fun Fact Completed · Questions - Fun Fact Viewed · Questions - Occupation Completed · Questions - Occupation Viewed · Questions - Past Experience Completed · Questions - Past Experience Viewed
+
+### Changes since last run
+
+- new: Content Builder: Generation Completed, Content Builder: Generation Started, Pro Upgrade - Texting Setup Banner Viewed, Pro Upgrade - Texting Setup Banner: Click Start, Serve Onboarding - Know Your Constituents Completed, Serve Onboarding - Know Your Constituents Viewed
+- escalated: none
+- resolved: Content Builder - Editor: Click Copy, Content Builder - Editor: Click Rename, Content Builder: Click Content, Content Builder: Click Continue Questions, Content Builder: Click Generate, Content Builder: Close Additional Inputs, Content Builder: Select Template, Navigation - Dashboard: Click Content Builder, Serve Onboarding - Office Completed, Serve Onboarding - Office Viewed, Serve Onboarding - Party Designation Blocked, ai_content_generation_start
+- still open: 32 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 513/625 (82%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): Door Knocking - List Created · Onboarding V2 - Manual Office Viewed · Onboarding V2 - Signup Goal Completed · Onboarding V2 - Signup Goal Viewed · Outreach - Campaign Completed · Outreach - Door Knocking Door Logged · Outreach - Phone Banking Call Logged · Pro Upgrade - Filing Details Submit Error · Robocall - Hold Failed · Robocall - Hold Placed · Robocall - Receipt · Robocall - Scheduled · Voter Data - Contact Searched · Voter Outreach - 10DLC Compliance Candidate Profile Submitted · Voter Outreach - 10DLC Compliance PIN Sent · Voter Outreach - 10DLC Compliance Rejected · Voter Outreach - Phone Banking Call List Created · Voter Outreach - Phone Banking Call Sheet Downloaded
+- Other non-system events missing a description: 94 (not listed).
+
+### Watchlist proposals (self-healing)
+
+15 event(s) in a watched family, first seen in the last 90d, not yet on the watchlist. Triage in the runbook (add real funnel/activation milestones; skip UI micro-interactions), confirm in code, then paste the agreed rows into `monitored_events.yaml`:
+
+```yaml
+  - {event: "Voter Data - List Boundary Saved", product: win, family: win_voter_data, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Recommended List Failed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - EIN: Click email me these steps", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Verification Submitted Viewed", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Upgrade Interstitial Completed", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Banner Clicked", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Verification Intro: Click continue", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Verification Intro Viewed", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Upgrade Interstitial Viewed", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Upgrade Interstitial Dismissed", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Flow Started", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Task Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Robocall - Send Failed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Door Knocking - Canvassing Totals Updated", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Polls - Constituent Data Unavailable Viewed", product: serve, family: serve, floor: null, owner: TBD}
+```
+
 ## 2026-10-12
 
 Basis: complete weeks before 2026-10-12. 702 events — active 334, retired 138, deprecating 78, instrumented_never_observed 42, system 39, code_unknown 32, dormant 30, orphaned_firing 9. 44 flagged (23 priority in 3 cause(s), 21 dormant tail).

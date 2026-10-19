@@ -820,6 +820,11 @@ const StreamEventSchema = z.object({
   toolName: z.string().optional(),
   code: z.string().optional(),
   message: z.string().optional(),
+  // Carried on both the `tool_call` and the `tool_result` frame, which is
+  // what lets a call be paired with its result off the wire alone — the only
+  // signal an arm driving a deployed gp-api over HTTP has, since no execute
+  // seam exists there to report the failure.
+  toolCallId: z.string().optional(),
   // Carried on the `done` frame. The only way to name the row THIS turn
   // wrote: a scope that seeds an opener (campaign_assistant) has an earlier
   // assistant row in the same conversation, and folding it into the output
@@ -852,20 +857,54 @@ export const parseStreamEvents = (body: string): StreamEvent[] => {
   return events
 }
 
+// A provider-run tool is executed by the model provider, not by us: it has no
+// execute hook to throw from, so nothing ever reports it as failed and a
+// missing result frame means nothing. Pairing it would read it as permanently
+// broken. Skipping it is parity with `instrumentTools`, which already leaves
+// a non-executable tool unwrapped and so never records an outcome for one.
+//
+// Exactly one tool is provider-run today. `NativeWebSearchSpec`
+// (`kind: 'native_web_search'`, llm/services/llm.service.ts) is the only
+// branch of `LlmTool` with no `execute`, it is the only spec
+// `buildToolSet` puts in `providerToolNames`, and every handler that
+// registers it registers it under the key `web_search`.
+const PROVIDER_RUN_TOOLS: ReadonlySet<string> = new Set(['web_search'])
+
+// An unpaired call says a tool failed but not why: the route writes no error
+// text for it and the HTTP arm has no execute seam to read one from. Empty is
+// not available — TraceStepSchema requires a non-empty error, so an empty one
+// would fail RunRecordSchema.parse and discard a completed, judgeable run
+// over the bookkeeping beside it. This text carries no exception name, error
+// code, status or exit code, so `errorClass` reports it as 'other', which is
+// what an unnamed failure is.
+const UNPAIRED_TOOL_CALL_ERROR = 'tool call produced no result'
+
 // The ordered shape of the turn, from the frames the route actually wrote
 // plus the per-tool outcomes only the execute seam saw. Judged by nobody in
 // v1 — carrying it from the start is what makes turning trace dimensions on
 // later a normalizer change rather than a re-run of every sweep.
-// Outcomes are paired to frames per tool name, in order. The frame is written
-// from onToolCallStart and the outcome pushed after execute resolves, so the
-// two orders agree for the sequential calls a turn actually makes. Two
-// concurrent calls to the SAME tool in one step could attach a failure to the
-// wrong one of them; toolErrors stays right either way. Pairing on the call id
-// would fix it, and needs LlmTool.execute to receive one — a change to
-// llm.service.ts.
+//
+// WHICH CALL FAILED IS READ OFF THE FRAMES, by call id. Both `tool_call` and
+// `tool_result` carry `toolCallId`, and a tool whose execute threw produces
+// the first and never the second — `onToolCallError` writes no frame. So a
+// call with no matching result is a failed call, named precisely even when
+// two concurrent calls to the same tool are in flight. This is the only
+// signal an arm driving a deployed gp-api over HTTP has, where no execute
+// seam runs and `outcomes` is therefore always empty.
+//
+// Outcomes still supply the error TEXT, paired per tool name in order, for
+// the in-process arm that has them. Which call failed comes from the id
+// either way, so a name-paired outcome landing on the wrong one of two
+// concurrent calls no longer drags the error onto it.
+//
+// `complete` IS THE GUARD, and nothing is inferred without it. A stream cut
+// short and a tool that never returned are indistinguishable from the frames
+// alone, so only a turn whose `done` frame arrived may conclude anything from
+// a missing result.
 export const buildTrace = (
   events: StreamEvent[],
   outcomes: ToolOutcome[],
+  complete: boolean,
 ): TraceStep[] => {
   const pending = new Map<string, ToolOutcome[]>()
   for (const outcome of outcomes) {
@@ -873,6 +912,14 @@ export const buildTrace = (
     queue.push(outcome)
     pending.set(outcome.tool, queue)
   }
+
+  const resultIds = new Set(
+    events.flatMap((event) =>
+      event.type === 'tool_result' && event.toolCallId !== undefined
+        ? [event.toolCallId]
+        : [],
+    ),
+  )
 
   const steps: TraceStep[] = []
   let openText = false
@@ -890,11 +937,24 @@ export const buildTrace = (
     if (event.type === 'tool_call' && event.toolName !== undefined) {
       openText = false
       const outcome = pending.get(event.toolName)?.shift()
+      // Undefined wherever the frames cannot settle it: a stream with no
+      // `done`, a frame from a build that carried no id, or a provider-run
+      // tool. The outcome is then the only evidence, as it was before.
+      const callId =
+        complete && !PROVIDER_RUN_TOOLS.has(event.toolName)
+          ? event.toolCallId
+          : undefined
+      const error =
+        callId === undefined
+          ? outcome?.error
+          : resultIds.has(callId)
+            ? undefined
+            : (outcome?.error ?? UNPAIRED_TOOL_CALL_ERROR)
       steps.push({
         index: steps.length,
         kind: 'tool',
         tool: event.toolName,
-        ...(outcome?.error !== undefined && { error: outcome.error }),
+        ...(error !== undefined && { error }),
       })
       continue
     }

@@ -920,6 +920,13 @@ export {
   type PriorityResults,
   PriorityReadStatusSchema,
   type PriorityReadStatus,
+  ReadRepresentativenessSchema,
+  type ReadRepresentativeness,
+  UnderrepresentedGroupSchema,
+  type UnderrepresentedGroup,
+  UNDERREPRESENTED_GROUP_NAMES,
+  READ_REPRESENTATIVENESS_LABELS,
+  DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'
@@ -1714,6 +1721,21 @@ export {
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
+
+export {
+  VendorMockRecordSummarySchema,
+  type VendorMockRecordSummary,
+  MockActionSchema,
+  type MockAction,
+  MockActionResponseSchema,
+  type MockActionResponse,
+  MockRecordsQuerySchema,
+  type MockRecordsQuery,
+  MockRecordsResponseSchema,
+  type MockRecordsResponse,
+  RunJobResponseSchema,
+  type RunJobResponse,
+} from './testFixtures/vendorMocks'
 
 export {
   DEV_ENV_PACKAGE_VALUES,

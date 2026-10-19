@@ -113,13 +113,20 @@ export const audienceCheckQueryOptions = (filters: VoterFileBackendFilters) =>
 export const addressPreviewQueryOptions = (
   geoPoly: GeoJsonPolygon,
   filters: VoterFileBackendFilters,
+  voterFileFilterId?: number,
 ) =>
   queryOptions({
-    queryKey: ['door-knocking-address-preview', geoPoly, filters],
+    queryKey: [
+      'door-knocking-address-preview',
+      geoPoly,
+      filters,
+      voterFileFilterId,
+    ],
     queryFn: () =>
       clientRequest('POST /v1/door-knocking/address-preview', {
         geoPoly,
         filters,
+        ...(voterFileFilterId === undefined ? {} : { voterFileFilterId }),
       }).then((res) => res.data),
     // The shape and the filters are the whole input, so a preview for them
     // cannot go stale while the candidate is still looking at that shape.

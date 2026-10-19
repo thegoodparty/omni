@@ -277,6 +277,7 @@ describe('loadCaseList', () => {
       'constituent-count',
       'capability-inventory-from-context',
       'rambling-multipart-request',
+      'control',
     ])
     // Synthetic inputs with core checks, so not a placeholder.
     expect(list.placeholder).toBe(false)

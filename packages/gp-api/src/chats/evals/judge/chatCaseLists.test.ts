@@ -28,9 +28,9 @@ const AUTHORED = [
 // authored.
 const AUTHORED_BACKGROUND_COUNT = 15
 
-// One baseline plus seven single-axis variations. Well under gates.minCases,
-// which is deliberate and recorded in every list's `note`.
-const CASES_PER_LIST = 8
+// One baseline plus seven single-axis variations, and one control. Well under
+// gates.minCases, which is deliberate and recorded in every list's `note`.
+const CASES_PER_LIST = 9
 
 // Registry entries that name a file, narrowed so the file name is a string.
 const NAMED = AGENTS.flatMap((a) =>
@@ -73,6 +73,15 @@ describe('the authored chat case lists', () => {
       list.cases.filter((c) => 'handledWhen' in c && c.handledWhen).length,
     ).toBeGreaterThanOrEqual(3)
     expect(list.cases).toHaveLength(CASES_PER_LIST)
+
+    // THE CONTROL, which is what the judge's own noise is read off. Nothing
+    // is planted on it, so a difference the judge reports on it is noise
+    // rather than a branch effect, and every other verdict on this agent is
+    // read against it.
+    const controls = list.cases.filter(
+      (one) => 'scored' in one && one.scored === false,
+    )
+    expect(controls.map((one) => one.caseId)).toEqual(['control'])
 
     // Ids name stored records, so a duplicate would overwrite rather than
     // add and the sweep would judge fewer cases than it was billed for.

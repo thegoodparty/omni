@@ -159,12 +159,14 @@ export interface ShapeBudget {
   // waiting outside its own timeout, so the sweep's poll can give up on a run
   // that never started. Twelve leaves the rest of dev most of the room.
   //
-  // PER SWEEP, NOT IN TOTAL. Each PR's sweep has its own concurrency group,
-  // so four PRs judged at once can put 48 runs out, and with anything else on
-  // dev that reaches the cap: runs queue, their polls time out as infra
-  // errors, and the task still launches and bills with nothing waiting for
-  // it. Live sweeps are explicit requests, so this is rare; lower this, or
-  // serialize live sweeps, before it is not.
+  // PER SWEEP, NOT IN TOTAL, and one live sweep at a time is what keeps
+  // those the same number. judge.yml's `sweep` job takes a single group for
+  // the whole repository when the request is live, so a second PR's sweep
+  // queues behind the first instead of running beside it. Before that, four
+  // PRs judged at once could put 48 runs out, and with anything else on dev
+  // that reaches the cap: runs queue, their polls time out as infra errors,
+  // and the task still launches and bills with nothing waiting for it. So
+  // raise this against the shared cap, not against one sweep's appetite.
   maxInFlight: number
 }
 

@@ -26,7 +26,6 @@ import {
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
-  deriveSmsProtectedParts,
   mergeTagToken,
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
@@ -109,7 +108,7 @@ import {
   TIME_OPTIONS,
 } from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
-import { SmsComposeStep } from './SmsComposeStep'
+import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
@@ -617,12 +616,8 @@ export const SmsFlow = ({
   const confirmedEventRef = useRef<string | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   // The whole message as sent. The greeting, disclaimer and opt-out line
-  // live in it as locked parts rather than around it as separate regions.
+  // live in it as editable text rather than around it as separate regions.
   const [message, setMessage] = useState('')
-  // The message as the system last wrote it (a draft, a seed, an undo).
-  // Locks are found in this, not in what is being typed, so a name the
-  // candidate is halfway through typing never locks under their cursor.
-  const [lockSource, setLockSource] = useState('')
   // Serve only, behind serve-citizen-panels: whether this text asks people to
   // reply JOIN for the official's civic panel. Every message the flow
   // composes carries the line while it is on, and the toggle adds or removes
@@ -820,7 +815,7 @@ export const SmsFlow = ({
   const selectedList = audience.selectedList
   const reachableCount = audience.reachableCount
   // A text to civic panel members alone offers them a way off the panel in
-  // place of the JOIN ask: the locked LEAVE line. Read off the picked list's
+  // place of the JOIN ask: the LEAVE line. Read off the picked list's
   // own criteria, the rule gp-api checks the create against.
   const offersCivicPanelLeave =
     surface.isServe &&
@@ -915,8 +910,7 @@ export const SmsFlow = ({
     const seeded = initialScript
       ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
-    setMessage(seeded)
-    setLockSource(seeded)
+    loadMessage(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
     asksToJoinCivicPanelRef.current = asks
@@ -1065,8 +1059,7 @@ export const SmsFlow = ({
         leave: offersCivicPanelLeave,
       },
     )
-    setMessage(repaired)
-    setLockSource(repaired)
+    loadMessage(repaired)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
   }, [open, initialScript, identificationReady])
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
@@ -1094,36 +1087,29 @@ export const SmsFlow = ({
   const composedMessage =
     resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
   const composedLength = composedMessage.length
+  // Every message the flow writes (a draft, a seed, an undo) names the
+  // committee it should. A message the candidate edits is left as they wrote
+  // it: a disclaimer they deleted is theirs to add back, not ours to restore
+  // under them.
   const loadMessage = (next: string) => {
-    setMessage(next)
-    setLockSource(next)
+    setMessage(upgradeFooter(next))
   }
   // The list can settle after the message was composed (a card's list
   // resolving after its seed) or change under it (back to the audience step
   // for another list), so the civic panel line follows the list.
-  const panelLeaveStale =
-    open &&
-    surface.isServe &&
-    message !== '' &&
-    (offersCivicPanelLeave
-      ? findCivicPanelLeaveLine(message) === null ||
-        findCivicPanelJoinLine(message) !== null
-      : findCivicPanelLeaveLine(message) !== null)
   useEffect(() => {
-    if (panelLeaveStale) loadMessage(withCivicPanelLines(message, panelLines))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the message and the list disagree, not per keystroke
-  }, [panelLeaveStale])
+    if (!open || !surface.isServe || message === '') return
+    loadMessage(withCivicPanelLines(message, panelLines))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the list changes, not per keystroke
+  }, [offersCivicPanelLeave])
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
-    const upgraded = upgradeFooter(message)
-    if (upgraded === message) return
-    setMessage(upgraded)
-    setLockSource(upgraded)
+    setMessage((current) => upgradeFooter(current))
     // upgradeFooter is rebuilt each render from footerCommittee.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message, footerCommittee])
-  // The message with nothing written between its locked parts.
+  }, [footerCommittee])
+  // The message with nothing written between its required parts.
   const emptyMessage = composeMessage('', footerCommittee)
   const hasWrittenBody =
     message.replace(/\s+/g, '') !== '' &&
@@ -1144,18 +1130,20 @@ export const SmsFlow = ({
   const standardsFailures = rawStandards.failures.filter(
     (rule) => !ignoredStandardsRules.includes(rule),
   )
+  // The panel lines are no standards rule, but the reply reader only hears
+  // JOIN, and the create only offers LEAVE, on a send carrying the exact line.
+  const missingPanelLines: SmsRequiredPart[] = [
+    ...(panelLines.join && findCivicPanelJoinLine(composedMessage) === null
+      ? (['civic_panel_join'] as const)
+      : []),
+    ...(panelLines.leave && findCivicPanelLeaveLine(composedMessage) === null
+      ? (['civic_panel_leave'] as const)
+      : []),
+  ]
   const standards = {
-    passed: standardsFailures.length === 0,
-    failures: standardsFailures,
+    passed: standardsFailures.length === 0 && missingPanelLines.length === 0,
+    failures: [...standardsFailures, ...missingPanelLines],
   }
-  // Locks the provisional line too: the verdict ignores it, but the
-  // candidate still must not edit the disclaimer out.
-  const protectedParts = deriveSmsProtectedParts(lockSource, {
-    candidateNames: identificationNames,
-    committeeName: footerCommittee,
-    channel: surface.isServe ? 'serve' : 'peerly',
-    ignoredRules: surface.ignoredStandardsRules,
-  })
   const bracketsToFill = unfilledBrackets(message)
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
@@ -1335,7 +1323,7 @@ export const SmsFlow = ({
           }
         },
         // A first draft that fails leaves nothing to write into, so the
-        // field gets the message's locked parts and the candidate writes
+        // field gets the message's required parts and the candidate writes
         // between them, as on the custom purpose.
         onError: () => {
           if (requestId !== draftRequestRef.current) return
@@ -1355,7 +1343,7 @@ export const SmsFlow = ({
     }
     setTone('warm')
     setUndoText(null)
-    // A custom message starts as its locked parts, written between.
+    // A custom message starts as its required parts, written between.
     const start =
       selected === 'custom' ? composeMessage('', footerCommittee) : ''
     loadMessage(start)
@@ -1372,7 +1360,6 @@ export const SmsFlow = ({
       confirmedEventRef.current = confirmed
       draftRequestRef.current += 1
       setMessage('')
-      setLockSource('')
       setOwnWords(false)
       setToneDrafts({})
       setUndoText(null)
@@ -1439,24 +1426,25 @@ export const SmsFlow = ({
   }
 
   // A required line the official deleted, put back where the flow writes it.
-  const handleAddRequiredBack = (rule: SmsStandardsRule) => {
+  const handleAddRequiredBack = (rule: SmsRequiredPart) => {
     const [greeting = ''] = surface.composeMessage('', null).split('\n\n')
     const next =
-      rule === 'opt_out_line'
-        ? addOptOutBack(message)
-        : rule === 'first_name_token'
-          ? addGreetingBack(message, greeting)
-          : rule === 'candidate_name'
-            ? addIdentificationBack(message, {
-                greeting,
-                intro: introFor(tone),
-              })
-            : rule === 'paid_for_by' && footerCommittee
-              ? addPaidForByBack(message, footerCommittee)
-              : message
+      rule === 'civic_panel_join' || rule === 'civic_panel_leave'
+        ? withCivicPanelLines(message, panelLines)
+        : rule === 'opt_out_line'
+          ? addOptOutBack(message)
+          : rule === 'first_name_token'
+            ? addGreetingBack(message, greeting)
+            : rule === 'candidate_name'
+              ? addIdentificationBack(message, {
+                  greeting,
+                  intro: introFor(tone),
+                })
+              : rule === 'paid_for_by' && footerCommittee
+                ? addPaidForByBack(message, footerCommittee)
+                : message
     if (next === message) return
     handleMessageChange(next)
-    setLockSource(next)
   }
 
   const handleUndo = () => {
@@ -2429,7 +2417,6 @@ export const SmsFlow = ({
           onAddRequiredBack={handleAddRequiredBack}
           message={message}
           onMessageChange={handleMessageChange}
-          protectedParts={protectedParts}
           mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
           hasWrittenBody={hasWrittenBody}
           composedLength={composedLength}

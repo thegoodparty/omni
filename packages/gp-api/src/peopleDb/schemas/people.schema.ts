@@ -148,8 +148,8 @@ export const samplePeopleSchema = withDistrictInput({
   idOverrides: IdOverridesSchema.optional(),
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
-  // Names the draw, so asking again with the same key takes the same slice.
-  // Without one the slice rotates every minute.
+  // Names the draw, so asking again with the same key takes the same people.
+  // Without one the draw rotates every minute.
   seedKey: z.string().min(1).optional(),
   affinityColumn: affinityColumnSchema,
 })

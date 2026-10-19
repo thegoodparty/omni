@@ -74,6 +74,8 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
 import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
+import { JudgeModule } from '@/judge/judge.module'
+import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 
 @Module({
   imports: [
@@ -141,6 +143,8 @@ import { DevEnvModule } from '@/devEnv/devEnv.module'
     TestFixturesModule,
     TestModeModule,
     DevEnvModule,
+    JudgeModule,
+    VendorMocksModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,
     // because it needs a real SQS queue to work.

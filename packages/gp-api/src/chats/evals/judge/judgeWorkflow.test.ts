@@ -77,6 +77,12 @@ const envValue = (body: string, name: string): string | null =>
     envBlockOf(body),
   )?.[1] ?? null
 
+// WHOSE CODE A STEP RUNS, which is a different question from which secrets
+// it holds and is answered by one line. Null when the step sets none, which
+// on this workflow means the repository root rather than a workspace.
+const workingDirOf = (body: string): string | null =>
+  /^ {8}working-directory: (.*)$/m.exec(body)?.[1] ?? null
+
 const spendsLive = (body: string): boolean =>
   new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
 
@@ -1648,17 +1654,17 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([900, 900, 4900])
+    expect(cents).toEqual([1000, 900, 4900])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=67\.00$/m)
+    expect(result.outputs).toMatch(/^usd=68\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
     const row = (id: string, shape: string, price: string) =>
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(900)))
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1000)))
     expect(result.comment).toMatch(
       row('race_opponent_summary', 'background', dollars(900)),
     )
@@ -1806,7 +1812,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       const agent = selectAgents({ kind: 'list', ids: [id] }).selected[0]
       return agent === undefined ? -1 : estimateAgent(agent).cents
     }
-    expect(worst('ordinance_flow')).toBe(3750)
+    expect(worst('ordinance_flow')).toBe(4250)
     expect(worst('self_research')).toBe(4900)
     const result = runEstimate(
       'Universal Judge — plan (4 agents)\n\n' +
@@ -1817,15 +1823,15 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
       'chief_of_staff,ordinance_flow,self_research,campaign_tracker_tasks',
     )
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=124\.00$/m)
+    expect(result.outputs).toMatch(/^usd=134\.00$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,ordinance_flow,self_research$/m,
     )
     const label = '\\(old branch, worst case\\)'
     const row = (id: string, price: string) =>
       new RegExp(`^\\| ${id} \\| .* \\| ~${price} ${label} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', '37\\.50'))
-    expect(result.comment).toMatch(row('ordinance_flow', '37\\.50'))
+    expect(result.comment).toMatch(row('chief_of_staff', '42\\.50'))
+    expect(result.comment).toMatch(row('ordinance_flow', '42\\.50'))
     expect(result.comment).toMatch(row('self_research', '49\\.00'))
   })
 })
@@ -1930,6 +1936,88 @@ describe('the arms reach AWS on the role, not on the stub', () => {
   })
 })
 
+// ONE LIVE SWEEP AT A TIME, ACROSS THE WHOLE REPOSITORY. Keyed per PR, as it
+// first was, two PRs judged at once put two sweeps out at up to twelve
+// background runs per arm each, against a dev scheduler cap that is shared
+// with everything else running there. Past that cap a run waits outside its
+// own timeout: the sweep's poll gives up as an infra error and the task still
+// launches and bills with nothing reading its result. `maxInFlight` in
+// config.ts asks for this guard by name.
+//
+// Three properties, and the group is useless without all three: the live key
+// is a constant, so it is one slot for the repository and not one per PR; it
+// queues rather than cancels, because a sweep that is running has already
+// spent and cannot be resumed (SWEEP_ID carries `run_attempt` so a re-run
+// reads none of the first run's records); and a plan-only run must stay out
+// of it, because a plan spends nothing and has no business waiting an hour.
+describe('judge.yml runs one live sweep at a time', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const planJob = yaml.slice(
+    yaml.indexOf('\n  plan:\n'),
+    yaml.indexOf('\n  sweep:\n'),
+  )
+  const sweepJob = yaml.slice(yaml.indexOf('\n  sweep:\n'))
+
+  // A job's `concurrency:` sits at four spaces and its keys at six, with a
+  // folded `>-` group continuing at eight. Collapsed to one line so the
+  // assertions read the expression and not the wrapping.
+  const concurrencyOf = (job: string): string =>
+    (/^ {4}concurrency:\n((?: {6,}\S.*\n)+)/m.exec(job)?.[1] ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const sweepGroup = concurrencyOf(sweepJob)
+
+  it('finds a concurrency group on both jobs', () => {
+    expect(sweepGroup).not.toBe('')
+    expect(concurrencyOf(planJob)).not.toBe('')
+  })
+
+  it('keys a live sweep on one constant, not on the PR', () => {
+    expect(sweepGroup).toContain("'universal-judge-live-sweep'")
+    expect(sweepGroup).not.toContain('inputs.pr_number')
+  })
+
+  it('queues the second sweep rather than cancelling the first', () => {
+    expect(sweepGroup).toContain('cancel-in-progress: false')
+    // The reason it cannot cancel: a re-run reads none of the cancelled
+    // run's records, so the money it spent buys nothing.
+    expect(sweepJob).toMatch(
+      /^ {6}SWEEP_ID: judge-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/m,
+    )
+  })
+
+  // BOTH HALVES. The `if:` is what normally keeps a plan-only run out, but
+  // whether a job skipped by `if:` still takes a place in its concurrency
+  // group is documented neither way — so the group itself also has to gate
+  // on `live`, and its other arm has to be unique per run.
+  it('leaves a plan-only run out of the group entirely', () => {
+    expect(sweepJob).toMatch(/^ {6}&& inputs\.live == true$/m)
+    expect(sweepGroup).toContain('inputs.live == true &&')
+    expect(sweepGroup).toContain('github.run_id')
+  })
+
+  it('never makes a plan wait behind a sweep', () => {
+    const plan = concurrencyOf(planJob)
+    expect(plan).toContain('judge-plan-')
+    expect(plan).toContain('cancel-in-progress: true')
+    expect(plan).not.toContain('universal-judge-live-sweep')
+  })
+
+  // `jobs.<job_id>.concurrency` is evaluated before a job runs, so it reaches
+  // `github`, `inputs`, `vars`, `needs`, `strategy` and `matrix` and nothing
+  // else. A group written against `env` or `steps` is not an error anyone
+  // sees: it resolves empty, every live sweep lands in the same degenerate
+  // key by accident or none of them do, and the guard silently stops being
+  // one. `needs` is available but deliberately unused here.
+  it('builds the group from contexts a job group can actually read', () => {
+    const contexts = [...sweepGroup.matchAll(/\b([a-z]+)\.[a-z_]+/g)].map(
+      (match) => match[1],
+    )
+    expect([...new Set(contexts)].sort()).toEqual(['github', 'inputs'])
+  })
+})
+
 // GITHUB'S 21,000-CHARACTER EXPRESSION LIMIT. A `run:` script that contains
 // `${{` anywhere, even inside a shell comment, is evaluated as one expression,
 // and past 21,000 characters the whole workflow fails to parse: every
@@ -2014,6 +2102,20 @@ describe('judge.yml checks the judge schema before spending', () => {
     )
   })
 
+  // THE SAME CHECKOUT AS THE JUDGING STEP, because the schema the preflight
+  // clears has to be the schema the judging step then sends. Point the
+  // preflight at a checkout of `main` and it clears a schema this sweep never
+  // sends, which is the one failure (#2534) it exists to catch, on exactly
+  // the branches that change the verdict schema. judge-schema-check.yml is
+  // where the main-side call already lives.
+  it('runs in the same checkout as the judging step', () => {
+    const judging = steps.find((step) => step.name === 'Judge both arms')
+    expect(workingDirOf(preflight?.body ?? '')).toBe('${{ env.WORKSPACE }}')
+    expect(workingDirOf(judging?.body ?? '')).toBe(
+      workingDirOf(preflight?.body ?? ''),
+    )
+  })
+
   it('points at an entry that exists', () => {
     const entry = /^ {2}PREFLIGHT_ENTRY: (.+)$/m.exec(yaml)?.[1]
     expect(entry).toBe('src/chats/evals/judge/schemaPreflight.ts')
@@ -2037,6 +2139,79 @@ describe('judge.yml checks the judge schema before spending', () => {
       },
     )
     expect(stdout).toContain('predates the schema preflight')
+  })
+})
+
+// MOVING A JUDGE MACHINERY STEP TO A CHECKOUT OF `main` CLOSES NOTHING, and
+// this is what holds that true rather than leaving it to be re-reasoned. The
+// schema preflight, the mart resolver and the judging step are pure judge
+// machinery, they carry real secrets, and they run the branch's own code, so
+// the obvious hardening is to run them from `main` instead. It would not move
+// the exposure: `Capture the candidate arm` IS the branch's code, by
+// construction, and it is handed every one of the same secrets. A change that
+// moves a machinery step is free to land, but it cannot be read as closing a
+// hole while the arm still holds the key, and this fails if it ever is.
+// judge.yml's note above the sweep job's `steps:` carries the full argument.
+describe('judge.yml gains nothing by moving machinery to main', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const steps = stepsOf(yaml)
+  const MACHINERY = [
+    "Check the model API accepts the judge's schema",
+    "Resolve the voter mart's Delta version",
+    'Judge both arms',
+  ]
+  const CANDIDATE_ARM = 'Capture the candidate arm'
+
+  const stepNamed = (name: string): Step => {
+    const step = steps.find((one) => one.name === name)
+    if (step === undefined) {
+      throw new Error(`judge.yml has no step named "${name}"`)
+    }
+    return step
+  }
+
+  // Entries only, never the prose around them. This file's `env:` blocks
+  // carry comments at the entry indent, and a sentence that names a secret
+  // is not a step that holds one. Same trap `setsEnv` above is anchored
+  // against.
+  const secretsOf = (body: string): Set<string> =>
+    new Set(
+      [
+        ...envBlockOf(body).matchAll(
+          /^ {10}\w+: \$\{\{ secrets\.(\w+) \}\}$/gm,
+        ),
+      ].flatMap((match) => (match[1] === undefined ? [] : [match[1]])),
+    )
+
+  it.each(MACHINERY)('%s holds no secret the arm does not', (name) => {
+    const held = secretsOf(stepNamed(name).body)
+    // Guards the scan: a step that reads as holding nothing would make the
+    // containment below vacuously true.
+    expect(held.size).toBeGreaterThan(0)
+    const arm = secretsOf(stepNamed(CANDIDATE_ARM).body)
+    for (const secret of held) expect([...arm]).toContain(secret)
+  })
+
+  // The arm runs the candidate workspace, which is the question the sweep
+  // exists to answer and therefore the one step that can never move.
+  it('captures the candidate arm from the candidate checkout', () => {
+    expect(workingDirOf(stepNamed(CANDIDATE_ARM).body)).toBe(
+      '${{ env.WORKSPACE }}',
+    )
+  })
+
+  // AND THE JUDGING STEP READS THAT CHECKOUT TOO, not only the records.
+  // `sweep.ts` resolves the agent registry, every case's condition, handling
+  // sentence, dimensions and `scored` flag, and the output-contract manifest
+  // from its own module location, and two of those reads exist to compare the
+  // candidate's copy with JUDGE_BASE_DIR's. Graded from `main` on a PR based
+  // on `main`, both comparisons compare a tree with itself.
+  it('judges from the candidate checkout, base worktree beside it', () => {
+    const judging = stepNamed('Judge both arms')
+    expect(workingDirOf(judging.body)).toBe('${{ env.WORKSPACE }}')
+    expect(envValue(judging.body, 'JUDGE_BASE_DIR')).toBe(
+      '${{ steps.base.outputs.dir }}',
+    )
   })
 })
 

@@ -683,6 +683,14 @@ export default function VoterMapCanvas({
       new maplibregl.AttributionControl({ compact: true }),
       'bottom-left',
     )
+    // A compact attribution opens expanded and collapses only on the first
+    // drag, so until then it covers the corner of the map.
+    map.on('load', () => {
+      map
+        .getContainer()
+        .querySelector('.maplibregl-ctrl-attrib')
+        ?.classList.remove('maplibregl-compact-show')
+    })
 
     // osm-liberty ships transit overlays and 3D building extrusions we
     // don't want on a canvassing map. Transit hides entirely; buildings

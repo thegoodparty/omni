@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Badge, Button, Card, CardContent } from '@styleguide'
 import {
   ArrowLeftIcon,
@@ -15,6 +16,7 @@ import type {
 import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
 import type { SourceInput } from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { priorityVariant } from './IssueCard'
 import PrioritizeButton from './PrioritizeButton'
 import IssuesNavHeader from './IssuesNavHeader'
@@ -75,6 +77,8 @@ const NextStepCard = ({
 const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
   const contentRef = useRef<HTMLDivElement>(null)
   const [prioritized, setPrioritized] = useState(issue.prioritized)
+  const router = useRouter()
+  const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
 
   useEffect(() => {
     if (devPreview) return
@@ -122,7 +126,14 @@ const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
             ) : (
               <PrioritizeButton
                 issueId={issue.id}
-                onPrioritized={() => setPrioritized(true)}
+                onPrioritized={(priority) => {
+                  setPrioritized(true)
+                  // Flag-off, the priorities segment redirects away, so the
+                  // issue just reads as added.
+                  if (prioritiesEnabled) {
+                    router.push(`/dashboard/priorities/${priority.id}`)
+                  }
+                }}
               />
             )
           ) : null}
