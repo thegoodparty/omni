@@ -17,6 +17,7 @@ import {
   type MintedSession,
   type SessionMinter,
 } from './judgeClerkSession'
+import { JUDGE_FIXTURE } from './judgeFixtureIdentity'
 
 const SECRET_KEY = 'sk_test_AbCdEf0123456789'
 const USER_ID = 'user_2zJudgeAbCdEf'
@@ -170,8 +171,18 @@ describe('resolveJudgeClerkUserId', () => {
   // The guard in src/judge compares the caller's email to this exact value
   // and answers 404 on anything else, so an account under another address
   // would authenticate and then be unable to read its own telemetry.
+  // The guard in src/judge compares the caller's email to this same
+  // constant, so an account under any other address would authenticate and
+  // then be unable to read its own telemetry.
   it('creates it under the address the access guard checks', () => {
-    expect(JUDGE_CLERK_EMAIL).toBe('judge-sweep@example.com')
+    expect(JUDGE_CLERK_EMAIL).toBe('judge-chat@example.com')
+  })
+
+  // Not the background fixture's address, which already belongs to a gp-api
+  // row under a placeholder clerk id. User.email is unique, so an account
+  // under it cannot be provisioned and every request 401s.
+  it('is not the background fixture address', () => {
+    expect(JUDGE_CLERK_EMAIL).not.toBe(JUDGE_FIXTURE.email)
   })
 
   it('never puts the generated password in a log line', async () => {
