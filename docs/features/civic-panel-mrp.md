@@ -36,8 +36,9 @@ group, do door answerers and text answerers differ?
 
 **Round 2, one scheduled text.** Approved and paid for during setup, with
 its size and message (the official always approves the budget). It sends
-on its scheduled date, and its recipients are not chosen until then: at
-send time the model is fit to round 1's answers, the groups are ranked
+on the date the official picks (two weeks after round 1 starts by default),
+with whatever answers are in by then. Its recipients are not chosen until
+that date: the model is fit to round 1's answers, the groups are ranked
 (`batchTargets`), the draw leans toward them (`batchWeights`, the same
 `SampleWeights` the census steering passes to `drawListSample`), and 15% of
 the send is drawn unsteered (`splitBatch`) so drift outside the lean still
