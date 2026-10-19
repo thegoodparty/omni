@@ -15,7 +15,7 @@ export type VendorMockRecordSummary = z.infer<
 
 export const MockActionSchema = z.object({
   campaignId: z.number().int().positive(),
-  action: z.enum(['geoapify.route.fail']),
+  action: z.enum(['geoapify.route.fail', 'callhub.campaign.complete']),
   params: z.record(z.string(), z.unknown()).optional(),
 })
 export type MockAction = z.infer<typeof MockActionSchema>
@@ -41,3 +41,21 @@ export const RunJobResponseSchema = z.object({
   durationMs: z.number(),
 })
 export type RunJobResponse = z.infer<typeof RunJobResponseSchema>
+
+export const TimeTravelSchema = z.object({
+  outreachId: z.number().int().positive(),
+  action: z.enum([
+    'robocall.send_due_now',
+    'robocall.dialed_48h_ago',
+    'sms.start_date_today',
+  ]),
+})
+export type TimeTravel = z.infer<typeof TimeTravelSchema>
+
+export const TimeTravelResponseSchema = z.object({
+  outreachId: z.number().int().positive(),
+  date: z.string().datetime().nullable(),
+  dialedAt: z.string().datetime().nullable(),
+  poolFreedAt: z.string().datetime().nullable(),
+})
+export type TimeTravelResponse = z.infer<typeof TimeTravelResponseSchema>
