@@ -85,7 +85,3 @@ See `ai-rules/system-map.md` for the full cross-repo map.
 - **`createZodDto(zodSchema)`** — `nestjs-zod` decorator-friendly DTO. Bind to `@Query()`/`@Param()`/`@Body()`; the global `ZodValidationPipe` enforces it. Inputs that come from query strings often need `z.preprocess(...)` to coerce strings to booleans/numbers.
 - **`AllExceptionsFilter`** (`src/shared/filters/allExceptions.filter.ts`) — global filter that returns the real error message for non-`HttpException` errors. Safe because the API is internal-only; aids debugging from gp-api.
 - **`buildColumnSelect`** (`src/prisma/util/prisma.util.ts`) — builds a typed Prisma `select` clause from a comma-separated string of column names, used by endpoints that let callers pick fields.
-
-## ADRs
-
-`docs/adr/` is not yet seeded for this repo. Add one when a non-obvious decision lands (e.g., why network-level auth instead of JWT, why nestjs-zod vs raw Zod). Use `ai-rules/adr-template.md`.

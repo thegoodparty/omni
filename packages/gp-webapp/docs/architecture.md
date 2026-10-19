@@ -72,7 +72,3 @@ Shared types flow through hand-rolled `Request`/`Response` declarations on `gpAp
 - **Design tokens, not raw hex.** See root `CLAUDE.md` § Design Tokens.
 - **State management**: see `docs/state-management.md`.
 - **Feature flags**: see `docs/feature-flags.md`.
-
-## ADRs
-
-None yet — add `docs/adr/` if/when non-obvious decisions need to be captured.

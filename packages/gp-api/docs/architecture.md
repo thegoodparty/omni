@@ -58,7 +58,3 @@ Shared types between `gp-api` and `gp-webapp`/`gp-sdk` flow through `@goodparty_
 ## Bootstrap
 
 `src/app.ts` exports `bootstrap()` used by both `main.ts` and `src/test-service.ts`. Global prefix is `/v1`. Fastify plugins: helmet, CORS, cookies, multipart (10MB).
-
-## ADRs
-
-See `docs/adr/` for non-obvious decisions (PrismaBase pattern, single FIFO queue, etc.).
