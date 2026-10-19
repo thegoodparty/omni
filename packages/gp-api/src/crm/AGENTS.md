@@ -28,7 +28,7 @@ form — so gp-webapp loads that script in production only (`app/layout.tsx`,
 | `crmTeamMembers.service.ts`          | Team-member contact upsert + company association (ENG-10826)      |
 | `util/hubspotErrors.util.ts`         | `extractExistingContactId` — shared 409-conflict parsing (ENG-11029), used by this module and `crmUsers.service.ts` |
 | `crm.types.ts`                       | `CRMContactProperties` / `CRMTeamMemberContactProperties` shapes   |
-| `../users/services/crmUsers.service.ts` | User signup/profile → contact sync (`trackUserLogin`/`trackUserUpdate`) |
+| `../users/services/crmUsers.service.ts` | User signup/profile → contact sync (`trackUserLogin`/`trackUserUpdate`), and `submitCrmForm`, which posts to the Forms API through Nest's `HttpService` (axios on Node's global agent), not the SDK client, so the keep-alive setting above does not reach it |
 | `../campaigns/services/crmCampaigns.service.ts` | Campaign → company sync                                |
 | `../electedOffice/services/crmOfficeHolder.service.ts` | Elected office → Office Holder custom object (DATA-2623) |
 
