@@ -71,9 +71,17 @@ import { type AffinityColumn } from '../affinityColumns.const'
 import {
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
   buildRespondentBlockGroupsSql,
+  buildRespondentCellsSql,
+  buildTractGridCellsSql,
+  mapAcsCounts,
   mapCensusCompositionRows,
+  mapGridCells,
+  mapRespondentCells,
+  mapTractAdults,
   type CensusCompositionRows,
+  type WeightingInputs,
 } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
@@ -509,6 +517,43 @@ export class DatabricksVoterService {
         : Promise.resolve({ columns: [], rows: [] }),
     ])
     return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
+  }
+
+  // What weighting needs: respondents counted by age band, gender, tenure
+  // and tract, and the district's adults per tract.
+  async findWeightingInputs(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<WeightingInputs> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      personIds.length > 0
+        ? this.client.query(buildRespondentCellsSql(district, personIds))
+        : Promise.resolve({ columns: [], rows: [] }),
+      this.client.query(buildDistrictTractAdultsSql(district)),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapRespondentCells(cellResult.rows),
+      tractAdults: mapTractAdults(tractResult.rows),
+    }
+  }
+
+  async findTractGridCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+    cellDegrees: number,
+  ): Promise<Array<{ row: number; col: number }>> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractGridCellsSql(district, tracts, cellDegrees),
+    )
+    return mapGridCells(result.rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

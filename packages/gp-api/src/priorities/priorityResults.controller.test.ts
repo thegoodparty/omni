@@ -23,6 +23,7 @@ import {
   PrioritySource,
 } from '@/generated/prisma'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { StatsService } from '@/peopleDb/services/stats.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { seedTurfEffort } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import {
@@ -56,6 +57,7 @@ const blockGroup = Object.fromEntries(
 ) as AcsCounts
 
 let compose: MockInstance<CensusCompositionSource['compose']>
+let weightingInputs: MockInstance<StatsService['findWeightingInputs']>
 let population: MockInstance<CensusCompositionSource['population']>
 
 const pointsFor = (ids: string[]) =>
@@ -155,6 +157,23 @@ beforeEach(async () => {
       district: blockGroup,
       respondentBlockGroups: personIds.map(() => blockGroup),
     }))
+  // Every respondent an owner in a district of owners: representative.
+  weightingInputs = vi
+    .spyOn(service.app.get(StatsService), 'findWeightingInputs')
+    .mockClear()
+    .mockImplementation(async (_districtId, _dataset, personIds) => ({
+      district: blockGroup,
+      cells: [
+        {
+          ageBand: null,
+          gender: null,
+          tenure: 'owner',
+          tract: null,
+          count: personIds.length,
+        },
+      ],
+      tractAdults: new Map(),
+    }))
   // A district of 10 needs 9 answers for a good read.
   population = vi
     .spyOn(
@@ -200,7 +219,13 @@ describe('GET /v1/priorities/:id/results', () => {
     })
     expect(res.data.representation?.respondentCount).toBe(12)
     expect(res.data.representation?.groups.length).toBeGreaterThan(0)
-    expect(res.data.readStatus).toEqual({ answers: 12, needed: 9, good: true })
+    expect(res.data.readStatus).toEqual({
+      answers: 12,
+      needed: 9,
+      good: true,
+      status: 'representative',
+      underrepresented: [],
+    })
   })
 
   it('shows unavailable census as a comparison with no rows, not an error', async () => {
@@ -354,7 +379,14 @@ describe('GET /v1/priorities/:id/read-status', () => {
     const res = await readStatus()
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ answers: 8, needed: 9, good: false })
+    expect(res.data).toEqual({
+      answers: 8,
+      needed: 9,
+      good: false,
+      status: 'tooEarly',
+      underrepresented: [],
+    })
+    expect(weightingInputs).not.toHaveBeenCalled()
     expect(population).toHaveBeenCalledWith({
       districtId: 'd-1',
       dataset: 'voters',
@@ -366,7 +398,12 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     const res = await readStatus()
 
-    expect(res.data).toEqual({ answers: 9, needed: 9, good: true })
+    expect(res.data).toMatchObject({
+      answers: 9,
+      needed: 9,
+      good: true,
+      status: 'representative',
+    })
   })
 
   it('pools people across sends and channels, counting each once', async () => {
@@ -387,7 +424,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     const res = await readStatus()
 
-    expect(res.data).toEqual({ answers: 10, needed: 9, good: true })
+    expect(res.data).toMatchObject({ answers: 10, needed: 9, good: true })
   })
 
   it("leaves out another priority's answers", async () => {
@@ -395,7 +432,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     const res = await readStatus()
 
-    expect(res.data).toEqual({ answers: 0, needed: 9, good: false })
+    expect(res.data).toMatchObject({ answers: 0, needed: 9, good: false })
   })
 
   it('uses the uncorrected figure when the population is unknown', async () => {
@@ -404,7 +441,89 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     const res = await readStatus()
 
-    expect(res.data).toEqual({ answers: 12, needed: 96, good: false })
+    expect(res.data).toEqual({
+      answers: 12,
+      needed: 96,
+      good: false,
+      status: 'tooEarly',
+      underrepresented: [],
+    })
+  })
+
+  it('is not yet representative when the answers miss a group, and names it', async () => {
+    weightingInputs.mockImplementation(async (_d, _ds, personIds) => ({
+      district: { ...blockGroup, households: 100, ownerOccupiedHouseholds: 40 },
+      cells: [
+        {
+          ageBand: null,
+          gender: null,
+          tenure: 'owner',
+          tract: null,
+          count: personIds.length,
+        },
+      ],
+      tractAdults: new Map(),
+    }))
+    await createTextSend(12, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({
+      answers: 12,
+      needed: 9,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['renters'],
+    })
+  })
+
+  it('says enough answers, not representative, when the census cannot be read', async () => {
+    weightingInputs.mockRejectedValue(new Error('warehouse down'))
+    await createTextSend(9, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toEqual({
+      answers: 9,
+      needed: 9,
+      good: true,
+      status: 'enoughAnswers',
+      underrepresented: [],
+    })
+  })
+
+  it('weighs a priority once per answer count, and again after a new answer', async () => {
+    const { outreach } = await createTextSend(12, 0)
+
+    await readStatus()
+    await readStatus()
+    expect(weightingInputs).toHaveBeenCalledTimes(1)
+
+    await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: uuidv7(),
+        personId: uuidv7(),
+        outreachId: outreach.id,
+        electedOfficeId: eoId,
+        sender: PollIndividualMessageSender.CONSTITUENT,
+        sentAt: new Date(),
+        content: 'Same here.',
+        isOptOut: false,
+      },
+    })
+    const res = await readStatus()
+
+    expect(res.data.answers).toBe(13)
+    expect(weightingInputs).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not keep a failed weighting', async () => {
+    weightingInputs.mockRejectedValueOnce(new Error('warehouse down'))
+    await createTextSend(12, 0)
+
+    expect((await readStatus()).data.status).toBe('enoughAnswers')
+    expect((await readStatus()).data.status).toBe('representative')
+    expect(weightingInputs).toHaveBeenCalledTimes(2)
   })
 
   it("404s on a priority this office doesn't hold", async () => {
@@ -420,6 +539,123 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     const res = await readStatus()
 
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', () => {
+  const REACHED = '37021000100'
+  const UNREACHED = '37021000200'
+  const inside = [uuidv7(), uuidv7()]
+
+  const createFilter = (body: Record<string, unknown>) =>
+    service.client.post('/v1/voters/voter-file/filter', body, headers())
+
+  let gridCells: MockInstance<StatsService['findTractGridCells']>
+  let geoMembers: MockInstance<ContactsService['resolveGeoMemberIds']>
+
+  beforeEach(() => {
+    // Everyone who answered lives in one of the district's two tracts.
+    weightingInputs.mockImplementation(async (_d, _ds, personIds) => ({
+      district: blockGroup,
+      cells: [
+        {
+          ageBand: null,
+          gender: null,
+          tenure: null,
+          tract: REACHED,
+          count: personIds.length,
+        },
+      ],
+      tractAdults: new Map([
+        [REACHED, 500],
+        [UNREACHED, 500],
+      ]),
+    }))
+    gridCells = vi
+      .spyOn(service.app.get(StatsService), 'findTractGridCells')
+      .mockResolvedValue([
+        { row: 8900, col: -20640 },
+        { row: 8900, col: -20639 },
+      ])
+    geoMembers = vi
+      .spyOn(service.app.get(ContactsService), 'resolveGeoMemberIds')
+      .mockResolvedValue(inside)
+  })
+
+  it('saves the area as the list boundary, with its people frozen', async () => {
+    await createTextSend(12, 0)
+
+    const res = await createFilter({
+      name: 'Parts we have not heard from',
+      unreachedAreaOfPriorityId: priorityId,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(gridCells).toHaveBeenCalledWith('d-1', 'voters', [UNREACHED], 0.004)
+    const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(row.geoPoly).toMatchObject({ type: 'Polygon' })
+    expect(row.geoPolyLabels).toEqual([
+      { name: 'Not reached yet', color: '#d97706' },
+    ])
+    expect(geoMembers.mock.calls[0]?.[1]).toEqual(row.geoPoly)
+    const members = await service.prisma.voterFileFilterGeoMember.findMany({
+      where: { voterFileFilterId: res.data.id },
+      select: { personId: true },
+    })
+    expect(members.map((m) => m.personId).sort()).toEqual([...inside].sort())
+  })
+
+  it('draws a sample only from the people inside the area', async () => {
+    await createTextSend(12, 0)
+    const draw = vi
+      .spyOn(service.app.get(ContactsService), 'drawListSample')
+      .mockResolvedValue([inside[0]!])
+
+    const res = await createFilter({
+      name: 'A sample where we have not heard',
+      unreachedAreaOfPriorityId: priorityId,
+      sample: { size: 1 },
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(draw.mock.calls[0]?.[2]).toMatchObject({
+      size: 1,
+      withinPersonIds: inside,
+    })
+  })
+
+  it('refuses when every part of the district has answered', async () => {
+    weightingInputs.mockImplementation(async (_d, _ds, personIds) => ({
+      district: blockGroup,
+      cells: [
+        {
+          ageBand: null,
+          gender: null,
+          tenure: null,
+          tract: REACHED,
+          count: personIds.length,
+        },
+      ],
+      tractAdults: new Map([[REACHED, 500]]),
+    }))
+    await createTextSend(12, 0)
+
+    const res = await createFilter({
+      name: 'Nowhere left',
+      unreachedAreaOfPriorityId: priorityId,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("404s on another office's priority", async () => {
+    const res = await createFilter({
+      name: 'Not ours',
+      unreachedAreaOfPriorityId: 'not-a-priority',
+    })
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })

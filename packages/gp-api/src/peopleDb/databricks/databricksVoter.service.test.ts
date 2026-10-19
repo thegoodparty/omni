@@ -864,7 +864,11 @@ describe('DatabricksVoterService', () => {
       )
 
       expect(query).toHaveBeenCalledTimes(1)
-      expect(result).toEqual({ district: null, respondentBlockGroups: [] })
+      expect(result).toEqual({
+        district: null,
+        respondentBlockGroups: [],
+        respondentProfiles: [],
+      })
     })
 
     // The caller turns a failure into "unavailable" and answers 200, so
