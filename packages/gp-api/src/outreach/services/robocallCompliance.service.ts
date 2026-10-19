@@ -59,6 +59,39 @@ export const NO_SPEECH_ISSUE =
   "We couldn't hear any speech in your recording. Record again and check " +
   'that your microphone is on.'
 
+// The spoken-number check must not hinge on the LLM alone: a number read aloud
+// is transcribed as digits ("414-485-8077", "4144858077") or as spoken digit
+// words ("four one four ..."), and the model sometimes marks it missing (ENG-11359).
+const SPOKEN_DIGIT_WORDS = new Set([
+  'zero',
+  'oh',
+  'o',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+])
+const MIN_PHONE_DIGITS = 7
+
+export const transcriptStatesPhoneNumber = (transcript: string): boolean => {
+  const tokens = transcript.toLowerCase().match(/[a-z]+|\d/g) ?? []
+  let run = 0
+  for (const token of tokens) {
+    if (/^\d$/.test(token) || SPOKEN_DIGIT_WORDS.has(token)) {
+      run += 1
+      if (run >= MIN_PHONE_DIGITS) return true
+    } else {
+      run = 0
+    }
+  }
+  return false
+}
+
 interface ComplianceParams {
   audioKey: string
   contentType: string
@@ -137,7 +170,13 @@ export class RobocallComplianceService {
       },
     ]
 
-    const checks = await this.runVerdict(messages, params.userId)
+    const verdict = await this.runVerdict(messages, params.userId)
+    // A number demonstrably in the transcript wins over a model "false".
+    const checks = {
+      ...verdict,
+      hasCallbackNumber:
+        verdict.hasCallbackNumber || transcriptStatesPhoneNumber(transcript),
+    }
 
     // Log only the boolean checks, never the transcript — it contains PII (the
     // spoken callback number, the candidate name). The full transcript is still
