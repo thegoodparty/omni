@@ -72,6 +72,19 @@ effort. It takes a minute or two, needs working voter data, and uses the same
 `LOCAL_SETUP_CLERK_MACHINE_SECRET` as the login step. Details are in
 `packages/gp-api/src/testFixtures/AGENTS.md`.
 
+A Serve (`eo-`) org also gets the whole civic panel loop:
+
+- **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
+  members, from door and call yeses plus JOIN replies to a panel invite
+  text, and a build plan at 2 hours a week whose first text step reads done.
+- **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
+  a text ask to panel members and other residents and a few more replies
+  than the district's good read needs (about 100), so its results page
+  (`/dashboard/priorities/<id>/results`) opens with themes.
+
+The good read needs the default sample of 250 residents. Run it again and it
+adds another round of outreach and a second priority; the plan is reused.
+
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
 `git submodule update --init --recursive ai-rules`), then copy each app's
