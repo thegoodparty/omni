@@ -63,6 +63,57 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     ])
   })
 
+  it('sets vb_campaign status to END for callhub.campaign.complete', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.robocall,
+        campaignId: campaign.id,
+        date: new Date(),
+      },
+    })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: outreach.id,
+        audioKey: `audio-${outreach.id}`,
+        callbackNumber: '+15551234567',
+        callhubCampaignPkStr: 'pk-test-complete',
+      },
+    })
+    await seedRecord(
+      VendorMockVendor.callhub,
+      'vb_campaign',
+      'pk-test-complete',
+      { status: 2 },
+    )
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action: 'callhub.campaign.complete' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const vbRecord = res.data.records.find(
+      (r: { kind: string }) => r.kind === 'vb_campaign',
+    )
+    expect(vbRecord).toBeDefined()
+    expect(vbRecord.state.status).toBe(4)
+  })
+
+  it('is a no-op for callhub.campaign.complete when no robocall pk exists', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action: 'callhub.campaign.complete' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([])
+  })
+
   it('returns 403 when the campaign belongs to a different user', async () => {
     const otherUser = await service.prisma.user.create({
       data: {
