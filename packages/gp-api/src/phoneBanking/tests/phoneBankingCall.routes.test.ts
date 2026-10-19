@@ -141,7 +141,7 @@ describe('phone banking call outcome routes', () => {
     })
 
   describe('transaction budget', () => {
-    it('gives the outcome transaction more than the 5s default so a brief database stall does not 503 the call', async () => {
+    it('gives the outcome transaction more than the 5s default so a brief stall does not 503 the call', async () => {
       const { listId, entry } = await buildList(
         [{ firstName: 'A' }],
         '3075551099',

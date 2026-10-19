@@ -59,10 +59,10 @@ type RowInput = {
 // first's insert has committed.
 const PHONE_BANKING_LIST_LOCK_NAMESPACE = 25714
 
-// Prisma's 5s interactive-transaction default is also spent waiting on the
-// per-list advisory lock and on pooled connections. A brief database stall
-// (11.4s observed on 2026-10-19, P2028 -> 503) otherwise fails a call that
-// the volunteer just made.
+// Prisma's 5s interactive-transaction default also covers waiting on the
+// per-list advisory lock, a pooled connection, and any stall of the process
+// itself. An 11.4s container freeze on 2026-10-19 (P2028 -> 503) otherwise
+// fails a call the volunteer just made.
 const RECORD_CALL_TX_TIMEOUT_MS = 20_000
 
 // `completed` is the ratchet the response reports on every later call;
