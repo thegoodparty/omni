@@ -213,7 +213,10 @@ export class OutreachRobocallSendService extends createPrismaBase(
   })
   async sweepRobocallSend(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runSend()
+  }
 
+  async runSend(): Promise<void> {
     const now = new Date()
 
     // FREE-AND-ADVANCE: for every dialed run whose ESTIMATED completion + buffer

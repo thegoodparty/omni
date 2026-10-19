@@ -69,7 +69,10 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   })
   async sweepCaptures(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runCapture()
+  }
 
+  async runCapture(): Promise<void> {
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse
     // uncaptured. A settling row always carries the authorization + count, but

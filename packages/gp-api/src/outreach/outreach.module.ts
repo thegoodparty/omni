@@ -287,6 +287,11 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // ingest, so panel joins land the way production writes them.
     OutreachTextIngestService,
     OutreachServePollExpansionService,
+    // Exported so TestFixturesModule can inject them into the run-job allowlist.
+    OutreachRobocallStagingService,
+    OutreachRobocallSendService,
+    OutreachRobocallCompletionService,
+    OutreachRobocallCaptureService,
   ],
 })
 export class OutreachModule {
