@@ -5,18 +5,13 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
-import { OUTREACH_PRO_GATING_V2_FLAG_KEY } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { MembershipState } from './deriveMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 import { MembershipBanner, resolveMembershipAction } from './MembershipBanner'
 
-const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
-  () => ({
-    mockUseMembershipState: vi.fn(),
-    mockUseFlag: vi.fn(),
-    mockExposure: vi.fn(),
-  }),
-)
+const { mockUseMembershipState } = vi.hoisted(() => ({
+  mockUseMembershipState: vi.fn(),
+}))
 
 const { mockSmsCompliance } = vi.hoisted(() => ({
   mockSmsCompliance: {
@@ -37,13 +32,6 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
 
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
-}))
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  OUTREACH_PRO_GATING_V2_FLAG_KEY: 'outreach-pro-gating-v2',
-  useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
-}))
-vi.mock('app/shared/experiments/FeatureFlagsProvider', () => ({
-  useFeatureFlags: () => ({ exposure: mockExposure }),
 }))
 vi.mock('./ProPitchDialog', () => ({
   ProPitchDialog: ({ open }: { open: boolean }) => (
@@ -69,15 +57,12 @@ const membership = (
 })
 
 const setup = ({
-  enabled = true,
   ready = true,
   state = membership(),
 }: {
-  enabled?: boolean
   ready?: boolean
   state?: MembershipState | null
 } = {}) => {
-  mockUseFlag.mockReturnValue({ ready: true, enabled })
   mockUseMembershipState.mockReturnValue({
     ready,
     state: ready ? state : null,
@@ -128,49 +113,10 @@ describe('resolveMembershipAction', () => {
 })
 
 describe('MembershipBanner', () => {
-  it('renders nothing, and reads nothing, when the flag is off', () => {
-    setup({ enabled: false, state: membership({ tier: 'free' }) })
-
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(trackEvent).not.toHaveBeenCalled()
-    // The membership reads are the flag's cost, not just its UI: a
-    // flagged-off user must not pay for the TCR / Peerly queries.
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
-  })
-
   it('renders nothing before the membership state is ready', () => {
     setup({ ready: false })
 
     expect(screen.queryByRole('button')).toBeNull()
-  })
-
-  it('exposes the flag once, and only once the banner is on screen', () => {
-    setup()
-
-    // The hook read must not expose: the treatable population is the one that
-    // can see a membership surface, not everyone the flag is on for.
-    expect(mockUseFlag).toHaveBeenCalledWith(false)
-    expect(mockExposure).toHaveBeenCalledTimes(1)
-    expect(mockExposure).toHaveBeenCalledWith(OUTREACH_PRO_GATING_V2_FLAG_KEY)
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
-  })
-
-  it('does not expose the flag when the surface is hidden', () => {
-    for (const state of [
-      membership({ isElectedOffice: true }),
-      membership({ texting: 'cleared' }),
-    ]) {
-      setup({ state })
-
-      expect(mockExposure).not.toHaveBeenCalled()
-      mockExposure.mockClear()
-    }
-  })
-
-  it('does not expose the flag before the membership state is ready', () => {
-    setup({ ready: false })
-
-    expect(mockExposure).not.toHaveBeenCalled()
   })
 
   it('renders the upsell and opens the pitch dialog for a free campaign', async () => {
@@ -280,7 +226,6 @@ describe('MembershipBanner', () => {
 
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
-    expect(mockExposure).not.toHaveBeenCalled()
     expect(trackEvent).not.toHaveBeenCalled()
   })
 

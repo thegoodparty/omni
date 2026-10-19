@@ -7,9 +7,8 @@ import {
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) happy path: a filed candidate walks
+// Pro upgrade happy path: a filed candidate walks
 // guidance → status → EIN → the filing-details form (campaign verification's
 // own form, asked before payment) → an embedded Stripe subscription → the
 // success screen's submitted confirmation. The filing record must exist
@@ -20,18 +19,11 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // @dev-only: the `isPro` flip and the deferred compliance-agent kickoff are
 // driven by the live Stripe `checkout.session.completed` webhook in
 // `paymentEventsService` — an inbound delivery an ephemeral per-PR preview
-// can't receive. Same justification and side effects as
-// pro-upgrade-happy-path.spec.ts (test-mode subscription left in place; the
-// @test.goodparty.org user is swept by gp-api's deleteTestUsers).
+// can't receive. It leaves a test-mode subscription in place; the
+// @test.goodparty.org user is swept by gp-api's deleteTestUsers.
 
 type CampaignProState = { isPro?: boolean }
 type TcrComplianceMine = { status?: string | null }
-
-// The purchase-only step set only renders while outreach-pro-gating-v2 is on —
-// pinned so the suite reads the same whatever the flag's live rollout is.
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -49,13 +41,13 @@ test('filed candidate submits filing details before payment and lands on the sub
   // Move the election out of the 19-day texting cutoff so the "About 1 to 2
   // weeks" PIN-timing row (GuidanceStep.tsx:143-146 filters it when
   // smsCompliance='closed') renders regardless of the live Cheyenne election
-  // day. Same guard applied to pro-upgrade-v2-entry/resume in e7bd8a6c; the
+  // day. Same guard as pro-upgrade-v2-entry/resume; the
   // closed path stays covered by pro-upgrade-v2-cutoff.spec.ts.
   await client.put('/v1/campaigns/mine', {
     details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
   })
 
-  // 1. Entry — purchase-only always opens on the guidance overview.
+  // 1. Entry — the wizard always opens on the guidance overview.
   await page.goto('/dashboard/pro-upgrade')
   await NavigationHelper.dismissOverlays(page)
   await page.waitForURL(/\/dashboard\/pro-upgrade\/guidance/, {
@@ -70,7 +62,7 @@ test('filed candidate submits filing details before payment and lands on the sub
   await expect(page.getByText('About 1 to 2 weeks')).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // 2. Filing status — the purchase-only cards are a selection confirmed by
+  // 2. Filing status — the cards are a selection confirmed by
   // Continue (held until one is picked).
   await page.waitForURL(/\/dashboard\/pro-upgrade\/status/)
   await page

@@ -327,7 +327,7 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  // Not Pro-gated (outreach-pro-gating-v2): the free build path drafts a
+  // Not Pro-gated: the free build path drafts a
   // script before upgrading, exactly as the sms script draft already does.
   it('allows a non-Pro campaign to draft a script', async () => {
     await service.prisma.campaign.update({

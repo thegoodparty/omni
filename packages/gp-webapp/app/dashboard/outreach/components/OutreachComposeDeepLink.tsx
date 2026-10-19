@@ -9,9 +9,6 @@ import {
 } from '@goodparty_org/contracts'
 import type { SocialFlowPrefill } from 'app/dashboard/outreach/v2/social/SocialFlow'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
-import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
@@ -21,7 +18,6 @@ import {
   type ComposeSource,
 } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import type { OutreachTrackerOrigin } from 'app/dashboard/outreach/util/outreachAnalytics'
-import type { TcrCompliance } from 'helpers/types'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 
@@ -53,7 +49,6 @@ export interface ComposeRequest {
 }
 
 interface OutreachComposeDeepLinkProps {
-  tcrCompliance?: TcrCompliance
   onCompose: (request: ComposeRequest) => void
   // The hub owns the saved-draft lookup (its `openChannel`), so it answers
   // whether this arrival will resume a row rather than start a campaign —
@@ -115,7 +110,6 @@ const consumeWinSocialHandoff = (
 }
 
 export const OutreachComposeDeepLink = ({
-  tcrCompliance,
   onCompose,
   resumesDraft,
 }: OutreachComposeDeepLinkProps): React.JSX.Element => {
@@ -127,18 +121,9 @@ export const OutreachComposeDeepLink = ({
   const requestSource = COMPOSE_SOURCES.find(
     (source) => source === searchParams?.get('source'),
   )
-  const { runTextGate, gateModals } = useTextOutreachGate(
-    tcrCompliance,
-    composeSource,
-  )
-  // Same switch the tiles run (see ChannelTileGrid): behind the flag the
-  // text, robocall and phone-banking flows carry their own gate, so the link
-  // opens them instead of refusing the arrival.
-  const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
-  const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   // Every link that opens a new text lands here (task CTAs, Know Your
   // Opponent, the voter data picker, the chat), so this is where a closed
-  // texting window stops them, on both sides of the flag.
+  // texting window stops them.
   const smsClosed = useSmsCompliance().smsCompliance === 'closed'
   const [smsNoticeOpen, setSmsNoticeOpen] = useState(false)
   const consumedRef = useRef(false)
@@ -212,17 +197,15 @@ export const OutreachComposeDeepLink = ({
       ...(resumesDraft?.(composeType) ? { resumed: true } : {}),
     })
     if (composeType === OUTREACH_TYPES.text) {
-      if (gatedFlows || runTextGate()) {
-        onCompose({
-          type: composeType,
-          script: message || undefined,
-          due,
-          listId: preselectedListId,
-          recommendedVariant,
-          tracker,
-          source: requestSource,
-        })
-      }
+      onCompose({
+        type: composeType,
+        script: message || undefined,
+        due,
+        listId: preselectedListId,
+        recommendedVariant,
+        tracker,
+        source: requestSource,
+      })
       return
     }
     // Social has no gate and no audience: unlocked for everyone, like its
@@ -236,16 +219,8 @@ export const OutreachComposeDeepLink = ({
       })
       return
     }
-    // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro
-    // upgrade wizard rather than a modal.
+    // Phone banking and robocall carry their own gate inside the flow.
     if (composeType === OUTREACH_TYPES.phoneBanking) {
-      if (!gatedFlows && !campaign.isPro) {
-        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
-          type: composeType,
-        })
-        router.push('/dashboard/pro-upgrade')
-        return
-      }
       onCompose({
         type: composeType,
         listId: preselectedListId,
@@ -253,14 +228,6 @@ export const OutreachComposeDeepLink = ({
         tracker,
         source: requestSource,
       })
-      return
-    }
-    // Robocall is Pro-gated the same way the outreach create cards gate it.
-    if (!gatedFlows && !campaign.isPro) {
-      trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
-        source: composeSource,
-      })
-      setShowProUpgradeModal(true)
       return
     }
     onCompose({
@@ -274,11 +241,9 @@ export const OutreachComposeDeepLink = ({
   }, [
     composeType,
     campaign,
-    gatedFlows,
     smsClosed,
     searchParams,
     router,
-    runTextGate,
     preselectedListId,
     recommendedVariant,
     onCompose,
@@ -289,14 +254,6 @@ export const OutreachComposeDeepLink = ({
 
   return (
     <>
-      <ProUpgradeModal
-        {...{
-          variant: VARIANTS.Second_NonViable,
-          open: showProUpgradeModal,
-          onClose: () => setShowProUpgradeModal(false),
-        }}
-      />
-      {gateModals}
       {smsNoticeOpen && (
         <SmsCutoffNoticeDialog
           open

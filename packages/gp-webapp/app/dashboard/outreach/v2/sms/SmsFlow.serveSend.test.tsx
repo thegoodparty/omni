@@ -23,6 +23,14 @@ import {
 // flow's early-return guards actually route instead of falling through into
 // the live Win sequence.
 
+// The gate has its own tests; here the flow's own path is under test, so the
+// hook is the shared ungated stand-in.
+vi.mock('../gate/useOutreachGate', async () => {
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
+})
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),

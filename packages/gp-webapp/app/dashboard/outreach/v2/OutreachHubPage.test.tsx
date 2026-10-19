@@ -141,12 +141,8 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
-const { mockUseFlag, mockUseMembershipState } = vi.hoisted(() => ({
-  mockUseFlag: vi.fn(),
+const { mockUseMembershipState } = vi.hoisted(() => ({
   mockUseMembershipState: vi.fn(),
-}))
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
 }))
 vi.mock('app/dashboard/shared/membership/useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
@@ -181,31 +177,8 @@ const sentRow: HistoryRow = {
 
 const campaign = { id: 1 } as Campaign
 
-describe('OutreachHubPage — draft rows gate', () => {
-  it('hides draft rows and keeps the membership query idle when the flag is off', () => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
-    mockUseMembershipState.mockReturnValue({
-      ready: false,
-      state: null,
-      tcrCompliance: null,
-    })
-
-    render(
-      <OutreachHubPage
-        pathname="/dashboard/outreach"
-        campaign={campaign}
-        outreaches={[draftRow, sentRow]}
-      />,
-    )
-
-    const table = within(desktopTable())
-    expect(table.getByText('Intro post')).toBeInTheDocument()
-    expect(table.queryByText('Draft blast')).not.toBeInTheDocument()
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
-  })
-
+describe('OutreachHubPage — draft rows', () => {
   it('shows a draft row labeled by the next step, reading membership through the table', () => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseMembershipState.mockReturnValue({
       ready: true,
       state: membership({ tier: 'pro', texting: 'awaiting_pin' }),
@@ -223,7 +196,6 @@ describe('OutreachHubPage — draft rows gate', () => {
     const table = within(desktopTable())
     expect(table.getByText('Draft blast')).toBeInTheDocument()
     expect(table.getByText('PIN needed')).toBeInTheDocument()
-    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
   })
 })
 
@@ -249,7 +221,6 @@ const renderHub = (outreaches: HistoryRow[]) =>
 // saved it.
 describe('OutreachHubPage — resuming a draft from its drawer', () => {
   beforeEach(() => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseMembershipState.mockReturnValue({
       ready: true,
       state: membership({ tier: 'free', texting: 'needs_verification' }),
@@ -384,7 +355,6 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
 // asks again.
 describe('OutreachHubPage — a list written while away', () => {
   beforeEach(() => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseMembershipState.mockReturnValue({
       ready: true,
       state: membership({ tier: 'free', texting: 'needs_verification' }),
@@ -462,7 +432,6 @@ describe('OutreachHubPage — a list written while away', () => {
 
 describe('OutreachHubPage flow source', () => {
   beforeEach(() => {
-    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseMembershipState.mockReturnValue({
       ready: true,
       state: membership({ tier: 'free', texting: 'needs_verification' }),

@@ -9,9 +9,8 @@ import {
   SEED_VALID_EIN,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) wizard for a free candidate whose
+// Pro upgrade wizard for a free candidate whose
 // general election is inside the SMS compliance cutoff (19 days). gp-api
 // reports the window closed but still saves filing details, so the wizard
 // keeps every step: guidance explains the cutoff before purchase, and the
@@ -20,10 +19,6 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // preview. Isolated: it moves the campaign's election date.
 
 const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
-
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

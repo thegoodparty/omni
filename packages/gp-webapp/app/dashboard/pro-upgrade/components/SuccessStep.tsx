@@ -12,12 +12,10 @@ import {
   InfoIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
-import Body2 from '@shared/typography/Body2'
 import {
   CAMPAIGN_QUERY_KEY,
   fetchCampaign,
 } from '@shared/hooks/CampaignProvider'
-import Confetti from 'app/dashboard/questions/components/Confetti'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   getTcrCompliance,
@@ -43,8 +41,7 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 30000
 
-// What the purchase-only flow (outreach-pro-gating-v2) unlocks the moment Pro
-// activates; texting still waits on the carriers clearing the campaign.
+// What the flow unlocks the moment Pro activates; texting still waits on the carriers clearing the campaign.
 const UNLOCKED_ROWS = [
   'Individual voter records for your race',
   'Downloads and targeted lists',
@@ -71,7 +68,7 @@ const NEXT_STEP_BODY = {
 // webhook-driven `isPro` flip, so it can't get stuck. It does refresh the shared
 // campaign cache in the background so the dashboard's "Get Pro" banner — which
 // reads the cached `isPro` — is already hidden when the candidate continues,
-// instead of lingering until a manual page refresh. The purchase-only screen
+// instead of lingering until a manual page refresh. The screen
 // does hold its Continue until `isPro` lands (or the poll gives up), because it
 // hands off to campaign verification, which reads the Pro state it asserts.
 const SuccessStep = (): React.JSX.Element => {
@@ -81,7 +78,7 @@ const SuccessStep = (): React.JSX.Element => {
   // progresses) once `isPro` flips. The same card also lives on the profile
   // page as a secondary location, but the dashboard is the primary
   // post-upgrade destination (ENG-10361).
-  const { purchaseOnly, channel, complete, exit } = useProUpgradeWizard()
+  const { channel, complete, exit } = useProUpgradeWizard()
   const [pollExpired, setPollExpired] = useState(false)
 
   useEffect(() => {
@@ -107,7 +104,7 @@ const SuccessStep = (): React.JSX.Element => {
 
   // gp-api's word is final once the window has closed: whatever the filing
   // says, texting will not open for this race, so a banner replaces the
-  // verification row in either flag state.
+  // verification row.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsCutoff = verificationNext && smsCompliance === 'closed'
 
@@ -117,7 +114,7 @@ const SuccessStep = (): React.JSX.Element => {
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
-    enabled: purchaseOnly && verificationNext && !smsCutoff,
+    enabled: verificationNext && !smsCutoff,
   })
   const filingSubmitted =
     verificationNext &&
@@ -129,192 +126,164 @@ const SuccessStep = (): React.JSX.Element => {
     // The route shell's `complete` is campaign verification, which a
     // submitted filing has nothing left to do in. Inside an outreach flow
     // `complete` hands back to the gate, which moves on to its own notice.
-    if (purchaseOnly && filingSubmitted && channel === null) {
+    if (filingSubmitted && channel === null) {
       exit()
       return
     }
     complete()
   }
 
-  if (purchaseOnly || smsCutoff) {
-    // A disabled query stays pending, so only the verification launches wait.
-    if (verificationNext && !smsCutoff && tcrPending) {
-      return (
-        <div className="flex flex-1 items-center justify-center py-16">
-          <Spinner />
-        </div>
-      )
-    }
-
-    const nextStep = verificationNext
-      ? null
-      : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
-
-    // Design: the "paid" screen — confetti through the column, the PRO badge
-    // in its circle, the unlocked / still-to-do card, and a footer of Finish
-    // later beside the next step, pinned to the bottom of the host's column.
+  // A disabled query stays pending, so only the verification launches wait.
+  if (verificationNext && !smsCutoff && tcrPending) {
     return (
-      <div className="relative flex min-h-full flex-1 flex-col gap-3">
-        <ConfettiField />
-        <div className="relative flex flex-col items-center gap-4 pt-2 text-center">
-          <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-light">
-            <ProBadge />
-          </span>
-          <div className="flex max-w-[440px] flex-col items-center gap-2">
-            <h1 className="text-2xl font-semibold">Welcome to Pro</h1>
-            <p className="text-[15px] leading-relaxed text-base-muted-foreground">
-              {nextStep
-                ? `Payment successful. Your next step is to ${nextStep.noun}.`
-                : smsCutoff
-                  ? SMS_CUTOFF_COPY.successClosedBody
-                  : filingSubmitted
-                    ? SUBMITTED_BODY
-                    : VERIFICATION_BODY}
-            </p>
-          </div>
-        </div>
-
-        <div className="relative overflow-hidden rounded-xl border border-base-border bg-card text-left">
-          <div className="flex items-start gap-3 px-4 py-3.5">
-            <CheckCircleIcon
-              className="mt-0.5 size-[18px] shrink-0 text-primary"
-              aria-hidden
-            />
-            <div className="flex min-w-0 flex-col gap-2">
-              <p className="font-semibold">Unlocked now</p>
-              <ul className="flex flex-col gap-1.5">
-                {UNLOCKED_ROWS.map((row) => (
-                  <li
-                    key={row}
-                    className="flex items-start gap-2 text-sm text-base-muted-foreground"
-                  >
-                    <CheckIcon
-                      className="mt-0.5 size-3.5 shrink-0 text-primary"
-                      aria-hidden
-                    />
-                    {row}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          {!smsCutoff && (
-            <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
-              {nextStep ? (
-                <ClipboardListIcon
-                  className="mt-0.5 size-[18px] shrink-0 text-primary"
-                  aria-hidden
-                />
-              ) : (
-                <ShieldCheckIcon
-                  className="mt-0.5 size-[18px] shrink-0 text-primary"
-                  aria-hidden
-                />
-              )}
-              <div className="flex min-w-0 flex-col gap-2">
-                <p className="font-semibold">
-                  {nextStep
-                    ? `Still to do: ${nextStep.noun}`
-                    : filingSubmitted
-                      ? PIN_NOTICE_TITLE
-                      : 'Still to do: verification'}
-                </p>
-                <p className="text-sm text-base-muted-foreground">
-                  {nextStep
-                    ? nextStep.body
-                    : filingSubmitted
-                      ? PIN_NOTICE_BODY
-                      : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {smsCutoff && (
-          <Alert variant="info" icon={<InfoIcon />}>
-            <AlertTitle>
-              {SMS_CUTOFF_COPY.closedReason(
-                smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
-              )}
-            </AlertTitle>
-          </Alert>
-        )}
-
-        <ProReceiptCard enabled={Boolean(data?.isPro)} />
-
-        {smsCutoff ? (
-          <StepFooter align="center">
-            <Button
-              size="large"
-              className="w-full sm:w-auto sm:min-w-[360px]"
-              onClick={handleContinue}
-              disabled={!data?.isPro && !pollExpired}
-            >
-              {SMS_CUTOFF_COPY.goToDashboard}
-            </Button>
-          </StepFooter>
-        ) : !nextStep && filingSubmitted ? (
-          // Nothing is left to do here, so the one action is the way on
-          // (design: the pending screen's single centered button).
-          <StepFooter align="center">
-            <Button
-              size="large"
-              className="w-full sm:w-auto sm:min-w-[360px]"
-              onClick={handleContinue}
-              disabled={!data?.isPro && !pollExpired}
-            >
-              {channel === null ? 'Done' : 'Continue'}
-            </Button>
-          </StepFooter>
-        ) : (
-          <StepFooter>
-            <Button
-              variant="ghost"
-              size="large"
-              className="w-full sm:w-auto"
-              onClick={exit}
-            >
-              Finish later
-            </Button>
-            <Button
-              size="large"
-              className="w-full sm:w-auto sm:min-w-[360px]"
-              onClick={handleContinue}
-              disabled={!data?.isPro && !pollExpired}
-            >
-              {nextStep ? 'Continue' : 'Start verification'}
-            </Button>
-          </StepFooter>
-        )}
+      <div className="flex flex-1 items-center justify-center py-16">
+        <Spinner />
       </div>
     )
   }
 
+  const nextStep = verificationNext
+    ? null
+    : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
+
+  // Design: the "paid" screen — confetti through the column, the PRO badge
+  // in its circle, the unlocked / still-to-do card, and a footer of Finish
+  // later beside the next step, pinned to the bottom of the host's column.
   return (
-    <>
-      <Confetti />
-      <div className="mx-auto flex max-w-[448px] flex-col items-center gap-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary-light">
-          <ProBadge size="large" />
+    <div className="relative flex min-h-full flex-1 flex-col gap-3">
+      <ConfettiField />
+      <div className="relative flex flex-col items-center gap-4 pt-2 text-center">
+        <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-light">
+          <ProBadge />
+        </span>
+        <div className="flex max-w-[440px] flex-col items-center gap-2">
+          <h1 className="text-2xl font-semibold">Welcome to Pro</h1>
+          <p className="text-[15px] leading-relaxed text-base-muted-foreground">
+            {nextStep
+              ? `Payment successful. Your next step is to ${nextStep.noun}.`
+              : smsCutoff
+                ? SMS_CUTOFF_COPY.successClosedBody
+                : filingSubmitted
+                  ? SUBMITTED_BODY
+                  : VERIFICATION_BODY}
+          </p>
         </div>
-
-        <div className="flex flex-col gap-1.5">
-          <h1 className="text-[32px] leading-[44px] font-semibold">
-            Welcome to Pro!
-          </h1>
-          <Body2 className="text-base-muted-foreground">
-            You can now access voter data, build lists and schedule robocalls!
-            Your PIN will be sent to your email, phone or address within 7
-            business days.
-          </Body2>
-        </div>
-
-        <Button size="large" className="w-full" onClick={handleContinue}>
-          Continue
-        </Button>
       </div>
-    </>
+
+      <div className="relative overflow-hidden rounded-xl border border-base-border bg-card text-left">
+        <div className="flex items-start gap-3 px-4 py-3.5">
+          <CheckCircleIcon
+            className="mt-0.5 size-[18px] shrink-0 text-primary"
+            aria-hidden
+          />
+          <div className="flex min-w-0 flex-col gap-2">
+            <p className="font-semibold">Unlocked now</p>
+            <ul className="flex flex-col gap-1.5">
+              {UNLOCKED_ROWS.map((row) => (
+                <li
+                  key={row}
+                  className="flex items-start gap-2 text-sm text-base-muted-foreground"
+                >
+                  <CheckIcon
+                    className="mt-0.5 size-3.5 shrink-0 text-primary"
+                    aria-hidden
+                  />
+                  {row}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        {!smsCutoff && (
+          <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
+            {nextStep ? (
+              <ClipboardListIcon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
+                aria-hidden
+              />
+            ) : (
+              <ShieldCheckIcon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
+                aria-hidden
+              />
+            )}
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="font-semibold">
+                {nextStep
+                  ? `Still to do: ${nextStep.noun}`
+                  : filingSubmitted
+                    ? PIN_NOTICE_TITLE
+                    : 'Still to do: verification'}
+              </p>
+              <p className="text-sm text-base-muted-foreground">
+                {nextStep
+                  ? nextStep.body
+                  : filingSubmitted
+                    ? PIN_NOTICE_BODY
+                    : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {smsCutoff && (
+        <Alert variant="info" icon={<InfoIcon />}>
+          <AlertTitle>
+            {SMS_CUTOFF_COPY.closedReason(
+              smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+            )}
+          </AlertTitle>
+        </Alert>
+      )}
+
+      <ProReceiptCard enabled={Boolean(data?.isPro)} />
+
+      {smsCutoff ? (
+        <StepFooter align="center">
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            onClick={handleContinue}
+            disabled={!data?.isPro && !pollExpired}
+          >
+            {SMS_CUTOFF_COPY.goToDashboard}
+          </Button>
+        </StepFooter>
+      ) : !nextStep && filingSubmitted ? (
+        // Nothing is left to do here, so the one action is the way on
+        // (design: the pending screen's single centered button).
+        <StepFooter align="center">
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            onClick={handleContinue}
+            disabled={!data?.isPro && !pollExpired}
+          >
+            {channel === null ? 'Done' : 'Continue'}
+          </Button>
+        </StepFooter>
+      ) : (
+        <StepFooter>
+          <Button
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            onClick={exit}
+          >
+            Finish later
+          </Button>
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            onClick={handleContinue}
+            disabled={!data?.isPro && !pollExpired}
+          >
+            {nextStep ? 'Continue' : 'Start verification'}
+          </Button>
+        </StepFooter>
+      )}
+    </div>
   )
 }
 

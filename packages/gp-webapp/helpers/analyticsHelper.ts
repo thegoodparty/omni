@@ -424,8 +424,8 @@ export const EVENTS = {
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
     },
-    // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
-    // campaign verification 2.0).
+    // The campaign verification flow (Pro upgrade and campaign verification
+    // 2.0).
     Verification: {
       IntroViewed: 'Pro Upgrade - Verification Intro Viewed',
       IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
@@ -663,7 +663,7 @@ export const EVENTS = {
       // failures reads as a fall in interest.
       Failed: 'Voter Outreach - Recommended List Failed',
     },
-    // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
+    // The saved draft a gated candidate keeps.
     // Every event carries `channel` (the gate's `GateChannel`); `Resumed`
     // also carries the `source` the resume was pressed from.
     Draft: {
@@ -671,7 +671,7 @@ export const EVENTS = {
       Resumed: 'Outreach - Draft Resumed',
       Deleted: 'Outreach - Draft Deleted',
     },
-    // outreach-pro-gating-v2: the in-flow gate's own surfaces. Both carry
+    // The in-flow gate's own surfaces. Both carry
     // `channel` and `requirement`; `ExplainerCta` adds which button
     // (`cta`) was pressed, dismiss included.
     Gate: {

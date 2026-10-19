@@ -7007,7 +7007,7 @@ describe('door-knocking routes', () => {
     })
 
     // The four reads the create flow needs before Build route are open to a
-    // free campaign (outreach-pro-gating-v2): it can list, draw and shape a
+    // free campaign: it can list, draw and shape a
     // list behind the in-flow gate; only the paid create is refused.
     it('admits a non-Pro organization to the reads the create flow needs', async () => {
       await createTurf()

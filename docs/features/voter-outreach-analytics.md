@@ -260,7 +260,7 @@ channel-shaped hole in it:
 | `doorKnocking` | per turf, on the create flow's press                   |
 | `phoneBanking` | the call list is created                               |
 
-A **gated** candidate (`outreach-pro-gating-v2`, milestone 2) never reaches the
+A **gated** candidate (milestone 2) never reaches the
 review or pay step, so for text and robocall the event fires off the `draft`
 row the gate saves instead — that row IS the campaign, existing and having
 reached nobody, which is what this event reports. Resuming that draft converts

@@ -2128,29 +2128,21 @@ load-bearing for us, so it should be on file rather than inferred.
 
 ## Access and eligibility
 
-`/dashboard/door-knocking` serves the native voter map, behind
-`DoorKnockingPageGate`. The sidebar entry in `DashboardMenu` mirrors that same
-gate, so the link and the landing page always agree: both require a resolvable
-district (every pack and turf read resolves one server-side and 400s without
-it) **and Pro**.
+`/dashboard/door-knocking` serves the native voter map. The page admits a free
+campaign: the reads the map needs are open server-side (see below), and the
+create flow's in-flow gate is where a free candidate meets Pro, before the two
+Geoapify spends. The route still needs a resolvable district (every pack and
+turf read resolves one server-side and 400s without it).
 
-Both sides read the CRM's `canUseProFeatures` (`isPro || electedOffice`), which
-is the frontend spelling of the `assertProAccess` predicate below, so the nav is
-never stricter than the API. A non-Pro candidate who reaches the URL anyway —
-a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
-card rather than a map that draws and then 400s. Unlike Know Your Opponent,
-whose nav entry is deliberately shown to non-Pro candidates as an upsell, this
-entry is hidden: creating a list spends vendor routing credits, so the pitch
-does not belong in a nav row. That makes the locked card a safety net rather than a
-funnel step, which is why it is deliberately shorter than
-`OpponentProLockedView` and fires no exposure event.
+The server's predicate is `assertProAccess` below (`isPro || electedOffice`), the
+same one the CRM spells `canUseProFeatures`.
 
 ## The Pro gate (ENG-10888)
 
 **Every route in `src/doorKnocking/` is Pro-gated except the two suppression
 writes and the three reads the create flow needs before its paid writes.**
 The reads (`GET /turfs`, `GET /pack`, `POST /audience-check`) opened with
-outreach-pro-gating-v2: a free campaign can list, draw and shape a list
+A free campaign can list, draw and shape a list
 behind the create flow's in-flow gate, and the two Geoapify spends —
 `POST /turfs` and `POST /turfs/:id/route` — are where it is refused. `POST /address-preview` stays gated because it
 returns addresses. The gate is `ContactsService.assertProAccess(organization)`, called at

@@ -848,9 +848,8 @@ describe('OutreachHistoryTable — draft rows', () => {
     ).toBeGreaterThan(0)
   })
 
-  // The hub passes no membership with the flag off, and with it off no draft
-  // row reaches this table at all — so the five labels naming a draft's next
-  // step have nothing to filter and must not be offered.
+  // Without membership the five labels naming a draft's next step cannot be
+  // worked out, so they must not be offered.
   it('offers the draft statuses only when membership is passed', async () => {
     const { unmount } = render(
       <OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />,

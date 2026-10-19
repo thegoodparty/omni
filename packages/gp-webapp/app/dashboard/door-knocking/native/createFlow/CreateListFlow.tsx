@@ -815,9 +815,8 @@ export default function CreateListFlow({
   // other channels' shared audience step.
   // Milestone 2's in-flow gate. Door knocking saves no draft — nothing is
   // written until the create — so the gate stands in front of a press
-  // rather than behind a saved row. Under outreach-pro-gating-v2 the page
-  // admits a free campaign, because the four map reads it needs are open to
-  // one.
+  // rather than behind a saved row. The page admits a free campaign, because
+  // the four map reads it needs are open to one.
   //
   // **It now guards a press that spends nothing, and that is deliberate for
   // this round.** The Geoapify spend moved to the first knock, which is a

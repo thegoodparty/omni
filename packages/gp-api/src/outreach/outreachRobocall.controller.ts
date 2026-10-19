@@ -130,7 +130,7 @@ export class OutreachRobocallController {
   async rentNumber(
     @ReqCampaign() campaign: Campaign,
   ): Promise<RobocallNumberResponse> {
-    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // Not Pro-gated: a free candidate can build a
     // robocall draft, including renting the number, before upgrading. Only
     // the paid create/authorize/send routes still require Pro. A rental is a
     // recurring vendor charge, so the free path is idempotent: the campaign
@@ -195,7 +195,7 @@ export class OutreachRobocallController {
     return { clientSecret, customerId }
   }
 
-  // Not Pro-gated (outreach-pro-gating-v2), mirroring the sms script draft: a
+  // Not Pro-gated, mirroring the sms script draft: a
   // free candidate builds the whole robocall before upgrading, and this route
   // only calls an LLM — it reads no voter data. Only the paid
   // create/authorize/send routes still require Pro.
@@ -308,7 +308,7 @@ export class OutreachRobocallController {
     @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
     input: RobocallComplianceRequest,
   ): Promise<RobocallComplianceVerdict> {
-    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // Not Pro-gated: a free candidate can build a
     // robocall draft, including checking the recording, before upgrading.
     // Only the paid create/authorize/send routes still require Pro.
     if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {

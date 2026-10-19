@@ -6,9 +6,8 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// Purchase-only (outreach-pro-gating-v2) wizard entry. Nothing here pays, so
+// Pro upgrade wizard entry. Nothing here pays, so
 // it runs on every PR preview: a free candidate opens on the guidance
 // overview, and a candidate who is already Pro with no filing on record (the
 // cohort who paid before the wizard asked for filing details) is routed to
@@ -16,10 +15,6 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // through the test-only endpoint, no Stripe.
 
 const PRO_UPGRADE_PATH = '/dashboard/pro-upgrade'
-
-test.beforeEach(async ({ page }) => {
-  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'on' })
-})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

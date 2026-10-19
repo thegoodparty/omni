@@ -11,7 +11,6 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
-import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
 import {
   EIN_PATTERN_FULL,
   EIN_PATTERN_PARTIAL,
@@ -36,7 +35,7 @@ const nextEinValue = (current: string, next: string): string => {
 }
 
 const EinStep = (): React.JSX.Element => {
-  const { purchaseOnly, goToNextStep, goToPreviousStep } = useProUpgradeWizard()
+  const { goToNextStep, goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -145,27 +144,11 @@ const EinStep = (): React.JSX.Element => {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <h1
-        className={
-          purchaseOnly
-            ? 'mb-2 text-xl font-semibold'
-            : 'text-[32px] leading-[44px] font-semibold mb-1.5'
-        }
-      >
-        What is your campaign EIN?
-      </h1>
-      {purchaseOnly ? (
-        <p className="mb-6 text-base text-base-muted-foreground">
-          Every campaign needs an EIN (Employer Identification Number) to comply
-          with regulations.
-        </p>
-      ) : (
-        <Body2 className="text-base-muted-foreground mb-6">
-          Every campaign needs one to access voter data and texting. If you
-          don&apos;t have one for your campaign, you can get a free EIN from the
-          IRS in just a few minutes.
-        </Body2>
-      )}
+      <h1 className="mb-2 text-xl font-semibold">What is your campaign EIN?</h1>
+      <p className="mb-6 text-base text-base-muted-foreground">
+        Every campaign needs an EIN (Employer Identification Number) to comply
+        with regulations.
+      </p>
 
       {showEinError && (
         <StyledAlert severity="error" className="mb-6">
@@ -173,72 +156,44 @@ const EinStep = (): React.JSX.Element => {
         </StyledAlert>
       )}
 
-      {purchaseOnly ? (
-        // Design: a plain field with the format as its placeholder and the
-        // IRS lookup in the caption; the how-to lives in the card below, so
-        // there is no tooltip here.
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="campaign-ein">Campaign EIN</Label>
-          <Input
-            id="campaign-ein"
-            name="ein-number"
-            value={einInputValue}
-            onChange={(e) =>
-              onEinChange(nextEinValue(einInputValue, e.target.value))
-            }
-            placeholder="12-3456789"
-            maxLength={10}
-            inputMode="numeric"
-            aria-invalid={showEinError}
-          />
-          <p className="text-sm text-base-muted-foreground">
-            Find this on your IRS determination letter or through the{' '}
-            <a
-              href="https://apps.irs.gov/app/eos/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              IRS Tax Exempt Organization Search
-            </a>
-          </p>
-        </div>
-      ) : (
-        <EinCheckInput
+      {/* Design: a plain field with the format as its placeholder and the
+          IRS lookup in the caption; the how-to lives in the card below, so
+          there is no tooltip here. */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="campaign-ein">Campaign EIN</Label>
+        <Input
+          id="campaign-ein"
           name="ein-number"
           value={einInputValue}
-          validated={validatedEin}
-          setValidated={setValidatedEin}
-          error={showEinError}
-          onChange={onEinChange}
-          onTooltipOpen={() =>
-            trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
+          onChange={(e) =>
+            onEinChange(nextEinValue(einInputValue, e.target.value))
           }
-          helperText={
-            <a
-              href="https://sa.www4.irs.gov/applyein/legalStructure"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline"
-            >
-              Get a free EIN in 3-5 minutes (irs.gov)
-            </a>
-          }
+          placeholder="12-3456789"
+          maxLength={10}
+          inputMode="numeric"
+          aria-invalid={showEinError}
         />
-      )}
+        <p className="text-sm text-base-muted-foreground">
+          Find this on your IRS determination letter or through the{' '}
+          <a
+            href="https://apps.irs.gov/app/eos/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline"
+          >
+            IRS Tax Exempt Organization Search
+          </a>
+        </p>
+      </div>
 
-      {purchaseOnly && (
-        <>
-          <div className="my-5 flex items-center gap-3">
-            <span className="h-px flex-1 bg-base-border" />
-            <span className="text-xs font-semibold tracking-wide text-base-muted-foreground">
-              OR
-            </span>
-            <span className="h-px flex-1 bg-base-border" />
-          </div>
-          <EinHowToCollapsible />
-        </>
-      )}
+      <div className="my-5 flex items-center gap-3">
+        <span className="h-px flex-1 bg-base-border" />
+        <span className="text-xs font-semibold tracking-wide text-base-muted-foreground">
+          OR
+        </span>
+        <span className="h-px flex-1 bg-base-border" />
+      </div>
+      <EinHowToCollapsible />
 
       <StepFooter>
         <Button
@@ -255,10 +210,7 @@ const EinStep = (): React.JSX.Element => {
           onClick={() => void handleNextClick()}
           // Design holds Continue until the nine digits are in; the sanity
           // check on press still catches a complete-but-bad EIN.
-          disabled={
-            submitting ||
-            (purchaseOnly && !EIN_PATTERN_FULL.test(einInputValue))
-          }
+          disabled={submitting || !EIN_PATTERN_FULL.test(einInputValue)}
         >
           Continue
         </Button>

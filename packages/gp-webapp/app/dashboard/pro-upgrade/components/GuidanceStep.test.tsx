@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
-import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import type { Campaign } from 'helpers/types'
@@ -36,7 +35,6 @@ describe('GuidanceStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'guidance',
-      purchaseOnly: false,
       channel: null,
       goToStep,
       goToNextStep,
@@ -47,18 +45,6 @@ describe('GuidanceStep', () => {
     mockUseCampaign.mockReturnValue([null])
   })
 
-  const enablePurchaseOnly = () =>
-    mockUseProUpgradeWizard.mockReturnValue({
-      currentStep: 'guidance',
-      purchaseOnly: true,
-      channel: null,
-      goToStep,
-      goToNextStep,
-      goToPreviousStep,
-      exit,
-      complete: vi.fn(),
-    })
-
   it('fires the viewed analytics event on mount', () => {
     render(<GuidanceStep />)
     expect(trackEvent).toHaveBeenCalledWith(
@@ -66,58 +52,16 @@ describe('GuidanceStep', () => {
     )
   })
 
-  it('renders the heading and all four numbered checklist items', () => {
-    render(<GuidanceStep />)
-
-    expect(
-      screen.getByText(/we'll need to gather a few things/i),
-    ).toBeInTheDocument()
-
-    for (const label of [
-      'Your campaign EIN',
-      'Your campaign filing details',
-      'Your candidate profile',
-      'Payment',
-    ]) {
-      expect(screen.getByText(label)).toBeInTheDocument()
-    }
-
-    // The four ordinal markers, per the Figma numbered list.
-    for (const ordinal of ['1', '2', '3', '4']) {
-      expect(screen.getByText(ordinal)).toBeInTheDocument()
-    }
-  })
-
-  it('shows the filing window on item 2 when the campaign has one', () => {
-    mockUseCampaign.mockReturnValue([
-      {
-        details: {
-          filingPeriodsStart: '2026-05-14',
-          filingPeriodsEnd: '2026-08-25',
-        },
-      } as never,
-    ])
-
-    render(<GuidanceStep />)
-
-    // Same format the dead-end filing-instructions screen renders, so the two
-    // surfaces can't drift.
-    expect(
-      screen.getByText('May 14, 2026 – August 25, 2026'),
-    ).toBeInTheDocument()
-  })
-
-  it('renders item 2 label-only when no filing window is available', () => {
-    mockUseCampaign.mockReturnValue([{ details: {} } as never])
-
-    render(<GuidanceStep />)
-
-    expect(screen.getByText('Your campaign filing details')).toBeInTheDocument()
-    // No empty range / en-dash artifact when the window is absent.
-    expect(screen.queryByText(/–/)).not.toBeInTheDocument()
-  })
-
-  it('navigates to the previous step from the footer Back button', () => {
+  it('returns to the pitch from Back when an outreach flow launched it', () => {
+    mockUseProUpgradeWizard.mockReturnValue({
+      currentStep: 'guidance',
+      channel: 'sms',
+      goToStep,
+      goToNextStep,
+      goToPreviousStep,
+      exit,
+      complete: vi.fn(),
+    })
     render(<GuidanceStep />)
 
     screen.getByRole('button', { name: 'Back' }).click()
@@ -130,7 +74,7 @@ describe('GuidanceStep', () => {
     render(<GuidanceStep />)
 
     const back = screen.getByRole('button', { name: 'Back' })
-    const next = screen.getByRole('button', { name: /let's go/i })
+    const next = screen.getByRole('button', { name: 'Continue' })
 
     // The footer stacks vertically on mobile, becomes a row at sm+ — what keeps
     // the two large buttons inside the mobile viewport.
@@ -144,101 +88,72 @@ describe('GuidanceStep', () => {
     }
   })
 
-  it('advances explicitly to the EIN step when "Let\'s go!" is clicked', () => {
+  it('lists the verification details collected before checkout, in order', () => {
     render(<GuidanceStep />)
 
-    screen.getByRole('button', { name: /let's go/i }).click()
+    expect(
+      screen.getByRole('heading', {
+        name: "Let's gather a few things to unlock Pro",
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Have this information available to verify your campaign.',
+      ),
+    ).toBeInTheDocument()
 
-    // GUIDANCE is off the linear order, so it must navigate to EIN explicitly
-    // rather than via goToNextStep (which would no-op from an off-order route).
-    expect(goToStep).toHaveBeenCalledWith('ein')
+    // The filing, contact and PIN rows are campaign verification's intro
+    // rows, word for word; the wait for the PIN reads last, after payment.
+    const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
+    expect(rows).toEqual([
+      'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
+      'Your filing detailsThe committee name and filing link or document from your election authority',
+      'Contact detailsThe email, phone or address exactly as it appears on your filing',
+      'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
+      'About 1 to 2 weeksA PIN arrives once the carriers clear your campaign',
+    ])
+    expect(screen.queryByText('Your candidate profile')).not.toBeInTheDocument()
+    expect(screen.getByText('Ready when you are.')).toBeInTheDocument()
+  })
+
+  it('gathers the same things whichever channel launched it', () => {
+    for (const channel of ['sms', 'robocall', null] as const) {
+      mockUseProUpgradeWizard.mockReturnValue({
+        currentStep: 'guidance',
+        channel,
+        goToStep,
+        goToNextStep,
+        goToPreviousStep,
+        exit,
+        complete: vi.fn(),
+      })
+      const { unmount } = render(<GuidanceStep />)
+
+      expect(screen.getAllByRole('listitem')).toHaveLength(5)
+      expect(screen.getByText('Your filing details')).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('advances to the filing-status step when Continue is clicked', () => {
+    render(<GuidanceStep />)
+
+    screen.getByRole('button', { name: 'Continue' }).click()
+
+    expect(goToStep).toHaveBeenCalledWith('status')
     expect(goToNextStep).not.toHaveBeenCalled()
-    expect(router.push).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.GuidanceContinue,
     )
   })
 
-  describe('purchase-only', () => {
-    beforeEach(enablePurchaseOnly)
+  it('leaves the flow from Back, since guidance leads the order', () => {
+    render(<GuidanceStep />)
 
-    it('lists the verification details collected before checkout, in order', () => {
-      render(<GuidanceStep />)
+    screen.getByRole('button', { name: 'Back' }).click()
 
-      expect(
-        screen.getByRole('heading', {
-          name: "Let's gather a few things to unlock Pro",
-        }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'Have this information available to verify your campaign.',
-        ),
-      ).toBeInTheDocument()
-
-      // The filing, contact and PIN rows are campaign verification's intro
-      // rows, word for word; the wait for the PIN reads last, after payment.
-      const rows = screen.getAllByRole('listitem').map((row) => row.textContent)
-      expect(rows).toEqual([
-        'Your campaign EINYour campaign EIN helps verify your candidacy and comply with texting regulations.',
-        'Your filing detailsThe committee name and filing link or document from your election authority',
-        'Contact detailsThe email, phone or address exactly as it appears on your filing',
-        'PaymentAdd your payment details to activate Pro at $10 per month. You can cancel any time.',
-        'About 1 to 2 weeksA PIN arrives once the carriers clear your campaign',
-      ])
-      expect(
-        screen.queryByText('Your candidate profile'),
-      ).not.toBeInTheDocument()
-      expect(screen.getByText('Ready when you are.')).toBeInTheDocument()
-    })
-
-    it('gathers the same things whichever channel launched it', () => {
-      for (const channel of ['sms', 'robocall', null] as const) {
-        mockUseProUpgradeWizard.mockReturnValue({
-          currentStep: 'guidance',
-          purchaseOnly: true,
-          channel,
-          goToStep,
-          goToNextStep,
-          goToPreviousStep,
-          exit,
-          complete: vi.fn(),
-        })
-        const { unmount } = render(<GuidanceStep />)
-
-        expect(screen.getAllByRole('listitem')).toHaveLength(5)
-        expect(screen.getByText('Your filing details')).toBeInTheDocument()
-        unmount()
-      }
-    })
-
-    it('advances to the filing-status step when Continue is clicked', () => {
-      render(<GuidanceStep />)
-
-      screen.getByRole('button', { name: 'Continue' }).click()
-
-      expect(goToStep).toHaveBeenCalledWith('status')
-      expect(goToNextStep).not.toHaveBeenCalled()
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.GuidanceContinue,
-      )
-    })
-
-    it('leaves the flow from Back, since guidance leads the purchase-only order', () => {
-      render(<GuidanceStep />)
-
-      screen.getByRole('button', { name: 'Back' }).click()
-
-      expect(exit).toHaveBeenCalledTimes(1)
-      expect(goToPreviousStep).not.toHaveBeenCalled()
-    })
-
-    it('fires the viewed analytics event on mount', () => {
-      render(<GuidanceStep />)
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.GuidanceViewed,
-      )
-    })
+    expect(exit).toHaveBeenCalledTimes(1)
+    expect(goToPreviousStep).not.toHaveBeenCalled()
   })
 
   describe('SMS compliance window', () => {
@@ -251,8 +166,7 @@ describe('GuidanceStep', () => {
     const cutoff = formatSmsCutoffDate('2026-10-15')
     const closedReason = `The ${cutoff} deadline to get verified for texting has passed.`
 
-    it('keeps the purchase-only rows minus the PIN wait under a closed banner', () => {
-      enablePurchaseOnly()
+    it('keeps the rows minus the PIN wait under a closed banner', () => {
       mockUseCampaign.mockReturnValue([smsCampaign('closed')])
       render(<GuidanceStep />)
 
@@ -279,16 +193,7 @@ describe('GuidanceStep', () => {
       )
     })
 
-    it('keeps the default screen and its four items under a closed banner', () => {
-      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
-      render(<GuidanceStep />)
-
-      expect(screen.getByRole('alert')).toHaveTextContent(closedReason)
-      expect(screen.getAllByRole('listitem')).toHaveLength(4)
-    })
-
     it('continues to the filing-status step when closed and records the banner as completed', () => {
-      enablePurchaseOnly()
       mockUseCampaign.mockReturnValue([smsCampaign('closed')])
       render(<GuidanceStep />)
 
@@ -306,7 +211,6 @@ describe('GuidanceStep', () => {
     })
 
     it('keeps every row and adds the cutoff date while closing', () => {
-      enablePurchaseOnly()
       mockUseCampaign.mockReturnValue([smsCampaign('closing')])
       render(<GuidanceStep />)
 

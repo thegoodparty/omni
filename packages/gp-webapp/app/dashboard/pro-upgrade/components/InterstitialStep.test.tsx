@@ -27,7 +27,6 @@ const exit = vi.fn()
 const setChannel = (channel: 'sms' | 'robocall' | 'door' | 'phone-bank') =>
   mockUseProUpgradeWizard.mockReturnValue({
     currentStep: 'interstitial',
-    purchaseOnly: true,
     channel,
     goToStep: vi.fn(),
     goToNextStep,

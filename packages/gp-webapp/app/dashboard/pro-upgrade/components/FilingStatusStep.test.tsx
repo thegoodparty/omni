@@ -37,7 +37,6 @@ describe('FilingStatusStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'status',
-      purchaseOnly: false,
       channel: null,
       goToStep,
       goToNextStep: vi.fn(),
@@ -56,18 +55,6 @@ describe('FilingStatusStep', () => {
     )
   })
 
-  it('renders both options with their titles and descriptions', () => {
-    render(<FilingStatusStep />)
-    expect(screen.getByText("Yes, I'm already filed")).toBeInTheDocument()
-    expect(
-      screen.getByText('I have my campaign EIN and filing documents ready'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('No, not yet')).toBeInTheDocument()
-    expect(
-      screen.getByText('I still need to file for this election'),
-    ).toBeInTheDocument()
-  })
-
   it('navigates to the previous step from the footer Back button', () => {
     render(<FilingStatusStep />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
@@ -75,29 +62,11 @@ describe('FilingStatusStep', () => {
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
-  it('persists hasFiledForRace=true and advances to guidance when "Yes" is selected', async () => {
-    render(<FilingStatusStep />)
-
-    fireEvent.click(screen.getByText("Yes, I'm already filed"))
-
-    await waitFor(() => expect(goToStep).toHaveBeenCalledWith('guidance'))
-    expect(mockUpdateCampaign).toHaveBeenCalledWith([
-      { key: 'details.hasFiledForRace', value: true },
-    ])
-    // The cache write is load-bearing: ProUpgradeEntry derives the resume step
-    // from the campaign in this cache, so without it a returning candidate is
-    // re-asked the question they just answered.
-    expect(testQueryClient.getQueryData(CAMPAIGN_QUERY_KEY)).toEqual({ id: 1 })
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
-    )
-    expect(errorSnackbar).not.toHaveBeenCalled()
-  })
-
   it('persists hasFiledForRace=false and routes to filing-instructions when "No" is selected', async () => {
     render(<FilingStatusStep />)
 
-    fireEvent.click(screen.getByText('No, not yet'))
+    fireEvent.click(screen.getByText('No'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() =>
       expect(goToStep).toHaveBeenCalledWith('filing-instructions'),
@@ -119,7 +88,8 @@ describe('FilingStatusStep', () => {
 
     render(<FilingStatusStep />)
 
-    fireEvent.click(screen.getByText("Yes, I'm already filed"))
+    fireEvent.click(screen.getByText('Yes'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(goToStep).not.toHaveBeenCalled()
@@ -130,73 +100,48 @@ describe('FilingStatusStep', () => {
     )
   })
 
-  describe('purchase-only', () => {
-    beforeEach(() => {
-      mockUseProUpgradeWizard.mockReturnValue({
-        currentStep: 'status',
-        purchaseOnly: true,
-        channel: null,
-        goToStep,
-        goToNextStep: vi.fn(),
-        goToPreviousStep,
-        exit: vi.fn(),
-        complete: vi.fn(),
-      })
-    })
+  it('asks the shortened question with its own two options', () => {
+    render(<FilingStatusStep />)
 
-    it('asks the shortened question with its own two options', () => {
-      render(<FilingStatusStep />)
+    expect(
+      screen.getByRole('heading', { name: 'Are you officially filed?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('This confirms you are running for office.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('I have filed with my election authority.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('I have not filed yet.')).toBeInTheDocument()
+  })
 
-      expect(
-        screen.getByRole('heading', { name: 'Are you officially filed?' }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText('This confirms you are running for office.'),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText('I have filed with my election authority.'),
-      ).toBeInTheDocument()
-      expect(screen.getByText('I have not filed yet.')).toBeInTheDocument()
-    })
+  // Design: the card is a selection and Continue confirms it.
+  it('holds Continue until a card is picked', () => {
+    render(<FilingStatusStep />)
 
-    // Design: the card is a selection and Continue confirms it.
-    it('holds Continue until a card is picked', () => {
-      render(<FilingStatusStep />)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    fireEvent.click(screen.getByText('Yes'))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
 
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-      fireEvent.click(screen.getByText('Yes'))
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-      expect(mockUpdateCampaign).not.toHaveBeenCalled()
-    })
+  it('skips guidance and goes straight to the EIN step on "Yes"', async () => {
+    render(<FilingStatusStep />)
 
-    it('skips guidance and goes straight to the EIN step on "Yes"', async () => {
-      render(<FilingStatusStep />)
+    fireEvent.click(screen.getByText('Yes'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-      fireEvent.click(screen.getByText('Yes'))
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-      // Guidance leads the purchase-only order, so "yes" must not double back.
-      await waitFor(() => expect(goToStep).toHaveBeenCalledWith('ein'))
-      expect(mockUpdateCampaign).toHaveBeenCalledWith([
-        { key: 'details.hasFiledForRace', value: true },
-      ])
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
-      )
-    })
-
-    it('still routes to the filing-instructions dead-end on "No"', async () => {
-      render(<FilingStatusStep />)
-
-      fireEvent.click(screen.getByText('No'))
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-      await waitFor(() =>
-        expect(goToStep).toHaveBeenCalledWith('filing-instructions'),
-      )
-      expect(mockUpdateCampaign).toHaveBeenCalledWith([
-        { key: 'details.hasFiledForRace', value: false },
-      ])
-    })
+    // Guidance leads the order, so "yes" must not double back.
+    await waitFor(() => expect(goToStep).toHaveBeenCalledWith('ein'))
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.hasFiledForRace', value: true },
+    ])
+    // The cache write is load-bearing: ProUpgradeEntry derives the resume step
+    // from the campaign in this cache, so without it a returning candidate is
+    // re-asked the question they just answered.
+    expect(testQueryClient.getQueryData(CAMPAIGN_QUERY_KEY)).toEqual({ id: 1 })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
+    )
   })
 })

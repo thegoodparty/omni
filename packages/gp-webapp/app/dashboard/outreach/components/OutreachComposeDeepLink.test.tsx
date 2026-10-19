@@ -5,7 +5,7 @@ import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
-import type { Campaign, TcrCompliance } from 'helpers/types'
+import type { Campaign } from 'helpers/types'
 
 let mockSearchParams = new URLSearchParams()
 const mockReplace = vi.fn()
@@ -17,21 +17,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
 
-// Milestone 2's gate flag. Off by default, so every case in this file keeps
-// asserting today's upgrade-at-entry behavior.
-const proGatingV2 = { ready: true, enabled: false }
-vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
-  useOutreachProGatingV2Flag: () => proGatingV2,
-}))
-
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
-
-const approvedCompliance = { status: 'approved' } as TcrCompliance
-const pendingCompliance = { status: 'pending' } as TcrCompliance
 
 // The hub owns the flow mounts, so this component's whole output is the
 // request it hands over — that callback is the contract under test.
@@ -39,17 +29,14 @@ const onCompose = vi.fn()
 
 const renderDeepLink = ({
   isPro,
-  tcrCompliance,
   resumesDraft,
 }: {
   isPro: boolean
-  tcrCompliance?: TcrCompliance
   resumesDraft?: (type: string) => boolean
 }) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
       <OutreachComposeDeepLink
-        tcrCompliance={tcrCompliance}
         onCompose={onCompose}
         resumesDraft={resumesDraft}
       />
@@ -71,7 +58,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest()).toMatchObject({
@@ -94,7 +81,6 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams('compose=text')
     renderDeepLink({
       isPro: true,
-      tcrCompliance: approvedCompliance,
       resumesDraft: (type) => type === 'text',
     })
 
@@ -108,7 +94,7 @@ describe('OutreachComposeDeepLink', () => {
 
   it('asks for the flow with no script when message is missing', async () => {
     mockSearchParams = new URLSearchParams('compose=text')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().script).toBeUndefined()
@@ -121,7 +107,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       `compose=text&message=${'a'.repeat(P2P_SCRIPT_MAX_LENGTH + 400)}`,
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().script).toHaveLength(P2P_SCRIPT_MAX_LENGTH)
@@ -129,7 +115,7 @@ describe('OutreachComposeDeepLink', () => {
 
   it('passes a valid due param through as the campaign-plan due date', async () => {
     mockSearchParams = new URLSearchParams('compose=text&due=2026-08-03')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().due).toBe('2026-08-03')
@@ -137,7 +123,7 @@ describe('OutreachComposeDeepLink', () => {
 
   it('ignores a malformed due param', async () => {
     mockSearchParams = new URLSearchParams('compose=text&due=next-tuesday')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().due).toBeUndefined()
@@ -150,7 +136,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&source=campaign_tracker',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
@@ -161,7 +147,7 @@ describe('OutreachComposeDeepLink', () => {
     onCompose.mockClear()
     vi.mocked(trackEvent).mockClear()
     mockSearchParams = new URLSearchParams('compose=text&source=whatever')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
@@ -172,7 +158,7 @@ describe('OutreachComposeDeepLink', () => {
 
   it('asks for the robocall flow with the due date for a Pro user', async () => {
     mockSearchParams = new URLSearchParams('compose=robocall&due=2026-08-03')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest()).toMatchObject({
@@ -194,7 +180,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=phoneBanking&source=voter_data&listId=42',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest()).toMatchObject({ type: 'phoneBanking', listId: 42 })
@@ -202,18 +188,6 @@ describe('OutreachComposeDeepLink', () => {
       type: 'phoneBanking',
       source: 'voter_data',
     })
-  })
-
-  // Same upgrade-at-entry the phone-banking tile applies: straight to the
-  // Pro upgrade wizard, not a modal, and no flow.
-  it('sends a non-Pro phone-banking request to the upgrade wizard', async () => {
-    mockSearchParams = new URLSearchParams('compose=phoneBanking')
-    renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
-
-    await waitFor(() =>
-      expect(mockPush).toHaveBeenCalledWith('/dashboard/pro-upgrade'),
-    )
-    expect(onCompose).not.toHaveBeenCalled()
   })
 
   it('asks for the social flow with no gate', async () => {
@@ -229,7 +203,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&recommended=persuadeAffinity',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest()).toMatchObject({
@@ -241,49 +215,10 @@ describe('OutreachComposeDeepLink', () => {
 
   it('drops an unknown recommended variant rather than carrying it', async () => {
     mockSearchParams = new URLSearchParams('compose=text&recommended=nope')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().recommendedVariant).toBeUndefined()
-  })
-
-  it('gates robocall behind Pro with the upgrade modal', async () => {
-    mockSearchParams = new URLSearchParams('compose=robocall')
-    renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
-
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
-        scroll: false,
-      }),
-    )
-    expect(onCompose).not.toHaveBeenCalled()
-  })
-
-  it('shows the P2P upgrade modal instead of asking for a flow for a non-Pro user', async () => {
-    mockSearchParams = new URLSearchParams(
-      'compose=text&message=Hello%20voters',
-    )
-    renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
-
-    expect(
-      await screen.findByText('Level the playing field for less'),
-    ).toBeInTheDocument()
-    expect(onCompose).not.toHaveBeenCalled()
-    expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
-      scroll: false,
-    })
-  })
-
-  it('shows the compliance modal instead of asking for a flow for a Pro non-compliant user', async () => {
-    mockSearchParams = new URLSearchParams(
-      'compose=text&message=Hello%20voters',
-    )
-    renderDeepLink({ isPro: true, tcrCompliance: pendingCompliance })
-
-    expect(
-      await screen.findByText('Texting registration under review'),
-    ).toBeInTheDocument()
-    expect(onCompose).not.toHaveBeenCalled()
   })
 
   // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
@@ -292,7 +227,7 @@ describe('OutreachComposeDeepLink', () => {
   // same way `compose` is.
   it('strips a bare listId param from the address bar on mount', async () => {
     mockSearchParams = new URLSearchParams('listId=123')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
@@ -306,7 +241,7 @@ describe('OutreachComposeDeepLink', () => {
   // the same way; the server reads it, so it is stripped the same way.
   it('strips a bare recommended param from the address bar on mount', async () => {
     mockSearchParams = new URLSearchParams('recommended=persuadeAffinity')
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
@@ -320,7 +255,6 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams('listId=123')
     const view = renderDeepLink({
       isPro: true,
-      tcrCompliance: approvedCompliance,
     })
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1))
@@ -328,10 +262,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams()
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <OutreachComposeDeepLink
-          tcrCompliance={approvedCompliance}
-          onCompose={onCompose}
-        />
+        <OutreachComposeDeepLink onCompose={onCompose} />
       </CampaignContext.Provider>,
     )
     expect(mockReplace).toHaveBeenCalledTimes(1)
@@ -339,10 +270,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams('listId=456')
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <OutreachComposeDeepLink
-          tcrCompliance={approvedCompliance}
-          onCompose={onCompose}
-        />
+        <OutreachComposeDeepLink onCompose={onCompose} />
       </CampaignContext.Provider>,
     )
     await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(2))
@@ -355,7 +283,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters&listId=123',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     // This component resolves listId itself rather than relying on the
@@ -374,14 +302,14 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters&listId=not-a-number',
     )
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest().listId).toBeUndefined()
   })
 
   it('does nothing without a compose param', async () => {
-    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+    renderDeepLink({ isPro: true })
 
     await waitFor(() => {
       expect(mockReplace).not.toHaveBeenCalled()
@@ -462,23 +390,18 @@ describe('OutreachComposeDeepLink — Campaign Manager handoff', () => {
 
 // Milestone 2: the deep link stops being the gate for the three channels
 // whose flows now carry one — it opens them and they pause themselves.
-describe('OutreachComposeDeepLink — flag on: the flows own the gate', () => {
+describe('OutreachComposeDeepLink — the flows own the gate', () => {
   beforeEach(() => {
     mockSearchParams = new URLSearchParams()
     mockReplace.mockClear()
     mockPush.mockClear()
     onCompose.mockClear()
     vi.mocked(trackEvent).mockClear()
-    proGatingV2.enabled = true
-  })
-
-  afterEach(() => {
-    proGatingV2.enabled = false
   })
 
   it('opens the text flow for a free, unregistered campaign', async () => {
     mockSearchParams = new URLSearchParams('compose=text&message=Hi')
-    renderDeepLink({ isPro: false, tcrCompliance: pendingCompliance })
+    renderDeepLink({ isPro: false })
 
     await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
     expect(composeRequest()).toMatchObject({ type: 'text', script: 'Hi' })
@@ -507,7 +430,7 @@ describe('OutreachComposeDeepLink — flag on: the flows own the gate', () => {
 })
 
 // Every link that opens a new text passes through here, so this is the one
-// place a closed texting window has to stop them, on both sides of the flag.
+// place a closed texting window has to stop them.
 describe('OutreachComposeDeepLink — texting closed for this race', () => {
   const CUTOFF_TITLE =
     'The Oct. 15 deadline to get verified for texting has passed.'
@@ -536,47 +459,36 @@ describe('OutreachComposeDeepLink — texting closed for this race', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  afterEach(() => {
-    proGatingV2.enabled = false
+  it('shows the cutoff notice for ?compose=text', async () => {
+    mockSearchParams = new URLSearchParams('compose=text&message=Hi')
+    renderClosed({ isPro: true })
+
+    expect(
+      await screen.findByRole('dialog', { name: CUTOFF_TITLE }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'You can still reach voters with door knocking, robocalls, phone banking and social media.',
+      ),
+    ).toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+      scroll: false,
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.ClickCreate,
+      expect.anything(),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.SmsCutoff.NoticeViewed,
+      {
+        surface: 'compose_deep_link',
+        cutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      },
+    )
   })
-
-  it.each([
-    ['off', false],
-    ['on', true],
-  ])(
-    'shows the cutoff notice for ?compose=text with the flag %s',
-    async (_label, flagOn) => {
-      proGatingV2.enabled = flagOn
-      mockSearchParams = new URLSearchParams('compose=text&message=Hi')
-      renderClosed({ isPro: true })
-
-      expect(
-        await screen.findByRole('dialog', { name: CUTOFF_TITLE }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText(
-          'You can still reach voters with door knocking, robocalls, phone banking and social media.',
-        ),
-      ).toBeInTheDocument()
-      expect(onCompose).not.toHaveBeenCalled()
-      expect(mockPush).not.toHaveBeenCalled()
-      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
-        scroll: false,
-      })
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Outreach.ClickCreate,
-        expect.anything(),
-      )
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.Outreach.SmsCutoff.NoticeViewed,
-        {
-          surface: 'compose_deep_link',
-          cutoffDate: '2026-10-15',
-          generalElectionDate: '2026-11-03',
-        },
-      )
-    },
-  )
 
   it('shows the notice to a free candidate instead of the Pro wizard', async () => {
     mockSearchParams = new URLSearchParams('compose=text')
@@ -610,7 +522,6 @@ describe('OutreachComposeDeepLink — texting closed for this race', () => {
   })
 
   it('still opens the other channels', async () => {
-    proGatingV2.enabled = true
     mockSearchParams = new URLSearchParams('compose=robocall')
     renderClosed({ isPro: true })
 

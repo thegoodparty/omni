@@ -1,7 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import DoorKnockingPageGate from './native/DoorKnockingPageGate'
+import NativeDoorKnockingPage from './native/NativeDoorKnockingPage'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import type {
@@ -154,5 +154,5 @@ export default async function Page({
     launchSource: LAUNCH_SOURCES.find((value) => value === launchSource),
   }
 
-  return <DoorKnockingPageGate {...childProps} />
+  return <NativeDoorKnockingPage {...childProps} />
 }
