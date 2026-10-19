@@ -20,7 +20,7 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 const service = useTestService()
 
 const BASE = '/v1/vendor-mocks/callhub'
-const AUTH = { headers: { Authorization: 'Token test' } }
+const AUTH = { headers: { Authorization: 'Token test-callhub-key' } }
 
 describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   beforeEach(() => {
