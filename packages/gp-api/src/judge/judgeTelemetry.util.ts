@@ -31,13 +31,16 @@ export const hashPrompt = (systemPrompt: string): string =>
 // The `judge-` prefix is the discriminator: every organization either arm
 // seeds carries it and nothing a real official owns does.
 //
-// WHAT COMES BACK IS NOT A SWEEP ID, and nothing on this side of the wire can
-// make it one. A chat arm's organization is slugged
-// `judge-<agentId>-<caseId>-<digest>` by `seedChatOrg.chatOrgSlug`, which
-// never embeds the sweep; the sweep id lives in the arm process's
-// JUDGE_SWEEP_ID and does not cross the HTTP boundary. So this is a stable
-// per-case run key, and a reader that groups by it groups by case. For the
-// column to mean its name, the arm has to send its sweep id.
+// WHAT COMES BACK IS SWEEP-ID-PREFIXED, NOT A BARE SWEEP ID. A chat arm's
+// organization is slugged `judge-<sweepId>-<agentId>-<caseId>-<digest>` by
+// `seedChatOrg.chatOrgSlug`, so stripping `judge-` leaves the sweep id
+// followed by the case's own key. It is therefore still unique per case, and
+// it is groupable by sweep with a PREFIX MATCH on `<sweepId>-`.
+//
+// No split rule here on purpose. Nothing reads this column — a record groups
+// by the `sweepId` written onto its RunRecord — and a sweep id may contain
+// hyphens (judge.yml builds `judge-<run_id>-<run_attempt>`), so any rule for
+// cutting the case key back off would be guesswork.
 //
 // The deploy gate is checked here rather than at the call site so that a
 // production turn pays one comparison against a module constant and stops.

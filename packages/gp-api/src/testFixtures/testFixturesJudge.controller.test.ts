@@ -23,6 +23,7 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 })
 
 const JUDGE_USER = { id: 42 } as User
+const SWEEP_ID = 'judge-19284756312-1'
 
 describe('TestFixturesJudgeController', () => {
   let controller: TestFixturesJudgeController
@@ -43,7 +44,11 @@ describe('TestFixturesJudgeController', () => {
   })
 
   it('stages a case for the authenticated caller on a non-prod deploy', async () => {
-    const body = { agentId: 'chief_of_staff', slugKey: 'case-1' }
+    const body = {
+      agentId: 'chief_of_staff',
+      sweepId: SWEEP_ID,
+      slugKey: 'case-1',
+    }
 
     await expect(controller.setUpCase(body, JUDGE_USER)).resolves.toEqual({
       organizationSlug: 'judge-abc',
@@ -68,7 +73,7 @@ describe('TestFixturesJudgeController', () => {
 
     await expect(
       controller.setUpCase(
-        { agentId: 'chief_of_staff', slugKey: 'case-1' },
+        { agentId: 'chief_of_staff', sweepId: SWEEP_ID, slugKey: 'case-1' },
         JUDGE_USER,
       ),
     ).rejects.toThrow(BadRequestException)
@@ -83,7 +88,7 @@ describe('TestFixturesJudgeController', () => {
 
     await expect(
       controller.setUpCase(
-        { agentId: 'chief_of_staff', slugKey: 'case-1' },
+        { agentId: 'chief_of_staff', sweepId: SWEEP_ID, slugKey: 'case-1' },
         JUDGE_USER,
       ),
     ).rejects.toThrow(NotFoundException)

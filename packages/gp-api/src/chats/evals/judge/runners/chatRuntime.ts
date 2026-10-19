@@ -73,6 +73,11 @@ import { seedPriorTranscript } from './seedTranscript'
 
 export interface StageCaseRequest {
   agentId: string
+  // The sweep both arms of this comparison are halves of. It is in the slug
+  // so that two sweeps sharing a database do not stage one organization and
+  // tear each other's fixture down mid-run, and it costs the identical-
+  // config refusal nothing: one sweep's arms agree on it by construction.
+  sweepId: string
   // The caller's case id and attempt. Never the slug: the slug is derived
   // from this, which is what makes attempt i of both arms seed the same
   // organization and so render the same system prompt.
@@ -307,6 +312,7 @@ export const inProcessChatRuntime = (
     seedChatOrg(
       service.prisma,
       service.user.id,
+      request.sweepId,
       request.agentId,
       request.slugKey,
       seedOptionsFor(request.agentId, request.accountState),

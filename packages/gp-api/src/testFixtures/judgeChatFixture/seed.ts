@@ -320,12 +320,39 @@ const slugify = (value: string): string => {
 // at each of the three places that depend on it.
 export const JUDGE_ORG_SLUG_PREFIX = 'judge-'
 
-// Derived, not randomised, and a pure function of its two arguments so that
-// attempt i of both arms seeds the same slug. A slug that differed between
-// arms would reach the system prompt and make every configDigest differ,
-// permanently disarming the orchestrator's identical-config refusal.
-export const chatOrgSlug = (agentId: string, slugKey: string): string =>
-  `${JUDGE_ORG_SLUG_PREFIX}${slugify(`${agentId}-${slugKey}`)}`
+// EVERY SLUG ONE SWEEP MINTS, AND NOTHING ANOTHER SWEEP MINTS. The judge
+// prefix alone is the handle for "a fixture"; this is the handle for "this
+// run's fixtures", and it is what keeps one sweep's deletes off another's
+// rows. Two sweeps against one database (dev, which every PR's base arm
+// targets) otherwise stage the identical slug and tear each other down
+// mid-run — previews escape it only by each having their own gpdb_pr_<n>.
+//
+// The sweep id already starts with `judge-` (judge.yml builds it as
+// `judge-<run_id>-<run_attempt>`), so the prefix is stripped the way
+// judgeIdentifiers.judgeOrgSlug strips it, rather than minting
+// `judge-judge-…`. SweepIdSchema holds the id to [A-Za-z0-9_-], so it is
+// already slug-safe, and the trailing hyphen is load-bearing: without it
+// sweep `123-1` would prefix-match sweep `123-11`'s rows.
+export const judgeSweepOrgSlugPrefix = (sweepId: string): string =>
+  `${JUDGE_ORG_SLUG_PREFIX}${sweepId.replace(/^judge-/, '')}-`
+
+// Derived, not randomised, and a pure function of its three arguments so
+// that attempt i of both arms seeds the same slug. A slug that differed
+// between arms would reach the system prompt and make every configDigest
+// differ, permanently disarming the orchestrator's identical-config refusal.
+//
+// The sweep id does not break that: both arms of one sweep are handed the
+// same `request.sweepId` — it is the directory they meet in, so a sweep
+// whose arms disagreed about it could not produce a comparison at all — and
+// a value identical on both arms cannot make their digests differ. It is
+// only across sweeps, which are never compared with each other, that it
+// changes anything.
+export const chatOrgSlug = (
+  sweepId: string,
+  agentId: string,
+  slugKey: string,
+): string =>
+  `${judgeSweepOrgSlugPrefix(sweepId)}${slugify(`${agentId}-${slugKey}`)}`
 
 const snapshotFor = (title: string) => ({
   title,
@@ -337,12 +364,13 @@ const snapshotFor = (title: string) => ({
 export const seedChatOrgRows = async (
   prisma: PrismaClient,
   userId: number,
+  sweepId: string,
   agentId: string,
   slugKey: string,
   options: SeedChatOrgOptions = {},
 ): Promise<SeededChatOrg> => {
   const scope = chatScopeFor(agentId)
-  const organizationSlug = chatOrgSlug(agentId, slugKey)
+  const organizationSlug = chatOrgSlug(sweepId, agentId, slugKey)
   // Omitted rather than nulled when a case asked for no district: a missing
   // positionId is the production state, and resolveByOrgSlug refuses on it
   // before it asks election-api anything.
@@ -473,6 +501,7 @@ export const seedChatOrgRows = async (
       briefing: await seedBriefing(
         prisma,
         userId,
+        sweepId,
         organizationSlug,
         electedOffice.id,
         options,
@@ -497,9 +526,23 @@ export const seedChatOrgRows = async (
 // conversation. So the previous cases' judge briefings on this date are
 // removed first. Chat cases walk one at a time (sweepArm.walkCases), every
 // earlier record is already written, and nothing reads those rows again.
+//
+// SCOPED TO THIS SWEEP, not to every judge organization. Within one sweep
+// nothing changes: every slug chatOrgSlug mints for it begins with this
+// prefix, so the earlier cases this has to remove still match, and they are
+// the only rows the unscoped version removed that mattered. What drops out
+// is another sweep's briefings on the same date, which this has no business
+// deleting and which the unscoped version took with it.
+//
+// It does NOT make briefing cases concurrency-safe on one database, and
+// cannot: briefingChatCreate.findOrCreate looks the briefing up by
+// (meetingDate, electedOffice.userId) with no organization in the predicate,
+// so two sweeps sharing the judge account and this fixed date are picked
+// between by whatever order Postgres returns. See the README.
 const seedBriefing = async (
   prisma: PrismaClient,
   userId: number,
+  sweepId: string,
   organizationSlug: string,
   electedOfficeId: string,
   options: SeedChatOrgOptions,
@@ -510,7 +553,7 @@ const seedBriefing = async (
       meetingDate,
       electedOffice: {
         userId,
-        organizationSlug: { startsWith: JUDGE_ORG_SLUG_PREFIX },
+        organizationSlug: { startsWith: judgeSweepOrgSlugPrefix(sweepId) },
       },
     },
   })

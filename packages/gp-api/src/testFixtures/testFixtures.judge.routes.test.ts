@@ -30,7 +30,12 @@ const tearDown = (slug: string, config: object = {}) =>
 // The briefing scope is what exercises every table the fixture touches: the
 // organization, the elected office, the meeting briefing and the experiment
 // run it hangs off, and the annotation and note that no foreign key cascades.
-const BRIEFING_CASE = { agentId: 'briefing_annotation', slugKey: 'case-1' }
+const SWEEP_ID = 'judge-19284756312-1'
+const BRIEFING_CASE = {
+  agentId: 'briefing_annotation',
+  sweepId: SWEEP_ID,
+  slugKey: 'case-1',
+}
 
 const countFixtureRows = async (organizationSlug: string) => {
   const office = await service.prisma.electedOffice.findUnique({
@@ -68,7 +73,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.organizationSlug).toBe(
-      chatOrgSlug(BRIEFING_CASE.agentId, BRIEFING_CASE.slugKey),
+      chatOrgSlug(SWEEP_ID, BRIEFING_CASE.agentId, BRIEFING_CASE.slugKey),
     )
     expect(res.data.organizationSlug.startsWith('judge-')).toBe(true)
     expect(res.data.briefing).toEqual({
@@ -123,7 +128,11 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   })
 
   it('400s an agent the judge cannot drive as a chat case', async () => {
-    const res = await setUp({ agentId: 'opposition_research', slugKey: 'c' })
+    const res = await setUp({
+      agentId: 'opposition_research',
+      sweepId: SWEEP_ID,
+      slugKey: 'c',
+    })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
@@ -132,10 +141,61 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   // office alone for another — and the response schema validates at runtime,
   // so a scope left untested here is one that 500s on its first real case.
   it.each(CHAT_AGENT_IDS)('stages a %s case', async (agentId) => {
-    const res = await setUp({ agentId, slugKey: 'shape' })
+    const res = await setUp({ agentId, sweepId: SWEEP_ID, slugKey: 'shape' })
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.organizationSlug).toBe(chatOrgSlug(agentId, 'shape'))
+    expect(res.data.organizationSlug).toBe(
+      chatOrgSlug(SWEEP_ID, agentId, 'shape'),
+    )
+  })
+
+  // THE REASON THE SWEEP ID IS IN THE CONTRACT. Two sweeps staging the same
+  // agent and case id on one database used to stage one organization, and
+  // the second setup's teardown-first step removed the first's fixture
+  // mid-run. They must now be two organizations that coexist.
+  it('stages a separate organization for a second sweep', async () => {
+    const first = await setUp(BRIEFING_CASE)
+    const second = await setUp({
+      ...BRIEFING_CASE,
+      sweepId: 'judge-19284756312-2',
+    })
+
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.organizationSlug).not.toBe(first.data.organizationSlug)
+    await expect(
+      service.prisma.organization.findUnique({
+        where: { slug: first.data.organizationSlug },
+      }),
+    ).resolves.not.toBeNull()
+    // And the second sweep's briefing retirement left the first's standing,
+    // even though both sit on the same fixed meeting date.
+    const office = await service.prisma.electedOffice.findUniqueOrThrow({
+      where: { organizationSlug: first.data.organizationSlug },
+      select: { id: true },
+    })
+    await expect(
+      service.prisma.meetingBriefing.count({
+        where: { electedOfficeId: office.id },
+      }),
+    ).resolves.toBe(1)
+  })
+
+  it('400s a sweep id outside the slug alphabet', async () => {
+    const res = await setUp({ ...BRIEFING_CASE, sweepId: 'swp/../etc' })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    await expect(
+      service.prisma.organization.count({ where: {} }),
+    ).resolves.toBe(0)
+  })
+
+  it('400s a request that carries no sweep id', async () => {
+    const res = await setUp({
+      agentId: BRIEFING_CASE.agentId,
+      slugKey: BRIEFING_CASE.slugKey,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })
 

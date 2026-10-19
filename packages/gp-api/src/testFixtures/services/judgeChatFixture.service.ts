@@ -25,7 +25,7 @@ export class JudgeChatFixtureService extends createPrismaBase(
   // than a second organization or a half-updated first one.
   async setUp(
     userId: number,
-    { agentId, slugKey, accountState }: SetUpJudgeChatCaseInput,
+    { sweepId, agentId, slugKey, accountState }: SetUpJudgeChatCaseInput,
   ): Promise<SeededChatOrg> {
     // Refuses a state the scope has no row for BEFORE anything is removed, so
     // a bad request cannot cost the caller the fixture it already had.
@@ -33,9 +33,16 @@ export class JudgeChatFixtureService extends createPrismaBase(
     await removeChatOrgFixture(
       this.client,
       userId,
-      chatOrgSlug(agentId, slugKey),
+      chatOrgSlug(sweepId, agentId, slugKey),
     )
-    return seedChatOrgRows(this.client, userId, agentId, slugKey, options)
+    return seedChatOrgRows(
+      this.client,
+      userId,
+      sweepId,
+      agentId,
+      slugKey,
+      options,
+    )
   }
 
   tearDown(userId: number, organizationSlug: string): Promise<boolean> {

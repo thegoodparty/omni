@@ -56,9 +56,11 @@ describe('JUDGE_FIXTURE_EMAIL', () => {
   })
 })
 
+const SWEEP = 'judge-19284756312-1'
+
 describe('judgeSweepIdFromOrgSlug', () => {
   it('recognises an organization a chat arm actually seeds', () => {
-    const slug = chatOrgSlug('chief_of_staff', 'case-1')
+    const slug = chatOrgSlug(SWEEP, 'chief_of_staff', 'case-1')
 
     expect(slug.startsWith(JUDGE_ORG_SLUG_PREFIX)).toBe(true)
     expect(judgeSweepIdFromOrgSlug(slug)).toBe(
@@ -66,16 +68,35 @@ describe('judgeSweepIdFromOrgSlug', () => {
     )
   })
 
-  // Documents the gap rather than asserting a sweep id this layer cannot
-  // have: chatOrgSlug is a function of the agent and the case only, so the
-  // sweep id is nowhere in the slug and nothing here can recover it.
-  it('returns a per-case run key, not the sweep id', () => {
-    const sweepId = 'swp_1'
-    const one = judgeSweepIdFromOrgSlug(chatOrgSlug('chief_of_staff', 'case-1'))
-    const two = judgeSweepIdFromOrgSlug(chatOrgSlug('chief_of_staff', 'case-2'))
+  // The column's value is the sweep id followed by the case's own key, which
+  // is what makes it groupable by sweep with a prefix match while staying
+  // unique per case. Both halves are asserted, because a value that lost
+  // either one would break a different reader.
+  it('is sweep-id-prefixed and still unique per case', () => {
+    const one = judgeSweepIdFromOrgSlug(
+      chatOrgSlug(SWEEP, 'chief_of_staff', 'case-1'),
+    )
+    const two = judgeSweepIdFromOrgSlug(
+      chatOrgSlug(SWEEP, 'chief_of_staff', 'case-2'),
+    )
 
     expect(one).not.toBe(two)
-    expect(one).not.toContain(sweepId)
+    expect(one?.startsWith('19284756312-1-')).toBe(true)
+    expect(two?.startsWith('19284756312-1-')).toBe(true)
+  })
+
+  // Two sweeps are told apart by that prefix, which is the grouping the
+  // column's name promises.
+  it('separates two sweeps running the same case', () => {
+    const one = judgeSweepIdFromOrgSlug(
+      chatOrgSlug('judge-19284756312-1', 'chief_of_staff', 'case-1'),
+    )
+    const two = judgeSweepIdFromOrgSlug(
+      chatOrgSlug('judge-19284756312-2', 'chief_of_staff', 'case-1'),
+    )
+
+    expect(one).not.toBe(two)
+    expect(two?.startsWith('19284756312-1-')).toBe(false)
   })
 
   it('is null for an organization a real official owns', () => {

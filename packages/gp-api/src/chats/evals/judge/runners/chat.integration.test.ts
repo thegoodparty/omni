@@ -64,6 +64,10 @@ const ANSWER = 'You have three priorities on file. Housing is the oldest.'
 // from the seam that watched the turn.
 const UNOBSERVED_MODEL = 'model-not-observed'
 
+// The one sweep every case in this file belongs to. It is in the fixture
+// slug, so a test that reads a slug back has to derive it the same way.
+const SWEEP_ID = 'swp_integration'
+
 const textOnlyScript: ChatTurnScript = {
   steps: [{ kind: 'text', text: ANSWER }],
   usage: TOKENS,
@@ -76,7 +80,7 @@ const request = (
   },
 ): ChatRunRequest => ({
   case: { caseId: 'judge-case', question: 'What are my top priorities?' },
-  sweepId: 'swp_integration',
+  sweepId: SWEEP_ID,
   arm: 'candidate',
   variant: {
     ref: 'judge-track-a',
@@ -94,6 +98,7 @@ const runFor = async (
   const seeded = await seedChatOrg(
     service.prisma,
     service.user.id,
+    SWEEP_ID,
     agentId,
     // Keyed on the case id the way the sweep's arm suite keys it, so a test
     // that drives two cases in one database does not collide on
@@ -913,6 +918,7 @@ describe('runChatCase', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'campaign_assistant',
         'judge-case',
       )
@@ -986,7 +992,7 @@ describe('runChatCase', () => {
 
       expect(record.status).toBe('produced')
       const organization = await service.prisma.organization.findFirst({
-        where: { slug: chatOrgSlug('chief_of_staff', 'no-district') },
+        where: { slug: chatOrgSlug(SWEEP_ID, 'chief_of_staff', 'no-district') },
       })
       expect(organization?.positionId).toBeNull()
     },
@@ -1022,6 +1028,7 @@ describe('runChatCase', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'ordinance_flow',
         'judge-case',
       )
@@ -1326,6 +1333,7 @@ describe('runChatCase on briefing chat', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'briefing_annotation',
         'mismatch',
       )
@@ -1356,6 +1364,7 @@ describe('runChatCase on briefing chat', () => {
       const seeded = await seedChatOrg(
         service.prisma,
         service.user.id,
+        SWEEP_ID,
         'briefing_annotation',
         'unnamed',
       )

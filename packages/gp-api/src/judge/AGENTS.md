@@ -36,13 +36,15 @@ the organization slug already on the conversation row it loaded.
 `BriefingChatsService` does not: its context carries no organization slug, so
 briefing turns record nothing.
 
-## Two columns that do not yet mean what they say
+## Two columns that mean something other than their name
 
-- **`sweepId` is a per-case run key, not a sweep id.** A chat arm's
-  organization is slugged `judge-<agentId>-<caseId>-<digest>` by
-  `seedChatOrg.chatOrgSlug`, which never embeds the sweep. The sweep id lives
-  in the arm process's `JUDGE_SWEEP_ID` and does not cross the wire. Grouping
-  by this column groups by case. Fix: have the arm send its sweep id.
+- **`sweepId` is sweep-id-prefixed, not a bare sweep id.** A chat arm's
+  organization is slugged `judge-<sweepId>-<agentId>-<caseId>-<digest>` by
+  `seedChatOrg.chatOrgSlug`, and this column is that slug with `judge-`
+  stripped. So it is unique per case AND groupable by sweep with a prefix
+  match on `<sweepId>-`. Nothing parses a bare sweep id back out, on purpose:
+  nothing reads this column (records group by the `sweepId` written onto the
+  `RunRecord`) and a sweep id may itself contain hyphens.
 - **`dataVersion` is always null.** The Delta version a turn read comes from
   the `VERSION AS OF` rewrite the in-process provider patch performs. A
   deployed gp-api neither pins nor reports one, and the warehouse response
