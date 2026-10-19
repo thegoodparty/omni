@@ -42,6 +42,11 @@ test.describe('Win — turf route via Geoapify mock', () => {
     )
     const campaignId = mine.id
 
+    // Dev calls the real Geoapify (resolveVendorMode), so the mock never
+    // records this route or fails it. Only a preview or local run can.
+    const { vendorMode } = await mockRecords(client, campaignId)
+    test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
+
     // 1. Create a voter file filter (no Geoapify involved).
     const { data: list } = await withGatewayRetry(
       'POST /v1/voters/voter-file/filter',
@@ -177,6 +182,11 @@ test.describe('Win — turf route via Geoapify mock', () => {
       '/v1/campaigns/mine',
     )
     const campaignId = mine.id
+
+    // Dev calls the real Geoapify (resolveVendorMode), so the mock never
+    // records this route or fails it. Only a preview or local run can.
+    const { vendorMode } = await mockRecords(client, campaignId)
+    test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 
     // Create a voter file filter.
     const { data: list } = await withGatewayRetry(
