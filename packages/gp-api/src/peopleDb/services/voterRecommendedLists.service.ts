@@ -23,8 +23,8 @@ export class VoterRecommendedListsService {
   ) {}
 
   // Resolved once and handed back into every read below. Answered by
-  // the election database rather than the warehouse, so it is not a voter
-  // read and emits no line.
+  // election-api rather than the warehouse, so it is not a voter read and
+  // emits no line.
   resolveDistrict(
     districtId: string,
     dataset: PeopleDataset,

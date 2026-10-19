@@ -187,11 +187,11 @@ export class DatabricksVoterService {
     this.logger.setContext(DatabricksVoterService.name)
   }
 
-  // Resolved from the election database, which owns the District table -- not
-  // from Databricks (a measured p90 of 8.6s for one keyed row, at the head of
-  // every voter read) and no longer from people-db either. Reading the owner
+  // Resolved from election-api, which owns the District table -- not from
+  // Databricks (a measured p90 of 8.6s for one keyed row, at the head of every
+  // voter read) and no longer from people-db either. Reading the upstream
   // directly is what leaves a Databricks-served read touching people-db not at
-  // all. Memoized per process, so a district costs one query per task.
+  // all. Memoized per process, so a district costs one hop per task.
   async resolveDistrict(
     districtId: string,
     dataset: PeopleDataset,
@@ -214,13 +214,12 @@ export class DatabricksVoterService {
     }
     // `type` is spliced into the SQL as a column IDENTIFIER, which cannot be a
     // bound parameter, so it is checked before it gets there. It arrives from
-    // the election database's District table rather than from a caller, so
-    // this guards our own ingest rather than user input -- and a character
-    // class is the whole of that guard: a value that fails it cannot form
-    // valid SQL. This used to query information_schema on every process to
-    // confirm the column existed too, which answered a different question at
-    // the cost of an uncached metadata round trip on the first voter read of
-    // every task.
+    // election-api's District table rather than from a caller, so this guards
+    // our own ingest rather than user input -- and a character class is the
+    // whole of that guard: a value that fails it cannot form valid SQL. This
+    // used to query information_schema on every process to confirm the column
+    // existed too, which answered a different question at the cost of an
+    // uncached metadata round trip on the first voter read of every task.
     if (!district.useVoterOnlyPath && !SAFE_IDENTIFIER.test(type)) {
       throw new InternalServerErrorException(
         `District ${districtId} has type "${type}", which is not a usable ` +

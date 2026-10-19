@@ -41,7 +41,6 @@ import { PollsModule } from '@/polls/polls.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { PrismaModule } from '@/prisma/prisma.module'
-import { ElectionDbModule } from '@/electionDb/electionDb.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
 import { SharedModule } from '@/shared/shared.module'
@@ -96,7 +95,6 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     ContentModule,
     HealthModule,
     PrismaModule,
-    ElectionDbModule,
     ContentfulModule,
     CampaignsModule,
     ElectionsModule,

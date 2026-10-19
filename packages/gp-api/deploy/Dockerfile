@@ -39,7 +39,6 @@ COPY --link packages/nest-common/dist /app/packages/nest-common/dist
 
 COPY --link packages/gp-api/dist ./dist
 COPY --link packages/gp-api/prisma ./prisma
-COPY --link packages/gp-api/prisma-election ./prisma-election
 
 # src and scripts are for the one-off tsx tasks run in this image (the preview
 # database drops in gp-api-teardown-preview.yml and gp-api-cleanup-preview.yml).

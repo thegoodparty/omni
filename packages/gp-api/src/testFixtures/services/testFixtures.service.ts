@@ -130,7 +130,7 @@ export class TestFixturesService {
     )
     if (!position) {
       throw new BadGatewayException(
-        `No election-db position for race ${race.id}`,
+        `No election-api position for race ${race.id}`,
       )
     }
     return position.id

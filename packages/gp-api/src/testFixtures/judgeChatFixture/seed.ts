@@ -63,7 +63,7 @@ import {
 // costing whole tool families, and what each one buys:
 //
 //   organization.positionId    the district gate, whose other half is an
-//                              election-db lookup: see JUDGE_POSITION below.
+//                              election-api lookup: see JUDGE_POSITION below.
 //   campaign.isPro + details   the voter-file family and
 //                              get_ballot_requirements.
 //   the anchor's ordinance     the five steps past clarify, each of which
@@ -181,11 +181,11 @@ export const seedOptionsFor = (
 // the id it seeds is chosen so the other half can answer.
 //
 // `organization.positionId` does not point at a row in this database. It holds
-// an election-db position id, and DistrictResolverService resolves it through
-// ElectionsService.getPositionById, a read of the separate election database,
-// so there is no position or district table here that seeding could fill. What
-// IS ours is the precondition: resolveByOrgSlug returns null on a missing
-// positionId BEFORE it asks election-db at all, which is why districtFilters
+// an election-api position id, and DistrictResolverService resolves it with an
+// HTTP GET (ElectionsService.getPositionById, which is `electionApiGet`), so
+// there is no position or district table here that seeding could fill. What IS
+// ours is the precondition: resolveByOrgSlug returns null on a missing
+// positionId BEFORE it asks election-api at all, which is why districtFilters
 // was null no matter what else was configured.
 //
 // SO THE ID SEEDED IS A REAL ONE, which is the only thing that makes the
@@ -194,29 +194,29 @@ export const seedOptionsFor = (
 // ../sweepFixture.ts, DEFAULT_RACE in src/testFixtures, and the gp-webapp
 // e2e serve helpers all name zip 82001 and this office, and it carries a
 // district in every environment. A synthetic id could not be resolved by any
-// deployment: PositionsService finds no row and throws a NotFoundException out
-// of loadContext, so the turn failed outright rather than quietly dropping two
-// tools.
+// deployment: election-api 404s it, and elections.service.ts rethrows that
+// 404 as a NotFoundException out of loadContext, so the turn failed outright
+// rather than quietly dropping two tools.
 //
-// IT IS THE ELECTION DATABASE'S INTERNAL ID, NOT THE BALLOTREADY ONE. The
-// column is ambiguous across the codebase and
-// ElectionsService.resolveInternalPositionId exists for that ambiguity, but
-// DistrictResolverService does not call it: it hands `org.positionId` straight
-// to getPositionById, which looks it up in a uuid column. A BallotReady gid
-// there is a query error, not a miss, which is worse than the null it
-// replaces. Production stores the internal id too: campaigns.service
+// IT IS ELECTION-API'S INTERNAL ID, NOT THE BALLOTREADY ONE. The column is
+// ambiguous across the codebase and ElectionsService.resolveInternalPositionId
+// exists for that ambiguity, but DistrictResolverService does not call it: it
+// hands `org.positionId` straight to getPositionById, and election-api parses
+// that route's param as `z.guid()`. A BallotReady gid there is a 400, which
+// electionApiGet raises as a BadGatewayException, which is worse than the
+// null it replaces. Production stores the internal id too: campaigns.service
 // and OrganizationsService.resolveOrgData both resolve a
 // ballotReadyPositionId through getPositionByBallotReadyId and persist
 // `position.id`. The BallotReady id is kept beside it because that is the
 // handle a human looks the office up by, and it is what the e2e helpers pass
 // to the API.
 //
-// JUDGE_POSITION is the row the election database really holds for that id,
-// copied from it field for field and exported rather than written out at each
-// call site, so a stubbed test and a deployed run cannot disagree about what
-// was seeded. A test re-spies ElectionsService.getPositionById with it, which
-// is what test-service asks a suite needing a real position to do, and what
-// the in-process arm needs because it has no election database.
+// JUDGE_POSITION is the reply election-api really gives for that id, copied
+// from it field for field and exported rather than written out at each call
+// site, so a stubbed test and a deployed run cannot disagree about what was
+// seeded. A test re-spies ElectionsService.getPositionById with it, which is
+// what test-service asks a suite needing a real position to do, and what the
+// in-process arm needs because it holds no M2M token for election-api.
 //
 // NO `overrideDistrictId` on purpose. resolveDistrict takes
 // `overrideDistrict ?? position.district`, so an override id would beat this
@@ -373,7 +373,7 @@ export const seedChatOrgRows = async (
   const organizationSlug = chatOrgSlug(sweepId, agentId, slugKey)
   // Omitted rather than nulled when a case asked for no district: a missing
   // positionId is the production state, and resolveByOrgSlug refuses on it
-  // before it asks election-db anything.
+  // before it asks election-api anything.
   const position =
     options.district === false ? {} : { positionId: JUDGE_POSITION_ID }
 
@@ -428,7 +428,7 @@ export const seedChatOrgRows = async (
       },
     })
     // The agent's own municipality, and the ONLY source of it that does not
-    // need election-db: OrdinanceFlowContextService reads this row by the
+    // need election-api: OrdinanceFlowContextService reads this row by the
     // office's organizationSlug and renders `place, state` as the
     // jurisdiction, while the handler's district resolver only overrides it.
     // Without it the agent does not know which city it is drafting for on

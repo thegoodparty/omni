@@ -5,8 +5,9 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { ElectionsModule } from '@/elections/elections.module'
-import { ElectedOfficeSupportModule } from '@/electionDb/electedOfficeSupport/electedOfficeSupport.module'
+import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { SlackModule } from '@/vendors/slack/slack.module'
+import { HttpModule } from '@nestjs/axios'
 import { Module, forwardRef } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 import { UseElectedOfficeGuard } from './guards/UseElectedOffice.guard'
@@ -14,6 +15,7 @@ import { UserOrM2MGuard } from './guards/UserOrM2M.guard'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { ElectedOfficeService } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportApi.service'
 
 @Module({
   imports: [
@@ -23,7 +25,8 @@ import { SupportEstimateService } from './services/supportEstimate.service'
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),
     ElectionsModule,
-    ElectedOfficeSupportModule,
+    HttpModule,
+    ClerkModule,
     CrmModule,
     SlackModule,
   ],
@@ -32,6 +35,7 @@ import { SupportEstimateService } from './services/supportEstimate.service'
     ElectedOfficeService,
     CrmOfficeHolderService,
     SupportEstimateService,
+    ElectedOfficeSupportApiService,
     UseElectedOfficeGuard,
     UserOrM2MGuard,
   ],

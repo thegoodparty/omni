@@ -1,5 +1,6 @@
+import { HttpModule } from '@nestjs/axios'
 import { Module } from '@nestjs/common'
-import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
+import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
@@ -13,7 +14,8 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
 
 @Module({
   imports: [
-    CampaignStrategyContextModule,
+    ClerkModule,
+    HttpModule,
     ElectionsModule,
     AgentExperimentsModule,
     AwsModule,

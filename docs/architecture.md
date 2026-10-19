@@ -20,11 +20,11 @@ nothing boring would work.
                      │            gp-api            │
                      │      (NestJS, ECS Fargate)   │
                      └───┬───────────┬──────────┬───┘
-           Statement API  │           │ Prisma   │ HTTP
+           Statement API  │           │ HTTP     │ HTTP
              (voter data) ▼           ▼          ▼
                 ┌─────────────┐ ┌──────────────┐ ┌────────────────┐
-                │ Databricks  │ │ election-db  │ │     gp-ai      │
-                │(mart_gp_api)│ │ (Aurora PG)  │ │  (Python/ECS)  │
+                │ Databricks  │ │ election-api │ │     gp-ai      │
+                │(mart_gp_api)│ │    (ECS)     │ │  (Python/ECS)  │
                 └─────────────┘ └──────────────┘ └────────────────┘
 ```
 
@@ -36,11 +36,9 @@ nothing boring would work.
 - **gp-api -> Databricks:** the `mart_gp_api` schema over the Statement Execution
   API (`packages/gp-api/src/peopleDb/databricks/`) for voter queries,
   demographics, door-knocking targeting, and CSV exports.
-- **gp-api -> election-db:** a second Prisma client
-  (`packages/gp-api/src/electionDb/`) against the election Aurora cluster, for
-  election/race data and the precomputed voter-density heat-map cells, which
-  live beside the `District` they are keyed on. ETL owns these tables; gp-api
-  only reads them.
+- **gp-api -> election-api:** direct HTTP for election/race data, and for the
+  precomputed voter-density heat-map cells, which live in election-db beside the
+  `District` they are keyed on.
 - **gp-api -> the PMF Engine:** SQS dispatch to the background-agent runtime in
   `packages/gp-ai`, results back on gp-api's result queue. The whole path is
   documented in `docs/cap-background-agents.md`.
@@ -52,7 +50,7 @@ nothing boring would work.
 | User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
 | Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
 | gp-api -> Databricks        | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts` |
-| gp-api -> election-db       | Prisma (in process) | Second client; ETL-owned, read-only              |
+| gp-api -> election-api      | HTTP                | Internal network / public data                   |
 | M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
 | External -> gp-webapp       | Public              | Public election/candidate pages                  |
 
@@ -91,9 +89,8 @@ Each backend owns its own Postgres database, managed by Prisma with modular
   etc. See `packages/gp-api/prisma/AGENTS.md`. Voter data — ~200M+ L2 records —
   is read from Databricks and is restricted. See
   `packages/gp-api/src/peopleDb/AGENTS.md`.
-- **election-db:** Race, Place, District, Position, Candidacy, ProjectedTurnout,
-  and the precomputed voter-density heat-map cells. Its own Aurora cluster,
-  reached through `packages/gp-api/src/electionDb/`.
+- **election-api:** Race, Place, District, Position, Candidacy, ProjectedTurnout,
+  and the precomputed voter-density heat-map cells.
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
 
