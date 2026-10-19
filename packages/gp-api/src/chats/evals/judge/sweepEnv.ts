@@ -579,7 +579,25 @@ export const parseArmEnv = (
   }
   requireStore(env, `the ${env.arm} arm`)
   assertRuntimeCanSpend(env)
+  assertRuntimeCanPin(env)
   return env
+}
+
+// THE DELTA PIN IS AN IN-PROCESS REWRITE, so an HTTP arm cannot apply one
+// and must not pretend to. Refused here rather than per case: the runtime
+// refuses it there too, but by then every chat case in the sweep fails
+// separately with the same sentence, and the thing to change is one
+// workflow input.
+const assertRuntimeCanPin = (env: ArmEnv): void => {
+  if (env.armRuntime !== 'http' || env.dataVersion === undefined) return
+  throw new SweepEnvError(
+    `${ARM_RUNTIME_ENV} is "http" and JUDGE_DATA_VERSION is ` +
+      `"${env.dataVersion}", but the pin is a VERSION AS OF rewrite ` +
+      'DatabricksSqlProvider.query performs inside the agent process. A ' +
+      'deployed gp-api neither pins nor reports a version, so this arm ' +
+      'would record one it never applied. Leave JUDGE_DATA_VERSION blank ' +
+      `for an HTTP sweep, or leave ${ARM_RUNTIME_ENV} unset to pin.`,
+  )
 }
 
 // AN HTTP ARM AND A DRY RUN ARE NOT COMPATIBLE, and the refusal is here

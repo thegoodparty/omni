@@ -561,6 +561,31 @@ describe(`${TARGET_BASE_URL_ENV}`, () => {
   })
 })
 
+describe('an http arm cannot pin a Delta version', () => {
+  // Refused once at startup rather than once per chat case: the runtime
+  // refuses it there too, but the thing to change is one workflow input.
+  it('refuses the pair, naming both and what to change', () => {
+    expect(() => parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: '412' }))).toThrow(
+      SweepEnvError,
+    )
+    expect(() => parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: '412' }))).toThrow(
+      /Leave JUDGE_DATA_VERSION blank for an HTTP sweep/,
+    )
+  })
+
+  it.each(['', '   '])('reads %p as no pin asked for', (value) => {
+    expect(
+      parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: value })).dataVersion,
+    ).toBeUndefined()
+  })
+
+  it('leaves an in-process pin alone', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '412' })).dataVersion).toBe(
+      '412',
+    )
+  })
+})
+
 describe('an http arm cannot be a dry run', () => {
   it.each([undefined, '', 'false', 'True', '1'])(
     'refuses http with JUDGE_SPEND=%p, naming both settings',

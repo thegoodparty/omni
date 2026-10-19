@@ -380,7 +380,7 @@ export interface LlmCaptureOptions {
 // turn of a sweep. A forgotten `script` field type-checks cleanly, so the paid
 // path is opt-in twice over: the caller has to name it, and the process has to
 // carry the explicit env flag every other paid path in this repo is gated on.
-const assertMaySpend = (options: LlmCaptureOptions): void => {
+export const assertMaySpend = (options: LlmCaptureOptions): void => {
   if (options.script) return
   if (options.realModel !== true) {
     throw new Error(
@@ -808,6 +808,48 @@ export const configDigest = (
   hash.update('\0')
   hash.update([...toolNames].sort().join('\0'))
   return `sha256:${hash.digest('hex')}`
+}
+
+// THE SAME QUESTION ASKED OF AN ARM THAT CANNOT SEE THE PROMPT, and it is a
+// DIFFERENT FUNCTION of different inputs. It carries its own prefix so no
+// reader can mistake one for the other, and so a cross-runtime pair can
+// never collide into a false "the agent saw no difference".
+//
+// `configDigest` above hashes the rendered system prompt itself. An arm
+// driving a deployed gp-api never has that string: `JudgeTurnTelemetry`
+// stores `sha256(systemPrompt)` and deliberately not the prompt, because the
+// prompt carries an official's priorities and their community's issues (see
+// the column's own comment in prisma/schema/judgeTurnTelemetry.prisma). So
+// the best an HTTP arm can hash is the hash, and sha256 does not let the two
+// be reconciled. `promptHashVersion` is hashed in alongside it so two arms
+// whose deploys computed that hash differently read as different configs
+// rather than silently comparable ones.
+//
+// THE TOOL NAMES ARE NOT THE SAME SET EITHER, and this is the weaker half.
+// In process they are the tools the model was OFFERED
+// (`Object.keys(options.tools)`), which is a property of the build. Over the
+// wire they are the tools the turn CALLED (`judgeToolNames`), which is a
+// property of the answer. So the HTTP digest is noisier — two arms on one
+// build can differ because the model chose differently — and it is blind to
+// a build that registers a tool nothing called. Noisier is the safe
+// direction: a digest that differs when it need not costs a refusal that
+// would have saved nothing by then, and one that matches when it should not
+// costs a real change going unjudged. Making this exact needs the offered
+// set on the telemetry row, which is a gp-api change and not a judge one.
+export const HTTP_CONFIG_DIGEST_PREFIX = 'sha256-prompthash'
+
+export const httpConfigDigest = (
+  promptHash: string,
+  promptHashVersion: string,
+  toolNames: string[],
+): string => {
+  const hash = createHash('sha256')
+  hash.update(promptHashVersion)
+  hash.update('\0')
+  hash.update(promptHash)
+  hash.update('\0')
+  hash.update([...toolNames].sort().join('\0'))
+  return `${HTTP_CONFIG_DIGEST_PREFIX}:${hash.digest('hex')}`
 }
 
 // The SSE frames the chat route writes. Declared as the subset this runner

@@ -65,6 +65,7 @@ const env = (over: Partial<ArmEnv> = {}): ArmEnv => ({
   spends: true,
   explicitSelection: false,
   recordsDir: '/tmp/records',
+  armRuntime: 'inprocess',
   arm: 'base',
   baseRef: 'main',
   candidateSha: 'c0ffee',
