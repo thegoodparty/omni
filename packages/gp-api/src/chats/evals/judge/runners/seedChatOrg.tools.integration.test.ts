@@ -20,19 +20,21 @@ import {
 import { installBriefingFixture } from './chatSeam'
 import {
   JUDGE_BRIEFING_ARTIFACT,
-  JUDGE_BRIEFING_BUCKET,
   JUDGE_BRIEFING_TODAY,
+} from './briefingFixture'
+import {
+  JUDGE_BRIEFING_BUCKET,
   JUDGE_MEETING_DATE,
   JUDGE_NOTE,
-} from './briefingFixture'
+} from '@/testFixtures/judgeChatFixture/briefingRows'
 import { ExperimentRunStatus } from '../../../../generated/prisma'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { seedChatOrg } from './seedChatOrg'
 import {
   chatScopeFor,
   JUDGE_POSITION,
-  seedChatOrg,
   type SeedChatOrgOptions,
-} from './seedChatOrg'
+} from '@/testFixtures/judgeChatFixture/seed'
 
 // WHAT THE SEEDER BUYS THE AGENT, asserted as tool names.
 //

@@ -360,6 +360,18 @@ ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
 note on it (`briefing_annotation`), or an elected office alone
 (`chief_of_staff`). It still seeds no contacts or community issues.
 
+**The same rows can be asked for over HTTP, for an arm that has no Prisma
+client.** An arm driving a deployed PR preview cannot reach that preview's
+`gpdb_pr_<n>` schema, so `POST /v1/test-fixtures/judge-chat-cases` stages a
+case there instead and `DELETE /v1/test-fixtures/judge-chat-cases/:slug`
+removes it. It is not a second seeder: `seedChatOrgRows` is the function both
+paths call, and the in-process one keeps `assertTestProcess` on top of it. The
+endpoint's own gates are `IS_NON_PROD_DEPLOY` (so prod 404s), the ordinary
+session guard (the judge presents a Clerk session token for its own user), and
+scoping every row to that caller under the `judge-` prefix. Setup is
+idempotent — it tears the same slug down first — so a retried sweep restages
+rather than colliding. Details in `src/testFixtures/AGENTS.md`.
+
 **Briefing chat is opened the way the webapp opens it.** Its conversation is
 created with its annotation, in one transaction, by `POST /v1/briefing-chats
 {meetingDate, anchor}`, and each turn goes to
