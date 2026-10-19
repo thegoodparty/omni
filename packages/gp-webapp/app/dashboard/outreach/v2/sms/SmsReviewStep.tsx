@@ -163,9 +163,19 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
+  const freeTextsDollars =
+    hasFreeTextsOffer && contactCount !== null
+      ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT) * pricePerContact
+      : 0
+  // An immediate charge already has the free texts off its amount. A hold
+  // does not, so the total takes them off here the way capture will.
   const totalDollars = isFree
     ? 0
-    : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
+    : Math.max(
+        0,
+        (liveTotalDollars ?? checkoutSession?.amount ?? 0) -
+          (checkoutSession?.isHold ? freeTextsDollars : 0),
+      )
   // The provider's error is set both when the session could not be created
   // and, by the form, when a confirm fails. Only the first is fatal to the
   // step; once a session exists an error is a card problem to show inline.
@@ -174,7 +184,11 @@ export const SmsReviewStep = ({
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
-    contactCount === null ? null : isFree ? 0 : contactCount * pricePerContact
+    contactCount === null
+      ? null
+      : isFree
+        ? 0
+        : contactCount * pricePerContact - freeTextsDollars
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -322,11 +336,14 @@ export const SmsReviewStep = ({
               <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
             </div>
             {hasFreeTextsOffer && (
-              <div className="flex items-center gap-2 pt-1 text-link">
-                <GiftIcon className="size-4" />
-                <span className="text-sm font-medium">
+              <div className="flex items-center justify-between gap-4 pt-1 text-sm font-medium text-link">
+                <span className="flex items-center gap-2">
+                  <GiftIcon className="size-4" />
                   {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
                 </span>
+                {freeTextsDollars > 0 && (
+                  <span>{`\u2212$${money(freeTextsDollars)}`}</span>
+                )}
               </div>
             )}
           </dl>
