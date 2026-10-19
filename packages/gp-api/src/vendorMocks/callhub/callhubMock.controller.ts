@@ -286,7 +286,10 @@ export class CallhubMockController {
   }
 
   private assertAuth(auth: string | undefined) {
-    if (!auth) throw new UnauthorizedException()
+    const expectedKey = process.env.CALLHUB_API_KEY
+    if (!auth || (expectedKey && auth !== `Token ${expectedKey}`)) {
+      throw new UnauthorizedException()
+    }
   }
 }
 
