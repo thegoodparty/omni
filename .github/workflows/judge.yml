@@ -2188,25 +2188,39 @@ jobs:
       # deploy runs every migration before the app starts. `--max-time`
       # keeps a hung container from parking the runner: `|| true` catches a
       # non-zero exit, not a curl that never returns.
+      # EITHER SHA COUNTS, and that is not laxity. `candidate_sha` is the PR's
+      # headRefOid, but gp-api tags a preview image with `github.sha`, which
+      # on a `pull_request` event is the MERGE commit — head merged into the
+      # base. The two are never equal, so comparing only against the head
+      # would time out on every HTTP sweep ever run while reporting it as a
+      # stale preview.
+      #
+      # The merge commit is re-read each poll rather than resolved once: it
+      # is recomputed whenever the base moves, so a value captured up front
+      # goes stale mid-wait and produces the same false timeout.
       - name: Wait for the candidate's preview to serve its commit
         if: inputs.arm_runtime == 'http'
         env:
-          EXPECTED_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           BASE: https://pr-${{ inputs.pr_number }}.preview.goodparty.org
         run: |
           set -euo pipefail
-          echo "Confirming $BASE is serving $EXPECTED_SHA"
+          echo "Confirming $BASE is serving $HEAD_SHA or its merge commit"
           deadline=$((SECONDS + 600))
           got=""
+          merge=""
           while [ $SECONDS -lt $deadline ]; do
             got="$(curl -fsS --max-time 8 "$BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
-            if [ "$got" = "$EXPECTED_SHA" ]; then
-              echo "preview serving $EXPECTED_SHA after ${SECONDS}s"
+            merge="$(gh pr view "$PR_NUMBER" --json potentialMergeCommit --jq '.potentialMergeCommit.oid // empty' 2>/dev/null || true)"
+            if [ -n "$got" ] && { [ "$got" = "$HEAD_SHA" ] || { [ -n "$merge" ] && [ "$got" = "$merge" ]; }; }; then
+              echo "preview serving $got after ${SECONDS}s"
               exit 0
             fi
             sleep 10
           done
-          echo "::error::The candidate's preview is serving ${got:-nothing}, not $EXPECTED_SHA, after 600s. A sweep against it would judge the wrong commit. Check the gp-api preview deploy for this PR."
+          echo "::error::The candidate's preview is serving ${got:-nothing}, which is neither $HEAD_SHA nor its merge commit ${merge:-unknown}, after 600s. A sweep against it would judge the wrong commit. Check the gp-api preview deploy for this PR."
           exit 1
 
       - name: Capture the candidate arm
