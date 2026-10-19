@@ -2642,6 +2642,80 @@ describe('door-knocking routes', () => {
           )
         }
       })
+
+      // The completion event counts a walk toward the priority whose card
+      // opened it, and a sibling turf has no link of its own to read.
+      it("names the card's priority on every turf of its campaign", async () => {
+        const { slug, headers, filterId } = await serveOrg('campaign-priority')
+        const office = await service.prisma.electedOffice.findFirstOrThrow({
+          where: { organizationSlug: slug },
+        })
+        const priority = await service.prisma.priority.create({
+          data: {
+            electedOfficeId: office.id,
+            title: 'Fix the flooding on Maple',
+            description: 'The drains back up every storm.',
+            source: PrioritySource.user_stated,
+          },
+        })
+        const body = {
+          voterFileFilterId: filterId,
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
+        }
+        const first = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            ...body,
+            name: 'Maple 1',
+            proposalKey: '0a5b7fc3-4d6e-4f80-9b92-d3e4f5a6b7c8',
+            priorityId: priority.id,
+          },
+          headers,
+        )
+        expect(first.status).toBe(201)
+        expect(first.data.priorityId).toBe(priority.id)
+        const second = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            ...body,
+            name: 'Maple 2',
+            campaignOutreachId: first.data.outreachId,
+          },
+          headers,
+        )
+        expect(second.status).toBe(201)
+        expect(second.data.priorityId).toBe(priority.id)
+        const unlinked = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          { ...body, name: 'Elsewhere' },
+          headers,
+        )
+        expect(unlinked.data.priorityId).toBeNull()
+
+        const done = await service.client.post(
+          `/v1/door-knocking/turfs/${second.data.id}/complete`,
+          {},
+          headers,
+        )
+        expect(done.data).toMatchObject({
+          completed: true,
+          priorityId: priority.id,
+        })
+
+        const campaign = await service.client.post(
+          `/v1/door-knocking/campaigns/${first.data.outreachId}/complete`,
+          {},
+          headers,
+        )
+        expect(
+          campaign.data.map(
+            (turf: { priorityId: string | null }) => turf.priorityId,
+          ),
+        ).toEqual([priority.id, priority.id])
+      })
     })
   })
   // Creation stopping at the turf, and the route being bought at the door.

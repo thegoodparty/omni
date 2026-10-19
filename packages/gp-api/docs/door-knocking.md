@@ -62,6 +62,11 @@ first turf it buys becomes the anchor every later one points at, and until
 this field existed the client had just paid for that anchor and had no way to
 name it.
 
+It also carries `priorityId`: the priority whose chat card opened the
+campaign, read off the turf's own envelope or, for a sibling, its anchor's
+(a card's link is written to the anchor only). Null when no card opened it.
+The client puts it on the door-knocking `Outreach - Campaign Completed`.
+
 ### A campaign is a grouping, not a row
 
 Many turfs make one campaign, and the campaign has no table. The anchor's

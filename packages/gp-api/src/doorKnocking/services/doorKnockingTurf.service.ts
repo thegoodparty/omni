@@ -36,7 +36,15 @@ import {
 // cannot live behind a row that may not exist.
 const TURF_INCLUDE = {
   route: { select: { id: true, totalSeconds: true } },
-  outreach: { select: { id: true, status: true, archivedAt: true } },
+  outreach: {
+    select: {
+      id: true,
+      status: true,
+      archivedAt: true,
+      priorityId: true,
+      campaignOutreach: { select: { priorityId: true } },
+    },
+  },
 } as const satisfies Prisma.DoorKnockingTurfInclude
 
 type TurfWithEnvelope = Prisma.DoorKnockingTurfGetPayload<{
@@ -94,6 +102,10 @@ const toResponse = (
   routeSeconds: turf.route?.totalSeconds ?? null,
   completed: turf.outreach.status === OutreachStatus.completed,
   archivedAt: turf.outreach.archivedAt,
+  priorityId:
+    turf.outreach.priorityId ??
+    turf.outreach.campaignOutreach?.priorityId ??
+    null,
   createdAt: turf.createdAt,
   updatedAt: turf.updatedAt,
 })
