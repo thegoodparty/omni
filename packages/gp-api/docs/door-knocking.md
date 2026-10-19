@@ -904,7 +904,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
-6h across all orgs, `#dev-alerts`, `@win-bugs`), the **daily credit budget**
+6h across all orgs, `#dev-alerts`), the **daily credit budget**
 tiers below it, and the `≥ 500` route alerts on this controller — including the
 502 for a missing `GEOAPIFY_API_KEY`. The empty/oversized-turf 400s and the
 `VOTER_DATA_UNAVAILABLE` 400 deliberately do not (see gp-api

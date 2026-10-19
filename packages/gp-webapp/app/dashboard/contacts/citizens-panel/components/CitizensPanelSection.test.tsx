@@ -62,7 +62,10 @@ describe('CitizensPanelSection', () => {
     expect(screen.getByText('940')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'See your panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
   })
 
   it('shows members toward the goal with the same bar as the panel page', async () => {
@@ -86,6 +89,7 @@ describe('CitizensPanelSection', () => {
           answersNeeded: 96,
           expectedAnswers: 48,
         },
+        balance: null,
       },
     })
 
@@ -101,7 +105,10 @@ describe('CitizensPanelSection', () => {
     )
     expect(
       screen.getByRole('link', { name: 'See your panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
   })
 
   it('leaves the bar out when the plan cannot be read', async () => {
@@ -140,7 +147,10 @@ describe('CitizensPanelSection', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
     expect(
       screen.queryByRole('link', { name: 'See your panel' }),
     ).not.toBeInTheDocument()

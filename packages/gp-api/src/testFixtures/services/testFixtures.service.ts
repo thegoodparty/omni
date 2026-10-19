@@ -25,8 +25,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { addSeconds, compareDesc, formatISO } from 'date-fns'
-import { User, VendorMockVendor } from '@/generated/prisma'
+import { addSeconds, formatISO } from 'date-fns'
+import { User } from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
   DeleteTestFixtureUsersInput,
@@ -129,7 +129,7 @@ export class TestFixturesService {
     )
     if (!position) {
       throw new BadGatewayException(
-        `No election-api position for race ${race.id}`,
+        `No election-db position for race ${race.id}`,
       )
     }
     return position.id
@@ -281,32 +281,7 @@ export class TestFixturesService {
   async applyMockAction(body: MockAction): Promise<MockActionResponse> {
     const { campaignId, action } = body
     if (action === 'geoapify.route.fail') {
-      const all = await this.vendorMockRecord.findByCampaign(campaignId)
-      const mostRecent = all
-        .filter(
-          (r) =>
-            r.vendor === VendorMockVendor.geoapify &&
-            r.kind === 'routing_request',
-        )
-        .sort((a, b) => compareDesc(a.createdAt, b.createdAt))
-        .at(0)
-      if (mostRecent) {
-        await this.vendorMockRecord.setFlag(
-          VendorMockVendor.geoapify,
-          'routing_request',
-          mostRecent.externalId,
-          'routeFail',
-          true,
-        )
-      } else {
-        await this.vendorMockRecord.upsert(
-          VendorMockVendor.geoapify,
-          'routing_request',
-          'sentinel',
-          { routeFail: true },
-          campaignId,
-        )
-      }
+      await this.vendorMockRecord.armRouteFail(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }

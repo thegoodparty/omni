@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { trackEvent } from 'helpers/analyticsHelper'
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -59,23 +61,32 @@ const panelAndFresh: Proposal = {
   civicPanelAsk: true,
 }
 
-const Opener = ({ proposal }: { proposal: Proposal }) => {
+const Opener = ({
+  proposal,
+  launchSource,
+}: {
+  proposal: Proposal
+  launchSource?: OutreachLaunchSource
+}) => {
   const flows = useProposalFlows()
   return (
     <button
       type="button"
       disabled={!flows?.textResolved}
-      onClick={() => flows?.open(proposal, 'priority-1')}
+      onClick={() => flows?.open(proposal, 'priority-1', launchSource)}
     >
       Start the text
     </button>
   )
 }
 
-const openCard = async (proposal: Proposal) => {
+const openCard = async (
+  proposal: Proposal,
+  launchSource?: OutreachLaunchSource,
+) => {
   render(
     <ProposalFlowsProvider>
-      <Opener proposal={proposal} />
+      <Opener proposal={proposal} {...(launchSource && { launchSource })} />
     </ProposalFlowsProvider>,
   )
   const button = await screen.findByRole('button', { name: 'Start the text' })
@@ -87,6 +98,7 @@ const openCard = async (proposal: Proposal) => {
 // Every list the card saves, as the server would return them.
 let saved: Record<string, unknown>[] = []
 beforeEach(() => {
+  vi.mocked(trackEvent).mockClear()
   saved = []
   smsFlow.props = null
   window.localStorage.clear()
@@ -136,6 +148,29 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
     expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+  })
+})
+
+describe('a priority card kept to the parts of the district not reached yet', () => {
+  it('saves the list with the area', async () => {
+    await openCard({ ...panelAndFresh, areaTarget: 'unreached' })
+
+    expect(saved[0]).toMatchObject({ unreachedAreaOfPriorityId: 'priority-1' })
+  })
+})
+
+describe("a priority card's launch source", () => {
+  it('is priorities by default', async () => {
+    await openCard(panelAndFresh)
+
+    expect(smsFlow.props?.launchSource).toBe('priorities')
+    expect(smsFlow.props?.proposalLink).not.toHaveProperty('launchSource')
+  })
+
+  it('is expand_panel for a card that answered Get answers', async () => {
+    await openCard(panelAndFresh, 'expand_panel')
+
+    expect(smsFlow.props?.launchSource).toBe('expand_panel')
   })
 })
 

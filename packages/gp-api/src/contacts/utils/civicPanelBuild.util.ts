@@ -16,6 +16,7 @@ import {
   type CivicPanelBuildNext,
   type CivicPanelBuildStepStatus,
   type GeoJsonPolygon,
+  type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import { addDays, format, isBefore, subBusinessDays } from 'date-fns'
 
@@ -103,98 +104,7 @@ export const sizePanelWave = ({
 const METERS_PER_DEGREE_LAT = 110_540
 const METERS_PER_DEGREE_LNG_AT_EQUATOR = 111_320
 
-// About two blocks: small enough that a cell and its neighbors are a walk,
-// big enough that a suburban street still fills one.
-const WALKABLE_CELL_METERS = 200
-
 const AREA_PADDING_METERS = 50
-
-type Point = { id: string; lat: number; lng: number; addressKey: string }
-type Household = { lat: number; lng: number; personIds: string[] }
-
-// The densest walkable cluster of households, sized to the step. People are
-// grouped into households by their address key, households into ~200m grid
-// cells, and the cell whose 3x3 neighborhood holds the most households is
-// the seed. The households nearest that neighborhood's center are taken,
-// closest first, until the step's size is reached. Deterministic: ties go to
-// the lower cell key and then the lower address key.
-export const pickWalkableArea = (
-  points: Point[],
-  households: number,
-): Household[] => {
-  const byAddress = new Map<string, Household>()
-  for (const point of points) {
-    const household = byAddress.get(point.addressKey)
-    if (household) household.personIds.push(point.id)
-    else {
-      byAddress.set(point.addressKey, {
-        lat: point.lat,
-        lng: point.lng,
-        personIds: [point.id],
-      })
-    }
-  }
-  const all = [...byAddress.entries()]
-  if (all.length === 0 || households <= 0) return []
-  const meanLat = all.reduce((sum, [, h]) => sum + h.lat, 0) / all.length
-  const lngScale =
-    METERS_PER_DEGREE_LNG_AT_EQUATOR * Math.cos((meanLat * Math.PI) / 180)
-  const toXy = (h: Household) => ({
-    x: h.lng * lngScale,
-    y: h.lat * METERS_PER_DEGREE_LAT,
-  })
-  const cellOf = (h: Household) => {
-    const { x, y } = toXy(h)
-    return {
-      cx: Math.floor(x / WALKABLE_CELL_METERS),
-      cy: Math.floor(y / WALKABLE_CELL_METERS),
-    }
-  }
-  const cells = new Map<string, { cx: number; cy: number; count: number }>()
-  for (const [, h] of all) {
-    const { cx, cy } = cellOf(h)
-    const key = `${cx}:${cy}`
-    const cell = cells.get(key)
-    if (cell) cell.count += 1
-    else cells.set(key, { cx, cy, count: 1 })
-  }
-  const neighborhood = (cx: number, cy: number) =>
-    [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dy) => `${cx + dx}:${cy + dy}`))
-  let best: { cx: number; cy: number; score: number } | null = null
-  for (const key of [...cells.keys()].sort()) {
-    const cell = cells.get(key)
-    if (!cell) continue
-    const score = neighborhood(cell.cx, cell.cy).reduce(
-      (sum, k) => sum + (cells.get(k)?.count ?? 0),
-      0,
-    )
-    if (!best || score > best.score) best = { ...cell, score }
-  }
-  if (!best) return []
-  const seedCells = new Set(neighborhood(best.cx, best.cy))
-  const seed = all.filter(([, h]) => {
-    const { cx, cy } = cellOf(h)
-    return seedCells.has(`${cx}:${cy}`)
-  })
-  const center = seed.reduce(
-    (acc, [, h]) => {
-      const { x, y } = toXy(h)
-      return { x: acc.x + x / seed.length, y: acc.y + y / seed.length }
-    },
-    { x: 0, y: 0 },
-  )
-  const distance = (h: Household) => {
-    const { x, y } = toXy(h)
-    return Math.hypot(x - center.x, y - center.y)
-  }
-  return all
-    .sort(
-      ([keyA, a], [keyB, b]) =>
-        distance(a) - distance(b) || keyA.localeCompare(keyB),
-    )
-    .slice(0, households)
-    .map(([, h]) => h)
-}
 
 // The box around the picked households, padded so the corner doors sit
 // inside it: what a turf's map opens on.
@@ -285,6 +195,11 @@ const READY_LINES: Record<CivicPanelBuildChannel, string> = {
   door_knocking: 'Knock on doors to invite residents to your civic panel',
 }
 
+// A door step that walks a part of the district the panel has barely
+// reached says so. Never which part, or why.
+const STEERED_DOOR_LINE =
+  "Knock on doors in a part of your district we haven't reached"
+
 const IN_PROGRESS_LINES: Record<CivicPanelBuildChannel, string> = {
   text: 'Your civic panel invite is on its way',
   phone_banking: 'Finish your civic panel calls',
@@ -301,6 +216,7 @@ export const nextStep = (
     id: string
     position: number
     status: CivicPanelBuildStepStatus
+    steeredToward?: UnderrepresentedGroup | null
   })[],
 ): CivicPanelBuildNext | null => {
   const ordered = [...steps].sort(
@@ -315,7 +231,11 @@ export const nextStep = (
       stepId: ready.id,
       channel: ready.channel,
       status: ready.status,
-      line: READY_LINES[ready.channel],
+      line:
+        ready.channel === 'door_knocking' &&
+        ready.steeredToward === 'unreachedAreas'
+          ? STEERED_DOOR_LINE
+          : READY_LINES[ready.channel],
       href: href(ready.id),
     }
   }

@@ -2982,7 +2982,10 @@ describe('SuccessScreen receipt', () => {
     const back = screen.getByRole('link', {
       name: 'See your civic panel',
     })
-    expect(back).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    expect(back).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=outreach',
+    )
     await userEvent.click(back)
     expect(onDone).toHaveBeenCalled()
   })

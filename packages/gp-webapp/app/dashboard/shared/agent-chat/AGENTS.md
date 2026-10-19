@@ -331,8 +331,9 @@ registered on `ChiefOfStaffChatBody`'s registry:
 - **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
   the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
   holds no state of its own: the Next line, members of the goal, the panel
-  page's button for that step (none while waiting on replies), and See your
-  plan. The button opens the step's own flow through the panel page's
+  page's status and who to invite next (`CivicPanelBalanceStatus`), the
+  panel page's button for that step (none while waiting on replies), and See
+  your plan. The button opens the step's own flow through the panel page's
   `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
   calls over the chat, doors on the door knocking page, calls or walks
   underway on their caller page or walk. A refused call's null args render
@@ -340,6 +341,22 @@ registered on `ChiefOfStaffChatBody`'s registry:
 
 A `save_panel_weekly_time` result drops the plan query and the home's cards,
 so the card and the People first card follow the new plan at once.
+
+## Analytics — one event per message sent
+
+Every message a user sends to an agent is `AI Chat - Message Sent`, fired
+through `trackChatMessageSent` (`chatAnalytics.ts`) with `agent` (the
+`ChatScope`), `surface`, `via` (`composer`, `clarify`, `assistant_bar`),
+`product`, and `priorityId` / `ordinanceId` where there is one. The Chief of
+Staff body fires it on its visible send path for every host, each of which
+passes `analyticsSurface`; `PriorityWorkspace` and the ordinance `DraftChat`
+fire it themselves. Hidden kickoffs, markers and Get answers turns never fire
+it. A new chat surface adds a `ChatSurface` value rather than a new event.
+
+An outreach card's flow carries `launchSource` on the `Outreach -` events.
+`ProposalFlowsProvider` defaults it from the surface (`campaign_manager` on
+Win, `priorities` with a priority, else `chief_of_staff`); a widget context's
+`launchSource` overrides it (`expand_panel`). It stays out of `ProposalLink`.
 
 ## Reference wrappers — copy the closest
 

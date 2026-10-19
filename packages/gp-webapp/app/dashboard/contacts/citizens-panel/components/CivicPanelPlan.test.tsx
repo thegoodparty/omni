@@ -74,6 +74,8 @@ const step = (
   markedDone: null,
   reached: null,
   joined: null,
+  steeredToward: null,
+  landlineFirst: null,
   ...overrides,
 })
 
@@ -130,6 +132,7 @@ const withPlan = (
   },
   next,
   progress: { members: 60, goal: 240, answersNeeded: 96, expectedAnswers: 24 },
+  balance: null,
 })
 
 // How far the bar is filled, in percent.
@@ -140,6 +143,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
   progress: { members: 0, goal: 240, answersNeeded: 96, expectedAnswers: 0 },
+  balance: null,
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
@@ -281,6 +285,68 @@ describe('the plan', () => {
     ).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Skip' })).toHaveLength(1)
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
+  })
+
+  it('names who a round leans toward, never how', () => {
+    renderPage(
+      withPlan([
+        step({ id: 'step-text', steeredToward: 'age65plus' }),
+        step({
+          id: 'step-doors',
+          channel: 'door_knocking',
+          targetSize: 100,
+          steeredToward: 'unreachedAreas',
+        }),
+      ]),
+    )
+
+    expect(
+      within(rowOf('Text 3,150 residents')).getByText(
+        'This round invites more people 65 and over.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(rowOf('Knock on 100 doors in a walkable area')).getByText(
+        "A part of your district we haven't reached. About 5 hours of your time.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says landlines first on a call step only while its round puts them first', () => {
+    renderPage(
+      withPlan([
+        step({ ...CALLS, landlineFirst: true }),
+        step({
+          id: 'step-calls-2',
+          wave: 2,
+          channel: 'phone_banking',
+          targetSize: 40,
+          landlineFirst: false,
+          steeredToward: 'age18to64',
+        }),
+        step({
+          id: 'step-calls-3',
+          wave: 3,
+          channel: 'phone_banking',
+          targetSize: 50,
+          landlineFirst: false,
+          steeredToward: null,
+        }),
+      ]),
+    )
+
+    expect(
+      within(rowOf('Call 30 residents')).getByText(
+        "People a text can't reach, landlines first. About 2 hours of your time.",
+      ),
+    ).toBeInTheDocument()
+    for (const title of ['Call 40 residents', 'Call 50 residents']) {
+      expect(
+        within(rowOf(title)).getByText(
+          /^People a text can't reach\. About .+ of your time\.$/,
+        ),
+      ).toBeInTheDocument()
+    }
   })
 
   it('checks off done steps at the bottom, a sent text included, and hides skipped ones', () => {
@@ -582,7 +648,7 @@ describe('starting a step', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&area=-97.75%2C30.25%2C-97.74%2C30.26',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&launchSource=civic_panel&area=-97.75%2C30.25%2C-97.74%2C30.26',
       ),
     )
   })

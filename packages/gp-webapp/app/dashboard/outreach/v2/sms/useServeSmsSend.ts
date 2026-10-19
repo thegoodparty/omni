@@ -1,5 +1,6 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { format } from 'date-fns'
+import { findCivicPanelJoinLine } from '@goodparty_org/contracts'
 import type {
   ProposalLink,
   RecommendedList,
@@ -11,6 +12,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
@@ -118,8 +120,10 @@ export interface UseServeSmsSendInput {
   // event unjoinable to its task the moment the hub wires one up, and
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
+  purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
+  launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'compose') => void
   setDraftOutreachId: (id: number) => void
@@ -154,8 +158,10 @@ export const useServeSmsSend = ({
   draftOutreachId,
   audience,
   tracker,
+  purpose,
   proposalLink,
   reportBackForOutreachId,
+  launchSource,
   create,
   setStepId,
   setDraftOutreachId,
@@ -273,6 +279,13 @@ export const useServeSmsSend = ({
             // the same way on both products.
             audienceSource: 'savedList',
             ...(tracker ? { tracker } : {}),
+            ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
+            asksToJoinCivicPanel:
+              findCivicPanelJoinLine(composedMessage) !== null,
+            ...(launchSource ? { launchSource } : {}),
           }),
         })
       } catch {
@@ -299,6 +312,7 @@ export const useServeSmsSend = ({
     composedMessage,
     name,
     image,
+    purpose,
     create,
     setDraftOutreachId,
     setDraftCreateError,

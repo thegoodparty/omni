@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CITIZENS_PANEL_PATH } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
+import { civicPanelHref } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -38,6 +38,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -338,6 +339,8 @@ interface SmsFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events and the Pro gate.
   source: OutreachFlowSource
+  // The agent surface that launched this send, for the Outreach events.
+  launchSource?: OutreachLaunchSource
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -552,7 +555,7 @@ export const SuccessScreen = ({
       )}
       {seedsPanel ? (
         <Button asChild size="large" className="w-full">
-          <Link href={CITIZENS_PANEL_PATH} onClick={onDone}>
+          <Link href={civicPanelHref('outreach')} onClick={onDone}>
             {SERVE_PANEL_SEED_SUCCESS_COPY.action}
           </Link>
         </Button>
@@ -578,6 +581,7 @@ export const SmsFlow = ({
   tracker,
   initialEvent,
   source,
+  launchSource,
   initialScript,
   initialPurpose,
   proposedAudience,
@@ -743,6 +747,7 @@ export const SmsFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(launchSource ? { launchSource } : {}),
         }),
       ),
     onClose,
@@ -1211,9 +1216,11 @@ export const SmsFlow = ({
     draftOutreachId,
     audience,
     tracker,
+    purpose,
     ...(proposalLink && !resumeDraft && { proposalLink }),
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
+    launchSource,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -1796,6 +1803,7 @@ export const SmsFlow = ({
                   ? 'recommended'
                   : 'savedList',
                 ...(tracker ? { tracker } : {}),
+                ...(launchSource ? { launchSource } : {}),
               }),
             )
         } else {
@@ -1865,6 +1873,12 @@ export const SmsFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
+        ...(launchSource ? { launchSource } : {}),
+        ...(purpose ? { purpose } : {}),
+        ...(proposalLink?.priorityId
+          ? { priorityId: proposalLink.priorityId }
+          : {}),
+        ...(surface.isServe ? { asksToJoinCivicPanel: asksToJoin } : {}),
       }),
     })
     await onScheduled()

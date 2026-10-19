@@ -226,18 +226,18 @@ describe('estimateAgent for a chat agent', () => {
   })
   const turns = (count: number) => ({ countTurns: (): number => count })
 
-  // 2 arms x 8 turns x 3 attempts x $0.123 = $5.904, x1.5 = $8.86, up to $9.
+  // 2 arms x 9 turns x 3 attempts x $0.123 = $6.642, x1.5 = $9.96, up to $10.
   it('prices from the measured turn cost, on the whole sweep', () => {
     expect(estimateAgent(chat('chief_of_staff'))).toMatchObject({
-      cents: 900,
+      cents: 1000,
       basis: 'measured',
     })
   })
 
-  // 2 x 8 x 3 x $0.52 = $24.96, x1.5 = $37.44, up to $37.50.
+  // 2 x 9 x 3 x $0.52 = $28.08, x1.5 = $42.12, up to $42.50.
   it('prices an unmeasured agent at the costliest turn, and says so', () => {
     expect(estimateAgent(chat('ordinance_flow'))).toMatchObject({
-      cents: 3750,
+      cents: 4250,
       basis: 'unmeasured',
     })
   })
@@ -402,7 +402,7 @@ describe('priceAgainstReferences', () => {
     ]
     expect(
       priceAgainstReferences(withList('unread'), DEFAULT_JUDGE_CONFIG)(chat),
-    ).toMatchObject({ cents: 3750, basis: 'base-unread' })
+    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
     expect(
       priceAgainstReferences(withList('absent'), DEFAULT_JUDGE_CONFIG)(chat)
         .basis,
@@ -431,7 +431,7 @@ describe('priceAgainstReferences', () => {
         [{ estimate: estimateAgent, chatAttempts: undefined }],
         DEFAULT_JUDGE_CONFIG,
       )(chat),
-    ).toMatchObject({ cents: 3750, basis: 'base-unread' })
+    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
     expect(
       priceAgainstReferences(
         [{ estimate: estimateAgent, chatAttempts: undefined }],
@@ -460,9 +460,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $808.00', () => {
+it('prices `all` at $829.00', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(80_800)
+  expect(total).toBe(82_900)
 })

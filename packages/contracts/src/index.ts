@@ -224,6 +224,9 @@ export {
   type CivicPanelBuildProgress,
   CivicPanelBuildPlanResponseSchema,
   type CivicPanelBuildPlanResponse,
+  CivicPanelBalanceSchema,
+  type CivicPanelBalance,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   PrepareCivicPanelBuildStepResponseSchema,
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
@@ -920,6 +923,13 @@ export {
   type PriorityResults,
   PriorityReadStatusSchema,
   type PriorityReadStatus,
+  ReadRepresentativenessSchema,
+  type ReadRepresentativeness,
+  UnderrepresentedGroupSchema,
+  type UnderrepresentedGroup,
+  UNDERREPRESENTED_GROUP_NAMES,
+  READ_REPRESENTATIVENESS_LABELS,
+  DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'

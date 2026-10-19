@@ -916,8 +916,8 @@ best-effort) so the cleanup sweep ABORTs it rather than leaving it in CallHub,
 flips the SPINE `Outreach.status → failed`
 (guarded on `pending|pending_payment`, best-effort, like `markSpineScheduled`), and
 emits `EVENTS.Robocall.SendFailed`. It logs a `CRITICAL robocall` line, which the
-`win-robocall-critical` alert (`deploy/components/alerts.ts`) matches to page the
-win-bugs group — that alert fires on ANY `CRITICAL robocall` log across the send
+`win-robocall-critical` alert (`deploy/components/alerts.ts`) matches to page —
+that alert fires on ANY `CRITICAL robocall` log across the send
 
 - settlement chain (send_failed, uncollectable capture, dial
   commit-miss, ETag mismatch, orphaned-hold), so every exceptional path surfaces to

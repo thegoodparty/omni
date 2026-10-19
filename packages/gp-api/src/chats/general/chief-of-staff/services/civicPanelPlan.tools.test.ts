@@ -11,6 +11,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
   progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  balance: null,
 }
 
 const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
@@ -32,6 +33,7 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     href: '/dashboard/contacts/citizens-panel?step=step-1',
   },
   progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
 })
 
 const buildPlans = (overrides: Partial<CivicPanelBuildPlanService> = {}) =>
@@ -68,7 +70,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(plans.updateHours).not.toHaveBeenCalled()
     expect(result).toEqual({
       saved: 'created',
@@ -78,6 +80,8 @@ describe('the civic panel plan tools', () => {
       expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Not yet representative',
+      inviteMoreNext: 'people 65 and over',
     })
     // Answered once, it is never asked again in the same turn.
     expect(await tools.ask_panel_weekly_time.execute({})).toHaveProperty(
@@ -92,7 +96,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 3,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 3)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      3,
+      'chief_of_staff',
+    )
     expect(plans.create).not.toHaveBeenCalled()
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 3 })
   })
@@ -111,7 +119,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 4,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 4)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      4,
+      'chief_of_staff',
+    )
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 4 })
   })
 
@@ -128,7 +140,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(result).toMatchObject({ saved: 'created' })
   })
 
@@ -191,6 +203,8 @@ describe('the civic panel plan tools', () => {
       expectedAnswers: 2,
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Not yet representative',
+      inviteMoreNext: 'people 65 and over',
     })
   })
 })

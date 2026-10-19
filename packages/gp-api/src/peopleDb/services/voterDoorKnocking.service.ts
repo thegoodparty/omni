@@ -13,6 +13,7 @@ import type { PeopleDataset } from './peopleDataset.service'
 import type {
   DbxEvaluateRow,
   DbxResidentRow,
+  DbxWalkableHouseholdRow,
 } from '../databricks/databricksVoterSql.util'
 import {
   mapAge,
@@ -30,6 +31,7 @@ import {
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
+  WalkableAreaDTO,
 } from '../schemas/doorKnocking.schema'
 
 // The eleven attributes the door shows for a target, through the same display
@@ -204,6 +206,21 @@ export class VoterDoorKnockingService {
       people: truncated ? rows.slice(0, dto.maxPeople) : rows,
     })
     return { people, truncated }
+  }
+
+  // The civic panel's door step: the households of its walkable area, chosen
+  // in the warehouse over every eligible household rather than from a capped
+  // first slice, so a large district is not picked from one corner of it.
+  async walkableArea(
+    dto: WalkableAreaDTO,
+    dataset: PeopleDataset,
+  ): Promise<DbxWalkableHouseholdRow[]> {
+    return this.readLog.measure({
+      op: 'dk-walkable-area',
+      districtId: dto.districtId,
+      dataset,
+      read: () => this.databricks.walkableAreaRows(dto, dataset),
+    })
   }
 
   async residents(

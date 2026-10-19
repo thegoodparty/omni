@@ -71,6 +71,8 @@ const step = (
   markedDone: null,
   reached: null,
   joined: null,
+  steeredToward: null,
+  landlineFirst: null,
   ...overrides,
 })
 
@@ -98,6 +100,7 @@ const planWith = (
     },
     next: nextStep,
     progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    balance: null,
   }
 }
 
@@ -125,6 +128,25 @@ beforeEach(() => {
 })
 
 describe('CivicPanelNextStepCard', () => {
+  it("shows the panel page's status and who to invite next", async () => {
+    const text = step({ id: 's-text', channel: 'text', targetSize: 3_150 })
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: {
+        ...planWith(text, 'Invite residents to your civic panel by text'),
+        balance: { status: 'gettingClose', inviteMore: 'unreachedAreas' },
+      },
+    })
+    render(<CivicPanelNextStepCard />)
+
+    expect(await screen.findByText('Getting close')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Invite more people in parts of your district we haven't reached next.",
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('opens the calls in the phone banking flow, not the panel page', async () => {
     const user = userEvent.setup()
     const calls = step({ id: 's-calls', channel: 'phone_banking' })
@@ -149,7 +171,7 @@ describe('CivicPanelNextStepCard', () => {
     expect(flow).toHaveAttribute('data-purpose', 'build_citizens_panel')
     expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
       'href',
-      '/dashboard/contacts/citizens-panel',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
     )
   })
 
@@ -194,7 +216,7 @@ describe('CivicPanelNextStepCard', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&launchSource=civic_panel',
       ),
     )
   })

@@ -15,7 +15,6 @@ import { scrubReason } from './sweepArm'
 // catches a name or a street address, which is why nothing public ever
 // renders this text: the report prints `errorClass` instead.
 const DETAIL_SHAPES: readonly [RegExp, string][] = [
-  [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[redacted token]'],
   [/\b(Bearer|Basic)\s+[\w.~+/-]+=*/gi, '$1 [redacted token]'],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, '[redacted key]'],
   // No leading word boundary: `aws_secret_access_key` has none before
