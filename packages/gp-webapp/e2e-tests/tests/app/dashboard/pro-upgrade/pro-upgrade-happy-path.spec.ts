@@ -1,4 +1,4 @@
-import { addYears, format } from 'date-fns'
+import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
 import {
   blockSlowScripts,
@@ -59,6 +59,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // never reuse the per-worker cached user. Default race (Cheyenne City Council
   // - Ward 1) is a local office, matching the manual run.
   const { user, client } = await authenticateTestUser(page, { isolated: true })
+
+  // Inside the 19-day texting cutoff SuccessStep swaps "Welcome to Pro!" for
+  // the closed-window screen, so keep the default Cheyenne race clear of it.
+  // The closed path is covered by pro-upgrade-v2-cutoff.spec.ts.
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+  })
 
   // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
   // the wizard.
