@@ -75,6 +75,7 @@ describe('VoterDoorKnockingService', () => {
   let databricks: {
     doorKnockingEvaluateRows: ReturnType<typeof vi.fn>
     doorKnockingResidentRows: ReturnType<typeof vi.fn>
+    walkableAreaRows: ReturnType<typeof vi.fn>
   }
   let readLog: { measure: ReturnType<typeof vi.fn> }
 
@@ -82,6 +83,7 @@ describe('VoterDoorKnockingService', () => {
     databricks = {
       doorKnockingEvaluateRows: vi.fn().mockResolvedValue([]),
       doorKnockingResidentRows: vi.fn().mockResolvedValue([]),
+      walkableAreaRows: vi.fn().mockResolvedValue([]),
     }
     readLog = { measure: vi.fn((args: MeasureArgs) => args.read()) }
     service = new VoterDoorKnockingService(
@@ -199,6 +201,31 @@ describe('VoterDoorKnockingService', () => {
         'voters',
         { requireRooftopAccuracy: false },
       )
+    })
+  })
+
+  describe('walkableArea', () => {
+    it('returns the doors the warehouse picked, measured on their own', async () => {
+      const door = {
+        lat: 41.8781,
+        lng: -87.6298,
+        personIds: [TARGET_ID, OTHER_ID],
+      }
+      databricks.walkableAreaRows.mockResolvedValueOnce([door])
+      const dto = {
+        districtId: DISTRICT_ID,
+        filters: { filters: [], filterValues: {}, filterOperators: {} },
+        households: 40,
+      }
+
+      const result = await service.walkableArea(dto as never, 'voters')
+
+      expect(result).toEqual([door])
+      expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
+        op: 'dk-walkable-area',
+        districtId: DISTRICT_ID,
+      })
+      expect(databricks.walkableAreaRows).toHaveBeenCalledWith(dto, 'voters')
     })
   })
 

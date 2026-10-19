@@ -91,7 +91,9 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   A step whose draw leans toward a group (the API's `steeredToward`) says
   so instead: a not-started text reads "This round invites more {group}."
   and a door step "A part of your district we haven't reached." before its
-  time; calls keep their line.
+  time. A call step whose round no longer puts landlines first (the API's
+  `landlineFirst` false, lean or not) reads "People a text can't reach."
+  without "landlines first".
 - **How your panel compares with your district** (`CivicPanelBalance.tsx`,
   under the plan, from the API's `balance`; hidden when it is null): the
   priority read's status label and dot (`READ_REPRESENTATIVENESS_LABELS`,

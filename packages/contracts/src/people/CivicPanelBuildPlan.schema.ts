@@ -173,6 +173,11 @@ export const CivicPanelBuildStepSchema = z.object({
   // panel has barely reached. Before the list is drawn, what it would lean
   // toward now; after, what it did. Null when it leans toward nobody.
   steeredToward: UnderrepresentedGroupSchema.nullable(),
+  // A call step's draw puts landlines first, or draws from every phone once
+  // the panel holds its share of people 65 and over. Before the list is
+  // drawn, what it would do now; after, what it did. Null for texts and
+  // doors.
+  landlineFirst: z.boolean().nullable(),
 })
 export type CivicPanelBuildStep = z.infer<typeof CivicPanelBuildStepSchema>
 

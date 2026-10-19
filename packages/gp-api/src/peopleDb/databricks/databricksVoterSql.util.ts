@@ -1086,6 +1086,78 @@ export const buildDoorKnockingEvaluateSql = (
   return { sql, params: bag.params }
 }
 
+const METERS_PER_DEGREE_LAT = 110_540
+const METERS_PER_DEGREE_LNG_AT_EQUATOR = 111_320
+
+// About two blocks: small enough that a cell and its neighbors are a walk,
+// big enough that a suburban street still fills one.
+const WALKABLE_CELL_METERS = 200
+
+// The densest walkable cluster of households, over every eligible household
+// in scope rather than a capped first slice of rows: a LIMIT without an
+// ORDER BY returns whichever rows Spark scans first, which follows file
+// layout and can sit in one corner of a large district. Households (by unit
+// key) go into ~200m cells on a grid scaled at their mean latitude; the cell
+// whose 3x3 neighborhood holds the most households is the seed (ties to the
+// lower `cx:cy` key, compared as text), and the households nearest the
+// mean position of that neighborhood's households are taken, closest first
+// and then by key, up to `households`. Only those doors leave the
+// warehouse: a position and resident ids each, no name or address.
+export const buildWalkableAreaSql = (
+  args: DbxScopeArgs & {
+    households: number
+    excludePersonIds?: readonly string[]
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const parts = [
+    buildScopeSql(bag, args),
+    `AND ${ROOFTOP_ONLY}`,
+    `AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`,
+  ]
+  const excluded = args.excludePersonIds ?? []
+  if (excluded.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
+  }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
+  }
+  const cell = WALKABLE_CELL_METERS
+  const sql =
+    `WITH points AS (SELECT ${col('id')} AS id, ${latDouble} AS lat,` +
+    ` ${lngDouble} AS lng, ${currentUnitKey()} AS addressKey` +
+    ` FROM ${args.district.table} v ${parts.join(' ')}),` +
+    ` homes AS (SELECT addressKey, min(lat) AS lat, min(lng) AS lng` +
+    ` FROM points GROUP BY addressKey),` +
+    ` grid AS (SELECT ${METERS_PER_DEGREE_LNG_AT_EQUATOR}` +
+    ` * cos(radians(avg(lat))) AS lngScale FROM homes),` +
+    ` placed AS (SELECT h.addressKey, h.lng * g.lngScale AS x,` +
+    ` h.lat * ${METERS_PER_DEGREE_LAT} AS y FROM homes h CROSS JOIN grid g),` +
+    ` cells AS (SELECT floor(x / ${cell}) AS cx, floor(y / ${cell}) AS cy,` +
+    ` count(*) AS n, sum(x) AS sx, sum(y) AS sy FROM placed` +
+    ` GROUP BY floor(x / ${cell}), floor(y / ${cell})),` +
+    ` spread AS (SELECT c.cx + ox.d AS kx, c.cy + oy.d AS ky, c.n, c.sx,` +
+    ` c.sy FROM cells c CROSS JOIN (VALUES (-1), (0), (1)) AS ox(d)` +
+    ` CROSS JOIN (VALUES (-1), (0), (1)) AS oy(d)),` +
+    ` scored AS (SELECT s.kx, s.ky, sum(s.n) AS score,` +
+    ` sum(s.sx) / sum(s.n) AS centerX, sum(s.sy) / sum(s.n) AS centerY` +
+    ` FROM spread s JOIN cells c ON c.cx = s.kx AND c.cy = s.ky` +
+    ` GROUP BY s.kx, s.ky),` +
+    ` seed AS (SELECT centerX, centerY FROM scored` +
+    ` ORDER BY score DESC, concat(kx, ':', ky) LIMIT 1),` +
+    ` picked AS (SELECT p.addressKey FROM placed p CROSS JOIN seed s` +
+    ` ORDER BY hypot(p.x - s.centerX, p.y - s.centerY), p.addressKey` +
+    ` LIMIT ${bag.bind(num(args.households), 'INT')})` +
+    ` SELECT min(p.lat) AS ${ident('lat')}, min(p.lng) AS ${ident('lng')},` +
+    ` concat_ws(',', array_sort(collect_list(p.id)))` +
+    ` AS ${ident('personIds')}` +
+    ` FROM points p JOIN picked k ON k.addressKey = p.addressKey` +
+    ` GROUP BY p.addressKey ORDER BY ${ident('personIds')}`
+  return { sql, params: bag.params }
+}
+
 // A route freezes all of its keys in one transaction, so a request carries
 // either the current three-column key or the legacy seven-column one, never a
 // mixture. The Postgres builder picks one expression for that reason and this
@@ -1261,6 +1333,12 @@ export type DbxEvaluateRow = {
   lng: number
   addressKey: string
   displayAddress: string
+}
+
+export type DbxWalkableHouseholdRow = {
+  lat: number
+  lng: number
+  personIds: string[]
 }
 
 export type DbxResidentRow = {

@@ -3,7 +3,6 @@ import { addDays, subDays } from 'date-fns'
 import {
   areaAround,
   nextStep,
-  pickWalkableArea,
   sizePanelWave,
   stepStatus,
   waveIsDue,
@@ -63,37 +62,7 @@ describe('sizePanelWave', () => {
   })
 })
 
-describe('pickWalkableArea', () => {
-  const at = (key: string, lat: number, lng: number) => ({
-    id: `${key}-person`,
-    lat,
-    lng,
-    addressKey: key,
-  })
-
-  it('takes the households nearest the densest cluster', () => {
-    const dense = Array.from({ length: 6 }, (_, i) =>
-      at(`dense-${i}`, 40 + i * 0.0002, -75),
-    )
-    const sparse = [at('far-1', 41, -76), at('far-2', 41.5, -76.5)]
-
-    const picked = pickWalkableArea([...sparse, ...dense], 4)
-
-    expect(picked).toHaveLength(4)
-    expect(picked.every((h) => h.lat < 40.01)).toBe(true)
-  })
-
-  it('groups the people of one household into one door', () => {
-    const picked = pickWalkableArea(
-      [
-        { id: 'a', lat: 40, lng: -75, addressKey: 'home' },
-        { id: 'b', lat: 40, lng: -75, addressKey: 'home' },
-      ],
-      5,
-    )
-    expect(picked).toEqual([{ lat: 40, lng: -75, personIds: ['a', 'b'] }])
-  })
-
+describe('areaAround', () => {
   it('draws a closed box around what it picked', () => {
     const area = areaAround([
       { lat: 40, lng: -75 },
