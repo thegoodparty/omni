@@ -48,7 +48,7 @@ describe('ElectionDbService', () => {
 
   it('sheds a saturated pool after 5s rather than queueing for 20s', async () => {
     await service.onModuleInit()
-    const options = clientOptions.mock.calls[0][0] as {
+    const options = clientOptions.mock.calls[0]?.[0] as {
       datasources: { db: { url: string } }
     }
     const url = new URL(options.datasources.db.url)
