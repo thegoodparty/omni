@@ -72,6 +72,7 @@ const step = (
   reached: null,
   joined: null,
   steeredToward: null,
+  landlineFirst: null,
   ...overrides,
 })
 

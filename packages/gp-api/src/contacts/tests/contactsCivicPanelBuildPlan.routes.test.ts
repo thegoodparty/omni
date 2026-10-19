@@ -639,6 +639,9 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
     // Landlines first, so the first call draw asks for landlines.
     const callDraw = draw.mock.calls[1]?.[0] as FilterArg
     expect(filterKeys(callDraw)).toContain('hasLandline')
+    expect(stepOf(await readPlan(slug), 'phone_banking').landlineFirst).toBe(
+      true,
+    )
     const textIds = await sampleIds(text.data.voterFileFilterId)
     expect(notInIds(callDraw)).toEqual(expect.arrayContaining(textIds))
     expect(doors.data).toMatchObject({
@@ -759,6 +762,8 @@ describe('steering the plan by census', () => {
       { channel: 'phone_banking', steeredToward: null },
       { channel: 'door_knocking', steeredToward: 'unreachedAreas' },
     ])
+    expect(stepOf(res, 'phone_banking').landlineFirst).toBe(true)
+    expect(stepOf(res, 'text').landlineFirst).toBeNull()
   })
 
   it('draws the text weighted toward the groups the panel trails', async () => {
@@ -803,6 +808,40 @@ describe('steering the plan by census', () => {
     expect(filterKeys(callDraw as FilterArg)).not.toContain('hasLandline')
     expect(filterKeys(callDraw as FilterArg)).toContain('hasAnyPhone')
     expect(callDraw?.weights?.age['18to64']).toBeGreaterThan(1)
+    const read = stepOf(await readPlan(slug), 'phone_banking')
+    expect(read.landlineFirst).toBe(false)
+    expect(read.steeredToward).toBe('age18to64')
+  })
+
+  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
+    // nobody trails by enough to lean toward.
+    stubMix([
+      members(9, { ageBand: '65plus', tract: TRACT_A }),
+      members(11, { tract: TRACT_A }),
+      members(16, { tract: TRACT_B }),
+      members(4, { tract: TRACT_C }),
+    ])
+    await joinPanel(slug, 40)
+    const plan = await createPlan(slug, 1)
+    expect(stepOf(plan, 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
+    const draw = stubDraws()
+
+    await prepare(slug, stepOf(plan, 'phone_banking').id)
+
+    expect(draw).toHaveBeenCalledTimes(1)
+    expect(filterKeys(draw.mock.calls[0]?.[0] as FilterArg)).not.toContain(
+      'hasLandline',
+    )
+    expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
+      landlineFirst: false,
+      steeredToward: null,
+    })
   })
 
   it('walks the tract the panel has reached least, or district-wide when it is too small', async () => {

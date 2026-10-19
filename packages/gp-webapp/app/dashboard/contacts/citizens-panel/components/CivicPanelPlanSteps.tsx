@@ -95,7 +95,7 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
   }
   const time = COPY.duration(minutesOf(step))
   if (calls) {
-    return step.steeredToward
+    return step.landlineFirst === false
       ? COPY.stepLean.phone_banking(time)
       : COPY.stepDetail.phone_banking(time)
   }

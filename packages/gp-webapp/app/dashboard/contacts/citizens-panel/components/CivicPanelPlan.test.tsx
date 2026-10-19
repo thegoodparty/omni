@@ -75,6 +75,7 @@ const step = (
   reached: null,
   joined: null,
   steeredToward: null,
+  landlineFirst: null,
   ...overrides,
 })
 
@@ -314,13 +315,22 @@ describe('the plan', () => {
   it('says landlines first on a call step only while its round puts them first', () => {
     renderPage(
       withPlan([
-        CALLS,
+        step({ ...CALLS, landlineFirst: true }),
         step({
           id: 'step-calls-2',
           wave: 2,
           channel: 'phone_banking',
           targetSize: 40,
+          landlineFirst: false,
           steeredToward: 'age18to64',
+        }),
+        step({
+          id: 'step-calls-3',
+          wave: 3,
+          channel: 'phone_banking',
+          targetSize: 50,
+          landlineFirst: false,
+          steeredToward: null,
         }),
       ]),
     )
@@ -330,11 +340,13 @@ describe('the plan', () => {
         "People a text can't reach, landlines first. About 2 hours of your time.",
       ),
     ).toBeInTheDocument()
-    expect(
-      within(rowOf('Call 40 residents')).getByText(
-        /^People a text can't reach\. About .+ of your time\.$/,
-      ),
-    ).toBeInTheDocument()
+    for (const title of ['Call 40 residents', 'Call 50 residents']) {
+      expect(
+        within(rowOf(title)).getByText(
+          /^People a text can't reach\. About .+ of your time\.$/,
+        ),
+      ).toBeInTheDocument()
+    }
   })
 
   it('checks off done steps at the bottom, a sent text included, and hides skipped ones', () => {

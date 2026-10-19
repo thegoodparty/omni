@@ -101,6 +101,7 @@ const STEP_SELECT = {
   markedDone: true,
   markedAt: true,
   steeredToward: true,
+  landlineFirst: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -506,6 +507,16 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
                 : status === 'not_started'
                   ? predictedLean(step.channel, steering)
                   : null,
+            landlineFirst:
+              step.channel !== CivicPanelBuildChannel.phone_banking
+                ? null
+                : step.voterFileFilterId !== null
+                  ? // Drawn before this was recorded: only a draw that
+                    // dropped landlines first could lean.
+                    (step.landlineFirst ?? step.steeredToward === null)
+                  : status === 'not_started'
+                    ? steering.landlineFirst
+                    : null,
             ...(await this.reachOf(organization, step, memberIds)),
           }
         }),
@@ -596,6 +607,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         voterFileFilterId: list.id,
         preparedAt: new Date(),
         steeredToward,
+        landlineFirst:
+          step.channel === CivicPanelBuildChannel.phone_banking
+            ? steering.landlineFirst
+            : null,
       },
     })
     if (claimed.count === 0) {

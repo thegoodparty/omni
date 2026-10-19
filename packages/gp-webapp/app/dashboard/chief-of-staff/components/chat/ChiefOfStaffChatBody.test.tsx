@@ -3076,6 +3076,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
               reached: null,
               joined: null,
               steeredToward: null,
+              landlineFirst: null,
             },
           ]
         : [],

@@ -951,7 +951,10 @@ once the panel's 65+ share reaches the census's, and draw weighted from
 the whole phone pool. Nothing leans below `PANEL_MIN_MEMBERS_FOR_BALANCE`
 (30) members, and the census is not read then. A step's
 `steeredToward` (`UnderrepresentedGroup`) is written when it is drawn;
-before that the read predicts it for a not-started step. A door step
+before that the read predicts it for a not-started step. A call step's
+`landlineFirst` (whether its draw put landlines first) is recorded and
+predicted the same way; a call step drawn before it was recorded reads
+true unless it leaned. A door step
 leaning toward `unreachedAreas` reads "Knock on doors in a part of your
 district we haven't reached" as its Next line. The response's `balance`
 (null when the census cannot be read) is the panel's one status, in the
