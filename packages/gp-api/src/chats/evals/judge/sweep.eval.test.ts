@@ -21,6 +21,7 @@ import {
   armDeps,
   backgroundRunInputFor,
   capturableAgents,
+  withRuntimeRefusals,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
 import {
@@ -94,19 +95,26 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
   it(
     'captures this arm of every selected agent and writes its manifest',
     async () => {
-      const env = parseArmEnv()
+      const parsed = parseArmEnv()
       // The budget this arm walks with — the sweep's, when the workflow
       // resolved one, so both arms agree. Handed to captureArm (attempts)
       // AND the case loader (the cap) from this one value.
-      const config = armConfigFor(env)
-      const store = storeFromEnv(env)
+      const config = armConfigFor(parsed)
+      const store = storeFromEnv(parsed)
       const ci = ciContextFromEnv()
       // ONE RUNTIME FOR THE ARM. Which one is JUDGE_ARM_RUNTIME's whole job:
       // unset or `inprocess` hands back the booted app this suite already
       // owns, and `http` builds a client for the deployed target out of the
       // origin and the Clerk session the mint step published. parseArmEnv
       // has already refused every combination neither can serve.
-      const chatRuntime = chatArmRuntimeFor(env, service)
+      const chatRuntime = chatArmRuntimeFor(parsed, service)
+      // AND THEN WHAT IT CANNOT DRIVE, decided here and once, so the loader
+      // and the final check below read one answer. Without it an HTTP arm
+      // that selected briefing_annotation refused every case correctly,
+      // skipped the agent, and then failed its own assertion because the
+      // capturable set still named it. The in-process runtime refuses
+      // nothing, so this returns the same env it was given.
+      const env = withRuntimeRefusals(parsed, chatRuntime)
 
       // ONE PAIR OF CLIENTS FOR THE ARM, not one per case. Built lazily so a
       // chat-only sweep never constructs them, and memoised so a 24-case

@@ -222,6 +222,69 @@ export const unsupportedText = (
   `${one.agentId}/${one.caseId} cannot be driven on the "${kind}" runtime: ` +
   reasons.join('; ')
 
+// WHAT ONE CASE SAYS, minus everything that is the ARM's setting rather than
+// the case's. A case list carries these three and nothing else a runtime
+// cares about.
+export type CaseDirectives = Pick<
+  DriveableCase,
+  'caseId' | 'accountState' | 'priorTranscript' | 'toolFailure'
+>
+
+export interface AgentDriveability {
+  agentId: string
+  scope: ChatScope
+  cases: readonly CaseDirectives[]
+  // The arm's settings, not the case's, passed so the question asked here is
+  // the same question asked per case rather than a narrower one.
+  script?: ChatTurnScript
+  realModel?: boolean
+  dataVersion?: string
+}
+
+// WHETHER THIS RUNTIME CAN DRIVE A WHOLE AGENT, decided BEFORE the sweep
+// plans it rather than per case while it walks.
+//
+// It CALLS `assertCanDrive`. There is deliberately no second statement of
+// what a runtime supports: a second list is a list that drifts, and the
+// failure mode of drift here is an arm that refuses a case the planner
+// counted — which is a red sweep for an arm that behaved correctly.
+//
+// ALL OR NOTHING, naming the first case that cannot be driven. An agent
+// whose list is part drivable could in principle be walked in part, but
+// `captureArm` has no per-case skip: the manifest records `cases` and the
+// walk asserts one record per case per attempt, so a partial walk would
+// either go red or quietly report a corpus nobody selected. Refusing the
+// agent says what happened in one line instead.
+export const runtimeRefusal = (
+  runtime: ChatArmRuntime,
+  request: AgentDriveability,
+): string | undefined => {
+  for (const one of request.cases) {
+    try {
+      runtime.assertCanDrive({
+        agentId: request.agentId,
+        caseId: one.caseId,
+        scope: request.scope,
+        ...(one.accountState && { accountState: one.accountState }),
+        ...(one.priorTranscript && { priorTranscript: one.priorTranscript }),
+        ...(one.toolFailure && { toolFailure: one.toolFailure }),
+        ...(request.script && { script: request.script }),
+        ...(request.realModel === true && { realModel: true }),
+        ...(request.dataVersion !== undefined && {
+          dataVersion: request.dataVersion,
+        }),
+      })
+    } catch (err) {
+      // Only the runtime's own refusal is an answer to this question.
+      // Anything else is a bug in the predicate and has to surface as one,
+      // not as an agent quietly dropped from the sweep.
+      if (err instanceof UnsupportedOnRuntimeError) return err.message
+      throw err
+    }
+  }
+  return undefined
+}
+
 // Compared as numbers: an axios status is a plain number, and comparing it
 // against the enum member directly is what no-unsafe-enum-comparison rejects.
 const HTTP_CREATED: number = HttpStatus.CREATED

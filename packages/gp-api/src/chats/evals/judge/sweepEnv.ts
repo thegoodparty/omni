@@ -409,6 +409,14 @@ export interface ArmEnv extends SweepEnv {
   armRuntime: ArmRuntimeKind
   // Present exactly when armRuntime is 'http'.
   targetBaseUrl?: string
+  // WHY each chat agent cannot be driven on that runtime, when any cannot.
+  // Not parsed from the environment — `withRuntimeRefusals` derives it from
+  // the runtime the arm built and the case lists it is about to walk, and
+  // injects it the way `withChatRefusals` injects `backgroundRefused` on a
+  // local run. Read by `refusedBeforeSpend` and by the case loader, so an
+  // agent this arm cannot drive is left out of the capturable set AND
+  // skipped by name instead of failing one case at a time.
+  chatRuntimeRefused?: ReadonlyMap<string, string>
 }
 
 export interface BackgroundDestination {

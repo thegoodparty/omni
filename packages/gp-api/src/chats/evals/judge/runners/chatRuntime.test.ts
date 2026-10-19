@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import type { TestServiceContext } from '@/test-service'
-import { inProcessChatRuntime, unsupportedText } from './chatRuntime'
+import {
+  UnsupportedOnRuntimeError,
+  inProcessChatRuntime,
+  runtimeRefusal,
+  unsupportedText,
+  type ChatArmRuntime,
+} from './chatRuntime'
 
 // The in-process runtime's real work needs the booted app, and
 // chat.integration.test.ts drives all of it through runChatCase. What is
@@ -61,5 +67,74 @@ describe('unsupportedText', () => {
       'chief_of_staff/case-1 cannot be driven on the "http" runtime: the ' +
         'first reason; the second reason',
     )
+  })
+})
+
+// ONE PREDICATE, ASKED IN TWO PLACES. The planner needs to know whether an
+// agent can be driven before it counts it; the runner needs to know whether
+// a case can be driven before it spends on it. `runtimeRefusal` is the
+// first of those and it CALLS the second, so there is no second list of
+// what a runtime supports to drift from the first.
+describe('runtimeRefusal', () => {
+  const cases = [
+    { caseId: 'plain' },
+    { caseId: 'seeded', priorTranscript: [{ role: 'user', content: 'hi' }] },
+  ] as const
+
+  it('refuses no agent in process, whatever its cases say', () => {
+    expect(
+      runtimeRefusal(runtime, {
+        agentId: 'chief_of_staff',
+        scope: ChatScope.chief_of_staff,
+        cases: [...cases],
+        realModel: true,
+      }),
+    ).toBeUndefined()
+  })
+
+  // Named by case, and by the FIRST one that cannot be driven: an agent is
+  // all or nothing here because captureArm has no per-case skip, so the
+  // useful thing to report is where to look rather than how many.
+  it('names the first case a runtime refuses', () => {
+    const refusing: ChatArmRuntime = {
+      ...runtime,
+      kind: 'http',
+      assertCanDrive: (one) => {
+        if (one.priorTranscript === undefined) return
+        throw new UnsupportedOnRuntimeError(
+          unsupportedText('http', one, ['no route writes one']),
+        )
+      },
+    }
+    expect(
+      runtimeRefusal(refusing, {
+        agentId: 'chief_of_staff',
+        scope: ChatScope.chief_of_staff,
+        cases: [...cases],
+        realModel: true,
+      }),
+    ).toBe(
+      'chief_of_staff/seeded cannot be driven on the "http" runtime: no ' +
+        'route writes one',
+    )
+  })
+
+  // A bug in the predicate has to surface as one. Swallowing it here would
+  // drop an agent from the sweep with a plausible-looking reason.
+  it('does not read any other error as a refusal', () => {
+    const broken: ChatArmRuntime = {
+      ...runtime,
+      assertCanDrive: () => {
+        throw new TypeError('cases is not iterable')
+      },
+    }
+    expect(() =>
+      runtimeRefusal(broken, {
+        agentId: 'chief_of_staff',
+        scope: ChatScope.chief_of_staff,
+        cases: [...cases],
+        realModel: true,
+      }),
+    ).toThrow(TypeError)
   })
 })
