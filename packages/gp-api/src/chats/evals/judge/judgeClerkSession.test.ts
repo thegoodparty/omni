@@ -10,7 +10,10 @@ import {
   parseJudgeClerkMintConfig,
   parseJudgeSessionFromEnv,
   sessionOutputLines,
+  resolveJudgeClerkUserId,
+  JUDGE_CLERK_EMAIL,
   type ClerkSessionApi,
+  type ClerkUserApi,
   type MintedSession,
   type SessionMinter,
 } from './judgeClerkSession'
@@ -41,24 +44,19 @@ describe('parseJudgeClerkMintConfig', () => {
     expect(config.ttlSeconds).toBe(7200)
   })
 
-  // THE ONE THAT HAS TO READ WELL. There is no judge Clerk user yet, so this
-  // is the first thing anyone wiring the step will see.
-  it('names the user id and says the account is made by hand', () => {
-    expect(() =>
+  // An absent id is the ordinary case now: the mint step resolves the
+  // account by email rather than waiting on someone to make one.
+  it('accepts a configuration with no user id', () => {
+    expect(
       parseJudgeClerkMintConfig({ [JUDGE_CLERK_ENV.secretKey]: SECRET_KEY }),
-    ).toThrow(
-      new RegExp(`${JUDGE_CLERK_ENV.userId} is not set.*dev instance`, 's'),
-    )
+    ).toEqual({ secretKey: SECRET_KEY, ttlSeconds: 4 * 60 * 60 })
   })
 
-  it.each([JUDGE_CLERK_ENV.secretKey, JUDGE_CLERK_ENV.userId])(
-    'names %s when it is blank',
-    (name) => {
-      expect(() => parseJudgeClerkMintConfig(mintEnv({ [name]: '' }))).toThrow(
-        `${name} is not set`,
-      )
-    },
-  )
+  it.each([JUDGE_CLERK_ENV.secretKey])('names %s when it is blank', (name) => {
+    expect(() => parseJudgeClerkMintConfig(mintEnv({ [name]: '' }))).toThrow(
+      `${name} is not set`,
+    )
+  })
 
   it.each([
     [JUDGE_CLERK_ENV.secretKey, 'pk_test_AbCdEf0123456789'],
@@ -96,6 +94,75 @@ const fakeClerk = (
   const getToken = vi.fn().mockResolvedValue({ jwt })
   return { sessions: { createSession, getToken }, createSession, getToken }
 }
+
+const userApi = (
+  found: { id: string }[],
+  created: { id: string } = { id: 'user_2zCreatedJudge' },
+): ClerkUserApi & { getUserList: Mock; createUser: Mock } => {
+  const getUserList = vi.fn().mockResolvedValue({ data: found })
+  const createUser = vi.fn().mockResolvedValue(created)
+  return { users: { getUserList, createUser }, getUserList, createUser }
+}
+
+describe('resolveJudgeClerkUserId', () => {
+  const config = { secretKey: SECRET_KEY, ttlSeconds: 3600 }
+
+  it('uses a configured id without asking Clerk at all', async () => {
+    const clerk = userApi([])
+
+    await expect(
+      resolveJudgeClerkUserId({ ...config, userId: USER_ID }, clerk, vi.fn()),
+    ).resolves.toBe(USER_ID)
+    expect(clerk.getUserList).not.toHaveBeenCalled()
+    expect(clerk.createUser).not.toHaveBeenCalled()
+  })
+
+  // The account is shared by every concurrent sweep on purpose. Creating one
+  // per run would burn the backend API budget every preview shares.
+  it('reuses the existing account rather than making a second', async () => {
+    const clerk = userApi([{ id: USER_ID }])
+
+    await expect(resolveJudgeClerkUserId(config, clerk, vi.fn())).resolves.toBe(
+      USER_ID,
+    )
+    expect(clerk.getUserList).toHaveBeenCalledWith({
+      emailAddress: [JUDGE_CLERK_EMAIL],
+      limit: 1,
+    })
+    expect(clerk.createUser).not.toHaveBeenCalled()
+  })
+
+  it('creates the account once when it is not there', async () => {
+    const clerk = userApi([])
+
+    await expect(resolveJudgeClerkUserId(config, clerk, vi.fn())).resolves.toBe(
+      'user_2zCreatedJudge',
+    )
+    expect(clerk.createUser).toHaveBeenCalledTimes(1)
+    expect(clerk.createUser.mock.calls[0]?.[0]).toMatchObject({
+      emailAddress: [JUDGE_CLERK_EMAIL],
+      skipPasswordChecks: true,
+    })
+  })
+
+  // The guard in src/judge compares the caller's email to this exact value
+  // and answers 404 on anything else, so an account under another address
+  // would authenticate and then be unable to read its own telemetry.
+  it('creates it under the address the access guard checks', () => {
+    expect(JUDGE_CLERK_EMAIL).toBe('judge-sweep@example.com')
+  })
+
+  it('never puts the generated password in a log line', async () => {
+    const lines: string[] = []
+    const clerk = userApi([])
+
+    await resolveJudgeClerkUserId(config, clerk, (line) => lines.push(line))
+
+    const password = clerk.createUser.mock.calls[0]?.[0].password as string
+    expect(password).toBeTruthy()
+    expect(lines.join('\n')).not.toContain(password)
+  })
+})
 
 describe('mintJudgeSession', () => {
   // The two calls headless-user.ts makes, for the reason its comment gives: a
