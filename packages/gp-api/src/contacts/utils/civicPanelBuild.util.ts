@@ -39,7 +39,7 @@ export const CHANNEL_ORDER: CivicPanelBuildChannel[] = [
 // How many asks it takes to expect `joins` yeses. Rounded to six places
 // first so float noise (94.5 / 0.03 = 3150.0000000000005) never asks one
 // more person than the math says.
-const asksFor = (joins: number, rate: number) =>
+export const asksFor = (joins: number, rate: number) =>
   Math.ceil(Number((joins / rate).toFixed(6)))
 
 // One wave, sized to the members still missing. Doors and calls spend about

@@ -75,16 +75,19 @@ import {
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
+  buildPoolCellsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   mapAcsCounts,
   mapCensusCompositionRows,
   mapGridCells,
+  mapPoolCells,
   mapRespondentCells,
   mapTractAdults,
   sampleWeightSql,
   type CensusCompositionRows,
+  type PoolCell,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -251,6 +254,24 @@ export class DatabricksVoterService {
       avgAge: row?.[1] == null ? null : Number(row[1]),
       avgIncome: row?.[2] == null ? null : Number(row[2]),
     })
+  }
+
+  async findPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<PoolCell[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildPoolCellsSql({
+        district,
+        filters: dto.filters,
+        search: dto.search,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
+      }),
+    )
+    return mapPoolCells(rows)
   }
 
   async getListDetailAggregates(

@@ -32,6 +32,7 @@ import {
   minAnswersForStatus,
   priorityReadStatus,
 } from '../util/priorityReadStatus.util'
+import type { WeightingCensus } from '../util/censusWeighting.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
   [OutreachType.text]: 'text',
@@ -269,6 +270,25 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       const district =
         await this.resolveContacts().resolveEligibleDistrict(organization)
       return await this.census.population(district)
+    } catch {
+      return null
+    }
+  }
+
+  // The district's census, for sizing a priority's first round of outreach.
+  // No district, or a census read that fails, is null: the caller sizes
+  // without it.
+  async districtCensus(
+    organization: Organization,
+  ): Promise<WeightingCensus | null> {
+    try {
+      const district =
+        await this.resolveContacts().resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      return inputs?.census ?? null
     } catch {
       return null
     }

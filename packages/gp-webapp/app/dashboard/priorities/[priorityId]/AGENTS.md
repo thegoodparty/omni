@@ -124,27 +124,28 @@ those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card.
 
-Behind `serve-citizen-panels` the default is one card instead
-(`buildCivicPanelFirstBlock`, "THE CIVIC PANEL COMES FIRST"): one text to
-the panel members who can be asked now (`civicPanelMember`, cell phone,
-`notContactedRecently`) plus a random group of residents not on the panel,
-with `civicPanelAsk` on so the new residents can reply JOIN. gp-api's
-`size_panel_ask` sizes both parts together (contracts' `sizePanelAsk`) for
-the district's `answersNeeded` (about 96): members at
-`PANEL_ASSUMED_REPLY_RATE` (40%), up to the members those answers take; new
-residents at `DEFAULT_TEXT_REPLY_RATE` (3%) for whatever the panel cannot
-give, capped by who the text reaches; and never fewer new residents than
-members asked, so every ask keeps growing the panel. With nobody on the
-panel to ask, the card is the new residents alone. The proposal carries both parts as one
-`sampleSize` with `panelSampleSize` inside it, over the shared criteria (cell
-phone, `notContactedRecently`), and the saved list freezes the union of the
-two draws. The targeted groups wait for that send's read
-(`read_outreach_feedback`): only a thin or one-sided read brings the most or
-least affected group, as its own card with `widensOutreachIds` set to
-every send the check has had; a thin read is never widened to more of the
-same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
-(`PriorityFlowHandler.proposalRefusal`), which is how the least affected
-group leaves out everyone the first send asked. The handler reads the panel
+Behind `serve-citizen-panels` the default is round one instead
+(`buildRoundOneBlock`, "ROUND ONE"; `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`):
+a door knocking, a phone banking and a text card for the same check, all
+side `main`, offered together in one turn, each a random sample of
+residents across the district not reached in the last 30 days
+(`notContactedRecently`, plus any phone for calls and a cell phone for the
+text). gp-api's `size_round_one` counts who each channel reaches by group
+and sizes the three (`sizeRoundOne`; see the
+contacts AGENTS.md, "Round 1 sizing"): doors and calls from the official's
+weekly hours on their panel plan, asked once with `ask_clarify_question`
+when there is no plan, and the text so every major group is expected to
+give at least 3 answers. The text carries `civicPanelAsk`; calls and doors
+close on the panel's join question as every Serve call and walk does. No
+new UI: each is an ordinary proposal card with `sampleSize`, so a door
+card's list is a random draw rather than a walkable area. The targeted
+groups wait for the round's read (`read_outreach_feedback`): only a thin or
+one-sided read brings the most or least affected group, as its own card
+with `widensOutreachIds` set to every send the check has had; a thin read
+is never widened to more of the same audience, and a side never offered is
+never recorded declined. A side not yet sent may name the other side's
+sends there (`PriorityFlowHandler.proposalRefusal`), which is how the least
+affected group leaves out everyone the first round asked. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
 panel" line, only with the flag on.
 

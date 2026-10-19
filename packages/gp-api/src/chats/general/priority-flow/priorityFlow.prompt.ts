@@ -1,5 +1,4 @@
 import {
-  CONTACT_REST_DAYS,
   GET_ANSWERS_MARKER,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
@@ -189,25 +188,25 @@ const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 
 const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.`
 
-// Behind serve-citizen-panels the first send of a check is the panel and a
-// fresh sample in one card, so the two targeted sides wait for its read.
+// Behind serve-citizen-panels the first round of a check is doors, calls and
+// a text across the district, so the two targeted sides wait for its read.
 const PANEL_FIRST_SIDES_RULE =
-  '- A check goes out first as one send, as THE CIVIC PANEL COMES FIRST says: the panel and as many residents not on it. That send is side main, and its who is the panel and new residents. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important.'
+  '- A check goes out first as one round, as ROUND ONE says: door knocking, a phone bank and a text, each to residents across the district. Every card of the round is side main, and its who is residents across the district. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important.'
 
 const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
 
 const PANEL_FIRST_TAKE_THE_ANSWER_RULE =
-  '- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take the card or not. A side that was never offered is never recorded declined: the least affected side waits for the read, so it stays as it is. The answers, all real:'
+  '- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take any of the cards in the round, or none. A side that was never offered is never recorded declined: the least affected side waits for the read, so it stays as it is. The answers, all real:'
 
 const YES_ANSWER_RULE = `  1. Yes. They send each side from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.`
 
 const PANEL_FIRST_YES_ANSWER_RULE =
-  '  1. Yes. They send it from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record nothing on the other side. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.'
+  '  1. Yes. They send each card from its button, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record nothing on the other side. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.'
 
 const NO_ANSWER_RULE = `  4. No. Record declined on both sides and move on. Do not argue for it, and never bring it up again.`
 
 const PANEL_FIRST_NO_ANSWER_RULE =
-  '  4. No. Record declined on the side whose card they passed on, never on a side that was not offered, and move on. Do not argue for it, and never bring it up again.'
+  '  4. No. Record declined on the side whose cards they passed on, only once they passed on every card of it, never on a side that was not offered, and move on. Do not argue for it, and never bring it up again.'
 
 const buildStageGateBlock = (
   has: (name: string) => boolean,
@@ -267,7 +266,7 @@ const buildCheckWorkBlock = (
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     panelFirst
-      ? '- The first send of a check is built as THE CIVIC PANEL COMES FIRST says. These steps are for a group that follows it, only once its read is thin or leans one way. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:'
+      ? '- The first round of a check is built as ROUND ONE says. These steps are for a group that follows it, only once its read is thin or leans one way. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:'
       : '- Only for a check the gap calls for, as above. Never ask whether to set it up, and never offer to go and find people. By the time you offer it, the work is done:',
     '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
     '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
@@ -300,30 +299,33 @@ const buildCheckWorkBlock = (
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask with ask_clarify_question whether to reach them another way, wait, or skip it.',
   ].join('\n')
 
-// The panel is the residents who asked to be asked, and every send grows it:
-// a check's first send asks the rested panel and a random group of residents
-// not on it, sized together for the answers a question needs
-// (size_panel_ask), in one card, with the join ask on. The targeted groups wait for that
-// send's read.
-const buildCivicPanelFirstBlock = (
-  members: number,
-  answersNeeded: number,
-): string =>
+// A check's first round goes out on every channel at once, each card a random
+// draw from the district, sized by size_round_one: doors and calls from the
+// official's weekly hours, the text so every major group is expected to
+// answer. One line per card, so a later round can add its own.
+const ROUND_ONE_CARDS = [
+  'door knocking, with what to say at the door as the message',
+  'phone banking, with the script a caller reads as the message',
+  'text, with the text as the message, and targetResponses, assumedReplyRate and civicPanelAsk as returned',
+]
+
+const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
   [
-    'THE CIVIC PANEL COMES FIRST',
-    members > 0
-      ? `- This official's civic panel has ${members.toLocaleString('en-US')} ${members === 1 ? 'person' : 'people'}: residents who said yes to being asked before decisions are made.`
-      : '- This official has nobody on their civic panel yet. Every send invites people to join it.',
-    '- When a check is warranted, offer ONE card, one text: the panel members who can be asked now, plus as many residents not on the panel, picked at random. Not the most or least affected groups: those come later, as the steps below say.',
-    `  1. Count everyone the text can reach with count_contacts: Has Cell Phone and notContactedRecently true, nothing else. That count is the card's count, and those two filters are its audienceFilters. notContactedRecently leaves out anyone the office reached in the last ${CONTACT_REST_DAYS} days, so never drop it, and never add civicPanelMember to audienceFilters.`,
-    '  2. Count the panel members who can be asked now with count_contacts: civicPanelMember true, Has Cell Phone and notContactedRecently true.',
-    `  3. Size the send with size_panel_ask: canReach is the count from step 1 and panelCanAsk the count from step 2. It sizes the panel part and the residents not on the panel together for about ${answersNeeded} answers, since people who asked to be asked answer far more often. Use its numbers as given: present the text with sampleSize, targetResponses and assumedReplyRate from it, panelSampleSize when it returned one (leave it out when it did not), and civicPanelAsk true. size_outreach_sample and HOW MANY PEOPLE TO ASK do not apply to this send. If it returns an error, say why in one line and do not present.`,
-    '  4. When reachesAnswersNeeded comes back false, say in one line that it may bring back fewer answers than a clear read needs, so the read is rougher.',
-    '  5. Either way: a short listName, an audience line in plain words (like "Your civic panel and residents across the district"), the question as the message, the stepId the check is on and side main. The flow adds the line inviting people to join, so never write it into the message.',
-    '- In your message, say in one line why the panel goes first: they asked to be asked. Say in one line that the same text invites new people to join. Say how many people get it. Never explain how the list is drawn or who was left out, and never say rotation, rested or sample sizing.',
-    '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which card is real.',
-    '- Once it is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
-    '- The panel chose itself, so it never stands in for everyone. Say so in one line when you report what it said.',
+    'ROUND ONE',
+    '- When a check is warranted, its first round goes out on every channel at once: door knocking, a phone bank and a text, each to residents across the district picked at random, offered together as cards in one turn. Not the most or least affected groups: those come later, as the steps below say.',
+    hoursPerWeek === null
+      ? '- How much time the official can give each week is not known yet. size_round_one says how to ask it.'
+      : `- The official gives ${hoursPerWeek} ${hoursPerWeek === 1 ? 'hour' : 'hours'} a week. size_round_one already knows it.`,
+    '  1. Size the round with size_round_one. It counts who each channel reaches and sizes every card, so count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for these cards. If it returns an error, follow what it says, and present nothing until it returns cards.',
+    '  2. Present every card it returns with present_outreach_proposal, in the order it returns them, each with its channel, audienceFilters, count and sampleSize exactly as returned:',
+    ...ROUND_ONE_CARDS.map((card) => `     - ${card}.`),
+    '  3. Every card gets the same question, adapted only to how it is asked, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). Every card invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into a message.',
+    '  4. A card it did not return is not needed this round. Say nothing about it.',
+    '  5. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
+    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many people each card goes to, its sampleSize. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
+    '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which cards are real.',
+    '- Once any card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
+    '- The people who answer chose to, so they never stand in for everyone. Say so in one line when you report what they said.',
   ].join('\n')
 
 const pct = (fraction: number): string => `${fraction * 100}%`
@@ -555,13 +557,12 @@ export const buildPriorityFlowSystemPrompt = (args: {
   const canFindGroup =
     has('describe_filter_dimensions') && has('count_contacts')
   // Behind serve-citizen-panels (civicPanelMembers is only read with it on),
-  // and only where the agent can count, size, present and read the one send.
+  // and only where the agent can count, size, present and read the round.
   const panelFirst =
     args.ctx.civicPanelMembers !== undefined &&
-    args.ctx.panelAnswersNeeded !== undefined &&
     canFindGroup &&
     has('present_outreach_proposal') &&
-    has('size_panel_ask') &&
+    has('size_round_one') &&
     has('read_outreach_feedback')
   return [
     ROLE_BLOCK,
@@ -578,12 +579,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildStageGateBlock(has, panelFirst),
     ...(canFindGroup ? [buildAffectednessBlock(panelFirst)] : []),
     ...(panelFirst
-      ? [
-          buildCivicPanelFirstBlock(
-            args.ctx.civicPanelMembers ?? 0,
-            args.ctx.panelAnswersNeeded ?? 0,
-          ),
-        ]
+      ? [buildRoundOneBlock(args.ctx.panelHoursPerWeek ?? null)]
       : []),
     ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has, panelFirst)]

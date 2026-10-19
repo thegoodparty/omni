@@ -119,7 +119,9 @@ export const weightingTargets = (census: WeightingCensus): RakingTargets => {
 export const MIN_KNOWN_RACE = 10
 export const MIN_KNOWN_RACE_SHARE = 0.7
 
-export const raceNameable = (cells: RespondentCell[]): boolean => {
+export const raceNameable = (
+  cells: Pick<RespondentCell, 'count' | 'race'>[],
+): boolean => {
   let total = 0
   let known = 0
   for (const cell of cells) {

@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import {
-  answersNeeded,
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
@@ -67,7 +66,7 @@ import {
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
-import { buildSizePanelAskTool } from '../chat-tools/sizePanelAsk.tool'
+import { buildSizeRoundOneTool } from '../chat-tools/sizeRoundOne.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -232,14 +231,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
-    // One census read serves both the panel sizing and the good read.
+    const panelHoursPerWeek = outreachFeedbackEnabled
+      ? await this.contextService.panelHoursPerWeek(ctx.electedOfficeId)
+      : undefined
     const population =
       outreachFeedbackEnabled && this.priorityResults
         ? await this.priorityResults.districtPopulation(ctx.organization)
         : null
-    const panelAnswersNeeded = outreachFeedbackEnabled
-      ? answersNeeded(population)
-      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -264,7 +262,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
-        panelAnswersNeeded,
+        panelHoursPerWeek,
         reportBacks,
         readStatus,
       }
@@ -273,7 +271,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       ...ctx,
       outreachFeedbackEnabled,
       civicPanelMembers,
-      panelAnswersNeeded,
+      panelHoursPerWeek,
       reportBacks,
       readStatus,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
@@ -512,8 +510,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     }
 
     if (ctx.outreachFeedbackEnabled) {
-      if (ctx.panelAnswersNeeded !== undefined) {
-        tools.size_panel_ask = buildSizePanelAskTool(ctx.panelAnswersNeeded)
+      if (this.contacts && this.priorityResults) {
+        tools.size_round_one = buildSizeRoundOneTool({
+          contacts: this.contacts,
+          priorityResults: this.priorityResults,
+          organization: ctx.organization,
+          planHoursPerWeek: ctx.panelHoursPerWeek ?? null,
+        })
       }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,

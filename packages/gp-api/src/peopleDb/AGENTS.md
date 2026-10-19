@@ -45,10 +45,13 @@ A priority's read weights its answers to the census
 `buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure,
 tract (the first 11 digits of `Census_Block_Group_Geoid`) and race (L2's
 `EthnicGroups_EthnicGroup1Desc` folded into the census categories),
-`buildDistrictTractAdultsSql` sums adults per tract, and
+`buildDistrictTractAdultsSql` sums adults per tract,
+`buildPoolCellsSql` counts everyone a filter matches by age band, gender,
+tract and race (who a channel can reach, for sizing a priority's first
+round, read through `VoterQueryService.getPoolCells`), and
 `buildTractGridCellsSql` returns the grid squares a set of tracts' people
 live in, from which gp-api draws the area a priority has not reached. All
-three return counts or square indexes, never a person. The civic panel reads
+of them return counts or square indexes, never a person. The civic panel reads
 the same cells for its members to steer its invites (see the contacts
 AGENTS.md, "Steering by census"); its door draws keep to one tract through
 the walkable-area read's `tract` (`tractSql`). The grid stands in

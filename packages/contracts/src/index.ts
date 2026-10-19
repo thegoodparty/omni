@@ -233,8 +233,6 @@ export {
 export {
   panelGoalMembers,
   panelExpectedAnswers,
-  sizePanelAsk,
-  type PanelAskSize,
   panelSeedSampleSize,
   PANEL_SEED_SAMPLE_SIZE,
 } from './people/PanelAnswers'

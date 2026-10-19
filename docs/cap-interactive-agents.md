@@ -226,6 +226,12 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   cannot resolve comes back as `planMade: false` with the reason. Ask refuses
   once a plan exists, so the question is never asked twice. See the contacts
   AGENTS.md, "Building the panel starts on the Chief of Staff home".
+- **`size_round_one`** — priority chat only, behind `serve-citizen-panels`
+  (`chat-tools/sizeRoundOne.tool.ts`). Counts who doors, calls and a text
+  can reach, group by group, and returns the three cards of a check's first
+  round already sized; the agent presents them with
+  `present_outreach_proposal` as given. See the contacts AGENTS.md, "Round
+  1 sizing".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers

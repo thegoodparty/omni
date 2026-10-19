@@ -3,9 +3,11 @@
 How a priority's answers become a read of the district, and who the next
 text goes to. Pure math lives in
 `packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
-`packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (who the
-round 2 text leans toward). Neither is wired to a route, a job or a send yet;
-this page says what they are for and what has to land before they are.
+`packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (how big
+round 1 is, and who the round 2 text leans toward). Round 1 sizing is wired
+to the priority chat; the model and round 2 are not wired to a route, a job
+or a send yet. This page says what they are for and what has to land before
+they are.
 
 ## Why
 
@@ -48,8 +50,12 @@ shows up. There is no round 3.
 this flow (Samuel, 2026-10-19, superseding the 2026-10-15 sizing). A major
 group holds 3% or more of the district on a steered dimension. Each needs
 three expected answers: invites to the group times the channel's assumed
-rate. Doors and calls take the official's hours as `sizePanelWave` splits
-them today; the text covers whatever groups the hours leave short.
+rate (doors 10%, calls 5%, a cold text 3%, placeholders until measured).
+Doors and calls take the official's hours as `sizePanelWave` splits them;
+the text covers whatever groups the hours leave short, capped by the
+reachable cell phones. The priority chat proposes all three as cards at
+once (`size_round_one`, `sizeRoundOne`; detail in the contacts AGENTS.md,
+"Round 1 sizing").
 
 **Coding answers.** Replies stay free text. An AI classifier reads each
 reply against the question and records yes, no or mixed, plus "not an
@@ -111,13 +117,12 @@ model feeds the shapes the page already reads:
    `responded`).
 2. **Shadow run.** Fit the model on existing priorities and compare it with
    the raked read, internally only.
-3. **Round 1 sizing** by coverage, above.
-4. **Round 2 scheduling.** A send created and paid for at setup with no
+3. **Round 2 scheduling.** A send created and paid for at setup with no
    list, and a job on its date that fits, ranks, draws and hands it off.
    Today a Serve send freezes its list at checkout and goes to staff review
    on payment; round 2 needs the review to cover the message at setup and
    the list drawn later.
-5. **The results page** reading the model, above.
+4. **The results page** reading the model, above.
 
 Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
 1"): with one scheduled send there is no reply loop to speed up.

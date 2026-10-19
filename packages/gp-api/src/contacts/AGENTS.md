@@ -877,10 +877,12 @@ it is the uncorrected 96. The panel's own math is in
 `ContactsService.getDistrictPopulation` reads the population
 (`StatsService.findDistrictPopulation`, the census mart's
 `district_population` on its own, without the voter scan) and folds any
-failure into null. The priority flow and the Chief of Staff chat read it
-instead through `PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hand the figure to
-both their panel sizing and `readStatuses`.
+failure into null. The Chief of Staff chat reads it instead through
+`PriorityResultsService.districtPopulation` (the memoized
+`CensusCompositionSource.population`), once per turn, and hands the figure
+to both its panel sizing and `readStatuses`; the priority flow reads it the
+same way for `readStatuses` alone. A priority's checks are not sized in
+answers: see "Round 1 sizing" below.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
@@ -996,6 +998,31 @@ priority read's labels: `tooEarly` under 30 members; with `D` the largest
 `representative` at it. `inviteMore` is the group trailing furthest by the
 priority read's rule (at least 5 points), null once representative. The
 official never sees a share, weight or target.
+
+**Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
+Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+A priority check's first round, which the priority chat proposes as a door,
+a call and a text card at once (`size_round_one`,
+`chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
+`MAJOR_GROUP_SHARE` (3%) or more of the district on a steered dimension:
+age band, tract, race only when `raceNameable` holds for the door pool,
+gender once the census publishes it, never `other`. District shares are
+`weightingTargets` of the census (`PriorityResultsService.districtCensus`),
+or the door pool's own mix when the census cannot be read. Each channel's
+pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,
+peopleDb `buildPoolCellsSql`, counts only): `notContactedRecently` for
+doors, plus `hasAnyPhone` for calls and `hasCellPhone` for the text. Doors
+and calls take the official's weekly hours exactly as `sizePanelWave` splits
+them, uncapped by any member gap; the hours are the active plan's, or the
+official's answer in the chat. A group's expected answers are the invites
+reaching it on each channel (the channel's size times the group's share of
+its pool) times that channel's answer rate: `DOOR_ANSWER_RATE` 10%,
+`CALL_ANSWER_RATE` 5%, `TEXT_ANSWER_RATE` 3%, placeholders until offices
+measure them. The text is the most any short group needs to reach
+`MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
+by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
+phone reaches does not size it. The tool says whether every major group
+reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, not wired
 yet). Leans a priority's round 2 text, drawn on its scheduled date, toward

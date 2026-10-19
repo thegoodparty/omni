@@ -8,6 +8,7 @@ import {
   tractSql,
   type Bag,
   type DbxDistrict,
+  type DbxScopeArgs,
   type DbxStatement,
 } from './databricksVoterSql.util'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -289,6 +290,20 @@ export const buildRespondentCellsSql = (
   return { sql, params: bag.params }
 }
 
+// How many of the people a scope matches share each age band, gender,
+// tract and race: counts per combination, never a person. Unknowns stay
+// NULL.
+export const buildPoolCellsSql = (args: DbxScopeArgs): DbxStatement => {
+  const bag = createBag()
+  const tract = `substr(${col(BLOCK_GROUP_GEOID_COLUMN)}, 1, ${TRACT_GEOID_LENGTH})`
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tract} AS tract, ${raceSql()} AS race, count(*) AS people` +
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
 // Adults per tract, over the block groups the district's people live in.
 // A block group straddling the district line counts whole: the district
 // mart's own split is not published per block group.
@@ -316,6 +331,22 @@ const RespondentCellSchema = RespondentProfileSchema.extend({
   count: z.number().int().positive(),
 })
 export type RespondentCell = z.infer<typeof RespondentCellSchema>
+
+const PoolCellSchema = RespondentCellSchema.omit({ tenure: true })
+export type PoolCell = z.infer<typeof PoolCellSchema>
+
+export const mapPoolCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): PoolCell[] =>
+  rows.map(([ageBand, gender, tract, race, people]) =>
+    PoolCellSchema.parse({
+      ageBand,
+      gender,
+      tract,
+      race,
+      count: Number(people),
+    }),
+  )
 
 export interface WeightingInputs {
   // Null when the mart has no row for the district.

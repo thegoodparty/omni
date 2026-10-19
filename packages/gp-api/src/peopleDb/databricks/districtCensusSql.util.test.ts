@@ -6,6 +6,7 @@ import {
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
+  buildPoolCellsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
@@ -13,11 +14,13 @@ import {
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapCensusCompositionRows,
   mapGridCells,
+  mapPoolCells,
   mapRespondentCells,
   mapTractAdults,
   sampleWeightSql,
 } from './districtCensusSql.util'
 import { createBag, type DbxDistrict } from './databricksVoterSql.util'
+import { filtersSchema } from '../schemas/filters.schema'
 
 const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
 
@@ -229,6 +232,50 @@ describe('buildRespondentCellsSql', () => {
     expect(sql).toContain("THEN '65plus'")
     expect(sql).toContain("THEN 'renter'")
     expect(sql).not.toMatch(/FirstName|LastName|Phone|Address/)
+  })
+})
+
+describe('buildPoolCellsSql', () => {
+  it('counts the people a filter matches per age band, gender, tract and race', () => {
+    const { sql, params } = buildPoolCellsSql({
+      district: DISTRICT,
+      filters: filtersSchema.parse({
+        hasCellPhone: true,
+        id: { notIn: [PERSON_ID] },
+      }),
+    })
+
+    expect(sql).toMatch(
+      /^SELECT CASE WHEN .* AS age_band, CASE WHEN .* AS gender, substr\(v\.`Census_Block_Group_Geoid`, 1, 11\) AS tract, CASE WHEN .* AS race, count\(\*\) AS people FROM /,
+    )
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE v.\`State\` = :p0`)
+    expect(sql).toContain('v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL')
+    expect(sql).toContain("= 'Likely African-American' THEN 'black'")
+    expect(sql.endsWith(' GROUP BY 1, 2, 3, 4')).toBe(true)
+    expect(sql).not.toContain('tenure')
+    expect(sql).not.toMatch(/FirstName|LastName|AddressLine/)
+    expect(params[0]).toEqual({ name: 'p0', value: 'WA', type: 'STRING' })
+    expect(sql).toContain(PERSON_ID)
+  })
+})
+
+describe('mapPoolCells', () => {
+  it('keeps unknowns as null and counts as numbers', () => {
+    expect(
+      mapPoolCells([
+        ['18to64', 'male', '53017950100', 'hispanic', '12'],
+        [null, null, null, null, '3'],
+      ]),
+    ).toEqual([
+      {
+        ageBand: '18to64',
+        gender: 'male',
+        tract: '53017950100',
+        race: 'hispanic',
+        count: 12,
+      },
+      { ageBand: null, gender: null, tract: null, race: null, count: 3 },
+    ])
   })
 })
 
