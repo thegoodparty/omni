@@ -17,6 +17,8 @@ import {
   type MockActionResponse,
   type MockRecordsResponse,
   type RunJobResponse,
+  type TimeTravel,
+  type TimeTravelResponse,
   DeleteTestFixtureUsersResponse,
   TestFixtureSessionResponse,
   TestFixtureUserResponse,
@@ -31,7 +33,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { addSeconds, differenceInMilliseconds, formatISO } from 'date-fns'
+import {
+  addSeconds,
+  differenceInMilliseconds,
+  formatISO,
+  subHours,
+} from 'date-fns'
 import { User } from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
@@ -292,6 +299,8 @@ export class TestFixturesService {
     const { campaignId, action } = body
     if (action === 'geoapify.route.fail') {
       await this.vendorMockRecord.armRouteFail(campaignId)
+    } else if (action === 'callhub.campaign.complete') {
+      await this.vendorMockRecord.completeCallhubCampaign(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
@@ -299,8 +308,65 @@ export class TestFixturesService {
   }
 
   async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
-    const records = await this.vendorMockRecord.findByCampaign(campaignId)
-    return { vendorMode: VENDOR_MODE, records }
+    const [campaignRecords, callhubRecords] = await Promise.all([
+      this.vendorMockRecord.findByCampaign(campaignId),
+      this.vendorMockRecord.findCallhubForCampaign(campaignId),
+    ])
+    return {
+      vendorMode: VENDOR_MODE,
+      records: [...campaignRecords, ...callhubRecords],
+    }
+  }
+
+  async timeTravel(
+    body: TimeTravel,
+    userId: number,
+  ): Promise<TimeTravelResponse> {
+    const outreach = await this.campaigns.client.outreach.findUnique({
+      where: { id: body.outreachId },
+      include: { robocall: true },
+    })
+    if (!outreach || !outreach.campaignId) throw new NotFoundException()
+    const campaign = await this.campaigns.findFirst({
+      where: { id: outreach.campaignId },
+    })
+    if (!campaign) throw new NotFoundException()
+    if (campaign.userId !== userId) throw new ForbiddenException()
+
+    let date = outreach.date
+    let dialedAt = outreach.robocall?.dialedAt ?? null
+    let poolFreedAt = outreach.robocall?.poolFreedAt ?? null
+
+    if (body.action === 'robocall.send_due_now') {
+      const now = new Date()
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { date: now },
+      })
+      date = now
+    } else if (body.action === 'robocall.dialed_48h_ago') {
+      const backdated = subHours(new Date(), 49)
+      await this.campaigns.client.outreachRobocall.update({
+        where: { outreachId: outreach.id },
+        data: { dialedAt: backdated, poolFreedAt: backdated },
+      })
+      dialedAt = backdated
+      poolFreedAt = backdated
+    } else if (body.action === 'sms.start_date_today') {
+      const now = new Date()
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { date: now },
+      })
+      date = now
+    }
+
+    return {
+      outreachId: outreach.id,
+      date: date ? formatISO(date) : null,
+      dialedAt: dialedAt ? formatISO(dialedAt) : null,
+      poolFreedAt: poolFreedAt ? formatISO(poolFreedAt) : null,
+    }
   }
 
   async runJob(name: string): Promise<RunJobResponse> {
