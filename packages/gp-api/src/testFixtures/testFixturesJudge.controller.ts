@@ -13,7 +13,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
-import { CaseListError } from '@/chats/evals/judge/cases'
+import { CaseListError } from './judgeChatFixture/accountState'
 import { User } from '@/generated/prisma'
 import {
   JudgeChatCaseResponseSchema,

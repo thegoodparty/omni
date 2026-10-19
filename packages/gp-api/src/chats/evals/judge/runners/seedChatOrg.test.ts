@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatAccountState } from '../cases'
+import type { ChatAccountState } from '@/testFixtures/judgeChatFixture/accountState'
 import { ChatScope } from '../../../../generated/prisma'
 import {
   assertAccountStateSupported,
   chatOrgSlug,
   chatScopeFor,
   seedOptionsFor,
-} from './seedChatOrg'
+} from '@/testFixtures/judgeChatFixture/seed'
 
 // The runner resolves a handler straight from the agent id, so a scope
 // missing from this map is an agent the judge lists and cannot drive.

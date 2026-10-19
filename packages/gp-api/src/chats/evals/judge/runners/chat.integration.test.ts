@@ -12,7 +12,11 @@ import {
 } from './chat'
 import { CaseListError } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
-import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
+import { seedChatOrg } from './seedChatOrg'
+import {
+  chatOrgSlug,
+  seedOptionsFor,
+} from '@/testFixtures/judgeChatFixture/seed'
 import {
   AnnotationKind,
   ChatMessageRole,
@@ -26,12 +30,12 @@ import {
 import { ElectionsService } from '@/elections/services/elections.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { BriefingAnnotationHandler } from '@/chats/briefing-chats/briefingAnnotation.handler'
-import { JUDGE_POSITION } from './seedChatOrg'
+import { JUDGE_POSITION } from '@/testFixtures/judgeChatFixture/seed'
+import { JUDGE_BRIEFING_TODAY } from './briefingFixture'
 import {
-  JUDGE_BRIEFING_TODAY,
   JUDGE_HIGHLIGHT_ANCHOR,
   TOP_LEVEL_ANCHOR,
-} from './briefingFixture'
+} from '@/testFixtures/judgeChatFixture/briefingRows'
 
 // The chat runner against the real app: real routes, real scope handlers, real
 // stream service, real tools, a throwaway Postgres — and a canned model, so

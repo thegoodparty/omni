@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   chatOrgSlug,
-  removeChatOrgFixture,
   seedChatOrgRows,
   seedOptionsFor,
   type SeededChatOrg,
-} from '@/chats/evals/judge/runners/seedChatOrg'
+} from '../judgeChatFixture/seed'
+import { removeChatOrgFixture } from '../judgeChatFixture/teardown'
 import type { SetUpJudgeChatCaseInput } from '../schemas/judgeChatFixture.schema'
 
 // The judge's chat fixture, prepared over HTTP for an arm that runs against a

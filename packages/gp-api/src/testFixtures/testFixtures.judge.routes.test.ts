@@ -1,9 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  CHAT_AGENT_IDS,
-  chatOrgSlug,
-} from '@/chats/evals/judge/runners/seedChatOrg'
+import { CHAT_AGENT_IDS, chatOrgSlug } from './judgeChatFixture/seed'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))

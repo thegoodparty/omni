@@ -1,11 +1,8 @@
 import { z } from 'zod'
 import { ChatAnchorSchema } from '@goodparty_org/contracts'
 import { createBriefingChatSchema } from '@/chats/briefing-chats/schemas/CreateBriefingChat.schema'
-import { ChatAccountStateSchema } from '@/chats/evals/judge/cases'
-import {
-  CHAT_AGENT_IDS,
-  JUDGE_ORG_SLUG_PREFIX,
-} from '@/chats/evals/judge/runners/seedChatOrg'
+import { ChatAccountStateSchema } from '../judgeChatFixture/accountState'
+import { CHAT_AGENT_IDS, JUDGE_ORG_SLUG_PREFIX } from '../judgeChatFixture/seed'
 
 export const SetUpJudgeChatCaseSchema = z
   .object({

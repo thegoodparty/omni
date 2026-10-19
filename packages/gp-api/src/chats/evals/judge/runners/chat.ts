@@ -58,10 +58,10 @@ import {
   assertAccountStateSupported,
   chatScopeFor,
   type BriefingChatTarget,
-} from './seedChatOrg'
+} from '@/testFixtures/judgeChatFixture/seed'
+import { JUDGE_BRIEFING_BUCKET } from '@/testFixtures/judgeChatFixture/briefingRows'
 import {
   JUDGE_BRIEFING_ARTIFACT,
-  JUDGE_BRIEFING_BUCKET,
   JUDGE_BRIEFING_TODAY,
 } from './briefingFixture'
 import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'

@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CaseListError } from '@/chats/evals/judge/cases'
+import { CaseListError } from './judgeChatFixture/accountState'
 import { User } from '@/generated/prisma'
 import { TestFixturesJudgeController } from './testFixturesJudge.controller'
 import { JudgeChatFixtureService } from './services/judgeChatFixture.service'
