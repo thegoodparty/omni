@@ -378,6 +378,9 @@ an automatic-capture one) still defers. Hold checkouts take promotion codes
 like every other checkout: Stripe takes the code off the hold, and
 `outreachP2pSmsHold.service.ts` records the discount (or, for a code that
 covered everything, a send with no hold) — see `outreach/AGENTS.md`.
+`createCheckoutSession` returns `isHold` so the webapp's review step knows the
+amount is the undiscounted hold and shows the free texts off it, as capture
+will.
 
 A promotion code that covers the whole order completes checkout with no
 PaymentIntent and `payment_status: paid` (what Stripe test mode returned
