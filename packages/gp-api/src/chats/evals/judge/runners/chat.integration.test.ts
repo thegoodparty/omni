@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
 import { instrumentDatabricksProvider, type ChatTurnScript } from './chatSeam'
+import { inProcessChatRuntime } from './chatRuntime'
 import {
   ChatDirectiveError,
   TOOL_BUDGET_FALLBACK_REPLY,
@@ -103,7 +104,7 @@ const runFor = async (
     seedOptionsFor(agentId, overrides.case?.accountState),
   )
   return runChatCase(
-    { service },
+    inProcessChatRuntime(service),
     request({
       agentId,
       organizationSlug: seeded.organizationSlug,
@@ -324,7 +325,7 @@ describe('runChatCase', () => {
     'reports a harness failure as infraError with no output',
     async () => {
       const record = await runChatCase(
-        { service },
+        inProcessChatRuntime(service),
         request({
           agentId: 'chief_of_staff',
           organizationSlug: 'judge-org-that-does-not-exist',
@@ -407,7 +408,7 @@ describe('runChatCase', () => {
       // handed in: this unwind is on the path every case takes.
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'chief_of_staff',
             organizationSlug: 'judge-unused',
@@ -434,7 +435,7 @@ describe('runChatCase', () => {
     async () => {
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'ordinance_flow',
             organizationSlug: 'judge-unused',
@@ -463,7 +464,7 @@ describe('runChatCase', () => {
     async () => {
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             // A real registry agent, but a background one: no scope handler
             // answers for it.
@@ -918,7 +919,7 @@ describe('runChatCase', () => {
 
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'campaign_assistant',
             organizationSlug: seeded.organizationSlug,
@@ -1027,7 +1028,7 @@ describe('runChatCase', () => {
 
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'ordinance_flow',
             organizationSlug: seeded.organizationSlug,
@@ -1330,7 +1331,7 @@ describe('runChatCase on briefing chat', () => {
       )
       await expect(
         runChatCase(
-          { service },
+          inProcessChatRuntime(service),
           request({
             agentId: 'briefing_annotation',
             organizationSlug: seeded.organizationSlug,
@@ -1359,7 +1360,7 @@ describe('runChatCase on briefing chat', () => {
         'unnamed',
       )
       const record = await runChatCase(
-        { service },
+        inProcessChatRuntime(service),
         request({
           agentId: 'briefing_annotation',
           organizationSlug: seeded.organizationSlug,
