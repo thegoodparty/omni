@@ -33,7 +33,3 @@ A voter who tends to vote early is the person to ask to vote early, whether or n
 - Mirror the election-day (GOTV) universes instead of narrowing the existing early-vote ones.
 - Gate the lists everywhere by date: a candidate who chooses the early-voting purpose should get them whenever they ask.
 - Have Start outreach on the early-vote task preselect an early-vote list: every other task opens the purpose step, and that step already leads to the early-vote lists.
-
-## In their words
-
-"Ideally we should only surface it when early vote for that specific campaign is open; and during that period (start up early vote until 2 days before eday) it should be lower than "introduce and support ID", but higher than "persuade" recommendations." and "So just to confirm, in the three early vote lists, the generic GOTV vote propensity is replaced by early vote likelihood NOT in addition to, right?" and "let's NOT narrow the supporters early vote list. We should just encourage all supporters to vote early even if it's new for them!" and, on Start outreach, "there's no reason to point it to a list right?" (agent session with @nigel-gp, 2026-10-16)
