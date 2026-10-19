@@ -49,7 +49,7 @@ export function DistrictPicker({
   const [selectedName, setSelectedName] = useState<string>(
     initialL2DistrictName ?? SELECT_NONE
   )
-  const [loadingTypes, setLoadingTypes] = useState(false)
+  const [loadingTypes, setLoadingTypes] = useState(true)
   const [loadingNames, setLoadingNames] = useState(false)
   const [saving, setSaving] = useState(false)
   const [excludeInvalid, setExcludeInvalid] = useState(defaultExcludeInvalid)
@@ -201,6 +201,15 @@ export function DistrictPicker({
             </Select.Root>
           </Box>
         </Flex>
+
+        {!loadingTypes && types.length === 0 && (
+          <Text size="2" color="gray">
+            No districts found for {state} {electionYear}
+            {excludeInvalid
+              ? '. Tick "Show all districts" below to include districts without projected turnout.'
+              : '. The district may not be loaded upstream yet.'}
+          </Text>
+        )}
 
         <Flex align="center" gap="2">
           <Checkbox
