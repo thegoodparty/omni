@@ -8,6 +8,7 @@ import {
   DEFAULT_JUDGE_CONFIG,
   MAX_LIST_ATTEMPTS_PER_CASE,
   SPEND_ENV,
+  SPEND_VALUE,
   spendsRealMoney,
   type JudgeConfig,
   type ShapeBudget,
@@ -124,6 +125,71 @@ const BLANK_IS_UNSET = z
 // two things nothing proved were different.
 export const SELECTION_ENV = 'JUDGE_SELECTION'
 export const EXPLICIT_SELECTION = 'explicit'
+
+// WHERE THIS ARM DRIVES THE CHAT AGENT: in its own process, or over HTTP
+// against a deployed gp-api. See runners/chatRuntime.ts for the seam the two
+// implement and for the list of directives only the in-process one can
+// honour.
+//
+// Unset is `inprocess` and `inprocess` is byte-for-byte what every arm did
+// before this variable existed, so a workflow that never sets it is
+// unaffected. Anything else is a typo, and a typo that fell back to the
+// default would capture a whole arm in the wrong process and report it as a
+// verdict — which is why this is the one judge variable where a garbled
+// value is fatal rather than read as "no".
+export const ARM_RUNTIME_ENV = 'JUDGE_ARM_RUNTIME'
+export const ARM_RUNTIME_KINDS = ['inprocess', 'http'] as const
+export type ArmRuntimeKind = (typeof ARM_RUNTIME_KINDS)[number]
+export const ARM_RUNTIME_DEFAULT: ArmRuntimeKind = 'inprocess'
+
+const isArmRuntimeKind = (value: string): value is ArmRuntimeKind =>
+  ARM_RUNTIME_KINDS.some((kind) => kind === value)
+
+// Hand-written rather than a z.enum, for the reason positiveInt is: the
+// sentence has to name the variable, quote what it was given and list what
+// it accepts, and zod's enum message carries only the last of the three.
+const armRuntimeFrom = (raw: string | undefined): ArmRuntimeKind => {
+  if (raw === undefined) return ARM_RUNTIME_DEFAULT
+  if (isArmRuntimeKind(raw)) return raw
+  throw new SweepEnvError(
+    `${ARM_RUNTIME_ENV} is "${raw}", which is not a runtime an arm can be ` +
+      'driven on; set it to ' +
+      ARM_RUNTIME_KINDS.map((kind) => `"${kind}"`).join(' or ') +
+      `, or leave it unset for "${ARM_RUNTIME_DEFAULT}"`,
+  )
+}
+
+// WHERE AN HTTP ARM POINTS. Required by that runtime and meaningless to the
+// in-process one, so it is checked only when the runtime asked for it —
+// an origin set on an in-process arm is a leftover, not a failure.
+export const TARGET_BASE_URL_ENV = 'JUDGE_TARGET_BASE_URL'
+
+const targetBaseUrlFrom = (raw: string | undefined): string => {
+  if (raw === undefined) {
+    throw new SweepEnvError(
+      `${ARM_RUNTIME_ENV} is "http", so this arm drives a deployed gp-api ` +
+        `and needs its origin in ${TARGET_BASE_URL_ENV}; the preview's URL ` +
+        'is what the deploy step publishes',
+    )
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new SweepEnvError(
+      `${TARGET_BASE_URL_ENV} is "${raw}", which is not a URL`,
+    )
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new SweepEnvError(
+      `${TARGET_BASE_URL_ENV} is "${raw}", whose scheme is not http or https`,
+    )
+  }
+  // Trailing slash removed here rather than at every join: the paths the
+  // runner builds all start with one, and `//v1/chats` is a different route
+  // to some proxies and the same one to others.
+  return raw.replace(/\/+$/, '')
+}
 
 const PR_NUMBER = z
   .string()
@@ -243,6 +309,11 @@ const ArmEnvSchema = SweepEnvSchema.extend({
   // timeout is otherwise its own ref's constant, so a branch that raised it
   // would admit an agent the base arm is then killed partway through.
   JUDGE_ARM_BUDGET_MS: BLANK_IS_UNSET,
+  // Both BLANK_IS_UNSET and both validated by hand below, because the pair
+  // only makes sense together: the origin is required by one runtime and
+  // ignored by the other.
+  [ARM_RUNTIME_ENV]: BLANK_IS_UNSET,
+  [TARGET_BASE_URL_ENV]: BLANK_IS_UNSET,
 })
 
 export class SweepEnvError extends Error {}
@@ -333,6 +404,11 @@ export interface ArmEnv extends SweepEnv {
   backgroundExtraCases?: ReadonlyMap<string, readonly string[]>
   backgroundAgentAttempts?: ReadonlyMap<string, number>
   armBudgetMs?: number
+  // Where this arm drives a CHAT agent. Background agents are dispatched to
+  // a queue either way and read nothing here.
+  armRuntime: ArmRuntimeKind
+  // Present exactly when armRuntime is 'http'.
+  targetBaseUrl?: string
 }
 
 export interface BackgroundDestination {
@@ -465,8 +541,15 @@ export const parseArmEnv = (
     backgroundBudget === undefined || data.JUDGE_ARM_BUDGET_MS === undefined
       ? undefined
       : positiveInt('JUDGE_ARM_BUDGET_MS', data.JUDGE_ARM_BUDGET_MS)
+  const armRuntime = armRuntimeFrom(data[ARM_RUNTIME_ENV])
+  const targetBaseUrl =
+    armRuntime === 'http'
+      ? targetBaseUrlFrom(data[TARGET_BASE_URL_ENV])
+      : undefined
   const env: ArmEnv = {
     ...toSweepEnv(data),
+    armRuntime,
+    ...(targetBaseUrl !== undefined && { targetBaseUrl }),
     ...(backgroundBudget !== undefined && { backgroundBudget }),
     ...(backgroundAdmitted !== undefined && { backgroundAdmitted }),
     ...(backgroundRefused !== undefined && { backgroundRefused }),
@@ -495,7 +578,35 @@ export const parseArmEnv = (
     }),
   }
   requireStore(env, `the ${env.arm} arm`)
+  assertRuntimeCanSpend(env)
   return env
+}
+
+// AN HTTP ARM AND A DRY RUN ARE NOT COMPATIBLE, and the refusal is here
+// rather than at the first case because by then an arm step has booted a
+// Postgres container and a Nest app for nothing.
+//
+// A dry run replaces the model with a canned script, and the only seam that
+// can do that is `installLlmCapture`, which rewrites `streamChatCompletion`
+// on the arm process's OWN LlmService singleton. A deployed container has no
+// such seam and nothing the arm can reach from outside it: the turns would
+// be real, paid ones captured under a flag that says nothing was spent. The
+// other direction — stubbing the model inside the deployed app — would make
+// the eval measure the stub.
+//
+// So the two settings are named together, because either one of them is the
+// one to change and which one depends on what was wanted.
+const assertRuntimeCanSpend = (env: ArmEnv): void => {
+  if (env.armRuntime !== 'http' || env.spends) return
+  throw new SweepEnvError(
+    `${ARM_RUNTIME_ENV} is "http" but ${SPEND_ENV} is not ` +
+      `"${SPEND_VALUE}", so this arm asked to drive a DEPLOYED gp-api with ` +
+      "a canned model. The canned model is a patch on this process's own " +
+      'LlmService and a deployed container is not this process, so every ' +
+      'turn would be a real, paid one recorded as a dry run. Set ' +
+      `${SPEND_ENV}=${SPEND_VALUE} to sweep over HTTP, or leave ` +
+      `${ARM_RUNTIME_ENV} unset to dry-run in process.`,
+  )
 }
 
 // A positive integer or a sentence. Not `z.coerce.number()`: that reads
