@@ -6,6 +6,7 @@ import {
 } from '@/electionDb/electionDbBase.util'
 import { DEFAULT_PERSON_PAGE_SIZE, PersonFilterDto } from './persons.schema'
 import { PositionLevel, Prisma } from '@/generated/election-prisma'
+import { retryOnceIfUnreachable } from '@/electionDb/shared/util/retryUnreachable.util'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
 // under a Person on this public endpoint. The Race is pulled with a narrow,
@@ -413,7 +414,11 @@ export class PersonsService extends createElectionDbBase(
   //   5. exactly one retired id on the prefix     — rename + purge
   //   6. otherwise 404 — an ambiguous prefix is never guessed at
   // The merge rungs cost one extra indexed query, and only when rung 1 misses.
-  async getPersonBySlug(slug: string) {
+  getPersonBySlug(slug: string) {
+    return retryOnceIfUnreachable(() => this.resolvePersonBySlug(slug))
+  }
+
+  private async resolvePersonBySlug(slug: string) {
     const idPrefix = /^(?:.*-)?([0-9a-f]{8})$/.exec(slug)?.[1]
 
     // Every minted slug ends in an 8-hex id suffix; anything else can't resolve.
