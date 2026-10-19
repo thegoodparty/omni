@@ -768,12 +768,12 @@ var ProductMap = (function () {
       {
         id: 'review',
         t: 'Review the draft',
-        state: 'ok',
+        state: 'shared',
         evs: [
           'Ordinances - Draft Details Viewed',
           'Ordinances - Draft Chat Opened',
-          'Ordinances - Draft Chat Message Sent',
         ],
+        shared: [['AI Chat - Message Sent', 'ordinance_draft', 'surface']],
         note: [
           'warn',
           'A different page',
