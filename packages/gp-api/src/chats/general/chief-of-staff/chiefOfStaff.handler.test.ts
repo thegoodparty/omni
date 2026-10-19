@@ -867,8 +867,11 @@ describe('ChiefOfStaffHandler', () => {
           'represent the district, the city or the community.',
       )
       expect(civicPanel).toContain(
-        'Never mention weights, quotas or targets, and never suggest ' +
-          'inviting or leaving out anyone by race.',
+        'Never mention weights, quotas or targets, and never say or ' +
+          "guess any one person's race.",
+      )
+      expect(civicPanel).not.toContain(
+        'never suggest inviting or leaving out anyone by race',
       )
       expect(civicPanel).not.toContain('looks like the district')
       const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))

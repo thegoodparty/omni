@@ -773,6 +773,7 @@ describe('DatabricksVoterService', () => {
             age: { '65plus': 2 },
             gender: {},
             tract: {},
+            race: {},
             minWeight: 0.5,
             maxWeight: 2,
           },

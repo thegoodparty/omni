@@ -280,6 +280,7 @@ const members = (
   gender: null,
   tenure: null,
   tract: TRACT_A,
+  race: null,
   count,
   ...overrides,
 })
