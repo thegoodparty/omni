@@ -3,6 +3,7 @@ import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
+import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { PlacesService } from '@/electionDb/places/places.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
@@ -13,8 +14,9 @@ const service = useTestService()
 
 const PERSON_ID = '11111111-1111-4111-8111-111111111111'
 const POSITION_ID = '22222222-2222-4222-8222-222222222222'
+const RETIRED_ID = '33333333-3333-4333-8333-333333333333'
 
-// The nine routes gp-marketing reads. It authenticates with one long-lived
+// The ten routes gp-marketing reads. It authenticates with one long-lived
 // JWT-format machine token, which SessionGuard only ever turns into
 // `serviceReader`, so these must accept a service reader, not just an
 // opaque mt_ token.
@@ -28,6 +30,11 @@ const ROUTES = [
     found: false,
   },
   { path: `/v1/elections/persons/${PERSON_ID}`, params: {}, found: false },
+  {
+    path: `/v1/elections/person-merges/${RETIRED_ID}`,
+    params: {},
+    found: true,
+  },
   { path: '/v1/elections/places', params: { state: 'WY' }, found: true },
   {
     path: '/v1/elections/places/most-elections',
@@ -57,6 +64,16 @@ describe('election data routes read by gp-marketing', () => {
     vi.spyOn(persons, 'getPersons').mockResolvedValue([])
     vi.spyOn(persons, 'getPersonBySlug').mockImplementation(notFound)
     vi.spyOn(persons, 'getPersonById').mockImplementation(notFound)
+    vi.spyOn(
+      service.app.get(PersonMergesService),
+      'getPersonMerge',
+    ).mockResolvedValue({
+      retiredId: RETIRED_ID,
+      survivingId: PERSON_ID,
+      retiredSlug: 'jane-doe',
+      retiredAt: new Date('2026-09-01T00:00:00Z'),
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+    })
     const places = service.app.get(PlacesService)
     vi.spyOn(places, 'getPlaces').mockResolvedValue([])
     vi.spyOn(places, 'getPlacesWithMostElections').mockResolvedValue([])
@@ -94,4 +111,17 @@ describe('election data routes read by gp-marketing', () => {
       expect(res.status).toBe(found ? 200 : 404)
     },
   )
+
+  it('narrows a person merge to the forwarding fields', async () => {
+    const res = await service.client.get(
+      `/v1/elections/person-merges/${RETIRED_ID}`,
+      withBearer(signTestM2MJwt()),
+    )
+    expect(res.data).toEqual({
+      retiredId: RETIRED_ID,
+      survivingId: PERSON_ID,
+      retiredSlug: 'jane-doe',
+      retiredAt: '2026-09-01T00:00:00.000Z',
+    })
+  })
 })
