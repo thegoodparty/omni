@@ -10,7 +10,8 @@ import { SmsReviewStep } from './SmsReviewStep'
 // means Stripe has not priced the session yet. `providerError` stands in for
 // the session provider's error slot, which the real CheckoutForm sets
 // alongside its onError callback.
-const { live, providerError } = vi.hoisted(() => {
+const { live, providerError, offer } = vi.hoisted(() => {
+  const offer = { on: false }
   const listeners = new Set<() => void>()
   const providerError = {
     value: null as string | null,
@@ -23,7 +24,7 @@ const { live, providerError } = vi.hoisted(() => {
       return () => listeners.delete(notify)
     },
   }
-  return { live: { dollars: null as number | null }, providerError }
+  return { live: { dollars: null as number | null }, providerError, offer }
 })
 
 const DECLINE = 'Your card has insufficient funds. Try a different card.'
@@ -93,7 +94,7 @@ vi.mock(
 )
 
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ hasFreeTextsOffer: false }],
+  useCampaign: () => [{ hasFreeTextsOffer: offer.on }],
 }))
 
 const renderStep = (
@@ -122,6 +123,7 @@ const renderStep = (
   )
 
 beforeEach(() => {
+  offer.on = false
   live.dollars = null
   providerError.value = null
 })
@@ -256,5 +258,19 @@ describe('SmsReviewStep card declines', () => {
       screen.queryByText("Your payment didn't go through"),
     ).not.toBeInTheDocument()
     expect(screen.queryByTestId('checkout-payment')).not.toBeInTheDocument()
+  })
+})
+
+describe('SmsReviewStep free texts promo in the total', () => {
+  it('deducts the 5,000 free texts from the hold-billing ceiling', async () => {
+    offer.on = true
+
+    renderStep({ priceIsCeiling: true })
+
+    // $1197.42 undiscounted hold - 5,000 x $0.035 = $1022.42
+    expect(await screen.findByText('Up to $1022.42')).toBeInTheDocument()
+    expect(screen.getByText('$1022.42')).toBeInTheDocument()
+    expect(screen.getByText('\u2212$175.00')).toBeInTheDocument()
+    expect(screen.queryByText('Up to $1197.42')).not.toBeInTheDocument()
   })
 })

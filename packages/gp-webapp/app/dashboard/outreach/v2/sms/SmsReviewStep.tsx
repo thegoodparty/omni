@@ -163,9 +163,14 @@ export const SmsReviewStep = ({
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const totalDollars = isFree
-    ? 0
-    : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
+  // Free texts the offer takes off this send. The pay-before-ready hold is
+  // authorized at the undiscounted amount and gp-api applies the offer at
+  // capture, so the session amount alone would show a total with no promo
+  // deducted even though the candidate is billed with it.
+  const freeCreditCount =
+    hasFreeTextsOffer && contactCount !== null
+      ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT)
+      : 0
   // The provider's error is set both when the session could not be created
   // and, by the form, when a confirm fails. Only the first is fatal to the
   // step; once a session exists an error is a card problem to show inline.
@@ -174,7 +179,21 @@ export const SmsReviewStep = ({
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
-    contactCount === null ? null : isFree ? 0 : contactCount * pricePerContact
+    contactCount === null
+      ? null
+      : isFree
+        ? 0
+        : (contactCount - freeCreditCount) * pricePerContact
+  const offerCreditDollars = freeCreditCount * pricePerContact
+  const totalDollars = isFree
+    ? 0
+    : priceIsCeiling && freeCreditCount > 0
+      ? Math.max(
+          0,
+          (liveTotalDollars ?? checkoutSession?.amount ?? 0) -
+            offerCreditDollars,
+        )
+      : (liveTotalDollars ?? checkoutSession?.amount ?? 0)
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -327,6 +346,11 @@ export const SmsReviewStep = ({
                 <span className="text-sm font-medium">
                   {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
                 </span>
+                {offerCreditDollars > 0 && (
+                  <span className="ml-auto text-sm font-medium">
+                    {`\u2212$${money(offerCreditDollars)}`}
+                  </span>
+                )}
               </div>
             )}
           </dl>
