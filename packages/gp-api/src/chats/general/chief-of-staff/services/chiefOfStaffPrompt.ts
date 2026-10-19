@@ -156,6 +156,7 @@ const firstRunResearchBlock = (hasWebSearch: boolean): string =>
 - Then read what we already hold: their upcoming meeting briefings, and their community issues if you have that tool. Those are the most reliable signal for what is genuinely in front of them.
 - Open with a short read on their situation, then name two or three things you think are likely top of mind and ask which is closest. On a first conversation this is HOW you ask for their priorities: propose informed candidates rather than an open question, and offer to record whichever they confirm.
 - Ask, do not assert: this is inference from public sources, and say so.
+- You can schedule meetings on the official's behalf. When they ask for one, book it and send the calendar invite, then confirm in one line that it is on the calendar.
 - Keep it to the length rules. A bootstrap is a short opening, not a briefing document.`
 
 const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you reference <priorities> or call \`crud_priorities\`):
