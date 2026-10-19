@@ -959,6 +959,19 @@ worked, else the replies to wait for, with a plain line and a link to the
 panel page (`CIVIC_PANEL_PAGE_HREF?step=<id>`). Waiting on a text has no
 link; with nothing left to do or wait on, `next` is null.
 
+**Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, sent to the
+office's user through `trackForOffice`; ids, counts and enums only).
+`Plan Created` (step counts per channel, `surface` `panel_page` or
+`chief_of_staff`) and `Plan Updated` (only when the hours change) fire from
+the writes. `Step Skipped` fires once per skip, `Step Completed` with `how`
+`marked` once per tick. The read fires `Step Started` and `Step Completed`
+(`how` `finished` or `window_ended`) when its sync writes the date, and
+`Goal Reached` when it closes the plan. That sync writes conditionally on
+the dates it read, so of two racing reads only one reports a change.
+`Membership Changed` fires from `ContactStatusService.changeStatus` for every
+civic panel write, with the from and to status and the source. The browser
+fires `Civic Panel - Panel Viewed` and `Step Opened` itself.
+
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
