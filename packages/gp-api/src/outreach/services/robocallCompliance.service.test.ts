@@ -132,6 +132,7 @@ describe('RobocallComplianceService', () => {
       'Call 4 1 4 4 8 5 8 0 7 7.',
       'Call four one four, four eight five, eight oh seven seven.',
       'Call +1 (414) 485-8077.',
+      'Call four one four. Four eight five. Eight oh seven seven.',
     ]) {
       transcription.transcribe.mockResolvedValue(
         `Hi, this is Alex, candidate for City Council. Paid for by Rivera for City Council. ${spoken}`,
@@ -163,6 +164,8 @@ describe('RobocallComplianceService', () => {
       'We raised $1,500,000 for our schools.',
       'Call 485-8077.',
       'Call four one four o four eight five o eight seven.',
+      'Since eight, 2024. One two three four five.',
+      'We raised $1,500,000,000 for our schools.',
     ]) {
       transcription.transcribe.mockResolvedValue(
         `Hi, this is Alex, candidate for City Council. Paid for by Rivera for City Council. ${spoken}`,
