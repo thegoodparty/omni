@@ -172,7 +172,8 @@ describe('CallhubCampaignService', () => {
       // A PATCH failure leaves the campaign at the created rate, which still
       // dials, so we freeze THAT lower rate rather than fail the stage — the
       // money-safe direction (a frozen rate above the real dial frees the pool
-      // early and aborts a still-dialing run).
+      // early and aborts a still-dialing run). The create response carried the
+      // rate, so no extra GET is needed.
       http.post.mockResolvedValue({
         pk_str: '3972682680557897335',
         name: 'Robocall town-hall',
@@ -184,6 +185,41 @@ describe('CallhubCampaignService', () => {
 
       expect(result.pk_str).toBe('3972682680557897335')
       expect(result.callsPerMinute).toBe(60)
+      expect(http.get).not.toHaveBeenCalled()
+    })
+
+    it('reads the applied rate back, never the requested one, when the PATCH fails and the create omitted frequency', async () => {
+      // The money-safe invariant: the requested rate is only an UPPER bound
+      // (CallHub clamps DOWN), so on a PATCH failure where the create response
+      // carried no frequency we GET the real applied rate rather than freeze the
+      // requested 120 — which, being above the real dial, would free the pool
+      // early and abort a still-dialing run.
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+        // no frequency — the schema marks it nullish, so this can happen
+      })
+      http.patch.mockRejectedValue(new Error('CallHub 503'))
+      http.get.mockResolvedValue({ frequency: 60, status: 2 })
+
+      const result = await service.createVoiceBroadcast(params)
+
+      expect(result.callsPerMinute).toBe(60)
+      const [getPath] = http.get.mock.calls[0] ?? []
+      expect(getPath).toBe('/v1/voice_broadcasts/3972682680557897335/')
+    })
+
+    it('fails the create when both the PATCH and the applied-rate read fail', async () => {
+      // A double vendor failure is a genuine outage: throw so the staging sweep
+      // retries, never freeze a guessed (possibly-too-high) rate.
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+      })
+      http.patch.mockRejectedValue(new Error('CallHub 503'))
+      http.get.mockRejectedValue(new Error('CallHub 503'))
+
+      await expect(service.createVoiceBroadcast(params)).rejects.toThrow()
     })
 
     it('refuses to schedule a broadcast in the past (never dials now)', async () => {

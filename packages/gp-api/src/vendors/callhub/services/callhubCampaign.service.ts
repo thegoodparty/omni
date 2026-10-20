@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { addDays, isAfter } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -211,20 +215,50 @@ export class CallhubCampaignService {
           frequency: requested,
         }),
       )
-      const applied = patched.frequency ?? created ?? requested
-      this.logger.info(
-        { pkStr, requested, created, applied },
-        'robocall voice broadcast frequency set',
-      )
-      return applied
+      if (patched.frequency != null) {
+        this.logger.info(
+          { pkStr, requested, created, applied: patched.frequency },
+          'robocall voice broadcast frequency set',
+        )
+        return patched.frequency
+      }
     } catch (err) {
-      const applied = created ?? requested
       this.logger.warn(
-        { pkStr, requested, created, applied, err },
-        'robocall frequency PATCH failed; dialing at the created rate',
+        { pkStr, requested, created, err },
+        'robocall frequency PATCH failed; reading the applied rate back',
       )
-      return applied
     }
+    // The PATCH did not confirm a rate (failed, or echoed none), so the campaign
+    // is at whatever CallHub applied on create. NEVER fall back to the requested
+    // rate: it is only an UPPER bound (CallHub clamps DOWN), and a frozen rate
+    // above the real dial frees the shared pool early and can abort a
+    // still-dialing run. Use the create response's frequency when it carried one;
+    // otherwise read it straight off the campaign rather than guess.
+    const applied = created ?? (await this.fetchAppliedFrequency(pkStr))
+    this.logger.info(
+      { pkStr, requested, created, applied },
+      'robocall voice broadcast frequency resolved to the created rate',
+    )
+    return applied
+  }
+
+  // Reads the frequency CallHub currently has on a campaign (the create-clamped
+  // rate when a PATCH did not stick). Used only on the rare path where the create
+  // response omitted `frequency` AND the PATCH did not confirm one, so the
+  // money-safe fallback has a real value instead of the requested upper bound. A
+  // missing frequency or a failed GET throws — a double vendor failure is a
+  // genuine outage the staging sweep should retry, never a reason to freeze a
+  // guessed rate.
+  private async fetchAppliedFrequency(pkStr: string): Promise<number> {
+    const campaign = UpdateVbCampaignResponseSchema.parse(
+      await this.http.get(`${LAUNCH_PATH_PREFIX}${pkStr}/`),
+    )
+    if (campaign.frequency == null) {
+      throw new BadGatewayException(
+        `CallHub campaign ${pkStr} returned no frequency`,
+      )
+    }
+    return campaign.frequency
   }
 
   // Launches a PAUSED voice broadcast: PUT /v1/voice_broadcasts/{pk_str}/ with
