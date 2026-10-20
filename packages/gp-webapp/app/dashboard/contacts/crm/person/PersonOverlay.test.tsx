@@ -78,6 +78,11 @@ vi.mock('./CivicPanelRow', () => ({
   default: () => null,
 }))
 
+vi.mock('./PocPersonActions', () => ({
+  PocPersonActions: () => null,
+  PocRemovedPerson: () => null,
+}))
+
 // Same reasoning as StatusRow above — FollowUpRow.test.tsx covers its
 // self-gating, the toggle, its mutation and analytics.
 vi.mock('./FollowUpRow', () => ({
