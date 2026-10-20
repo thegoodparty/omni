@@ -26,6 +26,7 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     id: 'plan-1',
     status: 'active',
     goalMembers: 100,
+    keepFresh: false,
     hoursPerWeek,
     currentWave: 1,
     createdAt: new Date('2026-10-15T00:00:00Z'),

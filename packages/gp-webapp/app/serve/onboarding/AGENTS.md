@@ -23,7 +23,9 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
 - `serve-citizen-panels` on: after the term, the district story
   (`story-represent`, `story-loudest`, `story-sample`, `story-grow`), then
   `priorities`, then `pledge` (button "Meet your Chief of Staff", lands on the
-  Chief of Staff home).
+  Chief of Staff home). Completion goes through
+  `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
+  finished so a user with several lands in it, not the first on the list.
 
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
@@ -51,7 +53,7 @@ behind, so the save never holds the motion.
   density, so each dot is about population / dots residents. Dots are
   placed in Web Mercator and fitted to the view, and the camera that fit
   implies (`basemapZoom`) frames the basemap, so each dot sits on its street.
-- **Basemap** (`DistrictBasemap`): maplibre with Geoapify's light `positron`
+- **Basemap** (`DistrictBasemap`): maplibre with Geoapify's full-color `osm-bright`
   style and the `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` the contacts and
   door-knocking maps use, with the same compact attribution. maplibre opens
   a compact attribution expanded and collapses it only on the first drag, so
@@ -60,7 +62,8 @@ behind, so the save never holds the motion.
   for all four steps; `interactive: false`, so it is a picture with no
   drag, zoom or scroll capture. maplibre is imported inside the effect, the
   dots never wait for it, and no key, no WebGL or a refused tile leaves the
-  muted frame. There is no district boundary geometry, so no outline.
+  muted frame. Dots carry a white edge (`stroke-card`) so they stand out on the
+  colors. There is no district boundary geometry, so no outline.
   maplibre's stylesheet sets `position: relative` on its map element and,
   unlayered, beats Tailwind's `absolute`, so a wrapper is positioned and the
   map element only fills it (`h-full w-full`). Positioning the map element

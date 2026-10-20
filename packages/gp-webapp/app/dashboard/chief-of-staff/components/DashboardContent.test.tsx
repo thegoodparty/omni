@@ -219,24 +219,12 @@ describe("DashboardContent: What's a civic panel? ends on its next step", () => 
     expect(completedACard()).toBe(false)
   })
 
-  it('offers to ask the panel when it already has members', async () => {
+  it('offers no next step once the panel has members', async () => {
     panelSummary.members = 12
-    const user = await explain()
+    await explain()
 
     expect(screen.queryByRole('button', { name: 'Build my panel' })).toBeNull()
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Ask your panel about a priority',
-      }),
-    )
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv-panel',
-          content: NEXT_STEP_MESSAGES.askPanel,
-        }),
-      ),
-    )
+    expect(screen.queryByRole('button', { name: /Ask your panel/ })).toBeNull()
   })
 })
 
@@ -320,22 +308,26 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     expect(completedACard()).toBe(false)
   })
 
-  it('asks the panel instead once it has members', async () => {
+  it('grows the panel instead once it has members, in the same chat', async () => {
     panelSummary.members = 5
     const user = await meet()
 
-    const ask = await screen.findByRole('button', {
-      name: /Ask your civic panel/,
+    const grow = await screen.findByRole('button', {
+      name: /Grow your civic panel/,
     })
     expect(
       screen.queryByRole('button', { name: /Build your civic panel/ }),
     ).toBeNull()
-    await user.click(ask)
+    expect(
+      screen.queryByRole('button', { name: /Ask your civic panel/ }),
+    ).toBeNull()
+    await user.click(grow)
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: NEXT_STEP_MESSAGES.askPanel }),
+        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
       ),
     )
+    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
   })
 
   it('leaves the civic panel out with serve-citizen-panels off', async () => {

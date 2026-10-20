@@ -42,8 +42,8 @@ const lookFor = (
       return dot.loud
         ? { scale: 0.95, opacity: 1, fill: 'fill-warning', ring: false }
         : {
-            scale: 0.55,
-            opacity: 0.55,
+            scale: 0.6,
+            opacity: 0.8,
             fill: 'fill-muted-foreground',
             ring: false,
           }
@@ -51,8 +51,8 @@ const lookFor = (
       return dot.sample
         ? { scale: 1, opacity: 1, fill: 'fill-primary', ring: false }
         : {
-            scale: 0.45,
-            opacity: 0.35,
+            scale: 0.5,
+            opacity: 0.7,
             fill: 'fill-muted-foreground',
             ring: false,
           }
@@ -63,8 +63,8 @@ const lookFor = (
       return dot.sample
         ? { scale: 1, opacity: 1, fill: 'fill-card', ring: true }
         : {
-            scale: 0.45,
-            opacity: 0.25,
+            scale: 0.5,
+            opacity: 0.55,
             fill: 'fill-muted-foreground',
             ring: false,
           }
@@ -235,10 +235,11 @@ export const DistrictStoryMap = ({
             cx={dot.x}
             cy={dot.y}
             r={1}
-            strokeWidth={look.ring ? 0.3 : 0}
+            strokeWidth={look.ring ? 0.45 : 0.3}
             data-look={look.ring ? 'ring' : look.fill}
             className={cn(
-              'origin-center stroke-primary transition-[transform,opacity,fill,stroke-width] ease-out [transform-box:fill-box] motion-reduce:transition-none',
+              'origin-center transition-[transform,opacity,fill,stroke-width] ease-out [transform-box:fill-box] motion-reduce:transition-none',
+              look.ring ? 'stroke-primary' : 'stroke-card',
               look.fill,
             )}
             style={style}

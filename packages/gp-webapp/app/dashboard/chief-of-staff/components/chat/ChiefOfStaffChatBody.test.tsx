@@ -3083,6 +3083,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       id: 'plan-1',
       status: 'active' as const,
       goalMembers: 100,
+      keepFresh: false,
       hoursPerWeek: 2,
       currentWave: 1,
       createdAt: new Date('2026-10-15T00:00:00.000Z'),

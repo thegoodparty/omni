@@ -798,13 +798,29 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).not.toContain('- Explain what a civic panel is')
     })
 
-    it('asks nothing of a panel at its goal', async () => {
+    it('ends on priorities once the first invite is out and none are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'Their first invite is out and they have no priorities on file.',
+      )
+      expect(prompt).toContain('offer to record what they tell you')
+    })
+
+    it('does not ask for priorities before the first invite is out', async () => {
+      withPanel({ members: 0, inviteSent: false })
+      const prompt = await promptFor()
+      expect(prompt).not.toContain('they have no priorities on file.')
+    })
+
+    it('offers to keep a panel at its goal fresh, through the same question', async () => {
       withPanel({ members: 240, inviteSent: true })
       const prompt = await promptFor()
       expect(prompt).toContain(
         'Their civic panel already has 240 people, its goal.',
       )
-      expect(prompt).not.toContain(
+      expect(prompt).toContain('keep it fresh')
+      expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
     })
