@@ -351,6 +351,84 @@ describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', (
     expect(persisted.didWin).toBeNull()
   })
 
+  describe('a different race in the same election', () => {
+    const upcomingRaceDetails: PrismaJson.CampaignDetails = {
+      state: 'KY',
+      raceId: 'race-a',
+      electionDate: '2030-11-05',
+      primaryElectionDate: '2030-05-19',
+    }
+
+    it('clears prior-race results when the raceId changes', async () => {
+      const { org, campaign } = await seedRerunCampaign(upcomingRaceDetails)
+      mockCrm()
+
+      const result = await putMine(org.slug, {
+        raceId: 'race-b',
+        electionDate: '2030-11-05',
+      })
+
+      expect(result.status).toBe(200)
+      const persisted = await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: campaign.id },
+      })
+      expect(persisted.didWin).toBeNull()
+      expect(persisted.primaryResult).toBeNull()
+      expect(persisted.details).toMatchObject({
+        raceId: 'race-b',
+        electionDate: '2030-11-05',
+      })
+      expect(persisted.details).not.toHaveProperty('primaryElectionDate')
+      expect(isActiveCampaign(persisted, new Date())).toBe(true)
+    })
+
+    it('keeps recorded results when the same raceId is re-sent', async () => {
+      const { org, campaign } = await seedRerunCampaign(upcomingRaceDetails)
+      mockCrm()
+
+      await putMine(org.slug, {
+        raceId: 'race-a',
+        electionDate: '2030-11-05',
+      })
+
+      const persisted = await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: campaign.id },
+      })
+      expect(persisted.didWin).toBe(false)
+      expect(persisted.primaryResult).toBe('lost')
+    })
+
+    it('keeps recorded results when a race is first attached', async () => {
+      const { org, campaign } = await seedRerunCampaign({
+        ...upcomingRaceDetails,
+        raceId: undefined,
+      })
+      mockCrm()
+
+      await putMine(org.slug, { raceId: 'race-a' })
+
+      const persisted = await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: campaign.id },
+      })
+      expect(persisted.primaryResult).toBe('lost')
+    })
+
+    it('does not reset when the election date has passed', async () => {
+      const { org, campaign } = await seedRerunCampaign({
+        ...upcomingRaceDetails,
+        electionDate: '2024-11-05',
+      })
+      mockCrm()
+
+      await putMine(org.slug, { raceId: 'race-b' })
+
+      const persisted = await service.prisma.campaign.findUniqueOrThrow({
+        where: { id: campaign.id },
+      })
+      expect(persisted.primaryResult).toBe('lost')
+    })
+  })
+
   it('does not reset on callers that omit the opt-in (admin M2M path)', async () => {
     const { campaign } = await seedRerunCampaign()
     mockCrm()

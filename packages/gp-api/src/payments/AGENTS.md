@@ -296,8 +296,9 @@ user_id = <id>`. Known traps:
 
 1. **Re-running candidate reuses the old campaign** — `didWin=false` from
    the prior loss survived onto the new race. Fixed in ENG-10954: a
-   user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
-   new upcoming date now clears `didWin`/`primaryResult` and strips the stale
+   user-driven update (`PUT /campaigns/mine`) that moves to a new upcoming
+   race (a new `electionDate`, or a different `raceId` when one was already
+   set) now clears `didWin`/`primaryResult` and strips the stale
    `wonGeneral`/`primaryElectionDate` details keys. Rows stranded before the
    fix (or written through other paths) still need the manual repair:
    `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
@@ -307,8 +308,9 @@ user_id = <id>`. Known traps:
 2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
-   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
-   next dashboard load:
+   `primary_result='lost'`. The modal is gone from the webapp, but rows it
+   wrote remain. Picking a different office clears them (trap 1);
+   otherwise repair with both writes:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
 primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
