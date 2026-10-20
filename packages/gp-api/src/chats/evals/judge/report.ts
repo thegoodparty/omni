@@ -30,6 +30,7 @@ import {
 } from './score'
 import type { CiContext, RunRecord } from './record'
 import type { AgentToolUse, ArmToolUse } from './toolUse'
+import { publicToolName } from './toolErrorDetails'
 
 // The PR comment.
 //
@@ -322,7 +323,9 @@ const handlingLines = (score: AgentScore): string[] => {
       "pair(s). Judged per run against each case's handledWhen; partly, " +
       'and a value that changes with the order, count as not handled. A ' +
       'regression or improvement needs the arm that fell short to do so in ' +
-      'every order it was read. Not part of the verdict above.',
+      'every order it was read. Regressions against improvements decide ' +
+      'the label on their own once a sign test over them is significant; ' +
+      'the line under the heading says when they did.',
     ...(notGraded === 0
       ? []
       : [
@@ -335,6 +338,81 @@ const handlingLines = (score: AgentScore): string[] => {
         `candidate ${armText(h, h.candidate)}: ` +
         HANDLING_CLASSES[h.class],
     ),
+    '',
+  ]
+}
+
+const toolNames = (tools: readonly string[]): string =>
+  tools.map((tool) => publicToolName(tool, 'chat')).join(', ')
+
+// Only when a signal moved the label off the quality comparison's: a signal
+// that agrees with a label the quality delta already reached decided nothing.
+const signalHeadline = (score: AgentScore): string | null => {
+  const signals = score.signals
+  if (signals === undefined || score.label === signals.qualityLabel) {
+    return null
+  }
+  const reasons: string[] = []
+  const handling = signals.handling
+  if (handling !== undefined && handling.says === score.label) {
+    const p = handling.says === 'WORSE' ? handling.pWorse : handling.pBetter
+    reasons.push(
+      `${score.label} on condition handling: ${handling.regressions} ` +
+        `regressions, ${handling.improvements} improvements ` +
+        `(p = ${p.toFixed(3)}).`,
+    )
+  }
+  const tools = signals.tools
+  if (tools !== undefined && tools.says === score.label) {
+    const worse = tools.says === 'WORSE'
+    const failing = tools.cases.filter(
+      (c) => (worse ? c.candidateOnlyFailures : c.baseOnlyFailures).length > 0,
+    )
+    const names = [
+      ...new Set(
+        failing.flatMap((c) =>
+          worse ? c.candidateOnlyFailures : c.baseOnlyFailures,
+        ),
+      ),
+    ].sort()
+    reasons.push(
+      `${score.label} on tools: ${failing.length} cases had tool calls ` +
+        `fail on the ${worse ? 'candidate' : 'base'} only ` +
+        `(${toolNames(names)}).`,
+    )
+  }
+  return (
+    `**${reasons.join(' ')}** The quality comparison alone says ` +
+    `${signals.qualityLabel}.`
+  )
+}
+
+// Tool names and case ids only, never what the agent said.
+const behaviorChangeLines = (score: AgentScore): string[] => {
+  const tools = score.signals?.tools
+  if (tools === undefined) return []
+  if (tools.cases.length === 0) {
+    return [
+      'Behavior changes: no tool was dropped, added, or failing on one arm ' +
+        'only, in any case both arms ran.',
+      '',
+    ]
+  }
+  return [
+    'Behavior changes, per case (a dropped or added tool is reported, not ' +
+      'scored; failures on one arm only decide the label once ' +
+      'they repeat across cases):',
+    ...tools.cases.map((c) => {
+      const parts = [
+        c.dropped.length > 0 && `dropped ${toolNames(c.dropped)}`,
+        c.added.length > 0 && `added ${toolNames(c.added)}`,
+        c.candidateOnlyFailures.length > 0 &&
+          `failed on the candidate only: ${toolNames(c.candidateOnlyFailures)}`,
+        c.baseOnlyFailures.length > 0 &&
+          `failed on the base only: ${toolNames(c.baseOnlyFailures)}`,
+      ].filter((part): part is string => part !== false)
+      return `- ${c.caseId}: ${parts.join('; ')}`
+    }),
     '',
   ]
 }
@@ -558,6 +636,8 @@ const agentSection = (
   const lines: string[] = []
   lines.push(`### ${score.agentId} — ${score.label}`)
   lines.push('')
+  const decidedBy = signalHeadline(score)
+  if (decidedBy !== null) lines.push(decidedBy, '')
 
   // A candidate-only flag is stated first whatever the verdict, but only once
   // its type repeats across cases (one case for restricted_data): one-case
@@ -627,6 +707,7 @@ const agentSection = (
   }
 
   lines.push(...handlingLines(score))
+  lines.push(...behaviorChangeLines(score))
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))

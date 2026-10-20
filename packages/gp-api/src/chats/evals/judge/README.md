@@ -48,6 +48,31 @@ measured difference still shown beside it. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
 
+**Two regression signals can decide the label without the 20-case floor**
+(`regressionSignals.ts`, thresholds in `config.gates.handling` and
+`config.gates.toolFailures`). The quality comparison cannot see an agent's own
+rules: a probe that cut `priority_flow`'s system prompt in half read CAN'T SAY
+there, at -0.06 [-0.28, 0.19].
+
+- **Condition handling.** A one-sided sign test over the settled
+  regressions and improvements in **Condition handling**. Unsettled and shared
+  outcomes don't count. With at least 4 changes and p <= 0.05 it says WORSE
+  or BETTER. That probe's 5 regressions to 0 is p = 0.031, so WORSE.
+- **Tools (chat agents).** A case fails on the candidate only when one tool
+  errored in 2 or more of the candidate's runs of it and in none of the
+  base's. Two or more such cases say WORSE, and the mirror image says BETTER.
+  This is how a candidate whose every tool call fails (all pairs excluded by
+  `isComparable()`) still reads WORSE.
+
+The label is WORSE when the quality verdict or either signal says WORSE.
+It is BETTER when one says BETTER and none says WORSE. Otherwise it is the
+quality label. When a signal moved the label, a bold line under the heading
+names it with its numbers and says what quality alone said. Each chat agent
+also gets a **Behavior changes** list: per case, the tools dropped (called in
+2 or more base runs, no candidate run) or added, and the tools failing on one
+arm only. A dropped or added tool is reported and never decides. Tool names
+only, through `publicToolName`. A case only one arm ran is left out.
+
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
 judge sweep, x1.5 and rounded up: about $10 for `chief_of_staff`, and $3 to $12
@@ -273,6 +298,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.                                          |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                                                               |
 | `armGap.ts`                                            | The distance between the two captures.                                                                          |
+| `regressionSignals.ts`                                 | The condition-handling and tool-failure signals, and how they combine with the quality label.                   |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                                                      |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                                                              |
 
@@ -785,8 +811,9 @@ nothing else, so the agent never sees any of them.
   unsettled rather than a change. So a regression needs the candidate to fall
   short in every order it was read, and an improvement the same of the base.
   The
-  quotes go to the private rulings file only. The section does not move the
-  verdict label or any score. A pair whose every judgment came back ungraded
+  quotes go to the private rulings file only. The section moves the verdict
+  label only through the handling signal (see "Reading the result") and no
+  score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
   orders is marked as such. A dry run (JUDGE_SPEND not true) prints no
   handling section, since no model read the runs.
@@ -1813,7 +1840,9 @@ Databricks client resolves lazily, so a broken credential does not fail a run �
 the agent answers with less information instead. Both arms degrade
 identically, and a judge shown two degraded outputs will confidently report a
 code regression. Use `isComparable()`; any chat case where either arm hit a
-tool error resolves to CAN'T SAY and leaves the delta.
+tool error resolves to CAN'T SAY and leaves the delta. Failures on one arm
+only still reach the label, through the tool signal (see "Reading the
+result").
 
 **For a background agent, a tool error does not exclude the pair.** What the
 judge scores is the final artifact. Live sweeps showed background agents

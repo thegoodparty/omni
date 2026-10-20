@@ -560,6 +560,124 @@ describe('condition handling', () => {
   })
 })
 
+describe('regression signals', () => {
+  const noTools = { cases: [], says: null }
+
+  it('names the handling signal under the heading when it moved the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: "CAN'T SAY",
+            handling: {
+              regressions: 5,
+              improvements: 0,
+              pWorse: 0.03125,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+            tools: noTools,
+          },
+        },
+      ],
+    })
+    const lines = report.split('\n')
+    const heading = lines.indexOf(`### ${score.agentId} \u2014 WORSE`)
+    expect(heading).toBeGreaterThan(-1)
+    expect(lines[heading + 2]).toBe(
+      '**WORSE on condition handling: 5 regressions, 0 improvements ' +
+        "(p = 0.031).** The quality comparison alone says CAN'T SAY.",
+    )
+    expect(report).toContain(
+      'Behavior changes: no tool was dropped, added, or failing on one arm ' +
+        'only, in any case both arms ran.',
+    )
+  })
+
+  it('names the tool signal and lists each case it rests on', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: 'BETTER',
+            tools: {
+              says: 'WORSE',
+              cases: [
+                {
+                  caseId: 'outreach-explicit-text',
+                  candidateOnlyFailures: [],
+                  baseOnlyFailures: [],
+                  dropped: ['present_outreach_proposal'],
+                  added: [],
+                },
+                {
+                  caseId: 'a',
+                  candidateOnlyFailures: ['update_priority_status'],
+                  baseOnlyFailures: [],
+                  dropped: [],
+                  added: ['Bad Name'],
+                },
+                {
+                  caseId: 'b',
+                  candidateOnlyFailures: [
+                    'count_contacts',
+                    'update_priority_status',
+                  ],
+                  baseOnlyFailures: [],
+                  dropped: [],
+                  added: [],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    })
+    expect(report).toContain(
+      '**WORSE on tools: 2 cases had tool calls fail on the candidate only ' +
+        '(count_contacts, update_priority_status).** The quality comparison ' +
+        'alone says BETTER.',
+    )
+    expect(report).toContain(
+      '- outreach-explicit-text: dropped present_outreach_proposal\n' +
+        '- a: added unknown; failed on the candidate only: ' +
+        'update_priority_status\n' +
+        '- b: failed on the candidate only: count_contacts, ' +
+        'update_priority_status',
+    )
+  })
+
+  it('prints no headline when the quality comparison reached the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: 'WORSE',
+            handling: {
+              regressions: 5,
+              improvements: 0,
+              pWorse: 0.03125,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+          },
+        },
+      ],
+    })
+    expect(report).not.toContain('on condition handling:')
+    expect(report).not.toContain('Behavior changes')
+  })
+})
+
 // A control prints both orders and what they say together, because the one
 // thing a control shows beyond noise is a position preference.
 describe('controls', () => {
