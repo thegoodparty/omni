@@ -80,6 +80,11 @@ const relayRobocallAudioUploads = async (page: Page): Promise<void> => {
   })
 }
 
+// The flow shell repeats each step's title in an sr-only drawer title (h2),
+// so match the visible step heading (h3) to stay strict-mode safe.
+const stepHeading = (page: Page, title: string) =>
+  page.getByRole('heading', { level: 3, name: title, exact: true })
+
 // ─── Stripe helper ────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the Stripe-provided test card.
 // Mirrors the pattern in pro-upgrade.helper.ts.
@@ -227,7 +232,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await NavigationHelper.dismissOverlays(page)
 
     // ── 6. Purpose step: "Introduce myself to voters" ────────────────────────
-    await expect(page.getByText('What do you want to do?')).toBeVisible({
+    await expect(stepHeading(page, 'What do you want to do?')).toBeVisible({
       timeout: 30_000,
     })
     await page
@@ -235,7 +240,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       .click()
 
     // ── 7. Audience step: pick the pre-created voter list ────────────────────
-    await expect(page.getByText('Who do you want to reach?')).toBeVisible({
+    await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
 
@@ -257,9 +262,11 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── 8. Schedule step: name, date and time ────────────────────────────────
-    await expect(page.getByText('When do you want to send it?')).toBeVisible({
-      timeout: 30_000,
-    })
+    await expect(stepHeading(page, 'When do you want to send it?')).toBeVisible(
+      {
+        timeout: 30_000,
+      },
+    )
 
     // Campaign name is auto-filled from the list name; ensure it is non-empty.
     const nameInput = page.locator('#robocall-campaign-name')
@@ -289,7 +296,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await page.getByRole('button', { name: 'Continue' }).click()
 
     // ── 9. Compose step: upload audio and wait for compliance ────────────────
-    await expect(page.getByText('What do you want to say?')).toBeVisible({
+    await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
 
@@ -339,7 +346,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await page.getByRole('button', { name: 'Continue' }).click()
 
     // ── 10. Review step ───────────────────────────────────────────────────────
-    await expect(page.getByText('Review your campaign')).toBeVisible({
+    await expect(stepHeading(page, 'Review your campaign')).toBeVisible({
       timeout: 15_000,
     })
 
@@ -363,7 +370,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     outreachId = draftBody.outreachId
 
     // ── 11. Pay step: Stripe card entry and authorize ─────────────────────────
-    await expect(page.getByText('Payment')).toBeVisible({ timeout: 15_000 })
+    await expect(stepHeading(page, 'Payment')).toBeVisible({ timeout: 15_000 })
 
     // Wait for Stripe PaymentElement to load inside its iframe.
     const stripeFrame = page
@@ -374,7 +381,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     })
 
     // The CallHub mock always rents this number (callhubMock.controller.ts).
-    await expect(page.getByText('+15551234567')).toBeVisible()
+    await expect(page.getByText('+15551234567', { exact: true })).toBeVisible()
 
     await fillStripeCard(page)
 
