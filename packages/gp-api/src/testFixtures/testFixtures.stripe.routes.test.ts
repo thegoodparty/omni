@@ -49,8 +49,13 @@ const fakeSession = {
 describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
   let handleEvent: ReturnType<typeof vi.spyOn>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     envNonProd.value = true
+
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
 
     vi.spyOn(
       service.app.get(StripeService),
