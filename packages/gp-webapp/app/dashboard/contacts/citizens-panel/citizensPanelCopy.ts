@@ -125,9 +125,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   ofGoal: (goal: string) => ` of ${goal} members`,
   answersToday: (answers: string) =>
     `About ${answers} answers per question today`,
-  // The goal in answers: members × the panel reply rate, as "4 in 10".
-  goalWhy: (inTen: number, goal: string, needed: string) =>
-    `About ${inTen} in 10 members answer each question, so ${goal} members gets you the ${needed} answers you need.`,
+  // The goal in answers: enough for every major group of the district to
+  // answer three times.
+  goalWhy: (goal: string, needed: string) =>
+    `${goal} members gets you about ${needed} answers per question, enough to hear from every group in your district.`,
   yourTime: 'Your time',
   changeHours: 'Change',
   changeHoursLabel: 'Change your weekly time',

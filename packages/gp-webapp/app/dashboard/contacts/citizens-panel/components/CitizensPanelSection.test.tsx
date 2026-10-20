@@ -101,7 +101,7 @@ describe('CitizensPanelSection', () => {
       bar.querySelector('[data-slot="progress"]')?.getAttribute('data-filled'),
     ).toBe('50')
     expect(bar).toHaveTextContent(
-      'About 4 in 10 members answer each question, so 240 members gets you the 96 answers you need.',
+      '240 members gets you about 96 answers per question, enough to hear from every group in your district.',
     )
     expect(
       screen.getByRole('link', { name: 'See your panel' }),

@@ -55,10 +55,10 @@ const answersMissing = (
 // holding MAJOR_GROUP_SHARE of the district on a steered dimension has its
 // voices, and the model is sure enough of each. `answers` is the people
 // heard; the groups count coded answers. When the district could not be
-// read, enough answers alone are a good read, under its own status.
+// read, enough answers alone (answersNeeded of the smallest major group a
+// district can have) are a good read, under its own status.
 export const mrpReadStatus = (input: {
   answers: number
-  population: number | null
   read: MrpRead | null
 }): PriorityReadStatus => {
   const { answers, read } = input
@@ -66,7 +66,7 @@ export const mrpReadStatus = (input: {
   const groups = read?.result.groups ?? []
   const majors = groups.filter((group) => isTargeted(group, dimensions))
   if (majors.length === 0) {
-    const needed = answersNeeded(input.population)
+    const needed = answersNeeded()
     const good = answers >= needed
     return {
       answers,

@@ -716,7 +716,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
         status: 200,
         data: {
           outreachId: 501,
-          recipientCount: 8000,
+          recipientCount: 8334,
           excludedOptedOutCount: 0,
           excludedDuplicateCount: 0,
         },
@@ -735,7 +735,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
     const proceed = await screen.findByRole('button', {
-      name: 'Continue (8,000)',
+      name: 'Continue (8,334)',
     })
     expect(proceed).toBeEnabled()
     expect(screen.queryByText('Explain a recent decision')).toBeNull()
@@ -752,7 +752,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect(saved[0]).toMatchObject({
       name: 'Civic panel invite',
       hasCellPhone: true,
-      sample: { size: 8000 },
+      sample: { size: 8334 },
     })
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),
@@ -781,7 +781,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
     expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
       0,
     )
-    expect(screen.getByText('8,000')).toBeInTheDocument()
+    expect(screen.getByText('8,334')).toBeInTheDocument()
     expect(screen.getByText('$0.035')).toBeInTheDocument()
     await waitFor(() => expect(created).toHaveLength(1))
     expect(created[0]).toMatchObject({ voterFileFilterId: 88 })
@@ -802,7 +802,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
 
     render(<ConstituentOutreachPage outreaches={[]} />)
 
-    await screen.findByRole('button', { name: 'Continue (8,000)' })
+    await screen.findByRole('button', { name: 'Continue (8,334)' })
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
-import { panelGoalMembers } from '@goodparty_org/contracts'
+import { answersNeeded, panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -170,15 +170,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    // One census read serves both the panel sizing and the good read.
-    const population =
-      outreachFeedbackEnabled && this.priorityResults
-        ? await this.priorityResults.districtPopulation(ctx.organization)
-        : null
     const civicPanel = outreachFeedbackEnabled
       ? await this.contextService.civicPanelBuildState(
           ctx.organizationSlug,
-          panelGoalMembers(population),
+          panelGoalMembers(
+            this.priorityResults
+              ? await this.priorityResults.districtAnswersNeeded(
+                  ctx.organization,
+                )
+              : answersNeeded(),
+          ),
         )
       : undefined
     const reportBacks =
@@ -193,7 +194,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         ? await this.priorityResults.readStatuses(
             ctx.organizationSlug,
             ctx.priorities.map((priority) => priority.id),
-            population,
           )
         : undefined
     if (!resolved) {
