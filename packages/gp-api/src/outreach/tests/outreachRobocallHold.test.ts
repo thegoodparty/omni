@@ -201,7 +201,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
       off_session: true,
     })
     expect(createArgs?.[1]?.idempotencyKey).toBe(
-      `robocall-hold-${outreachId}-1`,
+      `robocall-hold-cus_test-${outreachId}-1`,
     )
 
     const satellite = await readSatellite(outreachId)
@@ -416,7 +416,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(res.data.status).toBe('authorized')
     // Fresh idempotency key off the bumped attempt (2), not the declined 1.
     expect(paymentIntentsCreate.mock.calls[0]?.[1]?.idempotencyKey).toBe(
-      `robocall-hold-${outreachId}-2`,
+      `robocall-hold-cus_test-${outreachId}-2`,
     )
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)

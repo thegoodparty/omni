@@ -62,7 +62,9 @@ This RESERVES REAL MONEY. Invariants, in order:
   single placer; count 0 means a concurrent placer won or the draft already
   advanced → return the current state (`authorized` echoes the frozen amount,
   else `noop`), no hold. The Stripe hold uses idempotency key
-  `robocall-hold-<outreachId>-<attempt>` (attempt = `payAttempt + 1`), and the
+  `robocall-hold-<customerId>-<outreachId>-<attempt>` (attempt = `payAttempt + 1`;
+  the Stripe customer keeps it unique across PR previews, which share one Stripe
+  test account but each restart outreach ids at 1), and the
   Stripe calls run OUTSIDE any DB transaction. A second conditional `updateMany`
   (`hold_pending → authorized`) commits the intent id / frozen
   `authorizedAmountInCents` / `captureBefore` / `paymentMethodId` /
@@ -526,8 +528,9 @@ Invariants:
   `completedCallCount == 0` void path is DEFENSIVE-ONLY: completion sets the count
   to `billableCount`, which `assertReachableCount` guarantees is > 0 at draft, so
   a real settling run always captures the full estimate and never voids on a zero
-  count. The capture idempotency key is stable (`robocall-capture-<outreachId>`,
-  the amount being deterministic per run) so a lost response replays instead of
+  count. The capture idempotency key is stable (`robocall-capture-<holdIntentId>`,
+  the amount being deterministic per run; the hold, not the outreach id, since PR
+  previews share one Stripe account and repeat outreach ids) so a lost response replays instead of
   double-charging.
 - **Receipt + terminal.** The commit CAS (`capturing → captured`) stamps
   `capturedAmountInCents`, best-effort advances the spine `Outreach.status →
@@ -566,7 +569,7 @@ step, reached only for the rare lapsed-hold run. Invariants:
   draft→authorize gap. Mirrors the capture slice.
 - **Single-owner + never-twice.** A conditional `updateMany` (`uncollectable →
 charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
-  idempotency key `robocall-fresh-charge-<id>` makes a retry replay the same PI
+  idempotency key `robocall-fresh-charge-<customerId>-<id>` makes a retry replay the same PI
   instead of charging twice. Success commits `charging → charged` + `chargeIntentId`
   - `capturedAmountInCents` + a `Receipt` once.
 - **Decline vs infra.** A declined card commits back to `uncollectable` WITH the
@@ -581,7 +584,9 @@ charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
   reclaims it past `ROBOCALL_CHARGING_STALE_MINUTES` (15) via a stale-guarded
   self-transition CAS and re-runs the settle path. Before charging, `settleClaimed`
   SEARCHES Stripe for an already-succeeded fresh-charge PI (by the
-  `robocall_fresh_charge` kind + outreachId metadata) and, if found, commits
+  `robocall_fresh_charge` kind + outreachId metadata, scoped to the row's Stripe
+  customer so another PR preview's charge for the same outreach id never matches)
+  and, if found, commits
   `charged` off it WITHOUT charging again — so recovery is idempotent independent
   of Stripe's 24h idempotency-key window, which a recovery delayed by a crash +
   investigation can outlast. The stable key is a second layer for within-window

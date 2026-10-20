@@ -170,6 +170,14 @@ export const PriorityReadStatusSchema = z.object({
   // The one or two groups holding the read back, the one to hear from
   // first leading. Empty once representative.
   underrepresented: z.array(UnderrepresentedGroupSchema).max(2),
+  // A follow-up text paid for and not sent yet: when it goes out and how
+  // many it texts. Absent when there is none.
+  followUp: z
+    .object({
+      scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      texts: z.number().int().positive(),
+    })
+    .optional(),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
 

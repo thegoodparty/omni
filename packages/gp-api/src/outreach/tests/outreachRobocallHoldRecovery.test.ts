@@ -55,11 +55,13 @@ const createDraft = async ({
   payAttempt = 0,
   authorizationIntentId = null as string | null,
   authorizedAmountInCents = null as number | null,
+  stripeCustomerId = 'cus_1' as string | null,
 }: {
   settleState?: RobocallSettleState
   payAttempt?: number
   authorizationIntentId?: string | null
   authorizedAmountInCents?: number | null
+  stripeCustomerId?: string | null
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -82,6 +84,7 @@ const createDraft = async ({
       payAttempt,
       authorizationIntentId,
       authorizedAmountInCents,
+      stripeCustomerId,
     },
   })
   return spine.id
@@ -118,7 +121,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
 
     await recovery.sweepStaleHoldPending()
 
-    expect(findHoldsSpy).toHaveBeenCalledWith(outreachId)
+    expect(findHoldsSpy).toHaveBeenCalledWith(outreachId, 'cus_1')
     expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)

@@ -1033,7 +1033,12 @@ answer rate: `DOOR_ANSWER_RATE` 10%,
 measure them. The text is the most any short group needs to reach
 `MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
 by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
-phone reaches does not size it. The tool says whether every major group
+phone reaches does not size it. That text is one purchase in two rounds
+(`splitPriorityText` in contracts): its card's `sampleSize` is the half
+sent at random on the chosen date, and `roundTwoSize` the half held for a
+follow-up two weeks later, drawn toward the groups heard from least
+(Samuel, 2026-10-20). A text too small for two halves of 25 goes out
+whole. The tool says whether every major group
 reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
