@@ -1,4 +1,9 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
@@ -38,7 +43,11 @@ import {
   type CensusCompositionSource,
 } from './censusComposition'
 import { estimateMrp } from '../util/mrp.util'
-import { mrpReadStatus, type MrpRead } from '../util/mrpReadStatus.util'
+import {
+  holdingBackTracts,
+  mrpReadStatus,
+  type MrpRead,
+} from '../util/mrpReadStatus.util'
 import type { WeightingCensus } from '../util/censusWeighting.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
@@ -396,8 +405,9 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     return mix ? doorTractFor(mix) : null
   }
 
-  // The parts of the district a priority's answers have barely reached, for
-  // a list saved to hear from them. 404 on a priority another org holds.
+  // The neighborhoods the model has too few answers from, or is unsure of,
+  // for a list saved to hear from them: the same tracts the status names.
+  // 404 on a priority another org holds.
   async unreachedAreaFor(
     organizationSlug: string,
     priorityId: string,
@@ -410,15 +420,20 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const sends = await this.sendsFor(organizationSlug, [priorityId])
-    const people = [
-      ...new Set(
-        (sends.get(priorityId) ?? []).flatMap((send) => send.respondentIds),
-      ),
-    ]
+    const coded =
+      (await this.codedAnswers(organizationSlug, [priorityId])).get(
+        priorityId,
+      ) ?? NO_CODED_ANSWERS
+    const read = await this.mrpReadOf(organization, priorityId, coded)
+    if (read === null) {
+      throw new ServiceUnavailableException('The district could not be read')
+    }
     const district =
       await this.resolveContacts().resolveEligibleDistrict(organization)
-    return this.census.unreachedArea({ ...district, personIds: people })
+    return this.census.areaOfTracts({
+      ...district,
+      tracts: holdingBackTracts(read),
+    })
   }
 
   // The coded answers on the sends resultsFor counts, per priority. A

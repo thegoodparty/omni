@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import type { PriorityReadStatus } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 import {
+  READ_PROGRESS_TONE,
   READ_STATUS_COPY,
   READ_STATUS_DOT,
   readPercent,
@@ -57,12 +58,9 @@ const ReadProgress = ({
   className: string
 }) => (
   <Progress
-    value={readPercent(readStatus.answers, readStatus.needed)}
-    aria-label={READ_STATUS_COPY.progress(
-      readStatus.answers,
-      readStatus.needed,
-    )}
-    className={className}
+    value={readPercent(readStatus)}
+    aria-label={READ_STATUS_COPY.progress(readStatus)}
+    className={cn(className, READ_PROGRESS_TONE[readStatus.status])}
   />
 )
 
@@ -104,7 +102,7 @@ export const ReadStatusStrip = ({
           >
             <GoodReadMark size="small" />
             <span className="truncate text-sm font-semibold">
-              {READ_STATUS_COPY.goodLine(readStatus)}
+              {READ_STATUS_COPY.statusLine(readStatus)}
             </span>
           </Link>
           <Button asChild size="small" className="shrink-0 rounded-full">
@@ -119,23 +117,15 @@ export const ReadStatusStrip = ({
             href={resultsHref(priorityId)}
             className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
           >
-            {readStatus.status === 'tooEarly' ? (
-              <>
-                <span className="truncate text-sm font-semibold">
-                  {READ_STATUS_COPY.moreAnswers(
-                    readStatus.needed - readStatus.answers,
-                  )}
-                </span>
-                <ReadProgress readStatus={readStatus} className="h-1.5" />
-              </>
-            ) : (
-              <span className="flex min-w-0 items-center gap-2">
-                <StatusDot readStatus={readStatus} />
-                <span className="truncate text-sm font-semibold">
-                  {READ_STATUS_COPY.stripLine(readStatus)}
-                </span>
+            <span className="flex min-w-0 items-center gap-2">
+              <StatusDot readStatus={readStatus} />
+              <span className="truncate text-sm font-semibold">
+                {READ_STATUS_COPY.statusLine(readStatus)}
               </span>
-            )}
+            </span>
+            {readStatus.groupsTotal > 0 ? (
+              <ReadProgress readStatus={readStatus} className="h-1.5" />
+            ) : null}
           </Link>
           <GetAnswers
             onGetAnswers={onGetAnswers}
@@ -177,34 +167,24 @@ export const ReadStatusRailBlock = ({
       </>
     ) : (
       <>
-        {readStatus.status === 'tooEarly' ? null : (
-          <div className="flex items-center gap-2">
-            <StatusDot readStatus={readStatus} />
-            <span className="text-base font-semibold text-foreground">
-              {READ_STATUS_COPY.label(readStatus)}
-            </span>
-          </div>
-        )}
-        {readStatus.answers < readStatus.needed ? (
+        <div className="flex items-center gap-2">
+          <StatusDot readStatus={readStatus} />
+          <span className="text-base font-semibold text-foreground">
+            {READ_STATUS_COPY.label(readStatus)}
+          </span>
+        </div>
+        {readStatus.underrepresented.length > 0 ? (
+          <span className="text-sm text-foreground">
+            {READ_STATUS_COPY.statusLine(readStatus)}
+          </span>
+        ) : null}
+        {readStatus.groupsTotal > 0 ? (
           <>
-            <span
-              className={
-                readStatus.status === 'tooEarly'
-                  ? 'text-base font-semibold text-foreground'
-                  : 'text-sm text-muted-foreground'
-              }
-            >
-              {READ_STATUS_COPY.moreAnswers(
-                readStatus.needed - readStatus.answers,
-              )}
+            <span className="text-sm text-muted-foreground">
+              {READ_STATUS_COPY.progress(readStatus)}
             </span>
             <ReadProgress readStatus={readStatus} className="h-2" />
           </>
-        ) : null}
-        {readStatus.underrepresented.length > 0 ? (
-          <span className="text-sm text-foreground">
-            {READ_STATUS_COPY.hearFromMore(readStatus.underrepresented)}
-          </span>
         ) : null}
         <GetAnswers
           onGetAnswers={onGetAnswers}

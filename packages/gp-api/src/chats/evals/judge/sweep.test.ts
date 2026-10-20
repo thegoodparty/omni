@@ -304,41 +304,13 @@ describe('the canned judge', () => {
 })
 
 describe('judgeSweep', () => {
-  it('reports which tools each arm called, per case', async () => {
-    const result = await run(await seeded(cases(3)))
-    expect(result.report.toolUse?.[0]?.cases[0]).toEqual({
-      caseId: 'case-0',
-      base: {
-        runs: 1,
-        infraErrors: 0,
-        tools: { crud_priorities: { called: 1, errored: 0 } },
-      },
-      candidate: {
-        runs: 1,
-        infraErrors: 0,
-        tools: { crud_priorities: { called: 1, errored: 0 } },
-      },
-    })
-    expect(result.markdown).toContain(
-      '| case-0 | crud_priorities 1/1 | crud_priorities 1/1 |',
-    )
-  })
-
-  // Every candidate tool call failing excludes every pair from the quality
-  // comparison, so without the tool signal this read CAN'T SAY.
-  it('says WORSE when the candidate alone fails tool calls across cases', async () => {
-    const failing = (caseId: string, attempt: number): RunRecord[] => [
-      {
-        ...BASE,
-        caseId,
-        attempt,
-        runId: `${BASE.sweepId}:${caseId}:base:${attempt}`,
-      },
+  it('judges a chat pair whose candidate tool calls failed', async () => {
+    const failing = (caseId: string): RunRecord[] => [
+      { ...BASE, caseId, runId: `${BASE.sweepId}:${caseId}:base:1` },
       {
         ...CANDIDATE,
         caseId,
-        attempt,
-        runId: `${BASE.sweepId}:${caseId}:candidate:${attempt}`,
+        runId: `${BASE.sweepId}:${caseId}:candidate:1`,
         telemetry: { ...CANDIDATE.telemetry, toolErrors: 1 },
         trace: [
           {
@@ -350,29 +322,12 @@ describe('judgeSweep', () => {
         ],
       },
     ]
-    const result = await run(
-      await seeded([
-        ...failing('a', 1),
-        ...failing('a', 2),
-        ...failing('b', 1),
-        ...failing('b', 2),
-      ]),
-    )
+    const result = await run(await seeded([...failing('a'), ...failing('b')]))
     const score = result.report.agents[0]
-    expect(score?.exclusions.toolError).toBe(4)
-    expect(score?.signals?.qualityLabel).toBe("CAN'T SAY")
-    expect(score?.label).toBe('WORSE')
-    expect(result.markdown).toContain(
-      '**WORSE on tools: 2 cases had tool calls fail on the candidate only ' +
-        "(crud_priorities).** The quality comparison alone says CAN'T SAY.",
-    )
-  })
-
-  it('leaves the label alone when both arms called the same tools', async () => {
-    const result = await run(await seeded(cases(3)))
-    const score = result.report.agents[0]
-    expect(score?.signals?.tools).toEqual({ cases: [], says: null })
-    expect(score?.label).toBe(score?.signals?.qualityLabel)
+    expect(score?.exclusions.infraError).toBe(0)
+    expect(score?.overall.judgments).toBeGreaterThan(0)
+    expect(score?.evidence.toolErrors.candidate).toBe(1)
+    expect(result.markdown).not.toContain('Tools called')
   })
 
   it('produces a verdict per agent from both arms', async () => {

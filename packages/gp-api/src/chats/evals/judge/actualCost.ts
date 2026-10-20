@@ -93,8 +93,8 @@ export const runCostUsd = (record: RunRecord): number | UnmeasuredReason => {
   }
 }
 
-// EVERY RECORD, NOT ONLY THE JUDGEABLE PAIRS. A run excluded for a tool error
-// or an infra error, or belonging to an agent the judge refused, was still
+// EVERY RECORD, NOT ONLY THE JUDGEABLE PAIRS. A run excluded for an infra
+// error, or belonging to an agent the judge refused, was still
 // dispatched and still billed. The base-arm cache is not read by the sweep
 // yet (planCost.ts), so every record listed for a sweep was paid for in it.
 // THE DAY IT IS, a base record reused from an earlier sweep is a cache hit

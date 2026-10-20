@@ -99,7 +99,14 @@ const planWith = (
       steps: [next],
     },
     next: nextStep,
-    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
     balance: null,
   }
 }
@@ -134,15 +141,15 @@ describe('CivicPanelNextStepCard', () => {
       status: 200,
       data: {
         ...planWith(text, 'Invite residents to your civic panel by text'),
-        balance: { status: 'gettingClose', inviteMore: 'unreachedAreas' },
+        balance: { status: 'missingGroups', inviteMore: 'unreachedAreas' },
       },
     })
     render(<CivicPanelNextStepCard />)
 
-    expect(await screen.findByText('Getting close')).toBeInTheDocument()
+    expect(await screen.findByText('Missing some groups')).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Invite more people in parts of your district we haven't reached next.",
+        "Invite more people in parts of your district we haven't heard from next.",
       ),
     ).toBeInTheDocument()
   })

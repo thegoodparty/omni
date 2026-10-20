@@ -88,6 +88,8 @@ describe('CitizensPanelSection', () => {
           goal: 240,
           answersNeeded: 96,
           expectedAnswers: 48,
+          groupsCovered: 6,
+          groupsTotal: 12,
         },
         balance: null,
       },
@@ -96,12 +98,12 @@ describe('CitizensPanelSection', () => {
     render(<CitizensPanelSection />)
 
     const bar = await screen.findByTestId('civic-panel-progress')
-    expect(bar).toHaveTextContent('120 of 240 members')
+    expect(bar).toHaveTextContent('120 members, in 6 of 12 groups')
     expect(
       bar.querySelector('[data-slot="progress"]')?.getAttribute('data-filled'),
     ).toBe('50')
     expect(bar).toHaveTextContent(
-      '240 members gets you about 96 answers per question, enough to hear from every group in your district.',
+      'Invite people from the groups still missing so every part of your district has a voice.',
     )
     expect(
       screen.getByRole('link', { name: 'See your panel' }),

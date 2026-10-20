@@ -431,18 +431,19 @@ describe('the measured layer', () => {
 })
 
 describe('exclusions', () => {
-  it('counts tool error, infra error and ungraded apart', async () => {
-    const records = [
+  it('counts infra error, identical config and ungraded apart', async () => {
+    const [base, candidate] = TOOL_ERROR_PAIR
+    const records: RunRecord[] = [
       ...sweepRecords(3),
-      ...TOOL_ERROR_PAIR,
+      base,
+      { ...candidate, status: 'infraError', output: null },
       ...IDENTICAL_DIGEST_PAIR,
     ]
     const score = await pipeline(records)
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      'Excluded pairs: 1 tool error, 0 infra error, 1 identical ' +
-        'config. Plus 0 unpaired record(s). Separately, 0 ungraded ' +
-        'judgment(s)',
+      'Excluded pairs: 1 infra error, 1 identical config. Plus 0 ' +
+        'unpaired record(s). Separately, 0 ungraded judgment(s)',
     )
     expect(report).toContain("which is not a CAN'T SAY verdict")
   })
@@ -483,7 +484,6 @@ describe('provenance', () => {
       exclusions: {
         ungradedReasons: [],
         toolErrorCauses: [],
-        toolError: 0,
         infraError: 0,
         identicalConfig: 0,
         unpaired: 0,
@@ -561,8 +561,6 @@ describe('condition handling', () => {
 })
 
 describe('regression signals', () => {
-  const noTools = { cases: [], says: null }
-
   it('names the handling signal under the heading when it moved the label', async () => {
     const score = await pipeline(sweepRecords(3))
     const report = renderReport({
@@ -579,7 +577,6 @@ describe('regression signals', () => {
               pBetter: 1,
               says: 'WORSE',
             },
-            tools: noTools,
           },
         },
       ],
@@ -590,66 +587,6 @@ describe('regression signals', () => {
     expect(lines[heading + 2]).toBe(
       '**WORSE on condition handling: 5 regressions, 0 improvements ' +
         "(p = 0.031).** The quality comparison alone says CAN'T SAY.",
-    )
-    expect(report).toContain(
-      'Behavior changes: no tool was dropped, added, or failing on one arm ' +
-        'only, in any case both arms ran.',
-    )
-  })
-
-  it('names the tool signal and lists each case it rests on', async () => {
-    const score = await pipeline(sweepRecords(3))
-    const report = renderReport({
-      agents: [
-        {
-          ...score,
-          label: 'WORSE',
-          signals: {
-            qualityLabel: 'BETTER',
-            tools: {
-              says: 'WORSE',
-              cases: [
-                {
-                  caseId: 'outreach-explicit-text',
-                  candidateOnlyFailures: [],
-                  baseOnlyFailures: [],
-                  dropped: ['present_outreach_proposal'],
-                  added: [],
-                },
-                {
-                  caseId: 'a',
-                  candidateOnlyFailures: ['update_priority_status'],
-                  baseOnlyFailures: [],
-                  dropped: [],
-                  added: ['Bad Name'],
-                },
-                {
-                  caseId: 'b',
-                  candidateOnlyFailures: [
-                    'count_contacts',
-                    'update_priority_status',
-                  ],
-                  baseOnlyFailures: [],
-                  dropped: [],
-                  added: [],
-                },
-              ],
-            },
-          },
-        },
-      ],
-    })
-    expect(report).toContain(
-      '**WORSE on tools: 2 cases had tool calls fail on the candidate only ' +
-        '(count_contacts, update_priority_status).** The quality comparison ' +
-        'alone says BETTER.',
-    )
-    expect(report).toContain(
-      '- outreach-explicit-text: dropped present_outreach_proposal\n' +
-        '- a: added unknown; failed on the candidate only: ' +
-        'update_priority_status\n' +
-        '- b: failed on the candidate only: count_contacts, ' +
-        'update_priority_status',
     )
   })
 
@@ -674,7 +611,6 @@ describe('regression signals', () => {
       ],
     })
     expect(report).not.toContain('on condition handling:')
-    expect(report).not.toContain('Behavior changes')
   })
 })
 
@@ -850,7 +786,7 @@ describe('a whole report', () => {
       '### chief_of_staff \u2014 BETTER',
       '| dimension |',
       'Measured, beside the verdict and never part of it',
-      'Excluded pairs: 1 tool error',
+      'Excluded pairs: 0 infra error',
       'Position consistency across order-swapped pairs:',
       'Change under test:',
       '**Coverage:',
@@ -1276,8 +1212,8 @@ describe('the all-identical-outputs qualifier', () => {
   })
 })
 
-// The same failure for tool errors: "Excluded pairs: 9 tool error" and no way
-// to tell which tool, or why, without a diagnostic branch.
+// The same failure for tool errors: a count and no way to tell which tool, or
+// why, without a diagnostic branch.
 describe('tool-error exclusions say which tool and why', () => {
   const withCauses = async (
     toolErrorCauses: AgentScore['exclusions']['toolErrorCauses'],
@@ -1322,7 +1258,7 @@ describe('tool-error exclusions say which tool and why', () => {
     expect(report).toContain('- and 2 more')
   })
 
-  // A background pair with tool errors is scored, so its causes are not
+  // A pair with tool errors is scored, so its causes are not
   // exclusions and must not read as ones: they get their own heading, after a
   // blank line so Markdown does not fold it into the line above.
   it('lists scored causes under their own heading', async () => {
@@ -1366,7 +1302,7 @@ describe('tool-error exclusions say which tool and why', () => {
     const report = renderReport({ agents: [score] })
 
     expect(score.overall.judgments).toBeGreaterThan(0)
-    expect(report).toContain('Excluded pairs: 0 tool error, 0 infra error')
+    expect(report).toContain('Excluded pairs: 0 infra error')
     expect(report).toContain('- tool errors: -1.00 per run pair')
     expect(report).toContain('Tool errors (scored, not excluded):')
     expect(report).toContain(
@@ -1377,7 +1313,7 @@ describe('tool-error exclusions say which tool and why', () => {
     )
   })
 
-  it('adds nothing when no pair was excluded for a tool error', async () => {
+  it('adds nothing when no excluded pair hit a tool error', async () => {
     const report = await withCauses([])
     const lines = report.split('\n')
     const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
@@ -1641,73 +1577,5 @@ describe('the case dimension rows', () => {
   it('adds nothing for an agent whose cases asked none', async () => {
     const report = renderReport({ agents: [await pipeline(sweepRecords(3))] })
     expect(report).not.toContain('case dimension')
-  })
-})
-
-describe('the tools-called table', () => {
-  it('shows each arm per case, and says when an arm did not run it', () => {
-    const report = renderReport({
-      agents: [],
-      registry: REGISTRY,
-      toolUse: [
-        {
-          agentId: 'chief_of_staff',
-          cases: [
-            {
-              caseId: 'scenario-hearing-from-constituents',
-              base: { runs: 3, infraErrors: 0, tools: {} },
-              candidate: {
-                runs: 3,
-                infraErrors: 0,
-                tools: {
-                  present_outreach_proposal: { called: 3, errored: 0 },
-                  count_contacts: { called: 2, errored: 1 },
-                },
-              },
-            },
-            {
-              caseId: 'scenario-new',
-              base: { runs: 0, infraErrors: 0, tools: {} },
-              candidate: {
-                runs: 2,
-                infraErrors: 1,
-                tools: { crud_priorities: { called: 2, errored: 0 } },
-              },
-            },
-            {
-              caseId: 'scenario-broken',
-              base: { runs: 0, infraErrors: 3, tools: {} },
-              candidate: { runs: 3, infraErrors: 0, tools: {} },
-            },
-          ],
-        },
-      ],
-    })
-    const start = report.indexOf('### Tools called')
-    const table = report.slice(start, report.indexOf('</details>') + 10)
-    expect(table).toBe(
-      [
-        '### Tools called',
-        '',
-        'Runs that called each tool at least once, out of the runs with a ' +
-          'result; "errored" is runs where a call to it failed.',
-        '',
-        '<details><summary>chief_of_staff: tools called, per case</summary>',
-        '',
-        '| case | base | candidate |',
-        '| --- | --- | --- |',
-        '| scenario-hearing-from-constituents | \u2014 | count_contacts 2/3 ' +
-          '(1 errored), present_outreach_proposal 3/3 |',
-        '| scenario-new | not run | crud_priorities 2/2 (+1 infra error) |',
-        '| scenario-broken | no result (+3 infra error) | \u2014 |',
-        '',
-        '</details>',
-      ].join('\n'),
-    )
-  })
-
-  it('is absent from a report that carries no tool use', () => {
-    const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).not.toContain('Tools called')
   })
 })

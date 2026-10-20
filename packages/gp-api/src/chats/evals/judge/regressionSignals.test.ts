@@ -5,11 +5,9 @@ import {
   combineVerdict,
   handlingSignal,
   signTestTail,
-  toolSignal,
   withRegressionSignals,
 } from './regressionSignals'
 import type { AgentScore } from './score'
-import type { AgentToolUse, ArmToolUse, CaseToolUse } from './toolUse'
 
 const handlingOf = (
   counts: Partial<Record<HandlingClass, number>>,
@@ -28,31 +26,6 @@ const handlingOf = (
     ),
   ),
   notGraded: 0,
-})
-
-const arm = (
-  runs: number,
-  tools: Record<string, [called: number, errored: number]>,
-): ArmToolUse => ({
-  runs,
-  infraErrors: 0,
-  tools: Object.fromEntries(
-    Object.entries(tools).map(([name, [called, errored]]) => [
-      name,
-      { called, errored },
-    ]),
-  ),
-})
-
-const toolCase = (
-  caseId: string,
-  base: ArmToolUse,
-  candidate: ArmToolUse,
-): CaseToolUse => ({ caseId, base, candidate })
-
-const agentToolUse = (cases: CaseToolUse[]): AgentToolUse => ({
-  agentId: 'priority_flow',
-  cases,
 })
 
 const SCORE: AgentScore = {
@@ -77,7 +50,6 @@ const SCORE: AgentScore = {
   exclusions: {
     ungradedReasons: [],
     toolErrorCauses: [],
-    toolError: 0,
     infraError: 0,
     identicalConfig: 0,
     unpaired: 0,
@@ -178,175 +150,22 @@ describe('handlingSignal', () => {
   })
 })
 
-describe('toolSignal', () => {
-  it('says WORSE when two cases fail on the candidate only', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase(
-          'a',
-          arm(3, { count_contacts: [3, 0] }),
-          arm(3, { count_contacts: [3, 3] }),
-        ),
-        toolCase(
-          'b',
-          arm(3, { update_priority_status: [3, 0] }),
-          arm(3, { update_priority_status: [2, 2] }),
-        ),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.says).toBe('WORSE')
-    expect(signal.cases.map((c) => c.candidateOnlyFailures)).toEqual([
-      ['count_contacts'],
-      ['update_priority_status'],
-    ])
-  })
-
-  it('says nothing for one such case, or for failures the base shares', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase(
-          'a',
-          arm(3, { count_contacts: [3, 0] }),
-          arm(3, { count_contacts: [3, 3] }),
-        ),
-        toolCase(
-          'b',
-          arm(3, { count_contacts: [3, 1] }),
-          arm(3, { count_contacts: [3, 3] }),
-        ),
-        toolCase(
-          'c',
-          arm(3, { count_contacts: [3, 0] }),
-          arm(3, { count_contacts: [3, 1] }),
-        ),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.says).toBeNull()
-    expect(signal.cases.map((c) => c.caseId)).toEqual(['a'])
-  })
-
-  it('says BETTER when the base alone failed in two cases', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase('a', arm(3, { lookup: [3, 2] }), arm(3, { lookup: [3, 0] })),
-        toolCase('b', arm(3, { lookup: [3, 3] }), arm(3, { lookup: [3, 0] })),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.says).toBe('BETTER')
-  })
-
-  it('reports dropped and added tools without deciding anything', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase(
-          'outreach-explicit-text',
-          arm(3, {
-            present_outreach_proposal: [2, 0],
-            size_outreach_sample: [3, 0],
-          }),
-          arm(3, {}),
-        ),
-        toolCase(
-          'judgement-who-to-hear-from',
-          arm(3, { update_priority_status: [3, 0] }),
-          arm(3, { count_contacts: [2, 0] }),
-        ),
-        toolCase(
-          'once-only',
-          arm(3, { update_priority_status: [1, 0] }),
-          arm(3, {}),
-        ),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.says).toBeNull()
-    expect(signal.cases).toEqual([
-      {
-        caseId: 'outreach-explicit-text',
-        candidateOnlyFailures: [],
-        baseOnlyFailures: [],
-        dropped: ['present_outreach_proposal', 'size_outreach_sample'],
-        added: [],
-      },
-      {
-        caseId: 'judgement-who-to-hear-from',
-        candidateOnlyFailures: [],
-        baseOnlyFailures: [],
-        dropped: ['update_priority_status'],
-        added: ['count_contacts'],
-      },
-    ])
-  })
-
-  it('counts a failure only on a tool both arms called', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase('a', arm(3, { lookup: [3, 3] }), arm(3, {})),
-        toolCase('b', arm(3, { lookup: [2, 2] }), arm(3, {})),
-        toolCase('c', arm(3, {}), arm(3, { read_issue: [3, 3] })),
-        toolCase('d', arm(3, {}), arm(3, { read_issue: [2, 2] })),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.says).toBeNull()
-    expect(
-      signal.cases.map((c) => [
-        c.caseId,
-        c.candidateOnlyFailures,
-        c.baseOnlyFailures,
-        c.dropped,
-        c.added,
-      ]),
-    ).toEqual([
-      ['a', [], [], ['lookup'], []],
-      ['b', [], [], ['lookup'], []],
-      ['c', [], [], [], ['read_issue']],
-      ['d', [], [], [], ['read_issue']],
-    ])
-  })
-
-  it('skips a case one arm never ran', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase('new-1', arm(0, {}), arm(3, { lookup: [3, 3] })),
-        toolCase('new-2', arm(0, {}), arm(3, { lookup: [3, 3] })),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal).toEqual({ cases: [], says: null })
-  })
-
-  it('prints a name not shaped like a registered tool as unknown', () => {
-    const signal = toolSignal(
-      agentToolUse([
-        toolCase('a', arm(3, { 'Not A Tool': [3, 0] }), arm(3, {})),
-      ]),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.cases[0]?.dropped).toEqual(['unknown'])
-  })
-})
-
 describe('combineVerdict', () => {
-  it('lets any signal saying WORSE win', () => {
-    expect(combineVerdict("CAN'T SAY", ['WORSE', null])).toBe('WORSE')
-    expect(combineVerdict('BETTER', [null, 'WORSE'])).toBe('WORSE')
-    expect(combineVerdict('SAME', ['BETTER', 'WORSE'])).toBe('WORSE')
-    expect(combineVerdict('WORSE', ['BETTER', null])).toBe('WORSE')
+  it('lets either the quality label or the handling signal say WORSE', () => {
+    expect(combineVerdict("CAN'T SAY", 'WORSE')).toBe('WORSE')
+    expect(combineVerdict('BETTER', 'WORSE')).toBe('WORSE')
+    expect(combineVerdict('WORSE', 'BETTER')).toBe('WORSE')
   })
 
-  it('says BETTER when something does and nothing says WORSE', () => {
-    expect(combineVerdict("CAN'T SAY", [null, 'BETTER'])).toBe('BETTER')
-    expect(combineVerdict('SAME', ['BETTER', null])).toBe('BETTER')
-    expect(combineVerdict('BETTER', [null, null])).toBe('BETTER')
+  it('says BETTER when either does and neither says WORSE', () => {
+    expect(combineVerdict("CAN'T SAY", 'BETTER')).toBe('BETTER')
+    expect(combineVerdict('SAME', 'BETTER')).toBe('BETTER')
+    expect(combineVerdict('BETTER', null)).toBe('BETTER')
   })
 
-  it('keeps the quality label when no signal speaks', () => {
-    expect(combineVerdict("CAN'T SAY", [null, null])).toBe("CAN'T SAY")
-    expect(combineVerdict('SAME', [])).toBe('SAME')
+  it('keeps the quality label when the handling signal does not speak', () => {
+    expect(combineVerdict("CAN'T SAY", null)).toBe("CAN'T SAY")
+    expect(combineVerdict('SAME', null)).toBe('SAME')
   })
 })
 
@@ -358,13 +177,11 @@ describe('withRegressionSignals', () => {
         overall: { ...SCORE.overall, cases: 3 },
         handling: handlingOf({ regression: 5 }),
       },
-      undefined,
       DEFAULT_JUDGE_CONFIG,
     )
     expect(result.label).toBe('WORSE')
     expect(result.signals?.qualityLabel).toBe("CAN'T SAY")
     expect(result.signals?.handling?.says).toBe('WORSE')
-    expect(result.signals?.tools).toBeUndefined()
   })
 
   it('leaves a no-change sweep alone', () => {
@@ -378,25 +195,15 @@ describe('withRegressionSignals', () => {
           improvement: 1,
         }),
       },
-      agentToolUse([
-        toolCase(
-          'a',
-          arm(3, { count_contacts: [3, 1] }),
-          arm(3, { count_contacts: [3, 0] }),
-        ),
-      ]),
       DEFAULT_JUDGE_CONFIG,
     )
     expect(result.label).toBe('SAME')
-    expect(result.signals?.tools).toEqual({ cases: [], says: null })
+    expect(result.signals?.handling?.says).toBeNull()
   })
 
-  it('reads no tool signal for a background agent', () => {
-    const result = withRegressionSignals(
-      { ...SCORE, shape: 'background' },
-      agentToolUse([]),
-      DEFAULT_JUDGE_CONFIG,
-    )
+  it('reads no handling signal when the sweep attached no handling', () => {
+    const result = withRegressionSignals(SCORE, DEFAULT_JUDGE_CONFIG)
+    expect(result.label).toBe("CAN'T SAY")
     expect(result.signals).toEqual({ qualityLabel: "CAN'T SAY" })
   })
 })

@@ -53,6 +53,11 @@ from `CensusCompositionSource.mrpInputs` (bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
 The representation bars compare who answered with the district, unweighted.
+`mrpReadStatus` also returns `groupsHeard` of `groupsTotal` (major groups with
+at least three coded answers), which the webapp shows instead of an answer
+count. `unreachedAreaFor` takes its tracts from the same model
+(`holdingBackTracts`: major tracts short of three answers or too unsure), so
+the area a list is saved to can never disagree with the status.
 
 ## Round 2 draw
 

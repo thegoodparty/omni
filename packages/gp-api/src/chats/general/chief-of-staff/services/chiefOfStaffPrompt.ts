@@ -12,7 +12,7 @@ import {
   PRIORITY_STEP_LABELS,
   READ_REPRESENTATIVENESS_LABELS,
   SAMPLE_TARGET_REPLIES,
-  UNDERREPRESENTED_GROUP_NAMES,
+  underrepresentedGroupName,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
@@ -303,7 +303,7 @@ const civicPanelBuildBlock = (
       ]
     : panel.hasPlan
       ? [
-          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "Your panel can give about 12 of the 100 answers you need." from expectedAnswers and answersNeeded The card shows the step and opens it, so never restate it.`,
+          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "62 members so far, from 9 of 12 groups in your district." (the standing it returns). The card shows the step and opens it, so never restate it.`,
         ]
       : atGoal
         ? [
@@ -325,7 +325,7 @@ const civicPanelBuildBlock = (
         `- When they answer the weekly time question ("1 hour a week", "2 hours a week", "3 hours a week", "4 or more hours a week", or their own words), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with the hours: 4 for "4 or more hours a week", or the number they wrote, at most ${PANEL_MAX_HOURS_PER_WEEK}. Less than an hour: say the plan needs at least an hour a week and ask again.`,
         `- When it returns saved "created", call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\` and say in one short sentence that their plan is ready and the card opens its first step. Never list the steps or the numbers: the card and their panel page show them.`,
         `- When it returns planMade false, no plan could be made. Say so in one plain line with its reason, and link their panel page as ${pageLink('See your civic panel')}. Do not count the district, size an invite, draft a text or present any other card.`,
-        `- Whenever they have a plan and tell you how much time they can give each week now (for example "I can give 2 hours now"), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with it. When it returns saved "updated", say in one line that their next round of invites uses the new time, and the round in progress stays as it is.`,
+        `- Whenever they have a plan and tell you how much time they can give each week now (for example "I can give 2 hours now"), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with it. When it returns saved "updated", say in one line that their next batch of invites uses the new time, and the batch in progress stays as it is.`,
         '- Never propose a text, a list or any other outreach to build the panel: every invite comes from the plan.',
       ]
     : []
@@ -347,7 +347,7 @@ const civicPanelBuildBlock = (
 // that the panel will match the community, any weight, quota or target, and
 // any one person's race may not.
 const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too early, Not yet representative, Getting close or Representative) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
 
 // What the agent does when the official presses What's a civic panel? on the
 // build card: it explains, and builds nothing unless they say yes.
@@ -627,11 +627,15 @@ const formatFlow = (p: PriorityRecord): string => {
 const formatRead = (read: PriorityReadStatus | undefined): string =>
   read === undefined
     ? ''
-    : `, answers: ${read.answers} of ${read.needed} needed for a good read, representative: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
+    : `, groups heard from: ${
+        read.groupsTotal === 0
+          ? 'not known'
+          : `${read.groupsHeard} of ${read.groupsTotal}`
+      }, status: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
         read.underrepresented.length === 0
           ? 'nobody in particular'
           : read.underrepresented
-              .map((group) => UNDERREPRESENTED_GROUP_NAMES[group])
+              .map((group) => underrepresentedGroupName(group, read.status))
               .join(' and ')
       }, good read: ${read.good ? 'yes' : 'no'}`
 
@@ -661,9 +665,9 @@ const prioritiesBlock = (
 // Behind serve-citizen-panels, with each priority's read status in
 // <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
 const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
-- <priorities> says, for each priority, how many people have answered on it, how many a good read of the district takes, how closely the people who answered look like the district (Too early, Not yet representative, Getting close, Representative or Enough answers), and who to hear more from. Representative is a good read. Enough answers is a good read the census could not be checked against: say they have enough answers but you could not check them against the census, and never call them representative. Good read: no means they do not have one yet.
-- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: too early, how many more it takes; otherwise the status and who to hear more from, in exactly those words, for example "You've heard from plenty of people on it, but few renters."
-- Never mention weights, weighting, quotas, discounting or an effective number of answers.
+- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear from some groups, A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
+- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
+- Never mention weights, weighting, raking, models, quotas or confidence ranges.
 - If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
 
 // The report back is drafted in the priority's own conversation, never here,

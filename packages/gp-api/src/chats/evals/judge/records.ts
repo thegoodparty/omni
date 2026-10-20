@@ -173,9 +173,9 @@ export const ArmAgentSchema = z.object({
   // difference is invisible once it is a number in a table.
   //
   // A TRANSCRIPT AND NOT THE OTHER TWO CONDITIONS, deliberately. A forced
-  // tool failure separates itself more strongly than a line here could —
-  // `isComparable` is false for it, so the pair never reaches a delta. And an
-  // account state is a state production really produces, seeded through the
+  // tool failure is judged on the answer its user received, which is a real
+  // answer to a real failure, and its tool error is counted beside the
+  // verdict. And an account state is a state production really produces, seeded through the
   // same rows the app writes, so a verdict under one is about a real account.
   //
   // OPTIONAL, AND THAT IS WHY THE MANIFEST VERSION DID NOT MOVE. The base arm

@@ -487,7 +487,9 @@ const PriorityWorkspaceBody = ({
             ? {
                 goodRead: openedReadRef.current.good,
                 answers: openedReadRef.current.answers,
-                answersNeeded: openedReadRef.current.needed,
+                answersFloor: openedReadRef.current.needed,
+                groupsHeard: openedReadRef.current.groupsHeard,
+                groupsTotal: openedReadRef.current.groupsTotal,
               }
             : {}),
         })

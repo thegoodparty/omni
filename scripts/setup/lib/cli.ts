@@ -53,9 +53,12 @@
 //
 //   npx tsx scripts/setup/lib/cli.ts seed-activity --org <slug>
 //   npx tsx scripts/setup/lib/cli.ts seed-activity --fixture <userState>
+//     [--answers <n>] [--split lean|even]
 //     Behind `npm run seed:activity`. Fills a local org with outreach,
 //     memos and synthesis, or mints a fresh fixture user that already has
-//     them and prints its login. The machine secret comes from the env var
+//     them and prints its login. --answers sets how many residents answer
+//     a Serve org's seeded priority (all of them by default) and --split
+//     even splits those answers half yes, half no. The machine secret comes from the env var
 //     above, else from packages/gp-api/.env, where setup writes it.
 import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
@@ -81,7 +84,11 @@ import {
   serializeEnvFile,
   type EnvMap,
 } from './env'
-import { runSeedActivity, runSeedLogin } from './seedLogin'
+import {
+  runSeedActivity,
+  runSeedLogin,
+  type SeedPriorityOptions,
+} from './seedLogin'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -240,14 +247,36 @@ const runSeedLoginCommand = async (
   }
 }
 
-const runSeedActivityCommand = async (flag: string, value: string) => {
+const parseSeedPriorityOptions = (
+  args: string[],
+): SeedPriorityOptions | null => {
+  const options: SeedPriorityOptions = {}
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i]
+    const value = args[i + 1]
+    if (flag === '--answers' && value !== undefined && /^\d+$/.test(value)) {
+      options.answers = Number(value)
+    } else if (flag === '--split' && (value === 'lean' || value === 'even')) {
+      options.split = value
+    } else {
+      return null
+    }
+  }
+  return options
+}
+
+const runSeedActivityCommand = async (
+  flag: string,
+  value: string,
+  options: SeedPriorityOptions,
+) => {
   const machineSecret =
     process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ||
     (readEnvFile(resolve(REPO_ROOT, 'packages/gp-api/.env'))
       .LOCAL_SETUP_CLERK_MACHINE_SECRET ??
       '')
   if (flag === '--org') {
-    const result = await runSeedActivity(machineSecret, value)
+    const result = await runSeedActivity(machineSecret, value, fetch, options)
     if (result.kind !== 'seeded') {
       return fail(`Seeding ${value} ${result.kind}: ${result.reason}`)
     }
@@ -257,7 +286,7 @@ const runSeedActivityCommand = async (flag: string, value: string) => {
     )
     return
   }
-  const result = await runSeedLogin(machineSecret, value, fetch, true)
+  const result = await runSeedLogin(machineSecret, value, fetch, true, options)
   if (result.kind !== 'minted') {
     return fail(`Seeded fixture ${result.kind}: ${result.reason}`)
   }
@@ -476,8 +505,11 @@ const main = async () => {
     (argv[1] === '--org' || argv[1] === '--fixture') &&
     argv[2]
   ) {
-    await runSeedActivityCommand(argv[1], argv[2])
-    return
+    const options = parseSeedPriorityOptions(argv.slice(3))
+    if (options !== null) {
+      await runSeedActivityCommand(argv[1], argv[2], options)
+      return
+    }
   }
 
   fail(
@@ -491,6 +523,7 @@ const main = async () => {
       '  cli.ts seed-login <userState>   (secret via env var',
       '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
       '  cli.ts seed-activity --org <slug> | --fixture <userState>',
+      '    [--answers <n>] [--split lean|even]',
     ].join('\n'),
   )
 }
