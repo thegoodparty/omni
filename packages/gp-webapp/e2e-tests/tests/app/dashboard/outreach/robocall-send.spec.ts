@@ -257,13 +257,21 @@ test.describe('Robocall send — M2 mock pipeline', () => {
 
     // Pick a send date 7 days from now (within the 85-day window).
     await page.locator('#robocall-send-date').click()
-    // The Calendar renders the current month; pick a day ≥ 7 days out.
-    // Click the first un-disabled day with a number ≥ today+7.
     const targetDay = new Date()
     targetDay.setDate(targetDay.getDate() + 7)
+    // If the target day fell into the next month, navigate the calendar
+    // forward — Calendar renders showOutsideDays=true by default, so without
+    // this both the current month's past cell and the next month's outside-day
+    // cell match the same day number and Playwright strict mode rejects it.
+    if (targetDay.getMonth() !== new Date().getMonth()) {
+      await page.getByRole('button', { name: 'Go to the next month' }).click()
+    }
     const dayNum = targetDay.getDate()
-    // The calendar grid cell's accessible name is just the day number.
-    await page.getByRole('gridcell', { name: String(dayNum) }).click()
+    // exact:true excludes outside-day cells whose aria-label is longer than
+    // just the number (e.g. "1 (outside of current month)").
+    await page
+      .getByRole('gridcell', { name: String(dayNum), exact: true })
+      .click()
 
     // Pick the 10:00 AM time slot.
     await page.locator('#robocall-send-time').click()
