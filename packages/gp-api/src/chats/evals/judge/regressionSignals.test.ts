@@ -281,6 +281,33 @@ describe('toolSignal', () => {
     ])
   })
 
+  it('counts a failure only on a tool both arms called', () => {
+    const signal = toolSignal(
+      agentToolUse([
+        toolCase('a', arm(3, { lookup: [3, 3] }), arm(3, {})),
+        toolCase('b', arm(3, { lookup: [2, 2] }), arm(3, {})),
+        toolCase('c', arm(3, {}), arm(3, { read_issue: [3, 3] })),
+        toolCase('d', arm(3, {}), arm(3, { read_issue: [2, 2] })),
+      ]),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(signal.says).toBeNull()
+    expect(
+      signal.cases.map((c) => [
+        c.caseId,
+        c.candidateOnlyFailures,
+        c.baseOnlyFailures,
+        c.dropped,
+        c.added,
+      ]),
+    ).toEqual([
+      ['a', [], [], ['lookup'], []],
+      ['b', [], [], ['lookup'], []],
+      ['c', [], [], [], ['read_issue']],
+      ['d', [], [], [], ['read_issue']],
+    ])
+  })
+
   it('skips a case one arm never ran', () => {
     const signal = toolSignal(
       agentToolUse([

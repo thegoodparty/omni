@@ -116,16 +116,25 @@ export const toolSignal = (
           .map((tool) => publicToolName(tool, 'chat')),
       ),
     ]
+    // A failure counts only on a tool both arms called. A tool one arm
+    // stopped calling, or newly reached for, is a dropped or added tool, not
+    // a call that used to work and now fails (or the reverse).
+    const failedOnly = (failing: ArmToolUse, other: ArmToolUse): string[] => [
+      ...new Set(
+        names
+          .filter(
+            (tool) =>
+              count(failing, tool).errored >= minRuns &&
+              count(other, tool).called >= minRuns &&
+              count(other, tool).errored === 0,
+          )
+          .map((tool) => publicToolName(tool, 'chat')),
+      ),
+    ]
     const changes: CaseToolChanges = {
       caseId: c.caseId,
-      candidateOnlyFailures: where(
-        (base, candidate) => candidate >= minRuns && base === 0,
-        'errored',
-      ),
-      baseOnlyFailures: where(
-        (base, candidate) => base >= minRuns && candidate === 0,
-        'errored',
-      ),
+      candidateOnlyFailures: failedOnly(c.candidate, c.base),
+      baseOnlyFailures: failedOnly(c.base, c.candidate),
       dropped: where(
         (base, candidate) => base >= minRuns && candidate === 0,
         'called',

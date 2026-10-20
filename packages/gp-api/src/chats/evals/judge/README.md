@@ -59,8 +59,10 @@ there, at -0.06 [-0.28, 0.19].
   outcomes don't count. With at least 4 changes and p <= 0.05 it says WORSE
   or BETTER. That probe's 5 regressions to 0 is p = 0.031, so WORSE.
 - **Tools (chat agents).** A case fails on the candidate only when one tool
-  errored in 2 or more of the candidate's runs of it and in none of the
-  base's. Two or more such cases say WORSE, and the mirror image says BETTER.
+  errored in 2 or more of the candidate's runs of it, while the base called it
+  in 2 or more runs and it never errored there. A tool only one arm called is
+  a dropped or added tool, not a failure. Two or more such cases say WORSE,
+  and the mirror image says BETTER.
   This is how a candidate whose every tool call fails (all pairs excluded by
   `isComparable()`) still reads WORSE.
 
