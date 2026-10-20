@@ -7,7 +7,7 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 | File                   | Role                                                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `playwright.config.ts` | Playwright config — testDir is `./tests`, BASE_URL required                                                                                       |
-| `global-setup.ts`      | One-shot `clerkSetup()` before tests run                                                                                                          |
+| `global-setup.ts`      | One-shot `clerkSetup()`, then fails the run if the Clerk test instance is near its 50,000-user cap                                                |
 | `tests/core/`          | Cross-cutting tests (auth, navigation, public pages)                                                                                              |
 | `tests/app/`           | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
 | `tests/utils/`         | Test-only helpers (selectors, factories)                                                                                                          |
