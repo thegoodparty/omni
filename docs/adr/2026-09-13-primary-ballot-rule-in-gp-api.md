@@ -3,7 +3,7 @@ title: gp-api decides whether our candidate runs in the primary; the warehouse d
 status: active
 decided_by: [danpelota]
 date: 2026-09-13
-code: ['#PR']
+code: ['#2990']
 scope:
   - packages/gp-api/src/elections/util/primaryBallot.util.ts
   - packages/gp-api/src/elections/services/ballotReady.service.ts
