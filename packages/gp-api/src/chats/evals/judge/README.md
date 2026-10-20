@@ -56,9 +56,11 @@ refused, with the reason.
 comparison cannot see an agent's own rules: a probe that cut `priority_flow`'s
 system prompt in half read CAN'T SAY there, at -0.06 [-0.28, 0.19]. The signal
 is a one-sided sign test over the settled regressions and improvements in
-**Condition handling**. Unsettled and shared outcomes don't count. With at
-least 4 changes and p <= 0.05 it says WORSE or BETTER. That probe's 5
-regressions to 0 is p = 0.031, so WORSE.
+**Condition handling**, one vote per case: a case's attempts share an input,
+so a case counts once, as a regression or an improvement by its net change
+across attempts. Unsettled and shared outcomes don't count. With at least 4
+changed cases and p <= 0.05 it says WORSE or BETTER. That probe had 5 cases
+regress and none improve, p = 0.031, so WORSE.
 
 The label is WORSE when the quality verdict or the handling signal says WORSE.
 It is BETTER when one says BETTER and neither says WORSE. Otherwise it is the
