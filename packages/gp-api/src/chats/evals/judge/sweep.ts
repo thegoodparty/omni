@@ -86,7 +86,6 @@ import {
   SweepEnvError,
   type SweepEnv,
 } from './sweepEnv'
-import { chatToolUse } from './toolUse'
 import { withRegressionSignals } from './regressionSignals'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
@@ -444,7 +443,6 @@ export const judgeSweep = async (
 
   const meter = meterJudge(deps.llm)
   const judgeByAgent = new Map<string, JudgeSpend>()
-  const toolUse = chatToolUse(env.agentIds, records)
 
   const scores: AgentScore[] = []
   const refusals: Refusal[] = []
@@ -653,7 +651,6 @@ export const judgeSweep = async (
               outputContractNote: contract.note,
             }),
           },
-          toolUse.find((t) => t.agentId === agentId),
           config,
         ),
       )
@@ -749,7 +746,6 @@ export const judgeSweep = async (
     ...(broken.length > 0 && { invariantViolations: broken }),
     ...(rulings.length > 0 && { rulings }),
     ...(pageReplay.length > 0 && { pageReplay }),
-    ...(toolUse.length > 0 && { toolUse }),
   }
 
   return {

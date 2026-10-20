@@ -88,19 +88,15 @@ export interface JudgeGates {
   // on a genuinely inert change costs a re-read, a false SAME costs a wrong
   // decision. See identicalOutputs.ts.
   failOnAllIdenticalOutputs: boolean
-  // The two regression signals beside the quality delta (see
-  // regressionSignals.ts). Neither is held to `minCases`: that floor is for
-  // a noisy pairwise preference, and these count discrete events. A probe
-  // that cut the agent's system prompt in half read CAN'T SAY on quality
-  // while handling showed 5 regressions to 0 and whole tools went uncalled.
+  // The regression signal beside the quality delta (see
+  // regressionSignals.ts). Not held to `minCases`: that floor is for a noisy
+  // pairwise preference, and this counts discrete events. A probe that cut
+  // the agent's system prompt in half read CAN'T SAY on quality while
+  // handling showed 5 regressions to 0.
   //
   // A one-sided sign test over the settled handling changes. `minChanges`
   // keeps 3 to 0 (p = 0.125) from ever being argued down to a verdict.
   handling: { minChanges: number; alpha: number }
-  // A case counts when a tool failed in `minRuns` of one arm's runs of it and
-  // in none of the other's. `minRuns` is also the bar for a tool dropped or
-  // added, which is reported and never decides.
-  toolFailures: { minRuns: number; minCases: number }
 }
 
 export interface JudgePanelConfig {
@@ -242,7 +238,6 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,
     handling: { minChanges: 4, alpha: 0.05 },
-    toolFailures: { minRuns: 2, minCases: 2 },
   },
   orderSwap: {
     enabled: true,
