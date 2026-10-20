@@ -1,4 +1,4 @@
-const VENDOR_MOCKS_PREFIX = '/v1/vendor-mocks/'
+export const VENDOR_MOCKS_PREFIX = '/v1/vendor-mocks/'
 
 // Vendor clients call their real paths, and CallHub's all end in `/`
 // (`/v1/numbers/rent/`). Fastify matches a trailing slash as a different
