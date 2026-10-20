@@ -432,6 +432,25 @@ describe("a priority text's follow-up", () => {
     expect(sendsEnqueued()).toHaveLength(1)
   })
 
+  it('goes back to unpaid with its first half when the first send cannot be enqueued', async () => {
+    const { roundOne, roundTwo } = await createRounds()
+    sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+
+    await expect(pay(roundOne)).rejects.toThrow('sqs down')
+    expect(await roundTwoRow(roundOne)).toMatchObject({
+      status: OutreachStatus.pending_payment,
+    })
+    expect(await roundTwoRow(roundTwo)).toMatchObject({
+      status: OutreachStatus.pending_payment,
+    })
+
+    // Stripe's redelivery claims both again.
+    await pay(roundOne)
+    expect(await roundTwoRow(roundTwo)).toMatchObject({
+      status: OutreachStatus.pending,
+    })
+  })
+
   it('goes back to undrawn when the handoff fails, and draws on the next try', async () => {
     const { roundOne, roundTwo: outreachId } = await createRounds()
     await pay(roundOne)

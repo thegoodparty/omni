@@ -268,15 +268,30 @@ export class OutreachServeSmsPurchaseHandlerService
       // guard on `status = pending` means a revert can never clobber a status
       // something else has since moved on. `stripeCheckoutSessionId` is left
       // in place deliberately: the row is paid, and a bare `pending_payment`
-      // with no session id would read as an unpaid draft.
-      await this.model.updateMany({
+      // with no session id would read as an unpaid draft. A follow-up claimed
+      // with it goes back too, so it can never send without its first half.
+      const revert = {
         where: {
           id: outreachId,
           organizationSlug,
           status: OutreachStatus.pending,
         },
         data: { status: OutreachStatus.pending_payment },
-      })
+      }
+      if (row.roundTwo) {
+        await this.client.$transaction([
+          this.client.outreach.updateMany(revert),
+          this.client.outreach.updateMany({
+            where: {
+              roundOneOutreachId: outreachId,
+              status: OutreachStatus.pending,
+            },
+            data: { status: OutreachStatus.pending_payment },
+          }),
+        ])
+      } else {
+        await this.model.updateMany(revert)
+      }
       this.logger.error(
         { error, outreachId, organizationSlug, sessionId },
         'Serve SMS send could not be enqueued after payment; claim reverted',
