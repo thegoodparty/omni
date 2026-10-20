@@ -10,6 +10,7 @@ import type { AgentScore, VerdictLabel } from './score'
 export type SignalDirection = 'WORSE' | 'BETTER'
 
 export interface HandlingSignal {
+  // Cases, not attempts: each case counts once, by its net change.
   regressions: number
   improvements: number
   // One-sided sign-test tails: P(X >= regressions) and P(X >= improvements)
@@ -42,12 +43,18 @@ export const handlingSignal = (
   handling: ConditionHandling,
   config: JudgeConfig,
 ): HandlingSignal => {
-  const regressions = handling.cases.filter(
-    (h) => h.class === 'regression',
-  ).length
-  const improvements = handling.cases.filter(
-    (h) => h.class === 'improvement',
-  ).length
+  // One vote per case, not per attempt: the attempts of a case share an
+  // input and are correlated, so counting each would overstate the evidence.
+  // A case votes by its net settled change across its attempts.
+  const net = new Map<string, number>()
+  for (const h of handling.cases) {
+    const step =
+      h.class === 'regression' ? 1 : h.class === 'improvement' ? -1 : 0
+    net.set(h.caseId, (net.get(h.caseId) ?? 0) + step)
+  }
+  const votes = [...net.values()]
+  const regressions = votes.filter((v) => v > 0).length
+  const improvements = votes.filter((v) => v < 0).length
   const n = regressions + improvements
   const pWorse = signTestTail(regressions, n)
   const pBetter = signTestTail(improvements, n)
