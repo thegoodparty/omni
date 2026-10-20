@@ -380,9 +380,6 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       timeout: 30_000,
     })
 
-    // The CallHub mock always rents this number (callhubMock.controller.ts).
-    await expect(page.getByText('+15551234567', { exact: true })).toBeVisible()
-
     await fillStripeCard(page)
 
     // The authorize button text is "Authorize $X.XX" where X is the estimate.
@@ -396,6 +393,10 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await expect(page.getByText("You're all set")).toBeVisible({
       timeout: 60_000,
     })
+
+    // The success summary lists the caller ID; the CallHub mock always rents
+    // this number (callhubMock.controller.ts).
+    await expect(page.getByText('+15551234567', { exact: true })).toBeVisible()
 
     expect(outreachId).not.toBeNull()
 
