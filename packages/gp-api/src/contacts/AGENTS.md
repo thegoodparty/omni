@@ -1248,8 +1248,9 @@ has no signed webhook):
   for active/recently-completed jobs, maps phone → person through the
   capture rows, and writes `respondedAt` / `optedOutAt` idempotently on the
   vendor event id. Opt-outs come from the reply text (`isOptOutMessage`),
-  plus a 6-hourly pass over Peerly's own opt-out flags for the ones its AI
-  or texters mark without a stop word. Opt-outs drive the record's Opted
+  plus a pass over Peerly's own opt-out flags for the ones its AI or
+  texters mark without a stop word: each send's flags are read at most
+  every 6 hours for its first 3 days. Opt-outs drive the record's Opted
   In/Out chip.
 
 ### The AI assistant

@@ -575,7 +575,11 @@ false`: it hands back what was built, not a fresh build. A text holds the
   could dial, ABORTed by the cleanup sweep), `robocallOrphanedHold.prisma`
   (`RobocallOrphanedHold`: `paymentIntentId` unique, `outreachId?`, `reason`,
   `voidedAt?` — the work queue of authorization holds whose best-effort void may
-  not have landed, confirmed + re-voided by the reconcile sweep). Phone banking's own tables
+  not have landed, confirmed + re-voided by the reconcile sweep),
+  `outreachOptOutReconcile.prisma` (`OutreachOptOutReconcile`: `outreachId`
+  primary key, `attemptedAt` — when the opt-out backup pass last asked Peerly
+  for that send's flags, kept off the outreach row so it never bumps
+  `updatedAt`). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this

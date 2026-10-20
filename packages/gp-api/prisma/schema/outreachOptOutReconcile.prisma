@@ -1,0 +1,12 @@
+// When the backup opt-out pass last asked Peerly for a send's opt-out flags,
+// so a pass cut short (a deploy, its time budget) resumes where it stopped
+// instead of starting over. Kept off the outreach row on purpose: a write
+// there bumps outreach.updatedAt, and updatedAt is what keeps a send inside
+// the inbound sweep's window.
+model OutreachOptOutReconcile {
+  outreachId  Int      @id @map("outreach_id")
+  outreach    Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  attemptedAt DateTime @map("attempted_at")
+
+  @@map("outreach_opt_out_reconcile")
+}

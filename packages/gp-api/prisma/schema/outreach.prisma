@@ -183,6 +183,7 @@ model Outreach {
   robocall                          OutreachRobocall?
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]
