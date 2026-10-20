@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { addBusinessDays, format } from 'date-fns'
+import { addBusinessDays, format, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import {
@@ -11,6 +11,7 @@ import {
   PrioritySource,
 } from '@/generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '@/outreach/services/outreachServeSmsPurchase.service'
+import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
 import {
   ACS_COUNT_KEYS,
   type AcsCountKey,
@@ -82,7 +83,12 @@ describe('a priority round 2 text', () => {
 
   const headers = () => ({ headers: { 'x-organization-slug': slug } })
 
-  const sendDate = format(addBusinessDays(new Date(), 6), 'yyyy-MM-dd')
+  // From the create's own cutoff, which is Pacific-anchored, so the test
+  // does not depend on the runner's time zone or time of day.
+  const sendDate = format(
+    addBusinessDays(parseISO(roundTwoDrawCutoff(new Date())), 3),
+    'yyyy-MM-dd',
+  )
 
   const create = (body: Record<string, unknown> = {}) =>
     service.client.post(
@@ -394,14 +400,8 @@ describe('a priority round 2 text', () => {
       HttpStatus.BAD_REQUEST,
     )
     expect(
-      (
-        await create({
-          scheduledLocalDate: format(
-            addBusinessDays(new Date(), 3),
-            'yyyy-MM-dd',
-          ),
-        })
-      ).status,
+      (await create({ scheduledLocalDate: roundTwoDrawCutoff(new Date()) }))
+        .status,
     ).toBe(HttpStatus.BAD_REQUEST)
     await service.prisma.voterFileFilter.update({
       where: { id: poolId },
