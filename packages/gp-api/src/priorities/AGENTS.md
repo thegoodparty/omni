@@ -63,8 +63,19 @@ draws every paid send whose list is still an undrawn sample and whose send
 date is on or before `roundTwoDrawCutoff` (three business days out, the last
 day a Serve text for that date could be booked).
 
-- **Claim.** A CAS stamping the list's `sampledAt` where it is null. A
-  failure before the enqueue lands deletes the members and clears it again.
+- **Claim.** After the draw, one transaction stamps the list's `sampledAt`
+  where it is null and writes the members, so a list is never claimed with
+  no one on it. A failed enqueue deletes the members and clears it again.
+- **Stranded.** A process that dies between that commit and the enqueue
+  leaves a drawn send `pending`. The job hands off any round 2 send whose
+  list was sampled more than 10 minutes after it was saved (only round 2
+  lists are) and more than 30 minutes ago, with members, still `pending`.
+- **Check.** The priority's check goes out only after the enqueue
+  (`recordOutreachSentOrLog`), as for any Serve text. `recordOutreachSent`
+  skips a send whose list is still undrawn, so payment, a redelivered
+  webhook and `healSends` cannot put it out early.
+- **Nobody left.** A draw that finds no one cancels the send
+  (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
 - **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
   `not_an_answer` out), placed by `CensusCompositionSource.weightingInputs`
   once per code, against a frame of the census shares
@@ -72,8 +83,9 @@ day a Serve text for that date could be booked).
   the answerers. Any read or fit failure draws the send unsteered.
 - **Draw.** `drawListSample` twice over the list's criteria with cell phones
   forced: 85% with `batchWeights`, the rest unsteered, both leaving out
-  `roundTwoExclusions` and the unsteered one the steered picks. Then the
-  members are written and `outreachTextSend` enqueued with the purchase
+  `roundTwoExclusions` (with opt-outs from the capped
+  `findOptedOutPersonIds`, warned when over the cap) and the unsteered one
+  the steered picks. Then `outreachTextSend` is enqueued with the purchase
   handler's message group and deduplication id.
 - **Dev trigger.** `POST /v1/priorities/round-two/:outreachId/draw` (dev,
   preview and local only, 404 on prod; the office's own sends) draws one now.

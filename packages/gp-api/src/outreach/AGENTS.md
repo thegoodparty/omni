@@ -154,11 +154,13 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
   the purchase handler re-reads the same thing.
 - **A priority's round 2 is drawn later, not at checkout.** `roundTwoSize`
   (behind `serve-citizen-panels` too) needs a `priorityId`, a list that is not
-  itself a sample, and a send date past `roundTwoDrawCutoff` (more than three
-  business days out). `textCount` is `min(roundTwoSize, pool)`, the pool
+  itself a sample, and a send date past `roundTwoDrawCutoff` (more than
+  contracts' `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS`, 3, business days out; the
+  webapp calendar opens from there for a round 2 card). `textCount` is `min(roundTwoSize, pool)`, the pool
   being the list's cell phones less `roundTwoExclusions` (the priority's
   other sends' people and every opt-out), and the row points at a copy of
-  the list (`createUndrawnSampleOf`, named `<list>, round 2`) with
+  the list (`createUndrawnSampleOf`, named `<list>, round 2`, written in the
+  row's own transaction so a failed create leaves no copy) with
   `sampleSize` set and no `sampledAt`. That undrawn state is the only round
   2 marker (`isUndrawnSample`); there is no column for it. The excluded and
   duplicate counts come back 0, not measured. Who gets it is drawn by
@@ -257,9 +259,10 @@ pool still holds, with a warn log of the shortfall, rather than failing the
 paid send.
 
 A paid round 2 text (its list an undrawn sample) is claimed the same way
-and held at `pending` too, but with no notice: the round 2 draw enqueues it
-on the last day staff can still take it (`roundTwoDrawCutoff`), and a lost
-claim on such a row does not re-enqueue. The consumer acks, without sending, any text whose list is
+and held at `pending` too, but with no notice and without putting its
+priority's check out: the round 2 draw enqueues it on the last day staff
+can still take it (`roundTwoDrawCutoff`) and records the check then, and a
+lost claim on such a row does not re-enqueue. The consumer acks, without sending, any text whose list is
 still undrawn.
 
 The enqueue is `outreachTextSend { outreachId, sendSeq }` on the FIFO queue,

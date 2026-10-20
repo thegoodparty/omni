@@ -41,6 +41,12 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // No scheduledLocalTime. Serve sends at a fixed 11am local, matching what
 // polls already ships, so the time is a constant rather than a choice — see
 // docs/features/serve-sms.md, "Send timing".
+// A priority's round 2 is drawn this many business days before its send
+// date: the last day a Serve text for that date can still be booked (more
+// than 2 business days out), so staff keep their usual lead. Its send date
+// has to be later than this from today.
+export const ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS = 3
+
 export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),

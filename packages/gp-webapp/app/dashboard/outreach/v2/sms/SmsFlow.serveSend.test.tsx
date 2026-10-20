@@ -380,6 +380,7 @@ describe('SmsFlow serve send path', () => {
     expect(bodies[0]?.name).toEqual(expect.stringContaining('Northside'))
   })
 
+  // The calendar opens a day later for round 2, as the create requires.
   it("carries a round 2 card's size onto the create", async () => {
     const bodies: Record<string, unknown>[] = []
     api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
@@ -414,7 +415,7 @@ describe('SmsFlow serve send path', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await userEvent.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+      await screen.findByRole('button', { name: /^Monday, September 7(?!\d)/ }),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 

@@ -5,6 +5,7 @@ import {
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
@@ -173,13 +174,10 @@ export function assertServeSmsSendDateAllowed(
   }
 }
 
-// A priority's round 2 text is drawn on the last day a new send for its
-// date would still be accepted above, so staff get the same lead as on any
-// other Serve text.
-export const ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS =
-  MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1
-
-// The latest send date whose round 2 is due to be drawn today.
+// The latest send date whose round 2 is due to be drawn today: the last day
+// a new send for that date would still be accepted above
+// (ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS is MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+// so staff get the same lead as on any other Serve text.
 export const roundTwoDrawCutoff = (now: Date): string =>
   format(
     addBusinessDays(referenceToday(now), ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS),
@@ -359,19 +357,6 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       )
     }
 
-    // A round 2 send goes out on a copy of the list holding a sample still
-    // to be drawn, which is what marks it as round 2 and keeps it from
-    // reaching anyone before the draw.
-    const voterFileFilterId = roundTwo
-      ? (
-          await this.voterFileFilterService.createUndrawnSampleOf(
-            filter,
-            recipientCount,
-            `${filter.name ?? input.name}, round 2`,
-          )
-        ).id
-      : input.voterFileFilterId
-
     const data = {
       // Serve scope: org only, never a campaign. The Outreach CHECK
       // enforces exactly one scoping path.
@@ -393,26 +378,49 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       // time to store, and completion is derived as
       // addBusinessDays(scheduledLocalDate, 3) the way polls does it.
       scheduledLocalDate: input.scheduledLocalDate,
-      voterFileFilterId,
+      voterFileFilterId: input.voterFileFilterId,
       reportBackForOutreachId: input.reportBackForOutreachId ?? null,
       // Server-derived, and the only number the purchase handler prices
       // from.
       textCount: recipientCount,
       ...link,
     } satisfies Prisma.OutreachUncheckedCreateInput
+    // A round 2 send goes out on a copy of the list holding a sample still
+    // to be drawn, which is what marks it as round 2 and keeps it from
+    // reaching anyone before the draw. The copy is written in the same
+    // transaction as the row, so a create that fails leaves no list behind.
+    const insert = async (tx: Prisma.TransactionClient) =>
+      tx.outreach.create({
+        data: roundTwo
+          ? {
+              ...data,
+              voterFileFilterId: (
+                await this.voterFileFilterService.createUndrawnSampleOf(
+                  tx,
+                  filter,
+                  recipientCount,
+                  `${filter.name ?? input.name}, round 2`,
+                )
+              ).id,
+            }
+          : data,
+        select: { id: true },
+      })
     const outreach =
-      link.proposalKey === undefined
-        ? await this.model.create({ data, select: { id: true } })
-        : await createUnderProposalKey(
+      link.proposalKey !== undefined
+        ? await createUnderProposalKey(
             this.client,
             {
               proposalKey: link.proposalKey,
               organizationSlug,
               outreachType: OutreachType.text,
             },
-            (tx) => tx.outreach.create({ data, select: { id: true } }),
+            insert,
             async (id) => ({ id }),
           )
+        : roundTwo
+          ? await this.client.$transaction(insert)
+          : await this.model.create({ data, select: { id: true } })
 
     // One payable report back per send: a new draft supersedes the unpaid
     // ones before it, so a stale draft left open in another tab can no
@@ -488,6 +496,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       this.client,
       organization.slug,
       link.priorityId,
+      [...(await this.resolveOptOutScrub(organization.slug))],
     )
     const pool = await this.contactsService.countWithin(
       organization,

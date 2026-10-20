@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { addBusinessDays, format, parseISO } from 'date-fns'
+import { addBusinessDays, format, parseISO, subDays, subHours } from 'date-fns'
+import { parsePriorityStatus } from '@goodparty_org/contracts'
 import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import {
@@ -24,7 +25,11 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { useTestService } from '@/test-service'
-import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  PriorityRoundTwoDrawService,
+  ROUND_TWO_DREW_NOBODY,
+} from './services/priorityRoundTwoDraw.service'
 
 const service = useTestService()
 
@@ -411,6 +416,152 @@ describe('a priority round 2 text', () => {
     expect(
       await service.prisma.outreach.count({
         where: { organizationSlug: slug, id: { not: roundOneId } },
+      }),
+    ).toBe(0)
+  })
+
+  const PROPOSAL_KEY = '9a4c2e71-3b5d-4f68-8c19-6d7e2f3a4b50'
+
+  // The priority's define check, offered and not yet out.
+  const askCheck = () =>
+    service.prisma.priority.update({
+      where: { id: priorityId },
+      data: {
+        status: {
+          version: 3,
+          steps: [
+            {
+              id: 'define',
+              state: 'settled',
+              summary: 'The drains are the problem.',
+              check: {
+                state: 'asked',
+                who: 'Renters on the flood blocks',
+                question: 'Is it the drains?',
+                raised: 0,
+                offeredAt: '2026-09-30T12:00:00Z',
+              },
+            },
+          ],
+        },
+      },
+    })
+
+  const defineCheck = async () =>
+    parsePriorityStatus(
+      (
+        await service.prisma.priority.findUniqueOrThrow({
+          where: { id: priorityId },
+        })
+      ).status,
+    ).steps.find((step) => step.id === 'define')?.check
+
+  const linked = { proposalKey: PROPOSAL_KEY, stepId: 'define', side: 'main' }
+
+  it('puts its check out when the draw hands it off, not at payment', async () => {
+    await askCheck()
+    const { outreachId } = (await create(linked)).data as { outreachId: number }
+    await pay(outreachId)
+    // A redelivered webhook loses the claim and must not record it either.
+    await pay(outreachId)
+    expect(await defineCheck()).toMatchObject({ state: 'asked' })
+
+    await draw(outreachId)
+    expect(await defineCheck()).toMatchObject({
+      state: 'out',
+      sentProposalKey: PROPOSAL_KEY,
+    })
+  })
+
+  it('is canceled unsent, with its check still asked, when it draws nobody', async () => {
+    await askCheck()
+    const { outreachId } = (await create(linked)).data as { outreachId: number }
+    await pay(outreachId)
+    samplePeople.mockResolvedValue([])
+
+    expect((await draw(outreachId)).data).toEqual({
+      drawn: false,
+      recipientCount: 0,
+    })
+    expect(await roundTwoRow(outreachId)).toMatchObject({
+      status: OutreachStatus.canceled,
+      canceledBy: ROUND_TWO_DREW_NOBODY,
+      voterFileFilter: { sampledAt: null, sampleMembers: [] },
+    })
+    expect(sendsEnqueued()).toHaveLength(0)
+    expect(await defineCheck()).toMatchObject({ state: 'asked' })
+  })
+
+  // The draw's commit and its enqueue are two steps; a process that dies
+  // between them leaves a drawn send nobody handed off.
+  it('hands off a send drawn but never enqueued, and nothing else', async () => {
+    const { outreachId } = (await create()).data as { outreachId: number }
+    await pay(outreachId)
+    const { voterFileFilterId } = await roundTwoRow(outreachId)
+    const drawnAt = subHours(new Date(), 2)
+    await service.prisma.voterFileFilter.update({
+      where: { id: voterFileFilterId ?? 0 },
+      data: { createdAt: subDays(drawnAt, 3), sampledAt: drawnAt },
+    })
+    await service.prisma.voterFileFilterSampleMember.createMany({
+      data: [randomUUID(), randomUUID()].map((personId) => ({
+        voterFileFilterId: voterFileFilterId ?? 0,
+        personId,
+      })),
+    })
+    // An ordinary sampled text, waiting on its consumer: drawn when its
+    // list was saved, so never mistaken for a stranded round 2.
+    const sampled = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: slug,
+        sampleSize: 2,
+        sampledAt: subDays(new Date(), 1),
+        createdAt: subDays(new Date(), 1),
+        sampleMembers: { create: [{ personId: randomUUID() }] },
+      },
+    })
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending,
+        priorityId,
+        voterFileFilterId: sampled.id,
+      },
+    })
+
+    await service.app.get(PriorityRoundTwoDrawService).drawDue(new Date())
+
+    expect(samplePeople).not.toHaveBeenCalled()
+    expect(sendsEnqueued()).toEqual([
+      [
+        {
+          type: QueueType.OUTREACH_TEXT_SEND,
+          data: { outreachId, sendSeq: 1 },
+        },
+        `outreachTextSend-${outreachId}`,
+        {
+          throwOnError: true,
+          deduplicationId: `outreachTextSend-${outreachId}-1`,
+        },
+      ],
+    ])
+  })
+
+  it('leaves no list behind when the create fails after copying it', async () => {
+    const lists = service.app.get(VoterFileFilterService)
+    const copy = lists.createUndrawnSampleOf.bind(lists)
+    vi.spyOn(lists, 'createUndrawnSampleOf').mockImplementationOnce(
+      async (...args) => {
+        await copy(...args)
+        throw new Error('insert failed')
+      },
+    )
+
+    expect((await create()).status).toBe(HttpStatus.INTERNAL_SERVER_ERROR)
+    expect(
+      await service.prisma.voterFileFilter.count({
+        where: { organizationSlug: slug, id: { not: poolId } },
       }),
     ).toBe(0)
   })

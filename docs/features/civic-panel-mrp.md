@@ -59,13 +59,16 @@ nobody. Payment claims the send and enqueues nothing. The
 draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
 staff get the usual two clear days. The send date has to be later than that
-at create. The draw claims the list by stamping `sampledAt` (a CAS on it
-being null), fits the model to the priority's coded answers so far
-(`PriorityAnswer`: yes 1, no 0, mixed 0.5, not an answer left out), draws
-the steered 85% with `batchWeights` and the unsteered rest, writes the
-members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. A
-failure from the claim to the enqueue puts the list back to undrawn for the
-next run. The frame is the census shares multiplied across dimensions (age,
+at create, and the Serve text calendar opens a day later for it. The draw
+fits the model to the priority's coded answers so far (`PriorityAnswer`:
+yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
+with `batchWeights` and the unsteered rest, then in one transaction claims
+the list (stamping `sampledAt`, a CAS on it being null) and writes the
+members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. Only
+then is the priority's check out. A failed enqueue puts the list back to
+undrawn for the next run; a send drawn but never enqueued (a crash between
+the two) is handed off by a later run; a draw that finds nobody cancels
+the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
 gender once published, tract, and race when `raceNameable` holds for the
 answerers): the census publishes no joint counts. If the census, the
 answerers or the district cannot be read, or the fit throws, the whole send

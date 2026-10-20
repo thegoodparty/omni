@@ -372,11 +372,12 @@ export class VoterFileFilterService extends createPrismaBase(
   // nobody until the draw writes them. The source list is left alone, so a
   // list the official saved for other sends never changes under them.
   async createUndrawnSampleOf(
+    tx: Prisma.TransactionClient,
     source: VoterFileFilterWithConditions,
     sampleSize: number,
     name: string,
   ): Promise<VoterFileFilter> {
-    const geoMembers = await this.client.voterFileFilterGeoMember.findMany({
+    const geoMembers = await tx.voterFileFilterGeoMember.findMany({
       where: { voterFileFilterId: source.id },
       select: { personId: true },
     })
@@ -397,7 +398,7 @@ export class VoterFileFilterService extends createPrismaBase(
       'recommendedModified',
       'activityConditions',
     ])
-    return this.model.create({
+    return tx.voterFileFilter.create({
       data: {
         ...columns,
         name,

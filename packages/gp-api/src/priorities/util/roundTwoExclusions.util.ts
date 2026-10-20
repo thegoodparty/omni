@@ -12,12 +12,15 @@ type ExclusionClient = Pick<
 
 // Who a priority's round 2 text must not reach: everyone its other sends
 // texted, called, knocked or drew, and everyone opted out of the office's
-// texts. The create counts its pool without them and the draw leaves them
-// out, so the two agree on who is left.
+// texts (read by the caller through the capped
+// `ContactInteractionTextService.findOptedOutPersonIds`). The create counts
+// its pool without them and the draw leaves them out, so the two agree on
+// who is left.
 export const roundTwoExclusions = async (
   client: ExclusionClient,
   organizationSlug: string,
   priorityId: string,
+  optedOutPersonIds: string[],
   roundTwoOutreachId?: number,
 ): Promise<string[]> => {
   const sends = await client.outreach.findMany({
@@ -67,10 +70,11 @@ export const roundTwoExclusions = async (
       },
       select: person,
     }),
-    client.contactInteractionText.findMany({
-      where: { organizationSlug, optedOutAt: { not: null } },
-      select: person,
-    }),
   ])
-  return [...new Set(rows.flat().map((row) => row.personId))]
+  return [
+    ...new Set([
+      ...rows.flat().map((row) => row.personId),
+      ...optedOutPersonIds,
+    ]),
+  ]
 }

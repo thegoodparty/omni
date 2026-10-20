@@ -29,6 +29,7 @@ import {
   mergeTagToken,
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -2374,6 +2375,9 @@ export const SmsFlow = ({
             }}
             date={date}
             onDateChange={setDate}
+            {...(roundTwoSize !== undefined && {
+              minLeadBusinessDays: ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
+            })}
           />
         ) : (
           <>

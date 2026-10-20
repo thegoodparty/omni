@@ -241,13 +241,13 @@ export class OutreachServeSmsPurchaseHandlerService
     }
 
     // A priority's round 2 is paid for now and handed off once its list is
-    // drawn, close to its send date. The draw enqueues it then.
+    // drawn, close to its send date. The draw enqueues it then, and only
+    // then puts the priority's check out.
     if (isUndrawnSample(row.voterFileFilter)) {
       this.logger.info(
         { outreachId, organizationSlug, sessionId },
         'Serve round 2 text claimed after payment; held for its draw',
       )
-      await this.priorityStatus.recordOutreachSent(outreachId)
       return
     }
 
