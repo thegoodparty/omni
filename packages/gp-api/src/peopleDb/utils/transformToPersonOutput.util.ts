@@ -189,5 +189,6 @@ export function transformToPersonOutput(
     householdId: person.householdId ?? null,
     householdSize:
       person.householdSize == null ? null : Number(person.householdSize),
+    ...(person.poc_email !== undefined ? { pocEmail: person.poc_email } : {}),
   }
 }

@@ -330,7 +330,10 @@ export class DatabricksVoterService {
   // distinguishes "not in this district" from "no such person".
   async findPerson(id: string, districtId: string, dataset: PeopleDataset) {
     const district = await this.resolveDistrict(districtId, dataset)
-    const { columnNames } = buildVoterSelectSql()
+    const columnNames = withPocEmail(
+      buildVoterSelectSql().columnNames,
+      district.table !== peopleTable(dataset),
+    )
     const { rows } = await this.run(
       buildPersonSql({
         district,
@@ -417,7 +420,10 @@ export class DatabricksVoterService {
 
   async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
     const district = await this.resolveDistrict(dto.districtId, dataset)
-    const { columnNames } = buildVoterSelectSql()
+    const columnNames = withPocEmail(
+      buildVoterSelectSql().columnNames,
+      district.table !== peopleTable(dataset),
+    )
     const scope = {
       district,
       filters: dto.filters,
@@ -814,6 +820,12 @@ export class DatabricksVoterService {
     }
   }
 }
+
+const withPocEmail = (
+  columnNames: readonly string[],
+  isOrgView: boolean,
+): string[] =>
+  isOrgView ? [...columnNames, 'poc_email'] : [...columnNames]
 
 const toDbPerson = (
   columns: readonly string[],

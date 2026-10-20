@@ -18,6 +18,7 @@ import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { PocOrgLayerModule } from '@/pocOrgLayer/pocOrgLayer.module'
 import { ContentModule } from '@/content/content.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
@@ -120,6 +121,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     OrdinancesModule,
     PeerlyModule,
     ContactsModule,
+    PocOrgLayerModule,
     ContactEngagementModule,
     ContactInteractionModule,
     ContactNoteModule,

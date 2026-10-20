@@ -178,6 +178,7 @@ export const PersonSchema = z.object({
   // null on the ungrouped (one-row-per-voter) path.
   householdId: z.string().nullable().optional(),
   householdSize: z.number().int().nullable().optional(),
+  pocEmail: z.string().nullable().optional(),
   // Derived, never stored (SupportStatusService). Only gp-api's person-detail
   // response (`GET /v1/contacts/:id`) attaches this — list/typeahead rows
   // don't carry it in the locked design (ENG-10696).
