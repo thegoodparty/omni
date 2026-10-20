@@ -271,6 +271,52 @@ describe("the Chief of Staff's report back card", () => {
     expect(await listCards(slug, 'done')).toHaveLength(1)
   })
 
+  it('is done on its first read when the report back already went out', async () => {
+    const slug = 'eo-report-back-sent-first'
+    const { priority } = await seedOffice(slug)
+    const asked = await seedSend(slug, { priorityId: priority.id })
+    await seedSend(slug, {
+      reportBackForOutreachId: asked.id,
+      status: OutreachStatus.pending,
+    })
+
+    expect(await listCards(slug)).toHaveLength(0)
+    const [done] = await listCards(slug, 'done')
+    expect(done?.sourceExternalId).toBe(priority.id)
+  })
+
+  it('keeps an open card, and its snooze, while replies are being summarized', async () => {
+    const slug = 'eo-report-back-keeps-card'
+    const { priority } = await seedOffice(slug)
+    const send = await seedSend(slug, { priorityId: priority.id })
+    const [card] = await listCards(slug)
+    const snoozedUntil = addDays(new Date(), 3)
+    await service.prisma.dashboardCard.update({
+      where: { id: card!.id },
+      data: { snoozedUntil },
+    })
+    await service.prisma.feedbackSynthesisRun.create({
+      data: {
+        organizationSlug: slug,
+        scope: SynthesisScope.effort,
+        outreachId: send.id,
+        status: SynthesisRunStatus.running,
+        activeKey: `${slug}:${send.id}`,
+        conversations: 10,
+        memos: 10,
+        confirmed: 10,
+        engine: 'mock',
+      },
+    })
+
+    await listCards(slug)
+
+    const kept = await service.prisma.dashboardCard.findUniqueOrThrow({
+      where: { id: card!.id },
+    })
+    expect(kept.snoozedUntil).toEqual(snoozedUntil)
+  })
+
   it('replaces the card an earlier build made for each send', async () => {
     const slug = 'eo-report-back-legacy'
     const { electedOffice, priority } = await seedOffice(slug)

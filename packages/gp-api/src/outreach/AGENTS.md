@@ -158,7 +158,7 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
   row in the same transaction with `roundOneOutreachId` pointing at the
   first, `scheduledLocalDate` `FOLLOW_UP_BUSINESS_DAYS` (10) business days
   later, and `textCount` `min(roundTwoSize, 90% of (pool - the
-  first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool being the list's whole criteria (`sampleSize: null`, so
+first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool being the list's whole criteria (`sampleSize: null`, so
   never its sample) on cell phones less `roundTwoExclusions` (the
   priority's other sends' people and every opt-out). Under
   `MIN_TEXTS_PER_ROUND` (25) there is no follow-up and the response has no

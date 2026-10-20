@@ -238,8 +238,11 @@ export class DashboardCardsService extends createPrismaBase(
       // cards whose status is no longer the priority's.
       const stale = existing.filter((card) => {
         if (card.completedAt !== null) return false
+        if (card.sourceItemId === null) return true
         const read = reads.get(card.sourceExternalId)
-        return card.sourceItemId === null || read?.status !== card.sourceItemId
+        // A priority with no read right now (replies being summarized) keeps
+        // its card, and its snooze or dismiss.
+        return read !== undefined && read.status !== card.sourceItemId
       })
       if (stale.length > 0) {
         await tx.dashboardCard.deleteMany({
@@ -262,8 +265,17 @@ export class DashboardCardsService extends createPrismaBase(
             c.sourceExternalId === priorityId && c.sourceItemId === read.status,
         )
         if (!card) {
+          // The first card a priority ever gets is already done when a report
+          // back went out before it was made.
+          const alreadyReported =
+            !existing.some((c) => c.sourceExternalId === priorityId) &&
+            (await this.reportBack.sentReportBack(
+              electedOffice.organizationSlug,
+              priorityId,
+            )) !== null
           await tx.dashboardCard.create({
             data: {
+              ...(alreadyReported && { completedAt: now }),
               electedOfficeId: electedOffice.id,
               type: DashboardCardType.report_back,
               sourceExternalId: priorityId,

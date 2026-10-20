@@ -19,6 +19,8 @@ export const PRIORITY_UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
   OutreachStatus.canceled,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
 ]
 
 // Who has answered a priority on any channel, each person once: a text

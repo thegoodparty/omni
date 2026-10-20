@@ -592,13 +592,14 @@ export class OutreachServeSmsPurchaseHandlerService
     data: Prisma.OutreachUpdateManyMutationInput,
     sessionId: string,
   ): Promise<{ count: number }> {
+    const priorityId = await this.reportBack.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
     const outcome = await this.client.$transaction(async (tx) => {
-      const lockKey = `report_back:${reportBackForOutreachId}`
+      // One report back goes out per priority, so the lock is the priority's.
+      const lockKey = `report_back:${priorityId ?? reportBackForOutreachId}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const priorityId = await this.reportBack.priorityOf(
-        organizationSlug,
-        reportBackForOutreachId,
-      )
       const sibling = priorityId
         ? await this.reportBack.sentReportBack(
             organizationSlug,
