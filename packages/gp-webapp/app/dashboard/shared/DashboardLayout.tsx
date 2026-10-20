@@ -206,7 +206,7 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-// What we heard, a theme and Notes to review are reached from the outreach
+// What we heard and a theme are reached from the outreach
 // hub and lead back to it, so they carry the hub's title, which is the
 // rail's own: Win reads Voter Outreach, Serve Outreach.
 const isIssueCapturePath = (pathname: string): boolean =>

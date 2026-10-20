@@ -400,9 +400,9 @@ export default function RecordKnockFormLegacy({
         }
       : null
 
-  // The phone keeps what it cannot send yet, and the walk moves on. There is
-  // no confirm card: nothing is extracted until the memo reaches the server,
-  // so the issues wait in "Notes to review".
+  // The phone keeps what it cannot send yet, and the walk moves on. Every
+  // path here needs issue capture on, and this form renders only with it
+  // off, so nothing is held until the form is deleted.
   const hold = async (
     input: KnockInput,
     interaction: RecordDoorKnockInteraction | null,

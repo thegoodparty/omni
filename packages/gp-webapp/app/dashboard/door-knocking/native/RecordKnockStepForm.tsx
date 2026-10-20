@@ -427,8 +427,9 @@ export default function RecordKnockStepForm({
       : null
 
   // The phone keeps what it cannot send yet, and the walk moves on. There is
-  // no confirm card: nothing is extracted until the memo reaches the server,
-  // so the issues wait in "Notes to review".
+  // no confirm card: nobody is at the door when the memo lands, so a
+  // recording confirms itself once it is transcribed, and a typed note is
+  // confirmed by the two-hour abandoned-confirm sweep.
   const hold = async (
     input: KnockInput,
     interaction: RecordDoorKnockInteraction | null,

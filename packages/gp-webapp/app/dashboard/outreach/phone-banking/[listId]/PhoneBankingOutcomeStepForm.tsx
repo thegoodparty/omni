@@ -238,8 +238,9 @@ export default function PhoneBankingOutcomeStepForm({
   // its memo there until there is, call first. Only where a memo can be
   // captured: elsewhere the mic is the ordinary dictation mic.
   const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
-  // Shown where the confirm card would be: nothing is extracted until the
-  // memo reaches the server, so the issues wait in "Notes to review".
+  // Shown where the confirm card would be: nobody is on the call when the
+  // memo lands, so a recording confirms itself once it is transcribed, and a
+  // typed note is confirmed by the two-hour abandoned-confirm sweep.
   // `saved` when nothing reached the server, `sending` when the call did and
   // only the recording waits.
   const [queued, setQueued] = useState<keyof typeof OFFLINE_MEMO_COPY | null>(

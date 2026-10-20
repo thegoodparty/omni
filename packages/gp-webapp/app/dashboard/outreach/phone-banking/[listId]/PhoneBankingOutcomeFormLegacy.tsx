@@ -215,8 +215,8 @@ export default function PhoneBankingOutcomeFormLegacy({
   // its memo there until there is, call first. Only where a memo can be
   // captured: elsewhere the mic is the ordinary dictation mic.
   const offline = useOfflineMemo({ dictation, enabled: capturesIssues })
-  // Shown where the confirm card would be: nothing is extracted until the
-  // memo reaches the server, so the issues wait in "Notes to review".
+  // Shown where the confirm card would be. Every hold needs issue capture
+  // on, and this form renders only with it off, so it never shows.
   // `saved` when nothing reached the server, `sending` when the call did and
   // only the recording waits.
   const [queued, setQueued] = useState<keyof typeof OFFLINE_MEMO_COPY | null>(
