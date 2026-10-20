@@ -473,14 +473,63 @@ describe("a priority text's follow-up", () => {
     })
   })
 
-  it('is no bigger than what the pool holds past the first send', async () => {
+  // A tenth of the people left stays unsold, so a draw that finds some of
+  // them opted out or reached another way still fills the follow-up.
+  it('is at most 90% of what the pool holds past the first send', async () => {
     vi.spyOn(
       service.app.get(VoterQueryService),
       'findPeople',
     ).mockResolvedValue(page(ROUND_ONE + 120) as never)
     const created = await create()
     expect(created.status).toBe(HttpStatus.CREATED)
-    expect(created.data.followUp.recipientCount).toBe(120)
+    expect(created.data.followUp.recipientCount).toBe(108)
+  })
+
+  it('is left out when 90% of what is left is too few for a text', async () => {
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockResolvedValue(page(ROUND_ONE + 27) as never)
+    const created = await create()
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(created.data.followUp).toBeUndefined()
+  })
+
+  describe('its undrawn list', () => {
+    const listIds = async () => {
+      const res = await service.client.get<{ id: number }[]>(
+        '/v1/voters/voter-file/filters',
+        headers(),
+      )
+      return res.data.map((list) => list.id)
+    }
+
+    it('stays off the lists index and cannot be edited or deleted, even by link', async () => {
+      const { roundTwo } = await createRounds()
+      const { voterFileFilterId } = await roundTwoRow(roundTwo)
+      if (voterFileFilterId === null) throw new Error('expected a list')
+
+      const ids = await listIds()
+      expect(ids).toContain(poolId)
+      expect(ids).not.toContain(voterFileFilterId)
+
+      const edit = await service.client.put(
+        `/v1/voters/voter-file/filter/${voterFileFilterId}`,
+        { name: 'Mine now' },
+        { ...headers(), validateStatus: () => true },
+      )
+      expect(edit.status).toBe(HttpStatus.CONFLICT)
+      const remove = await service.client.delete(
+        `/v1/voters/voter-file/filter/${voterFileFilterId}`,
+        { ...headers(), validateStatus: () => true },
+      )
+      expect(remove.status).toBe(HttpStatus.CONFLICT)
+      expect(
+        await service.prisma.voterFileFilter.count({
+          where: { id: voterFileFilterId },
+        }),
+      ).toBe(1)
+    })
   })
 
   it('is left out when too few are left for a text of its own', async () => {

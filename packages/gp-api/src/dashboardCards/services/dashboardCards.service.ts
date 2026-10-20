@@ -27,7 +27,10 @@ import {
   DashboardCardBucket,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  READ_REPRESENTATIVENESS_LABELS,
+  type PriorityReadStatus,
 } from '@goodparty_org/contracts'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   briefingItemHref,
@@ -89,13 +92,19 @@ export const reportBackCardHref = (
   outreachId: number,
 ): string => `${civicPanelCardHref(priorityId)}?reportBack=${outreachId}`
 
+// Where the read stands, then the one thing to do: tell the people who
+// answered what you heard. A card is made for each status a priority's read
+// reaches, so the words always match what the priority page shows.
 const reportBackCardContent = (
   outreachId: number,
   priorityId: string,
   priorityTitle: string,
+  read: Pick<PriorityReadStatus, 'good' | 'status'>,
 ) => ({
   title: `Show people their voice counted on ${priorityTitle}`,
-  summary: 'People keep answering when they see what came of it.',
+  summary: read.good
+    ? `${READ_REPRESENTATIVENESS_LABELS[read.status]}. Tell everyone who answered what you heard.`
+    : `${READ_REPRESENTATIVENESS_LABELS[read.status]}. Tell everyone who answered what you heard so far.`,
   ctaLabel: 'Report back',
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
@@ -167,30 +176,47 @@ export class DashboardCardsService extends createPrismaBase(
     super()
   }
 
-  // One "Report back" card per priority text whose replies are in, created
-  // when the card list is read, due two weeks out. It is done once a report
-  // back on that send goes out (past checkout), or when the official marks
-  // it done.
+  // One "Report back" card per priority: it goes to everyone who answered on
+  // any channel, and a new one is made each time the priority's read status
+  // changes, so a card shows when there is something new to tell people. The
+  // card is keyed on the priority and its status. Only the card for the
+  // current status stays open, due two weeks out. It is done once a report
+  // back goes out (past checkout) after the card was made, or when the
+  // official marks it done.
   async syncReportBackCards(
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
   ): Promise<void> {
+    const sends = await this.client.outreach.findMany({
+      where: this.reportBack.repliesInWhere(
+        electedOffice.organizationSlug,
+        electedOffice.id,
+      ),
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: {
+        id: true,
+        priorityId: true,
+        priority: { select: { title: true } },
+      },
+    })
+    const anchors = new Map<string, (typeof sends)[number]>()
+    for (const send of sends) {
+      if (send.priorityId !== null && !anchors.has(send.priorityId)) {
+        anchors.set(send.priorityId, send)
+      }
+    }
+    // A read is a warehouse read, so it happens before the lock is taken.
+    const reads =
+      anchors.size === 0
+        ? new Map<string, PriorityReadStatus>()
+        : await this.moduleRef
+            .get(PriorityResultsService, { strict: false })
+            .readStatuses(electedOffice.organizationSlug, [...anchors.keys()])
     await this.client.$transaction(async (tx) => {
       // Same reason as the panel cards: a null sourceItemId leaves the
       // unique key unable to stop the home page and the archive both
       // inserting one.
       const lockKey = `report_back_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const sends = await tx.outreach.findMany({
-        where: this.reportBack.repliesInWhere(
-          electedOffice.organizationSlug,
-          electedOffice.id,
-        ),
-        select: {
-          id: true,
-          priorityId: true,
-          priority: { select: { title: true } },
-        },
-      })
       const existing = await tx.dashboardCard.findMany({
         where: {
           electedOfficeId: electedOffice.id,
@@ -199,6 +225,7 @@ export class DashboardCardsService extends createPrismaBase(
         select: {
           id: true,
           sourceExternalId: true,
+          sourceItemId: true,
           completedAt: true,
           title: true,
           summary: true,
@@ -206,35 +233,46 @@ export class DashboardCardsService extends createPrismaBase(
           ctaHref: true,
         },
       })
-      const carded = new Set(existing.map((card) => card.sourceExternalId))
       const now = new Date()
-      const missing = sends.filter((send) => !carded.has(String(send.id)))
-      // Words follow the current copy in every state, as the build card's
-      // do. A card whose send no longer has replies in is looked up directly.
-      const sendById = new Map(sends.map((send) => [send.id, send]))
-      const unlisted = existing
-        .map((card) => Number(card.sourceExternalId))
-        .filter((id) => Number.isInteger(id) && !sendById.has(id))
-      if (unlisted.length > 0) {
-        const more = await tx.outreach.findMany({
-          where: { id: { in: unlisted } },
-          select: {
-            id: true,
-            priorityId: true,
-            priority: { select: { title: true } },
-          },
+      // Cards made one per send, before there was one per priority, and open
+      // cards whose status is no longer the priority's.
+      const stale = existing.filter((card) => {
+        if (card.completedAt !== null) return false
+        const read = reads.get(card.sourceExternalId)
+        return card.sourceItemId === null || read?.status !== card.sourceItemId
+      })
+      if (stale.length > 0) {
+        await tx.dashboardCard.deleteMany({
+          where: { id: { in: stale.map((card) => card.id) } },
         })
-        for (const send of more) sendById.set(send.id, send)
       }
-      for (const card of existing) {
-        const send = sendById.get(Number(card.sourceExternalId))
-        if (!send) continue
+      const staleIds = new Set(stale.map((card) => card.id))
+      const live = existing.filter((card) => !staleIds.has(card.id))
+      for (const [priorityId, send] of anchors) {
+        const read = reads.get(priorityId)
+        if (!read || read.answers === 0) continue
         const content = reportBackCardContent(
           send.id,
-          send.priorityId ?? '',
+          priorityId,
           send.priority?.title ?? '',
+          read,
         )
-        if (
+        const card = live.find(
+          (c) =>
+            c.sourceExternalId === priorityId && c.sourceItemId === read.status,
+        )
+        if (!card) {
+          await tx.dashboardCard.create({
+            data: {
+              electedOfficeId: electedOffice.id,
+              type: DashboardCardType.report_back,
+              sourceExternalId: priorityId,
+              sourceItemId: read.status,
+              ...content,
+              dueDate: addDays(now, REPORT_BACK_DUE_DAYS),
+            },
+          })
+        } else if (
           card.title !== content.title ||
           card.summary !== content.summary ||
           card.ctaLabel !== content.ctaLabel ||
@@ -246,43 +284,36 @@ export class DashboardCardsService extends createPrismaBase(
           })
         }
       }
-      if (missing.length > 0) {
-        await tx.dashboardCard.createMany({
-          data: missing.map((send) => ({
-            electedOfficeId: electedOffice.id,
-            type: DashboardCardType.report_back,
-            sourceExternalId: String(send.id),
-            sourceItemId: null,
-            ...reportBackCardContent(
-              send.id,
-              send.priorityId ?? '',
-              send.priority?.title ?? '',
-            ),
-            dueDate: addDays(now, REPORT_BACK_DUE_DAYS),
-          })),
-        })
-      }
-      // Every open card, the ones just made included: a report back can be
-      // past checkout before its card's first read.
-      const openIds = [
-        ...existing
-          .filter((card) => card.completedAt === null)
-          .map((card) => Number(card.sourceExternalId)),
-        ...missing.map((send) => send.id),
-      ]
-      const sent = await this.reportBack.sentReportBacks(openIds)
-      if (sent.size > 0) {
-        await tx.dashboardCard.updateMany({
-          where: {
-            electedOfficeId: electedOffice.id,
-            type: DashboardCardType.report_back,
-            completedAt: null,
-            sourceExternalId: { in: [...sent.keys()].map(String) },
-          },
-          data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
-        })
-      }
     })
+    // After the cards above are committed, so the newest one is the one a
+    // report back is measured against. Every open card, the ones just made
+    // included: a report back can be past checkout before its card's first
+    // read.
+    const open = await this.client.dashboardCard.findMany({
+      where: {
+        electedOfficeId: electedOffice.id,
+        type: DashboardCardType.report_back,
+        completedAt: null,
+      },
+      select: { id: true, sourceExternalId: true },
+    })
+    for (const card of open) {
+      if (
+        await this.reportBack.sentReportBack(
+          electedOffice.organizationSlug,
+          card.sourceExternalId,
+        )
+      ) {
+        await this.client.dashboardCard.update({
+          where: { id: card.id },
+          data: {
+            completedAt: new Date(),
+            dismissedAt: null,
+            snoozedUntil: null,
+          },
+        })
+      }
+    }
   }
 
   // Generates/reconciles cards for a single briefing from its artifact JSONB

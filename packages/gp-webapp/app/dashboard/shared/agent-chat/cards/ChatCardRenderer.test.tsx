@@ -166,7 +166,6 @@ describe('OutreachProposalCard', () => {
         audience: 'Your civic panel and residents across the district',
         count: 18_400,
         sampleSize: 84,
-        panelSampleSize: 42,
         civicPanelAsk: true,
       }),
     )

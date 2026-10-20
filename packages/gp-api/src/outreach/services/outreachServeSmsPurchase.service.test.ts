@@ -12,6 +12,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -68,6 +69,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         { provide: StripeService, useValue: {} },
         { provide: SlackService, useValue: slack },
         { provide: AnalyticsService, useValue: analytics },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()

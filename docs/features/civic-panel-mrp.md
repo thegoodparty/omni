@@ -58,8 +58,9 @@ shows up. There is no round 3.
 `sampleSize` and the follow-up as `roundTwoSize`. The Serve SMS create for
 the first send takes `roundTwoSize` with its priority link and writes a
 second row in the same transaction: `roundOneOutreachId` pointing at the
-first, the date 10 business days later, and `min(roundTwoSize, pool - first
-send)`, where the pool is the list's whole criteria (never its sample) on
+first, the date 10 business days later, and `min(roundTwoSize, 90% of (pool -
+first send))`, where the 10% left unsold covers people who opt out or are
+reached another way before the draw, and the pool is the list's whole criteria (never its sample) on
 cell phones less everyone the priority's other sends texted, called,
 knocked or drew and everyone opted out (`roundTwoExclusions`). Too few left
 for a text of its own is no follow-up. The follow-up sits on a copy of the
@@ -148,8 +149,15 @@ the follow-up, which the official has to be able to see is coming (Samuel,
 2026-10-20). The text card reads "Text 2,000 of 58,520: 1,000 now, 1,000
 two weeks later", the chat says it in one line, the review step shows a
 Follow-up row and why it goes later, and the priority's read status carries
-`followUp` (date and texts) while it is paid and unsent, shown under "Where
-this stands" and in the agent's `<priority>` block. The model feeds the
+`followUp` (date and texts) while it is paid and unsent, shown as "Follow-up
+text to N people on <date>" in place of Get answers and in the agent's
+`<priority>` block, and `followUpSent` once it has gone out. `checkOut` says a
+check is out with residents on any channel; before it the status reads "No one
+asked yet" and there is no Get answers. In Outreach history the follow-up reads
+Draft until its recipients are picked and Scheduled after, with "Recipients
+picked <date>, from the groups you've heard least from"; its undrawn list stays
+off Constituents lists and cannot be edited or deleted. A short read after the
+follow-up is closed with calls and doors, never a third text. The model feeds the
 shapes the page already reads, through `PriorityResultsService`
 (`resultsFor`, `readStatuses`):
 
@@ -178,10 +186,11 @@ shapes the page already reads, through `PriorityResultsService`
 
 ## Not yet
 
-- **A short follow-up is refunded by hand.** A follow-up that draws fewer
-  than it was paid for sends what it drew; one that draws nobody is
-  canceled and logged for a hand refund. Both halves share one payment, so
-  a refund is a partial one.
+- **A follow-up that draws nobody is refunded by hand.** One that draws
+  fewer than it was paid for sends what it drew, which the 90% sizing makes
+  rare; one that draws nobody is canceled and logged for a hand refund, and
+  its history row says "Nobody left to text, so this was canceled. We'll
+  refund it."
 
 Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
 1"): with one scheduled send there is no reply loop to speed up.

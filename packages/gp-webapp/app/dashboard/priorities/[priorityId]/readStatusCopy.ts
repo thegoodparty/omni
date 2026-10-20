@@ -5,6 +5,8 @@ import {
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 
+const NO_ONE_ASKED = 'No one asked yet'
+
 const groupList = (read: PriorityReadStatus): string =>
   read.underrepresented
     .map((group) => underrepresentedGroupName(group, read.status))
@@ -20,16 +22,24 @@ export const READ_STATUS_COPY = {
       ? READ_REPRESENTATIVENESS_LABELS.enoughAnswers
       : "You've heard from every group",
   getAnswers: 'Get answers',
+  noOneAsked: NO_ONE_ASKED,
+  // Get answers is for a check that is out, a read that is still short, and
+  // no follow-up text already on its way.
+  canGetAnswers: (read: PriorityReadStatus): boolean =>
+    read.checkOut === true && !read.good && !read.followUp,
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
   progress: (read: PriorityReadStatus): string =>
     `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
   label: (read: PriorityReadStatus): string =>
-    READ_REPRESENTATIVENESS_LABELS[read.status],
+    read.good || read.checkOut
+      ? READ_REPRESENTATIVENESS_LABELS[read.status]
+      : NO_ONE_ASKED,
   // The status, then the groups it is about, for the phone's one row and
   // the desktop rail alike.
   statusLine: (read: PriorityReadStatus): string => {
     if (read.good) return READ_STATUS_COPY.goodLine(read)
+    if (!read.checkOut) return READ_STATUS_COPY.noOneAsked
     if (read.underrepresented.length === 0) {
       return READ_REPRESENTATIVENESS_LABELS[read.status]
     }
@@ -45,7 +55,7 @@ export const READ_STATUS_COPY = {
     "We'll show what we heard once we're sure what every group thinks.",
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
-    `Follow-up text to ${texts.toLocaleString()} people on ${date}, to the groups you've heard from least`,
+    `Follow-up text to ${texts.toLocaleString()} people on ${date}`,
   hearFromMoreHeading: 'Hear from more',
   groupName: (group: UnderrepresentedGroup, read: PriorityReadStatus): string =>
     underrepresentedGroupName(group, read.status),
