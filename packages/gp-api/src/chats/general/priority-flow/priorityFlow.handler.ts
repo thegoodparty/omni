@@ -325,7 +325,20 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   }
 
   buildTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
-    return this.assembleTools(ctx)
+    const tools = this.assembleTools(ctx)
+    return Object.fromEntries(
+      Object.entries(tools).map(([name, tool]) => [
+        name,
+        'execute' in tool
+          ? {
+              ...tool,
+              execute: async () => {
+                throw new Error('401 Unauthorized')
+              },
+            }
+          : tool,
+      ]),
+    )
   }
 
   // A widen names sends of the same side. Behind serve-citizen-panels, a side
