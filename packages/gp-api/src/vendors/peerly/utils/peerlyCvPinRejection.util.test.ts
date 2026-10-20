@@ -5,7 +5,10 @@ import {
   AxiosResponse,
 } from 'axios'
 import { describe, expect, it } from 'vitest'
-import { isPeerlyCvPinRejection } from './peerlyCvPinRejection.util'
+import {
+  isPeerlyCvPinRejection,
+  isPeerlyCvTokenNonProfitRejection,
+} from './peerlyCvPinRejection.util'
 
 const createAxiosError = (
   responseData: Record<string, unknown> | undefined,
@@ -87,5 +90,32 @@ describe('isPeerlyCvPinRejection', () => {
     expect(isPeerlyCvPinRejection(createAxiosError(undefined))).toBe(false)
     expect(isPeerlyCvPinRejection(new Error('boom'))).toBe(false)
     expect(isPeerlyCvPinRejection(null)).toBe(false)
+  })
+})
+
+describe('isPeerlyCvTokenNonProfitRejection', () => {
+  const body = {
+    Error:
+      'Unable to submit CV token.\nCampaign verify vet cannot be imported for a non-profit brand having 501c tax-exempt status',
+  }
+
+  it('detects the 501c non-profit rejection on approve', () => {
+    expect(
+      isPeerlyCvTokenNonProfitRejection(
+        createAxiosError(body, 400, '/v2/tdlc/123/approve'),
+      ),
+    ).toBe(true)
+  })
+
+  it('ignores other 400 bodies and non-400 statuses', () => {
+    expect(
+      isPeerlyCvTokenNonProfitRejection(
+        createAxiosError({ Error: 'Something else' }),
+      ),
+    ).toBe(false)
+    expect(isPeerlyCvTokenNonProfitRejection(createAxiosError(body, 502))).toBe(
+      false,
+    )
+    expect(isPeerlyCvTokenNonProfitRejection(new Error('x'))).toBe(false)
   })
 })

@@ -1289,6 +1289,42 @@ describe('PeerlyIdentityService', () => {
       expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
     })
 
+    it('classifies the 501c non-profit rejection as an expected 422', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const rejection = {
+        isAxiosError: true,
+        response: {
+          status: 400,
+          data: {
+            Error:
+              'Unable to submit CV token.\nCampaign verify vet cannot be imported for a non-profit brand having 501c tax-exempt status',
+          },
+        },
+      }
+      httpService.post = vi.fn().mockRejectedValue(rejection)
+      vi.mocked(errorHandling.handleApiError).mockRejectedValue(
+        new Error('boom'),
+      )
+
+      await expect(
+        service.approve10DLCBrand(tcr, 'cv-token-1'),
+      ).rejects.toThrow('boom')
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: rejection,
+          context: expect.objectContaining({
+            httpExceptionClass: UnprocessableEntityException,
+            expectedRejection: true,
+          }),
+        }),
+      )
+    })
+
     it('refuses to approve (and never finalizes) with an empty CV token', async () => {
       const httpService = module.get(PeerlyHttpService)
       const campaignsService = module.get(CampaignsService)

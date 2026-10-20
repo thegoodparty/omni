@@ -35,3 +35,24 @@ export const isPeerlyCvPinRejection = (error: unknown): boolean => {
     nestedStatus < SERVER_ERROR_MIN
   )
 }
+
+// Peerly refuses /approve with a plain 400 when the brand is a 501(c)
+// tax-exempt non-profit, because Campaign Verify tokens cannot be imported for
+// those. No retry can succeed and the candidate or staff must act, so it is a
+// 422 for the caller, not a bad gateway.
+const CV_TOKEN_NON_PROFIT_501C_MESSAGE =
+  'Campaign verify vet cannot be imported for a non-profit brand having 501c'
+
+export const isPeerlyCvTokenNonProfitRejection = (error: unknown): boolean => {
+  if (!isAxiosError<PeerlyCvPinErrorBody>(error)) {
+    return false
+  }
+  if (error.response?.status !== HttpStatus.BAD_REQUEST) {
+    return false
+  }
+  const message = error.response.data?.Error
+  return (
+    typeof message === 'string' &&
+    message.includes(CV_TOKEN_NON_PROFIT_501C_MESSAGE)
+  )
+}

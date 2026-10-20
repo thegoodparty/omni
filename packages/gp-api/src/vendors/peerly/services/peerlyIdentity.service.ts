@@ -72,7 +72,10 @@ import {
   isPeerlyCvRejection,
   PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
-import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
+import {
+  isPeerlyCvPinRejection,
+  isPeerlyCvTokenNonProfitRejection,
+} from '../utils/peerlyCvPinRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
 // Slack truncates long blocks silently; pretty-printing roughly doubles a
@@ -424,9 +427,16 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
       return identityBrand
     } catch (error) {
+      const expected = isPeerlyCvTokenNonProfitRejection(error)
       return await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
+        ...(expected
+          ? {
+              httpExceptionClass: UnprocessableEntityException,
+              expectedRejection: true,
+            }
+          : {}),
       })
     }
   }
