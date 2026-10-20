@@ -133,7 +133,7 @@ export type MarkCivicPanelBuildStepInput = z.infer<
 >
 
 // How the panel compares with the district's census, unweighted, on age
-// and tract (gender once the census publishes it). The official sees the
+// band, gender and tract (and race when enough members have one). The official sees the
 // status, in the priority read's labels, and the one group to invite more
 // of, never a share, a weight or a target. Below this many members it is
 // too early to tell.

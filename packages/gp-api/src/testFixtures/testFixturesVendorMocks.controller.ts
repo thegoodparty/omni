@@ -1,6 +1,7 @@
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
+import { isTestUser } from '@/users/util/users.util'
 import {
   type MockAction,
   MockActionResponseSchema,
@@ -8,6 +9,10 @@ import {
   type MockRecordsQuery,
   MockRecordsQuerySchema,
   MockRecordsResponseSchema,
+  RunJobResponseSchema,
+  type TimeTravel,
+  TimeTravelResponseSchema,
+  TimeTravelSchema,
 } from '@goodparty_org/contracts'
 import {
   Body,
@@ -15,6 +20,7 @@ import {
   ForbiddenException,
   Get,
   NotFoundException,
+  Param,
   Post,
   Query,
 } from '@nestjs/common'
@@ -54,6 +60,30 @@ export class TestFixturesVendorMocksController {
     this.assertNonProdDeploy()
     await this.assertCampaignOwner(q.campaignId, user.id)
     return this.testFixtures.getMockRecords(q.campaignId)
+  }
+
+  // Test-user variant of the admin run-job route. These sweeps are global,
+  // so a call processes every eligible row on the preview, not just the
+  // caller's. Acceptable on an ephemeral preview because only the robocall
+  // E2E spec creates robocall runs.
+  @Post('jobs/:name/run')
+  @ResponseSchema(RunJobResponseSchema)
+  async testUserRunJob(@Param('name') name: string, @ReqUser() user: User) {
+    this.assertNonProdDeploy()
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    return this.testFixtures.runJob(name)
+  }
+
+  @Post('time-travel')
+  @ResponseSchema(TimeTravelResponseSchema)
+  async timeTravel(
+    @Body(new ZodValidationPipe(TimeTravelSchema)) body: TimeTravel,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.timeTravel(body, user.id)
   }
 
   // Checks that the campaign belongs to the signed-in user; 403 otherwise.

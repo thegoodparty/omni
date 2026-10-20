@@ -123,6 +123,9 @@ export interface UseServeSmsSendInput {
   purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
+  // A priority's round 2: how many texts the card proposed. The list is the
+  // pool they are drawn from later, so the count is the server's to settle.
+  roundTwoSize?: number
   launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'compose') => void
@@ -161,6 +164,7 @@ export const useServeSmsSend = ({
   purpose,
   proposalLink,
   reportBackForOutreachId,
+  roundTwoSize,
   launchSource,
   create,
   setStepId,
@@ -245,6 +249,7 @@ export const useServeSmsSend = ({
           ...(reportBackForOutreachId !== undefined && {
             reportBackForOutreachId,
           }),
+          ...(roundTwoSize !== undefined && { roundTwoSize }),
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for

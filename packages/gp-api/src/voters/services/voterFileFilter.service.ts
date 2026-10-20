@@ -9,6 +9,7 @@ import {
   type GeoShapeLabels,
   shapePartCount,
 } from '@goodparty_org/contracts'
+import { omit } from 'es-toolkit'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -363,6 +364,58 @@ export class VoterFileFilterService extends createPrismaBase(
     return this.findFirst({
       where: { id, organizationSlug },
       include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
+  // A copy of `source` to hold a sample of `sampleSize` drawn later: a
+  // `sampleSize` with no `sampledAt` and no members, which resolves to
+  // nobody until the draw writes them. The source list is left alone, so a
+  // list the official saved for other sends never changes under them.
+  async createUndrawnSampleOf(
+    tx: Prisma.TransactionClient,
+    source: VoterFileFilterWithConditions,
+    sampleSize: number,
+    name: string,
+  ): Promise<VoterFileFilter> {
+    const geoMembers = await tx.voterFileFilterGeoMember.findMany({
+      where: { voterFileFilterId: source.id },
+      select: { personId: true },
+    })
+    const columns = omit(source, [
+      'id',
+      'createdAt',
+      'updatedAt',
+      'name',
+      'proposalKey',
+      'firstUsedForOutreachAt',
+      'sampleSize',
+      'sampledAt',
+      'geoPoly',
+      'geoPolyLabels',
+      'recommendedVariant',
+      'recommendedChannel',
+      'recommendedIntent',
+      'recommendedModified',
+      'activityConditions',
+    ])
+    return tx.voterFileFilter.create({
+      data: {
+        ...columns,
+        name,
+        sampleSize,
+        geoPoly: source.geoPoly ?? Prisma.DbNull,
+        geoPolyLabels: source.geoPolyLabels ?? Prisma.DbNull,
+        activityConditions: {
+          create: source.activityConditions.map(
+            ({ outreachType, outreachId, actions }) => ({
+              outreachType,
+              outreachId,
+              actions,
+            }),
+          ),
+        },
+        geoMembers: { createMany: { data: geoMembers } },
+      },
     })
   }
 

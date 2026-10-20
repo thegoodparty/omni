@@ -72,19 +72,28 @@ import {
 } from './databricksDistrictStatsSql.util'
 import { type AffinityColumn } from '../affinityColumns.const'
 import {
+  buildAnswerCellsSql,
+  buildDistrictCellsSql,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
+  buildPoolCellsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   mapAcsCounts,
+  mapAnswerCells,
   mapCensusCompositionRows,
+  mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
   sampleWeightSql,
+  type AnswerCell,
   type CensusCompositionRows,
+  type DistrictCell,
+  type DistrictCells,
+  type PersonAnswer,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -251,6 +260,24 @@ export class DatabricksVoterService {
       avgAge: row?.[1] == null ? null : Number(row[1]),
       avgIncome: row?.[2] == null ? null : Number(row[2]),
     })
+  }
+
+  async findPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCell[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildPoolCellsSql({
+        district,
+        filters: dto.filters,
+        search: dto.search,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
+      }),
+    )
+    return mapDistrictCells(rows)
   }
 
   async getListDetailAggregates(
@@ -545,6 +572,37 @@ export class DatabricksVoterService {
       cells: mapRespondentCells(cellResult.rows),
       tractAdults: mapTractAdults(tractResult.rows),
     }
+  }
+
+  // The district's census row, for folding race as the steering does, and
+  // its people counted by age band, gender, tract and race.
+  async findDistrictCells(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCells> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      this.client.query(buildDistrictCellsSql(district)),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapDistrictCells(cellResult.rows),
+    }
+  }
+
+  async findAnswerCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    answers: PersonAnswer[],
+  ): Promise<AnswerCell[]> {
+    if (answers.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildAnswerCellsSql(district, answers),
+    )
+    return mapAnswerCells(rows)
   }
 
   async findTractGridCells(

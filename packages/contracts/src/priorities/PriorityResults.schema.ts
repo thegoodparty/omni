@@ -155,17 +155,19 @@ export const READ_REPRESENTATIVENESS_LABELS: Record<
 export const DISTRICT_GRID_CELL_DEGREES = 0.004
 
 // Whether a priority has heard from enough people, and the right mix of
-// people, to read the district: pooled answers across texts, calls and
-// doors against answersNeeded for the district's population, weighted to
-// its census mix. gp-api's priorityReadStatus decides `good`: representative,
-// or enough answers when the census could not be read.
+// people, to read the district: answers pooled across texts, calls and
+// doors, every large group in the district heard from, and a model of the
+// coded answers sure enough of each. gp-api's mrpReadStatus decides `good`:
+// representative, or answersNeeded met when the district could not be read.
+// `needed` is the answers so far plus those still missing for every large
+// group to have three.
 export const PriorityReadStatusSchema = z.object({
   answers: z.number().int().nonnegative(),
   needed: z.number().int().positive(),
   good: z.boolean(),
   status: ReadRepresentativenessSchema,
-  // The one or two groups heard from least next to the census, most behind
-  // first. Empty when none trails by enough to name.
+  // The one or two groups holding the read back, the one to hear from
+  // first leading. Empty once representative.
   underrepresented: z.array(UnderrepresentedGroupSchema).max(2),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>

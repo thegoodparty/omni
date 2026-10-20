@@ -29,6 +29,7 @@ import {
   mergeTagToken,
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   SMS_COMPOSED_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
@@ -369,6 +370,9 @@ interface SmsFlowProps {
   // Serve: the earlier text a report back card answers. Rides on the create,
   // which marks the send as a report back rather than a new ask.
   reportBackForOutreachId?: number
+  // Serve: a priority's round 2, the number of texts its card proposed.
+  // Rides on the create, which draws who gets them before the send date.
+  roundTwoSize?: number
   // Win's create was refused while carrying the card's key, which is how a
   // card sent from another tab or an earlier session answers (409). The
   // card's surface decides whether that means it already went out.
@@ -588,6 +592,7 @@ export const SmsFlow = ({
   initialAsksToJoinCivicPanel = false,
   audienceSettled = false,
   reportBackForOutreachId,
+  roundTwoSize,
   onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -1219,6 +1224,7 @@ export const SmsFlow = ({
     ...(proposalLink && !resumeDraft && { proposalLink }),
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
+    ...(roundTwoSize !== undefined && !resumeDraft && { roundTwoSize }),
     launchSource,
     create: surface.endpoints.create,
     setStepId,
@@ -2369,6 +2375,9 @@ export const SmsFlow = ({
             }}
             date={date}
             onDateChange={setDate}
+            {...(roundTwoSize !== undefined && {
+              minLeadBusinessDays: ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
+            })}
           />
         ) : (
           <>

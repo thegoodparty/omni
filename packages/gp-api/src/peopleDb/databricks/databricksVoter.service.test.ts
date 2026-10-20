@@ -986,7 +986,6 @@ describe('DatabricksVoterService', () => {
       expect(result).toEqual({
         district: null,
         respondentBlockGroups: [],
-        respondentProfiles: [],
       })
     })
 
@@ -1002,6 +1001,71 @@ describe('DatabricksVoterService', () => {
         service.findCensusComposition(DISTRICT_ID, 'voters', [PERSON_ID]),
       ).rejects.toBeInstanceOf(PeopleDbxUnavailableError)
       expect(logger.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('findDistrictCells', () => {
+    it('reads the district row and its people by cell', async () => {
+      stubDistrict('City_Ward', 'WARD 1')
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [Array.from({ length: 34 }, () => '100')],
+        })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['65plus', 'female', '53017950100', 'black', '40']],
+        })
+
+      const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+
+      expect(query.mock.calls[1]?.[0].sql).toContain('count(*) AS people')
+      expect(result.district?.totalPopulation).toBe(100)
+      expect(result.cells).toEqual([
+        {
+          ageBand: '65plus',
+          gender: 'female',
+          tract: '53017950100',
+          race: 'black',
+          count: 40,
+        },
+      ])
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('findAnswerCells', () => {
+    const PERSON_ID = '0190a1b2-0000-7000-8000-00000000000a'
+
+    it('sums the answers by cell', async () => {
+      stubDistrict('City_Ward', 'WARD 1')
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['35to44', null, null, 'white', '1.5', '2']],
+      })
+
+      const cells = await service.findAnswerCells(DISTRICT_ID, 'voters', [
+        { personId: PERSON_ID, yes: 1 },
+      ])
+
+      expect(query.mock.calls[0]?.[0].sql).toContain(PERSON_ID)
+      expect(cells).toEqual([
+        {
+          ageBand: '35to44',
+          gender: null,
+          tract: null,
+          race: 'white',
+          yes: 1.5,
+          count: 2,
+        },
+      ])
+    })
+
+    it('reads nothing when nobody has answered', async () => {
+      expect(await service.findAnswerCells(DISTRICT_ID, 'voters', [])).toEqual(
+        [],
+      )
+      expect(query).not.toHaveBeenCalled()
     })
   })
 

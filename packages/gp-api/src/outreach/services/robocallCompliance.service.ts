@@ -59,6 +59,47 @@ export const NO_SPEECH_ISSUE =
   "We couldn't hear any speech in your recording. Record again and check " +
   'that your microphone is on.'
 
+// The spoken-number check must not hinge on the LLM alone: a number read aloud
+// is transcribed as digits ("414-485-8077", "4144858077") or as spoken digit
+// words ("four one four ..."), and the model sometimes marks it missing (ENG-11359).
+// This backstop overrides the FCC gate, so it only accepts the shape of a US
+// number: 3, 3 and 4 digits. Inside a group, digits may only be spaced or
+// hyphenated; between groups Transcribe may also put a dot, a comma or
+// parentheses. Counting digits instead let a date, an amount or digits
+// spread across sentences ("eight, 2024. One two three four five") stand in
+// for a number. Anything else, including a seven-digit local number, is left
+// to the LLM.
+const SPOKEN_DIGITS: Record<string, string> = {
+  zero: '0',
+  oh: '0',
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+  six: '6',
+  seven: '7',
+  eight: '8',
+  nine: '9',
+}
+const SPOKEN_DIGIT_WORD = new RegExp(
+  `\\b(${Object.keys(SPOKEN_DIGITS).join('|')})\\b`,
+  'g',
+)
+const digitGroup = (size: number): string => `\\d(?:[\\s-]*\\d){${size - 1}}`
+const GROUP_GAP = '[\\s.,-]*'
+const US_PHONE_NUMBER = new RegExp(
+  `(?<!\\d)(?:\\+?1${GROUP_GAP})?\\(?${digitGroup(3)}\\)?${GROUP_GAP}` +
+    `${digitGroup(3)}${GROUP_GAP}${digitGroup(4)}(?!\\d)`,
+)
+
+export const transcriptStatesPhoneNumber = (transcript: string): boolean =>
+  US_PHONE_NUMBER.test(
+    transcript
+      .toLowerCase()
+      .replace(SPOKEN_DIGIT_WORD, (word) => SPOKEN_DIGITS[word] ?? word),
+  )
+
 interface ComplianceParams {
   audioKey: string
   contentType: string
@@ -137,7 +178,13 @@ export class RobocallComplianceService {
       },
     ]
 
-    const checks = await this.runVerdict(messages, params.userId)
+    const verdict = await this.runVerdict(messages, params.userId)
+    // A number demonstrably in the transcript wins over a model "false".
+    const checks = {
+      ...verdict,
+      hasCallbackNumber:
+        verdict.hasCallbackNumber || transcriptStatesPhoneNumber(transcript),
+    }
 
     // Log only the boolean checks, never the transcript — it contains PII (the
     // spoken callback number, the candidate name). The full transcript is still

@@ -126,6 +126,59 @@ describe('RobocallComplianceService', () => {
     expect(verdict.issues.join(' ')).toMatch(/organization/i)
   })
 
+  it('a spoken number in the transcript passes even when the LLM misses it', async () => {
+    for (const spoken of [
+      'Call 414-485-8077.',
+      'Call 4 1 4 4 8 5 8 0 7 7.',
+      'Call four one four, four eight five, eight oh seven seven.',
+      'Call +1 (414) 485-8077.',
+      'Call four one four. Four eight five. Eight oh seven seven.',
+    ]) {
+      transcription.transcribe.mockResolvedValue(
+        `Hi, this is Alex, candidate for City Council. Paid for by Rivera for City Council. ${spoken}`,
+      )
+      llm.jsonCompletion.mockResolvedValue(checks({ hasCallbackNumber: false }))
+
+      const verdict = await service.checkRecording(params)
+
+      expect(verdict.passed).toBe(true)
+      expect(verdict.issues).toEqual([])
+    }
+  })
+
+  it('still fails the callback check when no number is spoken', async () => {
+    transcription.transcribe.mockResolvedValue(
+      'Hi, this is Alex, candidate for City Council. Paid for by Rivera for City Council. Vote on November 3 at 7 am.',
+    )
+    llm.jsonCompletion.mockResolvedValue(checks({ hasCallbackNumber: false }))
+
+    const verdict = await service.checkRecording(params)
+
+    expect(verdict.passed).toBe(false)
+    expect(verdict.checks.hasCallbackNumber).toBe(false)
+  })
+
+  it('leaves a date, an amount or a seven-digit number to the LLM', async () => {
+    for (const spoken of [
+      'Vote on 11/3/2026 between 7 and 8.',
+      'We raised $1,500,000 for our schools.',
+      'Call 485-8077.',
+      'Call four one four o four eight five o eight seven.',
+      'Since eight, 2024. One two three four five.',
+      'We raised $1,500,000,000 for our schools.',
+    ]) {
+      transcription.transcribe.mockResolvedValue(
+        `Hi, this is Alex, candidate for City Council. Paid for by Rivera for City Council. ${spoken}`,
+      )
+      llm.jsonCompletion.mockResolvedValue(checks({ hasCallbackNumber: false }))
+
+      const verdict = await service.checkRecording(params)
+
+      expect(verdict.passed).toBe(false)
+      expect(verdict.checks.hasCallbackNumber).toBe(false)
+    }
+  })
+
   it('an empty transcript is a re-record prompt, not an all-false content fail', async () => {
     // A COMPLETED transcription with no text = silent/truncated upload. It must
     // not run the LLM or read as three "missing element" issues.

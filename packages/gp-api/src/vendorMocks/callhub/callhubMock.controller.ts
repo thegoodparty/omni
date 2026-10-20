@@ -2,6 +2,7 @@ import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { VendorMockVendor, Prisma } from '@/generated/prisma'
 import {
+  BadGatewayException,
   Body,
   Controller,
   Get,
@@ -14,6 +15,29 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+import { CALLHUB_MOCK_API_KEY } from '@/vendors/callhub/config/callhubBaseConfig'
+
+// Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
+// GET), so the mock does too: staging polls numbers_count until it reaches
+// the audience size, and only the CSV knows that size.
+// Hostname is restricted to .amazonaws.com: the mock-key is a public constant
+// so any request with it passes assertAuth; without a hostname allowlist an
+// attacker on an internet-facing preview can SSRF to arbitrary HTTPS
+// endpoints by posting csv_url to bulk_create.
+const fetchCsv = async (url: string): Promise<string> => {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'https:') {
+    throw new BadGatewayException('csv_url must be HTTPS')
+  }
+  if (!parsed.hostname.endsWith('.amazonaws.com')) {
+    throw new BadGatewayException('csv_url must be an S3 presigned URL')
+  }
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new BadGatewayException(`CSV fetch failed: ${res.status}`)
+  }
+  return res.text()
+}
 
 @Controller('vendor-mocks/callhub')
 @PublicAccess()
@@ -52,10 +76,11 @@ export class CallhubMockController {
     return { count: results.length, next: null, previous: null, results }
   }
 
+  // The client posts multipart, which @fastify/multipart leaves off `body`.
   @Post('v1/media/upload')
   async uploadMedia(
     @Headers('authorization') auth: string | undefined,
-    @Body() body: Record<string, string>,
+    @Body() body: Record<string, string> | undefined,
   ) {
     this.assertMockMode()
     this.assertAuth(auth)
@@ -65,7 +90,7 @@ export class CallhubMockController {
       VendorMockVendor.callhub,
       'media',
       externalId,
-      { filename: body['filename'] ?? null, url },
+      { filename: body?.['filename'] ?? null, url },
     )
     return { data: { media_file_id: externalId, media_url: url } }
   }
@@ -149,7 +174,9 @@ export class CallhubMockController {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         const state = jsonObj(record.state as Prisma.JsonValue)
         const current = Number(state['count'] ?? 0)
-        const csv = body['csv']
+        const csv =
+          body['csv'] ??
+          (body['csv_url'] ? await fetchCsv(body['csv_url']) : undefined)
         const delta = csv
           ? csv.split('\n').filter((l) => l.trim().length > 0).length - 1
           : 1
@@ -285,11 +312,17 @@ export class CallhubMockController {
     if (VENDOR_MODE !== 'mock') throw new NotFoundException()
   }
 
+  // In mock mode the real client always sends CALLHUB_MOCK_API_KEY, even
+  // where CALLHUB_API_KEY is also set (PR previews share it with dev).
+  // The fallback to any non-empty auth when CALLHUB_API_KEY is unset is
+  // intentionally absent: mock routes are internet-facing on previews and
+  // must not accept arbitrary tokens.
   private assertAuth(auth: string | undefined) {
     const expectedKey = process.env.CALLHUB_API_KEY
-    if (!auth || (expectedKey && auth !== `Token ${expectedKey}`)) {
-      throw new UnauthorizedException()
-    }
+    const accepted =
+      auth === `Token ${CALLHUB_MOCK_API_KEY}` ||
+      (!!expectedKey && auth === `Token ${expectedKey}`)
+    if (!accepted) throw new UnauthorizedException()
   }
 }
 

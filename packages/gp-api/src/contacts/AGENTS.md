@@ -877,10 +877,12 @@ it is the uncorrected 96. The panel's own math is in
 `ContactsService.getDistrictPopulation` reads the population
 (`StatsService.findDistrictPopulation`, the census mart's
 `district_population` on its own, without the voter scan) and folds any
-failure into null. The priority flow and the Chief of Staff chat read it
-instead through `PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hand the figure to
-both their panel sizing and `readStatuses`.
+failure into null. The Chief of Staff chat reads it instead through
+`PriorityResultsService.districtPopulation` (the memoized
+`CensusCompositionSource.population`), once per turn, and hands the figure
+to both its panel sizing and `readStatuses`; the priority flow reads it the
+same way for `readStatuses` alone. A priority's checks are not sized in
+answers: see "Round 1 sizing" below.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
@@ -996,6 +998,53 @@ priority read's labels: `tooEarly` under 30 members; with `D` the largest
 `representative` at it. `inviteMore` is the group trailing furthest by the
 priority read's rule (at least 5 points), null once representative. The
 official never sees a share, weight or target.
+
+**Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
+Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+A priority check's first round, which the priority chat proposes as a door,
+a call and a text card at once (`size_round_one`,
+`chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
+`MAJOR_GROUP_SHARE` (3%) or more of the district on a steered dimension:
+age band, gender, tract, and race only when `raceNameable` holds for the
+door pool, never `other`. District shares are
+`weightingTargets` of the census (`PriorityResultsService.districtCensus`),
+or the door pool's own mix when the census cannot be read. Each channel's
+pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,
+peopleDb `buildPoolCellsSql`, counts only): `notContactedRecently` for
+doors, plus `hasAnyPhone` for calls and `hasCellPhone` for the text. Doors
+and calls take the official's weekly hours exactly as `sizePanelWave` splits
+them, uncapped by any member gap (`roundOneHours`); the hours are the active
+plan's, or the official's answer in the chat. The doors are one walkable
+area (`PriorityResultsService.roundOneDoorArea`), picked the way a plan's
+door step is: `walkableAreaWithin` in the tract the priority's answers trail
+most (`doorTractFor`, once `PANEL_MIN_MEMBERS_FOR_BALANCE` people have
+answered), else, or when that tract holds too few doors, across the
+district. The area goes on the door card as `walkableArea`, the padded box
+around its doors (`areaAround`), and the card's count is who that box holds
+(`resolveGeoMemberIds`, then `countByGroupWithin` within those ids), so the
+door part of a group's answers comes from who lives there, not from the
+district. A group's expected answers are the invites reaching it on each
+channel (the channel's size times the group's share of who it reaches: the
+area for the doors, the pool for calls and the text) times that channel's
+answer rate: `DOOR_ANSWER_RATE` 10%,
+`CALL_ANSWER_RATE` 5%, `TEXT_ANSWER_RATE` 3%, placeholders until offices
+measure them. The text is the most any short group needs to reach
+`MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
+by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
+phone reaches does not size it. The tool says whether every major group
+reaches 3 (`coversEveryGroup`).
+
+**Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
+`priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
+the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
+`batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
+share times range width; `batchWeights` turns that into the same
+`SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
+`UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
+`MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
+the caller leaves race out unless `raceNameable` holds. The model is
+`priorities/util/mrp.util.ts`. Design and what is left:
+`docs/features/civic-panel-mrp.md`.
 
 **Statuses** (`stepStatus`, read on every GET, never stored).
 `not_started` until something is made from the step's list; `in_progress`

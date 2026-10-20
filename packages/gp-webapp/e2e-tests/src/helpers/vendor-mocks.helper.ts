@@ -31,3 +31,40 @@ export const mockRecords = async (
   )
   return data
 }
+
+/**
+ * Triggers a named robocall background job (staging/send/completion/capture)
+ * via the session-auth test-user route.  Global — the job sweeps all eligible
+ * rows, not only the caller's.
+ */
+export const runJob = (client: AxiosInstance, name: string) =>
+  client.post<void>(`/v1/test-fixtures/vendor-mocks/jobs/${name}/run`)
+
+/**
+ * Shifts outreach timing so a sweep processes this specific robocall:
+ * - `robocall.send_due_now`     → sets Outreach.date to now - 1 min (staging and send pick it up)
+ * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)
+ * - `sms.start_date_today`      → moves an SMS send's start date to today
+ */
+export const timeTravel = (
+  client: AxiosInstance,
+  outreachId: number,
+  action:
+    | 'robocall.send_due_now'
+    | 'robocall.dialed_48h_ago'
+    | 'sms.start_date_today',
+) =>
+  client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
+    outreachId,
+    action,
+  })
+
+/**
+ * Fires a CallHub-specific vendor-mock action for a campaign.
+ * Thin wrapper over mockAction scoped to the CallHub action space.
+ */
+export const callhubAction = (
+  client: AxiosInstance,
+  campaignId: number,
+  action: MockAction['action'],
+) => mockAction(client, campaignId, action)
