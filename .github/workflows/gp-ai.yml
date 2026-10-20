@@ -9,6 +9,9 @@ name: gp-ai
 
 on:
   pull_request:
+  # Validate runs on the merge queue's combined commit too. See the merge
+  # queue section of docs/deployment.md.
+  merge_group:
   push:
     branches: [main]
 
@@ -219,6 +222,11 @@ jobs:
       && needs.changes.outputs.services != '[]'
       && needs.validate.result != 'failure'
       && needs.validate.result != 'cancelled'
+      && github.event_name != 'merge_group'
+    # Not in the merge queue: its builds get neither AWS role (the plan role
+    # trusts pull_request only, the deploy role main pushes), and the PR
+    # already built every changed image.
+    #
     # Native arm64, not ubuntu-latest. Every image here is linux/arm64, so an
     # amd64 runner built them through the buildkit QEMU emulator — and the
     # autopilot Dockerfile's whole-monorepo `npm ci` under emulation ran 9-14

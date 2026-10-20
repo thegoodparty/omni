@@ -2,6 +2,9 @@ name: prototypes
 
 on:
   pull_request:
+  # Validate runs on the merge queue's combined commit too. See the merge
+  # queue section of docs/deployment.md.
+  merge_group:
   push:
     branches: [main]
 

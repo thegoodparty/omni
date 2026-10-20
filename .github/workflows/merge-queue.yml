@@ -1,0 +1,33 @@
+name: merge-queue
+
+# The merge queue tests each batch's combined commit, and every required check
+# must report on that commit. pr-reviewer is a commit status the delegate
+# reviewer posts on pull request commits only, so nothing would report it here
+# and every batch would wait until the queue timed it out. A pull request can
+# only enter the queue after pr-reviewer passed on it, so this restates that
+# result for the batch's commit.
+#
+# E2E needs nothing here: gp-webapp.yml's E2E job runs on pull_request only,
+# and GitHub counts a job skipped by its `if` as passing.
+
+on:
+  merge_group:
+
+permissions:
+  statuses: write
+
+jobs:
+  pr-reviewer:
+    name: Carry over pr-reviewer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark pr-reviewer as passed on the queue commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          gh api "repos/$REPO/statuses/$SHA" \
+            -f state=success \
+            -f context=pr-reviewer \
+            -f description="Passed on each pull request before it entered the queue"
