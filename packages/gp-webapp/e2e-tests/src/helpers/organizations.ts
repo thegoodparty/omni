@@ -60,13 +60,17 @@ const pickTermDate = async (
 export const winRaceWithTermDates = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/election-result')
   await wait(250)
+  // The button renders only after the fresh user's campaign/org data loads
+  // through gp-api; on a loaded dev stack that exceeded the old 10s budget
+  // (ENG-11391). Wait it out instead of flaking.
   await page
     .getByRole('button', { name: 'I won my race' })
-    .click({ timeout: 10_000 })
+    .click({ timeout: 45_000 })
   await pickTermDate(page, 'term-start-date', '2023-01-01')
   await pickTermDate(page, 'term-end-date', '2027-01-01')
   await page.getByRole('button', { name: /^continue$/i }).click()
-  await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 15_000 })
+  // Creating the elected office is a multi-step API write; allow for dev latency.
+  await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 45_000 })
 }
 
 type SetupResult = {

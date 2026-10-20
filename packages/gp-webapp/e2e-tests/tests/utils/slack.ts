@@ -34,9 +34,12 @@ export const waitForSlackMessage = async (params: {
       return match
     },
     {
+      // The message is posted by an async backend job after the UI confirms,
+      // so on a slow dev stack it can land well after ~6s (ENG-11391).
+      // 15 retries at 1-3s backoff gives roughly 30-45s.
       minTimeout: 1000,
       maxTimeout: 3000,
-      retries: 3,
+      retries: 15,
     },
   )
 }
