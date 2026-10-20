@@ -10,6 +10,7 @@ import {
   CreateVbCampaignResponseSchema,
   LaunchVbCampaignResponse,
   LaunchVbCampaignResponseSchema,
+  UpdateVbCampaignResponseSchema,
 } from '../schemas/callhubCampaign.schema'
 import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
 import { CallhubHttpService } from './callhubHttp.service'
@@ -47,10 +48,14 @@ const EXPIRATION_WINDOW_DAYS = 7
 // ratio, so a faster rate shortens the estimate in step and never mis-frees an
 // in-flight run; (c) the Oct incident showed PAUSED campaigns do NOT consume the
 // cap (leroy ran at 60 while others sat Paused at 60) — only running ones do;
-// (d) a stray `over_cps` self-heals via startCampaign's throttle revert. A live
-// PATCH confirmed CallHub accepts 120. Env-tunable
-// (`CALLHUB_VB_CALLS_PER_MINUTE`); going ABOVE 120 needs CallHub to raise the
-// account cap (support@callhub.io), not just this knob.
+// (d) a stray `over_cps` self-heals via startCampaign's throttle revert.
+//
+// This is the rate we REQUEST, not necessarily the one that dials: CallHub's
+// create endpoint clamps frequency to an account default (observed 60/min)
+// regardless of the POSTed value, so `createVoiceBroadcast` PATCHes the campaign
+// up to this rate right after create and freezes the APPLIED frequency it reads
+// back (see `raiseFrequency`). Env-tunable (`CALLHUB_VB_CALLS_PER_MINUTE`); going
+// ABOVE 120 needs CallHub to raise the account cap (support@callhub.io).
 const DEFAULT_CALLS_PER_MINUTE = 120
 const callsPerMinute = (): number => {
   const raw = Number(process.env.CALLHUB_VB_CALLS_PER_MINUTE)
@@ -168,12 +173,57 @@ export class CallhubCampaignService {
     // Parse OUTSIDE the fetch try/catch so a response-shape mismatch surfaces
     // as a schema error, not a retryable BadGatewayException the caller would
     // treat as a transient vendor failure.
-    const data = await this.postCampaign(body)
+    const created = CreateVbCampaignResponseSchema.parse(
+      await this.postCampaign(body),
+    )
+    const appliedFrequency = await this.raiseFrequency(
+      created.pk_str,
+      frequency,
+      created.frequency ?? null,
+    )
     return {
-      ...CreateVbCampaignResponseSchema.parse(data),
+      ...created,
       startingDate,
       expirationDate,
-      callsPerMinute: frequency,
+      callsPerMinute: appliedFrequency,
+    }
+  }
+
+  // CallHub's create endpoint CLAMPS frequency to an account default (observed
+  // 60/min) no matter what we POST, but a PATCH to the voice_broadcasts detail
+  // route is honored (verified live, Oct 2026). So right after create — while the
+  // campaign is still PAUSED — we PATCH it up to the configured rate, read the
+  // APPLIED frequency back, and freeze THAT as the dial rate: the completion
+  // estimate must walk the rate CallHub really dials at, never the one we asked
+  // for. Best-effort — a PATCH failure leaves the campaign at the created
+  // (clamped) rate, which still dials, so we record that LOWER rate rather than
+  // fail the whole stage. Recording the lower rate is the money-safe direction:
+  // a recorded rate higher than the real dial would free the shared pool early
+  // and abort a still-dialing run while the 48h capture charges full.
+  private async raiseFrequency(
+    pkStr: string,
+    requested: number,
+    created: number | null,
+  ): Promise<number> {
+    try {
+      const patched = UpdateVbCampaignResponseSchema.parse(
+        await this.http.patch(`${LAUNCH_PATH_PREFIX}${pkStr}/`, {
+          frequency: requested,
+        }),
+      )
+      const applied = patched.frequency ?? created ?? requested
+      this.logger.info(
+        { pkStr, requested, created, applied },
+        'robocall voice broadcast frequency set',
+      )
+      return applied
+    } catch (err) {
+      const applied = created ?? requested
+      this.logger.warn(
+        { pkStr, requested, created, applied, err },
+        'robocall frequency PATCH failed; dialing at the created rate',
+      )
+      return applied
     }
   }
 

@@ -50,10 +50,11 @@ describe('CallhubCampaignService', () => {
     get: ReturnType<typeof vi.fn>
     post: ReturnType<typeof vi.fn>
     put: ReturnType<typeof vi.fn>
+    patch: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
-    http = { get: vi.fn(), post: vi.fn(), put: vi.fn() }
+    http = { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }
     service = new CallhubCampaignService(
       createMockLogger(),
       http as unknown as CallhubHttpService,
@@ -63,13 +64,17 @@ describe('CallhubCampaignService', () => {
 
   describe('createVoiceBroadcast', () => {
     it('creates a scheduled, non-launched voice broadcast', async () => {
+      // CallHub CLAMPS the create to an account default (60) regardless of the
+      // POSTed 120; the PATCH below is what raises it.
       http.post.mockResolvedValue({
         pk_str: '3972682680557897335',
         name: 'Robocall town-hall',
+        frequency: 60,
         // Extra fields CallHub returns are stripped by the schema.
         id: 3972682680557897000,
         schedule: { startingdate: '2026-09-16 08:18:21' },
       })
+      http.patch.mockResolvedValue({ frequency: 120, status: 2 })
 
       const result = await service.createVoiceBroadcast(params)
 
@@ -116,6 +121,15 @@ describe('CallhubCampaignService', () => {
       // The launch status is never sent from this service.
       expect(body).not.toHaveProperty('status')
       expect(result.pk_str).toBe('3972682680557897335')
+
+      // Right after create, the campaign is PATCHed up to the configured rate on
+      // the voice_broadcasts detail route (the create clamp is overridable there).
+      const [patchPath, patchBody] = http.patch.mock.calls[0] ?? []
+      expect(patchPath).toBe('/v1/voice_broadcasts/3972682680557897335/')
+      expect(patchBody).toEqual({ frequency: 120 })
+      // The FROZEN rate is what CallHub APPLIED on the PATCH (120), not the
+      // create's clamped 60 and not merely what we requested.
+      expect(result.callsPerMinute).toBe(120)
     })
 
     it('honors CALLHUB_VB_CALLS_PER_MINUTE over the default', async () => {
@@ -123,13 +137,53 @@ describe('CallhubCampaignService', () => {
       http.post.mockResolvedValue({
         pk_str: '3972682680557897335',
         name: 'Robocall town-hall',
+        frequency: 60,
       })
+      http.patch.mockResolvedValue({ frequency: 25, status: 2 })
 
-      await service.createVoiceBroadcast(params)
+      const result = await service.createVoiceBroadcast(params)
 
       const [, body] = http.post.mock.calls[0] ?? []
       expect(body.frequency).toBe(25)
+      // The PATCH raises to the configured 25 and that applied rate is frozen.
+      const [, patchBody] = http.patch.mock.calls[0] ?? []
+      expect(patchBody).toEqual({ frequency: 25 })
+      expect(result.callsPerMinute).toBe(25)
       vi.unstubAllEnvs()
+    })
+
+    it('freezes the PATCH-applied rate even when it differs from requested', async () => {
+      // Belt-and-suspenders: if CallHub echoes a different rate on the PATCH
+      // (e.g. a re-clamp), the APPLIED value is frozen, never the requested one —
+      // the completion estimate must walk the rate CallHub really dials at.
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+        frequency: 60,
+      })
+      http.patch.mockResolvedValue({ frequency: 90, status: 2 })
+
+      const result = await service.createVoiceBroadcast(params)
+
+      expect(result.callsPerMinute).toBe(90)
+    })
+
+    it('records the created (clamped) rate when the PATCH fails', async () => {
+      // A PATCH failure leaves the campaign at the created rate, which still
+      // dials, so we freeze THAT lower rate rather than fail the stage — the
+      // money-safe direction (a frozen rate above the real dial frees the pool
+      // early and aborts a still-dialing run).
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+        frequency: 60,
+      })
+      http.patch.mockRejectedValue(new Error('CallHub 503'))
+
+      const result = await service.createVoiceBroadcast(params)
+
+      expect(result.pk_str).toBe('3972682680557897335')
+      expect(result.callsPerMinute).toBe(60)
     })
 
     it('refuses to schedule a broadcast in the past (never dials now)', async () => {
