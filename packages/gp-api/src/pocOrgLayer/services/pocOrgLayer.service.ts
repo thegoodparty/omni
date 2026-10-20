@@ -161,6 +161,9 @@ export class PocOrgLayerService {
         ` \`${district.districtType}\` = ${bag.bind(district.districtName)}`
     const digits10 = (expr: string): string =>
       `right(regexp_replace(${expr}, '[^0-9]', ''), 10)`
+    const nameKey = (last: string, zip: string, first: string): string =>
+      `concat_ws('|', lower(trim(${last})), substr(${zip}, 1, 5),` +
+      ` lower(substr(trim(${first}), 1, 1)))`
 
     if (seedFromDistrict) {
       // Test-only: copies a few real people's match keys into staging inside
@@ -211,31 +214,32 @@ export class PocOrgLayerService {
         sql:
           `INSERT INTO ${ORG_LAYER_MATCH_TABLE} (import_id, org_slug,` +
           ' row_index, status, person_id, candidate_count, created_at)' +
-          ` WITH r AS (SELECT row_index,` +
-          ` lower(trim(last_name)) AS ln,` +
-          ` lower(substr(trim(first_name), 1, 1)) AS fi,` +
-          ` substr(regexp_replace(zip, '[^0-9]', ''), 1, 5) AS z5,` +
+          ' WITH r AS (SELECT row_index,' +
+          ` ${nameKey('last_name', "regexp_replace(zip, '[^0-9]', '')", 'first_name')} AS nk,` +
           ` ${digits10('phone')} AS ph` +
           ` FROM ${ORG_LAYER_IMPORT_ROW_TABLE}` +
           ` WHERE import_id = ${importIdParam}),` +
-          ` b AS (SELECT id, lower(trim(LastName)) AS ln,` +
-          ' lower(substr(trim(FirstName), 1, 1)) AS fi,' +
-          ' substr(Residence_Addresses_Zip, 1, 5) AS z5,' +
+          ' b AS (SELECT id,' +
+          ` ${nameKey('LastName', 'Residence_Addresses_Zip', 'FirstName')} AS nk,` +
           ` ${digits10('VoterTelephones_CellPhoneFormatted')} AS cell,` +
           ` ${digits10('VoterTelephones_LandlineFormatted')} AS land` +
           ` FROM ${baseTable} WHERE ${districtScope}),` +
-          ' phone_hits AS (' +
-          ' SELECT r.row_index, b.id FROM r JOIN b' +
-          ' ON length(r.ph) = 10 AND b.cell = r.ph' +
-          ' UNION SELECT r.row_index, b.id FROM r JOIN b' +
-          ' ON length(r.ph) = 10 AND b.land = r.ph),' +
-          ' name_hits AS (SELECT r.row_index, b.id FROM r JOIN b' +
-          ' ON r.ln = b.ln AND r.z5 = b.z5 AND r.fi = b.fi' +
-          ' WHERE r.row_index NOT IN (SELECT row_index FROM phone_hits)),' +
-          ' hits AS (SELECT * FROM phone_hits UNION ALL' +
-          ' SELECT * FROM name_hits),' +
+          ' keys AS (SELECT b.id, k.k, k.tier FROM b LATERAL VIEW' +
+          " explode(array(named_struct('k', b.cell, 'tier', 1)," +
+          " named_struct('k', b.land, 'tier', 1)," +
+          " named_struct('k', b.nk, 'tier', 2))) x AS k" +
+          ' WHERE k.k IS NOT NULL AND (k.tier = 2 OR length(k.k) = 10)),' +
+          ' rk AS (SELECT r.row_index, k.k, k.tier FROM r LATERAL VIEW' +
+          " explode(array(named_struct('k', r.ph, 'tier', 1)," +
+          " named_struct('k', r.nk, 'tier', 2))) x AS k" +
+          ' WHERE k.k IS NOT NULL AND (k.tier = 2 OR length(k.k) = 10)),' +
+          ' hits AS (SELECT rk.row_index, rk.tier, keys.id FROM rk' +
+          ' JOIN keys ON keys.k = rk.k AND keys.tier = rk.tier),' +
+          ' ranked AS (SELECT row_index, id, tier,' +
+          ' min(tier) OVER (PARTITION BY row_index) AS best FROM hits),' +
           ' agg AS (SELECT row_index, count(DISTINCT id) AS n,' +
-          ' min(id) AS any_id FROM hits GROUP BY row_index)' +
+          ' min(id) AS any_id FROM ranked WHERE tier = best' +
+          ' GROUP BY row_index)' +
           ` SELECT ${importIdParam}, ${orgParam}, r.row_index,` +
           " CASE WHEN agg.n IS NULL THEN 'new'" +
           " WHEN agg.n = 1 THEN 'matched' ELSE 'ambiguous' END," +
