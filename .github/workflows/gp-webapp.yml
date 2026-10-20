@@ -670,6 +670,16 @@ jobs:
             echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
             echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
             echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+            # Passed only after a retry. CI allows 3 retries per test, so these
+            # stay green here and then fail on the shared dev environment;
+            # listing them is how they get fixed. Report only, never a failure.
+            FLAKY=$(jq '[.. | .specs? // empty | .[] | select(any(.tests[]?; .status == "flaky"))] | length' test-results/results.json 2>/dev/null || echo 0)
+            echo "flaky=$FLAKY" >> "$GITHUB_OUTPUT"
+            {
+              echo "flaky_tests<<EOF"
+              jq -r '[.. | .specs? // empty | .[] | select(any(.tests[]?; .status == "flaky")) | "\(.file) › \(.title)"] | .[:20] | .[]' test-results/results.json 2>/dev/null | sed 's/^/- /'
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             if [ "$FAILED" -gt 0 ]; then
               NAMES=$(jq -r '[.. | .specs? // empty | .[] | select(.ok == false) | .title] | .[:10] | .[]' test-results/results.json 2>/dev/null | sed 's/^/- /')
               [ -z "$NAMES" ] && NAMES="- $FAILED test(s) failed but names could not be parsed"
@@ -685,6 +695,7 @@ jobs:
             echo "total=0" >> "$GITHUB_OUTPUT"
             echo "failed=0" >> "$GITHUB_OUTPUT"
             echo "passed=0" >> "$GITHUB_OUTPUT"
+            echo "flaky=0" >> "$GITHUB_OUTPUT"
             echo "failed_tests=- results.json not found (tests may not have run)" >> "$GITHUB_OUTPUT"
           fi
 
@@ -705,6 +716,8 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          FLAKY: ${{ steps.results.outputs.flaky }}
+          FLAKY_TESTS: ${{ steps.results.outputs.flaky_tests }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         with:
           script: |
@@ -715,6 +728,8 @@ jobs:
             const passed = parseInt(process.env.PASSED || '0', 10)
             const total = parseInt(process.env.TOTAL || '0', 10)
             const failedTests = process.env.FAILED_TESTS || ''
+            const flaky = parseInt(process.env.FLAKY || '0', 10)
+            const flakyTests = process.env.FLAKY_TESTS || ''
             const reportUrl = process.env.REPORT_URL || ''
             const previewUrl = process.env.BASE_URL || ''
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
@@ -731,10 +746,18 @@ jobs:
               '|--------|-------|',
               `| ✅ Passed | ${passed} |`,
               `| ❌ Failed | ${failed} |`,
+              `| 🔁 Passed only on retry | ${flaky} |`,
               `| 📊 Total | ${total} |`,
             ]
             if (failed > 0 && failedTests) {
               lines.push('', '**Failed tests:**', failedTests)
+            }
+            if (flaky > 0 && flakyTests) {
+              lines.push(
+                '',
+                '**Passed only on retry** (flaky; these are what fail the release train on dev):',
+                flakyTests,
+              )
             }
             const links = []
             if (reportUrl) links.push(`[View HTML report](${reportUrl})`)
@@ -782,6 +805,8 @@ jobs:
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
+          FLAKY: ${{ steps.results.outputs.flaky }}
+          FLAKY_TESTS: ${{ steps.results.outputs.flaky_tests }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         run: |
           status="✅"
@@ -797,11 +822,17 @@ jobs:
             echo "|--------|-------|"
             echo "| ✅ Passed | ${PASSED:-0} |"
             echo "| ❌ Failed | ${FAILED:-0} |"
+            echo "| 🔁 Passed only on retry | ${FLAKY:-0} |"
             echo "| 📊 Total | ${TOTAL:-0} |"
             echo ""
             if [ "${FAILED:-0}" != "0" ] && [ -n "$FAILED_TESTS" ]; then
               echo "**Failed tests:**"
               echo "$FAILED_TESTS"
+              echo ""
+            fi
+            if [ "${FLAKY:-0}" != "0" ] && [ -n "$FLAKY_TESTS" ]; then
+              echo "**Passed only on retry:**"
+              echo "$FLAKY_TESTS"
               echo ""
             fi
             if [ -n "$REPORT_URL" ]; then
