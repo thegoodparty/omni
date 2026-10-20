@@ -9,6 +9,7 @@ import {
   Headers,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   UnauthorizedException,
@@ -16,6 +17,10 @@ import {
 import { randomUUID } from 'crypto'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 import { CALLHUB_MOCK_API_KEY } from '@/vendors/callhub/config/callhubBaseConfig'
+
+// The rate a create lands at before gp-api PATCHes it up — real CallHub clamps
+// every create to an account default regardless of the POSTed frequency.
+const CLAMPED_CREATE_FREQUENCY = 60
 
 // Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
 // GET), so the mock does too: staging polls numbers_count until it reaches
@@ -201,13 +206,54 @@ export class CallhubMockController {
     this.assertAuth(auth)
     const externalId = randomUUID()
     const name = body['name'] ?? 'mock-campaign'
+    // Real CallHub CLAMPS the create to an account default regardless of the
+    // POSTed frequency; gp-api PATCHes it up afterward (see the PATCH route
+    // below). Mirror that so the create→PATCH→applied flow is exercised.
+    const frequency = CLAMPED_CREATE_FREQUENCY
     await this.vendorMockRecord.upsert(
       VendorMockVendor.callhub,
       'vb_campaign',
       externalId,
-      { status: 2, name },
+      { status: 2, name, frequency },
     )
-    return { pk_str: externalId, name }
+    return { pk_str: externalId, name, frequency }
+  }
+
+  @Patch('v1/voice_broadcasts/:pk')
+  async patchVoiceBroadcast(
+    @Headers('authorization') auth: string | undefined,
+    @Param('pk') pk: string,
+    @Body() body: Record<string, string>,
+  ) {
+    this.assertMockMode()
+    this.assertAuth(auth)
+    const records = await this.vendorMockRecord.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'vb_campaign',
+        externalId: pk,
+      },
+    })
+    const record = records[0]
+    if (!record) throw new NotFoundException()
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const state = jsonObj(record.state as Prisma.JsonValue)
+    const frequency =
+      body['frequency'] != null
+        ? Number(body['frequency'])
+        : Number(state['frequency'] ?? CLAMPED_CREATE_FREQUENCY)
+    await this.vendorMockRecord.setFlag(
+      VendorMockVendor.callhub,
+      'vb_campaign',
+      pk,
+      'frequency',
+      frequency,
+    )
+    return {
+      pk_str: pk,
+      status: Number(state['status'] ?? 2),
+      frequency,
+    }
   }
 
   @Put('v1/voice_broadcasts/:pk')
@@ -266,7 +312,10 @@ export class CallhubMockController {
       url: `http://mock-callhub/v1/voice_broadcasts/${pk}/`,
       name: String(state['name'] ?? ''),
       status: Number(state['status'] ?? 2),
-      frequency: null,
+      frequency:
+        state['frequency'] != null
+          ? Number(state['frequency'])
+          : CLAMPED_CREATE_FREQUENCY,
       phonebook: null,
     }
   }
