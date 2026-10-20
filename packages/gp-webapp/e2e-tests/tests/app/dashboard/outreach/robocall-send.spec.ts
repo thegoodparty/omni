@@ -28,10 +28,7 @@ import type { AxiosInstance } from 'axios'
 // Skips when VENDOR_MODE !== 'mock' (dev always calls the real CallHub; previews
 // and local gp-api with VENDOR_MODE=mock are the targets).
 
-const AUDIO_FIXTURE = join(
-  __dirname,
-  '../../../../src/fixtures/test-audio.wav',
-)
+const AUDIO_FIXTURE = join(__dirname, '../../../../src/fixtures/test-audio.wav')
 const AUDIO_BUFFER = readFileSync(AUDIO_FIXTURE)
 
 // ─── CORS relay ──────────────────────────────────────────────────────────────
@@ -43,18 +40,21 @@ const AUDIO_BUFFER = readFileSync(AUDIO_FIXTURE)
 const relayRobocallAudioUploads = async (page: Page): Promise<void> => {
   let presignFields: Record<string, string> | null = null
 
-  await page.route(/\/api\/v1\/outreach\/robocall\/audio\/presign/, async (route) => {
-    const response = await route.fetch()
-    if (response.ok()) {
-      const body = (await response.json()) as {
-        url: string
-        key: string
-        fields: Record<string, string>
+  await page.route(
+    /\/api\/v1\/outreach\/robocall\/audio\/presign/,
+    async (route) => {
+      const response = await route.fetch()
+      if (response.ok()) {
+        const body = (await response.json()) as {
+          url: string
+          key: string
+          fields: Record<string, string>
+        }
+        presignFields = body.fields
       }
-      presignFields = body.fields
-    }
-    await route.fulfill({ response })
-  })
+      await route.fulfill({ response })
+    },
+  )
 
   // Catch the direct-to-S3 POST that useRobocallAudioUpload makes after presign.
   // Only relay when we have the policy fields (i.e., only after a presign succeeded).
@@ -85,7 +85,9 @@ const relayRobocallAudioUploads = async (page: Page): Promise<void> => {
 // Mirrors the pattern in pro-upgrade.helper.ts.
 
 const fillStripeCard = async (page: Page): Promise<void> => {
-  const frame = page.frameLocator('iframe[title="Secure payment input frame"]').first()
+  const frame = page
+    .frameLocator('iframe[title="Secure payment input frame"]')
+    .first()
   const cardInput = frame.locator('#payment-numberInput')
   await expect(cardInput).toBeVisible({ timeout: 30_000 })
   await expect(cardInput).toBeEditable({ timeout: 30_000 })
@@ -110,7 +112,9 @@ const fillStripeCard = async (page: Page): Promise<void> => {
   await page.waitForTimeout(300)
 
   // Stripe Link's save-my-info checkbox keeps the submit disabled while checked.
-  const saveCheckbox = frame.getByLabel('Save my information for faster checkout')
+  const saveCheckbox = frame.getByLabel(
+    'Save my information for faster checkout',
+  )
   if (await saveCheckbox.isChecked().catch(() => false)) {
     await saveCheckbox.uncheck()
   }
@@ -118,49 +122,59 @@ const fillStripeCard = async (page: Page): Promise<void> => {
 }
 
 // ─── Backend pipeline helper ──────────────────────────────────────────────────
-// Runs the four robocall jobs in the correct order, with the time-travels and
-// vendor actions that make each sweep pick up this specific outreach:
-//   staging   → time-travel send_due_now → send
-//   callhub complete → time-travel dialed_48h_ago → completion → capture
+// Runs the four robocall jobs in order, with the time-travels and vendor
+// actions that make each sweep pick up this specific outreach, and asserts the
+// mocked CallHub voice broadcast moves PAUSE (2) → START (1) → END (4).
+
+// CALLHUB_VB_STATUS in gp-api's callhubCampaign.schema.ts
+const VB_STATUS = { START: 1, PAUSE: 2, END: 4 } as const
+
+const expectVbCampaignStatus = async (
+  client: AxiosInstance,
+  campaignId: number,
+  status: number,
+): Promise<void> => {
+  const { records } = await mockRecords(client, campaignId)
+  const vbCampaigns = records.filter(
+    (r) => r.vendor === 'callhub' && r.kind === 'vb_campaign',
+  )
+  expect(vbCampaigns).toHaveLength(1)
+  expect(vbCampaigns[0]?.state).toMatchObject({ status })
+}
 
 const runRobocallPipeline = async (
   client: AxiosInstance,
   campaignId: number,
   outreachId: number,
 ): Promise<void> => {
-  // 1. Stage the robocall (moves it from pending_payment → scheduled in the
-  //    robocall pipeline; gp-api's staging job writes the VB campaign to CallHub).
-  await withGatewayRetry('robocall.staging', () =>
-    runJob(client, 'robocall.staging'),
-  )
-
-  // 2. Make the scheduled send instant "now" so the send sweep picks it up.
+  // Staging only claims runs due within [now - 30 min, now + 6 h], and the
+  // flow schedules a week out, so bring the send to now - 1 min first.
   await withGatewayRetry('robocall.send_due_now', () =>
     timeTravel(client, outreachId, 'robocall.send_due_now'),
   )
 
-  // 3. Send — dials through the mock CallHub (no real calls placed).
-  await withGatewayRetry('robocall.send', () =>
-    runJob(client, 'robocall.send'),
+  await withGatewayRetry('robocall.staging', () =>
+    runJob(client, 'robocall.staging'),
   )
+  await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
 
-  // 4. Mark the mock CallHub VB campaign as completed (END state = 4).
+  await withGatewayRetry('robocall.send', () => runJob(client, 'robocall.send'))
+  await expectVbCampaignStatus(client, campaignId, VB_STATUS.START)
+
   await withGatewayRetry('callhub.campaign.complete', () =>
     callhubAction(client, campaignId, 'callhub.campaign.complete'),
   )
+  await expectVbCampaignStatus(client, campaignId, VB_STATUS.END)
 
-  // 5. Move the dialed timestamp back 48h so the completion sweep considers
-  //    the campaign fully dialed and closed.
+  // Completion settles a dialed run once dialedAt is ROBOCALL_RUN_HOURS old.
   await withGatewayRetry('robocall.dialed_48h_ago', () =>
     timeTravel(client, outreachId, 'robocall.dialed_48h_ago'),
   )
 
-  // 6. Completion sweep — marks Outreach.status = 'completed'.
   await withGatewayRetry('robocall.completion', () =>
     runJob(client, 'robocall.completion'),
   )
 
-  // 7. Capture sweep — sets OutreachRobocall.settleState = 'captured'.
   await withGatewayRetry('robocall.capture', () =>
     runJob(client, 'robocall.capture'),
   )
@@ -200,12 +214,10 @@ test.describe('Robocall send — M2 mock pipeline', () => {
 
     // ── 4. Pre-create a voter file filter so the audience picker has a row ───
     const filterName = `E2E robocall ${Date.now()}`
-    await withGatewayRetry(
-      'POST /v1/voters/voter-file/filter',
-      () =>
-        client.post<{ id: number }>('/v1/voters/voter-file/filter', {
-          name: filterName,
-        }),
+    await withGatewayRetry('POST /v1/voters/voter-file/filter', () =>
+      client.post<{ id: number }>('/v1/voters/voter-file/filter', {
+        name: filterName,
+      }),
     )
 
     // ── 5. Open the robocall compose drawer ──────────────────────────────────
@@ -239,9 +251,9 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await page.getByRole('button', { name: filterName }).click()
 
     // Wait for the reachable count (Continue will be disabled until it resolves).
-    await expect(
-      page.getByRole('button', { name: /^Continue/ }),
-    ).toBeEnabled({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
+      timeout: 30_000,
+    })
     await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── 8. Schedule step: name, date and time ────────────────────────────────
@@ -255,23 +267,20 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       await nameInput.fill('E2E robocall test')
     }
 
-    // Pick a send date 7 days from now (within the 85-day window).
+    // Any future date works: the pipeline time-travels the send to now. A
+    // week out can fall in next month, so page the calendar when it does.
     await page.locator('#robocall-send-date').click()
     const targetDay = new Date()
     targetDay.setDate(targetDay.getDate() + 7)
-    // If the target day fell into the next month, navigate the calendar
-    // forward — Calendar renders showOutsideDays=true by default, so without
-    // this both the current month's past cell and the next month's outside-day
-    // cell match the same day number and Playwright strict mode rejects it.
     if (targetDay.getMonth() !== new Date().getMonth()) {
       await page.getByRole('button', { name: 'Go to the next month' }).click()
     }
-    const dayNum = targetDay.getDate()
-    // exact:true excludes outside-day cells whose aria-label is longer than
-    // just the number (e.g. "1 (outside of current month)").
-    await page
-      .getByRole('gridcell', { name: String(dayNum), exact: true })
-      .click()
+    const targetIso = [
+      targetDay.getFullYear(),
+      String(targetDay.getMonth() + 1).padStart(2, '0'),
+      String(targetDay.getDate()).padStart(2, '0'),
+    ].join('-')
+    await page.locator(`td[data-day="${targetIso}"] button`).click()
 
     // Pick the 10:00 AM time slot.
     await page.locator('#robocall-send-time').click()
@@ -285,9 +294,9 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     })
 
     // Wait for the callback number to be rented (the body is gated behind it).
-    await expect(
-      page.getByText('Getting your callback number'),
-    ).toBeHidden({ timeout: 30_000 })
+    await expect(page.getByText('Getting your callback number')).toBeHidden({
+      timeout: 30_000,
+    })
 
     // Wait for the AI script draft to land (the textarea is read-only until it
     // does; a placeholder "Drafting your script…" appears while loading).
@@ -357,12 +366,15 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await expect(page.getByText('Payment')).toBeVisible({ timeout: 15_000 })
 
     // Wait for Stripe PaymentElement to load inside its iframe.
-    const stripeFrame = page.frameLocator(
-      'iframe[title="Secure payment input frame"]',
-    ).first()
+    const stripeFrame = page
+      .frameLocator('iframe[title="Secure payment input frame"]')
+      .first()
     await expect(stripeFrame.locator('#payment-numberInput')).toBeVisible({
       timeout: 30_000,
     })
+
+    // The CallHub mock always rents this number (callhubMock.controller.ts).
+    await expect(page.getByText('+15551234567')).toBeVisible()
 
     await fillStripeCard(page)
 

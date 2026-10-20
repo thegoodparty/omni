@@ -42,8 +42,8 @@ export const runJob = (client: AxiosInstance, name: string) =>
 
 /**
  * Shifts outreach timing so a sweep processes this specific robocall:
- * - `robocall.send_due_now`     → moves scheduledAt to now (send sweep picks it up)
- * - `robocall.dialed_48h_ago`   → moves the dialed timestamp back 48h (completion sweep picks it up)
+ * - `robocall.send_due_now`     → sets Outreach.date to now - 1 min (staging and send pick it up)
+ * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)
  * - `sms.start_date_today`      → moves an SMS send's start date to today
  */
 export const timeTravel = (
