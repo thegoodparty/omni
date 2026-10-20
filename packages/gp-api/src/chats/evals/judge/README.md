@@ -42,13 +42,14 @@ Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. The PR thread says the sweep started but
 not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
-has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
-measured difference still shown beside it. The summary also lists what was
+**CAN'T SAY**. A verdict needs 5 scored cases (each run 3 times a side, so
+15 pairs); under that it's CAN'T SAY, with the measured difference still
+shown beside it. A background agent reads at most 3 cases a sweep, so its
+verdicts stay CAN'T SAY. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
 
-**Two regression signals can decide the label without the 20-case floor**
+**Two regression signals can decide the label without the case floor**
 (`regressionSignals.ts`, thresholds in `config.gates.handling` and
 `config.gates.toolFailures`). The quality comparison cannot see an agent's own
 rules: a probe that cut `priority_flow`'s system prompt in half read CAN'T SAY
@@ -483,15 +484,14 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
-is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
-the judge voted — the floor was set from measured agent non-determinism (three
-identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
-short measures that rather than the branch.
-Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across twenty agents. **Whether to grow every
-list to 20 or to lower the floor is still open.** Do not read the shortfall as
-a decision either way.
+**`gates.minCases` is 5.** It was 20, set from measured agent
+non-determinism (three identical Chief of Staff turns gave 6, 4 and 2 tool
+steps), which no list reached, so every chat sweep read CAN'T SAY. Each case
+runs 3 attempts a side and the bootstrap interval resamples cases, so a short
+noisy list still lands CAN'T SAY on a wide interval; the floor only stops a
+handful of pairs from reading as a verdict. Eight is one clean baseline plus
+seven single-axis variations, which is what one change can author honestly
+across twenty agents.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
