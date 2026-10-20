@@ -341,10 +341,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count
       // is frozen), so a retried capture replays instead of double-charging.
+      // Keyed on the hold, not the outreach: PR previews share one Stripe
+      // account and repeat outreach ids, and Stripe refused the second
+      // preview's robocall-capture-4 (2026-10-20).
       await this.stripe.capturePaymentIntent(
         authorizationIntentId,
         captureAmount,
-        `robocall-capture-${outreachId}`,
+        `robocall-capture-${authorizationIntentId}`,
       )
     } catch (err) {
       // Capture failed. No commit yet, so revert to settling and retry next

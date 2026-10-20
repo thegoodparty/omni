@@ -199,9 +199,10 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const [sends, coded] = await Promise.all([
+    const [sends, coded, followUps] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
       this.codedAnswers(organizationSlug, priorityIds),
+      this.followUpsFor(organizationSlug, priorityIds),
     ])
     return new Map(
       await Promise.all(
@@ -216,10 +217,55 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
             id,
             coded.get(id) ?? NO_CODED_ANSWERS,
           )
-          return [id, mrpReadStatus({ answers: people.length, read })]
+          const followUp = followUps.get(id)
+          return [
+            id,
+            {
+              ...mrpReadStatus({ answers: people.length, read }),
+              ...(followUp && { followUp }),
+            },
+          ]
         }),
       ),
     )
+  }
+
+  // Each priority's next follow-up text: paid for (held `pending` until its
+  // draw hands it off) and not sent yet.
+  private async followUpsFor(
+    organizationSlug: string,
+    priorityIds: string[],
+  ): Promise<Map<string, { scheduledLocalDate: string; texts: number }>> {
+    const rows = await this.client.outreach.findMany({
+      where: {
+        organizationSlug,
+        campaignId: null,
+        priorityId: { in: priorityIds },
+        roundOneOutreachId: { not: null },
+        status: OutreachStatus.pending,
+      },
+      orderBy: { scheduledLocalDate: Prisma.SortOrder.asc },
+      select: { priorityId: true, scheduledLocalDate: true, textCount: true },
+    })
+    const byPriority = new Map<
+      string,
+      { scheduledLocalDate: string; texts: number }
+    >()
+    for (const row of rows) {
+      if (
+        row.priorityId === null ||
+        row.scheduledLocalDate === null ||
+        !row.textCount ||
+        byPriority.has(row.priorityId)
+      ) {
+        continue
+      }
+      byPriority.set(row.priorityId, {
+        scheduledLocalDate: row.scheduledLocalDate,
+        texts: row.textCount,
+      })
+    }
+    return byPriority
   }
 
   private async assertOwned(

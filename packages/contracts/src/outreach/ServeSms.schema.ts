@@ -47,6 +47,28 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // has to be later than this from today.
 export const ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS = 3
 
+// A priority's text is one purchase sent in two rounds: this share goes out
+// at random on the chosen date, and the rest is held as a follow-up, drawn
+// once replies are in toward the groups heard from least. Half keeps round 1
+// large enough to show which groups lag and round 2 large enough to steer;
+// the gain is flat across 40 to 60%, so tune it once answer rates are in.
+export const ROUND_ONE_TEXT_SHARE = 0.5
+// The follow-up goes out this many business days (two weeks) after round 1:
+// replies come in over three, and its draw is three before it sends.
+export const FOLLOW_UP_BUSINESS_DAYS = 10
+// Neither round goes below a Serve text's own minimum, so a small purchase
+// goes out whole in round 1.
+export const MIN_TEXTS_PER_ROUND = 25
+
+export const splitPriorityText = (
+  total: number,
+): { now: number; followUp: number } => {
+  const now = Math.ceil(total * ROUND_ONE_TEXT_SHARE)
+  return total - now < MIN_TEXTS_PER_ROUND || now < MIN_TEXTS_PER_ROUND
+    ? { now: total, followUp: 0 }
+    : { now, followUp: total - now }
+}
+
 export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
@@ -62,10 +84,10 @@ export const ServeSmsCreateRequestSchema = z
     // The earlier text this one reports back on. It marks the send as a
     // report back rather than a new ask, and is how its card is completed.
     reportBackForOutreachId: z.number().int().positive().optional(),
-    // A priority's round 2: one text of this many, paid for now and drawn
-    // from the list a few business days before it sends, leaning toward the
-    // groups the priority's answers say least about. The list is the pool it
-    // draws from, and the send needs the priority it belongs to.
+    // A priority's follow-up: this many more texts paid for in the same
+    // checkout, sent FOLLOW_UP_BUSINESS_DAYS after this one and drawn a few
+    // business days before, from the same criteria, toward the groups the
+    // priority's answers say least about. Needs the priority it belongs to.
     roundTwoSize: z
       .number()
       .int()
@@ -83,6 +105,15 @@ export const ServeSmsCreateResponseSchema = z.object({
   recipientCount: z.number().int().nonnegative(),
   excludedOptedOutCount: z.number().int().nonnegative(),
   excludedDuplicateCount: z.number().int().nonnegative(),
+  // The follow-up held from the same purchase, priced with this one. Absent
+  // when none was asked for or the pool left too few to send one.
+  followUp: z
+    .object({
+      outreachId: z.number().int().positive(),
+      recipientCount: z.number().int().nonnegative(),
+      scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    .optional(),
 })
 export type ServeSmsCreateResponse = z.infer<
   typeof ServeSmsCreateResponseSchema
