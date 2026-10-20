@@ -4,12 +4,14 @@ import {
   countCivicPanelLines,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
+  FOLLOW_UP_BUSINESS_DAYS,
   isCivicPanelOnlyList,
+  MIN_TEXTS_PER_ROUND,
   ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, format, isWeekend } from 'date-fns'
+import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -328,25 +330,15 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       )
     }
 
-    const roundTwo =
-      input.roundTwoSize === undefined
-        ? null
-        : await this.resolveRoundTwo(organization, filter, input, link)
     const {
       recipientCount,
       excludedOptedOutCount,
       excludedDuplicatePhoneCount,
-    } = roundTwo
-      ? {
-          recipientCount: roundTwo.recipientCount,
-          excludedOptedOutCount: 0,
-          excludedDuplicatePhoneCount: 0,
-        }
-      : await this.resolveListAudienceCount(
-          organization,
-          filterInput,
-          organizationSlug,
-        )
+    } = await this.resolveListAudienceCount(
+      organization,
+      filterInput,
+      organizationSlug,
+    )
 
     if (recipientCount < MIN_SERVE_SMS_RECIPIENTS) {
       throw new BadRequestException(
@@ -385,27 +377,49 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       textCount: recipientCount,
       ...link,
     } satisfies Prisma.OutreachUncheckedCreateInput
-    // A round 2 send goes out on a copy of the list holding a sample still
-    // to be drawn, which is what marks it as round 2 and keeps it from
-    // reaching anyone before the draw. The copy is written in the same
-    // transaction as the row, so a create that fails leaves no list behind.
-    const insert = async (tx: Prisma.TransactionClient) =>
-      tx.outreach.create({
-        data: roundTwo
-          ? {
-              ...data,
-              voterFileFilterId: (
-                await this.voterFileFilterService.createUndrawnSampleOf(
-                  tx,
-                  filter,
-                  recipientCount,
-                  `${filter.name ?? input.name}, round 2`,
-                )
-              ).id,
-            }
-          : data,
+    const followUp =
+      input.roundTwoSize === undefined
+        ? null
+        : await this.resolveFollowUp(
+            organization,
+            filter,
+            input,
+            link,
+            recipientCount,
+          )
+    // The follow-up goes out on a copy of the list's criteria holding a
+    // sample still to be drawn, which is what marks it as round 2 and keeps
+    // it from reaching anyone before the draw. It is written in the same
+    // transaction as the first send it belongs to, so a create that fails
+    // leaves neither behind, and it carries no proposal key: the first send
+    // holds the card's.
+    const insert = async (tx: Prisma.TransactionClient) => {
+      const created = await tx.outreach.create({
+        data,
         select: { id: true },
       })
+      if (followUp) {
+        await tx.outreach.create({
+          data: {
+            ...data,
+            proposalKey: null,
+            roundOneOutreachId: created.id,
+            scheduledLocalDate: followUp.scheduledLocalDate,
+            textCount: followUp.recipientCount,
+            voterFileFilterId: (
+              await this.voterFileFilterService.createUndrawnSampleOf(
+                tx,
+                filter,
+                followUp.recipientCount,
+                `${filter.name ?? input.name}, follow-up`,
+              )
+            ).id,
+          },
+          select: { id: true },
+        })
+      }
+      return created
+    }
     const outreach =
       link.proposalKey !== undefined
         ? await createUnderProposalKey(
@@ -418,9 +432,15 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
             insert,
             async (id) => ({ id }),
           )
-        : roundTwo
+        : followUp
           ? await this.client.$transaction(insert)
           : await this.model.create({ data, select: { id: true } })
+    const followUpRow = followUp
+      ? await this.model.findUnique({
+          where: { roundOneOutreachId: outreach.id },
+          select: { id: true, textCount: true, scheduledLocalDate: true },
+        })
+      : null
 
     // One payable report back per send: a new draft supersedes the unpaid
     // ones before it, so a stale draft left open in another tab can no
@@ -462,35 +482,35 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       // list reaches 5 of them quotes 5.
       excludedOptedOutCount,
       excludedDuplicateCount: excludedDuplicatePhoneCount,
+      ...(followUpRow?.textCount != null &&
+        followUpRow.scheduledLocalDate !== null && {
+          followUp: {
+            outreachId: followUpRow.id,
+            recipientCount: followUpRow.textCount,
+            scheduledLocalDate: followUpRow.scheduledLocalDate,
+          },
+        }),
     }
   }
 
-  // A priority's round 2: paid for now at `roundTwoSize`, or the pool if it
-  // holds fewer, and drawn from the list on the last day staff can take it.
-  // The pool is the list's cell phones less everyone the priority's other
-  // sends reached and everyone opted out, as the draw will count it.
-  private async resolveRoundTwo(
+  // A priority text's follow-up: paid for now at `roundTwoSize`, or what the
+  // pool holds past this send if fewer, and drawn on the last day staff can
+  // take it. The pool is the list's whole criteria (never its sample) on
+  // cell phones, less everyone the priority's other sends reached, everyone
+  // opted out, and the people this send goes to. Too few left for a text of
+  // its own is no follow-up, and the purchase is this send alone.
+  private async resolveFollowUp(
     organization: Organization,
     filter: ContactsFilterResolutionInput,
     input: ServeSmsCreateRequest,
     link: ProposalOutreachLink,
-  ): Promise<{ recipientCount: number }> {
+    roundOneCount: number,
+  ): Promise<{ recipientCount: number; scheduledLocalDate: string } | null> {
     if (link.priorityId === undefined) {
-      throw new BadRequestException('A round 2 text belongs to a priority')
+      throw new BadRequestException('A follow-up text belongs to a priority')
     }
     if (input.reportBackForOutreachId !== undefined) {
-      throw new BadRequestException("A report back can't be a round 2 text")
-    }
-    if (filter.sampleSize != null) {
-      throw new BadRequestException(
-        'A round 2 text is drawn from a whole list, not a sample of one',
-      )
-    }
-    if (input.scheduledLocalDate <= roundTwoDrawCutoff(new Date())) {
-      throw new BadRequestException(
-        `A round 2 text needs a send date more than ` +
-          `${ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS} business days from today`,
-      )
+      throw new BadRequestException("A report back can't have a follow-up")
     }
     const exclude = await roundTwoExclusions(
       this.client,
@@ -500,10 +520,24 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     )
     const pool = await this.contactsService.countWithin(
       organization,
-      { ...filter, hasCellPhone: true },
+      { ...filter, sampleSize: null, hasCellPhone: true },
       exclude,
     )
-    return { recipientCount: Math.min(input.roundTwoSize ?? 0, pool) }
+    const recipientCount = Math.min(
+      input.roundTwoSize ?? 0,
+      pool - roundOneCount,
+    )
+    if (recipientCount < MIN_TEXTS_PER_ROUND) return null
+    return {
+      recipientCount,
+      scheduledLocalDate: format(
+        addBusinessDays(
+          parseISO(input.scheduledLocalDate),
+          FOLLOW_UP_BUSINESS_DAYS,
+        ),
+        'yyyy-MM-dd',
+      ),
+    }
   }
 
   /**

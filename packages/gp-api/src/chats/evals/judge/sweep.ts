@@ -87,6 +87,7 @@ import {
   type SweepEnv,
 } from './sweepEnv'
 import { chatToolUse } from './toolUse'
+import { withRegressionSignals } from './regressionSignals'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
 //
@@ -443,6 +444,7 @@ export const judgeSweep = async (
 
   const meter = meterJudge(deps.llm)
   const judgeByAgent = new Map<string, JudgeSpend>()
+  const toolUse = chatToolUse(env.agentIds, records)
 
   const scores: AgentScore[] = []
   const refusals: Refusal[] = []
@@ -636,19 +638,25 @@ export const judgeSweep = async (
         { normalized, judgments, unscoredCaseIds },
         config,
       )
-      scores.push({
-        ...scored,
-        // Dropped when no model was called: the canned judge answers `no`
-        // for every run, and a section of shared failures nobody judged
-        // would read as a finding.
-        ...(env.spends && handling !== undefined && { handling }),
-        ...(controls.scoredAnyway !== undefined && {
-          controlsScoredAnyway: controls.scoredAnyway,
-        }),
-        ...(contract.note !== undefined && {
-          outputContractNote: contract.note,
-        }),
-      })
+      scores.push(
+        withRegressionSignals(
+          {
+            ...scored,
+            // Dropped when no model was called: the canned judge answers `no`
+            // for every run, and a section of shared failures nobody judged
+            // would read as a finding.
+            ...(env.spends && handling !== undefined && { handling }),
+            ...(controls.scoredAnyway !== undefined && {
+              controlsScoredAnyway: controls.scoredAnyway,
+            }),
+            ...(contract.note !== undefined && {
+              outputContractNote: contract.note,
+            }),
+          },
+          toolUse.find((t) => t.agentId === agentId),
+          config,
+        ),
+      )
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&
@@ -678,7 +686,6 @@ export const judgeSweep = async (
   // from the comparison still produced an answer, and an answer that broke a
   // rule is a fact about the branch whether or not it was judgeable.
   const broken = invariantViolations(records)
-  const toolUse = chatToolUse(env.agentIds, records)
 
   const agentSpend: AgentSpend[] = env.agentIds.map((agentId) => {
     const forAgent = records.filter((r) => r.agentId === agentId)

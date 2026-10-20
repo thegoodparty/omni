@@ -3,13 +3,15 @@ title: Civic panel outreach runs in two rounds set up once, sized for coverage, 
 status: active
 decided_by: [samuelgoodparty]
 date: 2026-10-19
-code: ['#2969']
+code: ['#2969', '#2985']
 scope:
   - docs/features/civic-panel-mrp.md
   - packages/gp-api/src/priorities/util/mrp.util.ts
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
   - packages/gp-api/src/contacts/utils/civicPanelBuild.util.ts
   - packages/gp-api/src/priorities/util/priorityReadStatus.util.ts
+  - packages/contracts/src/outreach/ServeSms.schema.ts
+  - packages/gp-api/src/outreach/services/outreachServeSmsCreate.service.ts
 supersedes: []
 superseded_by:
 ---
@@ -22,6 +24,11 @@ superseded_by:
   front. Round 2 is one text the official approves and pays for at setup,
   whose recipients a model of round 1's answers picks on its scheduled date
   (default two weeks after round 1 starts). No round 3.
+- **Round 2 is the held half of one text purchase** (2026-10-20). The
+  official buys one text of N: half go out at random on the chosen date,
+  and the rest are held and sent two weeks later to the groups heard from
+  least. The split is a starting point to tune once answer rates are
+  measured.
 - **The official always approves round 2's budget.**
 - **Round 1 is sized for coverage:** at least three expected answers from
   every group holding 3% or more of the district, replacing `answersNeeded`
@@ -71,6 +78,16 @@ as close as possible to whatever a previous artifact or the current UI
 shows"
 
 (agent session with @samuelgoodparty, 2026-10-19)
+
+"The procedure should be: (1) the user buys a text to a certain number of
+constituents, (2) some proportion of those (we could crudely say half,
+whatever you think based on our MRP work and best practices) are
+immediately randomly sampled and contacted, and then (3) the remainder R is
+held out until some time has passed for responses to come in, and then R
+people are drawn for a second automatic text round from the groups that
+didn't respond much."
+
+(agent session with @samuelgoodparty, 2026-10-20)
 
 ## Revisit if
 
