@@ -129,44 +129,38 @@ jobs:
           }
 
           # A red check on a commit that main has already moved past is not
-          # worth a red train and a #bot-urgent alert: the queued train for the
-          # newer commit covers the same work. Such a run cancels itself, which
-          # the failure alert already treats as batching. It still fails when
-          # the newer commit's run of a failed workflow has also failed, so a
-          # real breakage reports once. Only push runs qualify: a dispatch
-          # names its SHA on purpose. Cancelling here is safe because no deploy
-          # has started yet.
-          cancel_if_superseded() {
-            [ "$EVENT" = "push" ] || return 0
-            local tip status wf seen summary
-            tip=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null) || return 0
-            [ -n "$tip" ] && [ "$tip" != "$SHA" ] || return 0
-            status=$(gh api "repos/$REPO/compare/$SHA...$tip" --jq .status 2>/dev/null) || return 0
-            [ "$status" = "ahead" ] || return 0
+          # worth a red train and a #bot-urgent alert when the newer commit
+          # fixed it. Such a run cancels itself, which the failure alert
+          # already treats as batching. The rule is per failed workflow: wait
+          # until the newer commit's run of it finishes, cancel only if every
+          # one passed there, and fail if any failed there too. Deciding
+          # earlier would rely on the newer commit getting its own train to
+          # report a failure, which a path-filtered or superseded push would
+          # not. Only push runs qualify: a dispatch names its SHA on purpose.
+          # Cancelling here is safe because no deploy has started yet.
+          #
+          # Prints "no", "wait", or "yes <tip sha>".
+          superseded_state() {
+            [ "$EVENT" = "push" ] || { echo no; return; }
+            local tip status wf summary
+            tip=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null) || { echo no; return; }
+            { [ -n "$tip" ] && [ "$tip" != "$SHA" ]; } || { echo no; return; }
+            status=$(gh api "repos/$REPO/compare/$SHA...$tip" --jq .status 2>/dev/null) || { echo no; return; }
+            [ "$status" = "ahead" ] || { echo no; return; }
             for entry in $failed; do
-              wf="${entry%%(*}"; seen="${entry#*(}"; seen="${seen%)}"
-              if [[ "$seen" =~ ^(cancelled,?)+$ ]]; then
-                continue
-              fi
+              wf="${entry%%(*}"
               summary=$(runs_summary "$tip" "$wf")
-              [ -n "$summary" ] || return 0
+              [ -n "$summary" ] || { echo wait; return; }
               # shellcheck disable=SC2086
               set -- $summary
-              # Not registered yet, running or green on the tip all mean the
-              # newer train decides: its own await-checks waits for that run
-              # and fails if it fails, so no failure goes unreported. Only a
-              # tip that has already failed keeps this one red.
-              if [ "$1" -gt 0 ] && [ "$3" -eq 0 ] && [ "$2" -eq 0 ]; then
-                return 0
+              if [ "$1" -eq 0 ] || [ "$3" -gt 0 ]; then
+                echo wait; return
+              fi
+              if [ "$2" -eq 0 ]; then
+                echo no; return
               fi
             done
-            echo "::notice::Superseded: main is at ${tip:0:10}, past $SHA, and its train covers this one. Checks here:$failed. Cancelling this run instead of failing it."
-            # Cancellation lands within seconds. If it never does, fail as before.
-            if gh run cancel "$RUN_ID" -R "$REPO"; then
-              sleep 120
-            fi
-            echo "::error::Could not cancel superseded run $RUN_ID."
-            exit 1
+            echo "yes $tip"
           }
 
           while :; do
@@ -200,7 +194,26 @@ jobs:
             done
 
             if [ -n "$failed" ]; then
-              cancel_if_superseded
+              state=$(superseded_state)
+              case "$state" in
+                yes\ *)
+                  tip="${state#yes }"
+                  echo "::notice::Superseded: main is at ${tip:0:10}, past $SHA, and the failed checks passed there. Checks here:$failed. Cancelling this run instead of failing it."
+                  # Cancellation lands within seconds. If it never does, fail as before.
+                  if gh run cancel "$RUN_ID" -R "$REPO"; then
+                    sleep 120
+                  fi
+                  echo "::error::Could not cancel superseded run $RUN_ID."
+                  exit 1
+                  ;;
+                wait)
+                  if [ "$(date +%s)" -lt "$DEADLINE" ]; then
+                    echo "Checks failed for $SHA:$failed. main has moved past it, so waiting for the newer commit's checks before deciding..."
+                    sleep 30
+                    continue
+                  fi
+                  ;;
+              esac
               echo "::error::Dev checks failed for $SHA:$failed. Not deploying."
               exit 1
             fi
