@@ -81,6 +81,11 @@ describe('Get answers', () => {
     ).toBeInTheDocument()
   })
 
+  it('does not show once the follow-up text has gone out', () => {
+    rail({ ...READ, followUpSent: true })
+    expect(button()).not.toBeInTheDocument()
+  })
+
   it('does not show on a good read', () => {
     rail({ ...READ, good: true, status: 'representative' })
     expect(button()).not.toBeInTheDocument()

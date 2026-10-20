@@ -26,7 +26,10 @@ export const READ_STATUS_COPY = {
   // Get answers is for a check that is out, a read that is still short, and
   // no follow-up text already on its way.
   canGetAnswers: (read: PriorityReadStatus): boolean =>
-    read.checkOut === true && !read.good && !read.followUp,
+    read.checkOut === true &&
+    !read.good &&
+    !read.followUp &&
+    !read.followUpSent,
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
   progress: (read: PriorityReadStatus): string =>
