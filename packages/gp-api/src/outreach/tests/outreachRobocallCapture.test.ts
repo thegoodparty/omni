@@ -167,7 +167,7 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
       calcRobocallTotalInCents(100),
-      `robocall-capture-${outreachId}`,
+      'robocall-capture-pi_1',
     )
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)
@@ -230,7 +230,7 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
       calcRobocallTotalInCents(100),
-      `robocall-capture-${outreachId}`,
+      'robocall-capture-pi_1',
     )
     expect(captureSpy).not.toHaveBeenCalledWith(
       'pi_1',
@@ -532,7 +532,7 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     expect(captureSpy).toHaveBeenCalledWith(
       'pi_1',
       calcRobocallTotalInCents(100),
-      `robocall-capture-${outreachId}`,
+      'robocall-capture-pi_1',
     )
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.captured)

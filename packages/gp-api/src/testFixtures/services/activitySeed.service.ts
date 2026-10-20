@@ -3,10 +3,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { addMinutes, subDays, subMinutes } from 'date-fns'
 import {
-  answersNeeded,
   CIVIC_PANEL_JOIN_LINE,
   type GeoJsonPolygon,
   type Person,
@@ -30,6 +30,8 @@ import {
   PhoneBankingPurpose,
   PollIndividualMessageSender,
   Prisma,
+  PriorityAnswerCode,
+  PriorityAnswerSource,
   PrioritySource,
   SupportAnswer,
   WillVoteAnswer,
@@ -78,8 +80,13 @@ const PRIORITY = {
 const PRIORITY_QUESTION =
   'What would make the walk to school safer on your street?'
 const PRIORITY_ASK_DAYS_AGO = 5
-// A few answers past the good read, so the results page opens unlocked.
-const PRIORITY_ANSWER_MARGIN = 4
+// Nine in ten yes: near-unanimous answers are what narrow the model's ranges
+// enough for every group to read as heard.
+const LEAN_CODES = [
+  ...Array.from({ length: 9 }, () => PriorityAnswerCode.yes),
+  PriorityAnswerCode.mixed,
+]
+const EVEN_CODES = [PriorityAnswerCode.yes, PriorityAnswerCode.no]
 const PRIORITY_REPLIES = [
   'A crosswalk at the corner by the elementary school. Cars never slow down there.',
   'Speed bumps on our block. People cut through at 40 during pickup.',
@@ -146,7 +153,13 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       await this.seedRobocall(context, people),
     ]
     const priorityId = isServe
-      ? await this.seedPanelAndPriority(organization, context, people, efforts)
+      ? await this.seedPanelAndPriority(
+          organization,
+          context,
+          people,
+          efforts,
+          body,
+        )
       : null
 
     for (const effort of efforts) {
@@ -160,11 +173,16 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       effort.synthesisRunId = run.id
     }
     if (priorityId !== null) {
-      await this.synthesis.requestPriorityRun({
-        organizationSlug,
-        priorityId,
-        requestedByUserId: organization.ownerId,
-      })
+      // A priority with only a few answers has nothing to pool yet.
+      await this.synthesis
+        .requestPriorityRun({
+          organizationSlug,
+          priorityId,
+          requestedByUserId: organization.ownerId,
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof UnprocessableEntityException)) throw error
+        })
     }
 
     return { organizationSlug, people: people.length, efforts }
@@ -490,12 +508,17 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     context: ActivityContext,
     people: Array<Person & { cellPhone: string }>,
     efforts: Effort[],
+    answers: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
   ): Promise<string> {
     const textStepId = await this.seedPanelPlan(organization)
     efforts.push(await this.seedPanelInvite(context, people, textStepId))
     // Reading the plan is what links its text step to the invite send.
     await this.panelPlans.read(organization)
-    const { effort, priorityId } = await this.seedPriorityAsk(context, people)
+    const { effort, priorityId } = await this.seedPriorityAsk(
+      context,
+      people,
+      answers,
+    )
     efforts.push(effort)
     return priorityId
   }
@@ -578,10 +601,13 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
   }
 
   // Panel members are asked first, then residents not on it, the way the
-  // priority flow sizes an ask; enough of them answer for a good read.
+  // priority flow sizes an ask. Each resident who answers also gets a coded
+  // answer, which is what the priority's read counts; all of them answer
+  // unless `answers` says how many.
   private async seedPriorityAsk(
     context: ActivityContext,
     people: Array<Person & { cellPhone: string }>,
+    options: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
   ): Promise<{ effort: Effort; priorityId: string }> {
     const office = await this.client.electedOffice.findUniqueOrThrow({
       where: { organizationSlug: context.organizationSlug },
@@ -593,7 +619,6 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       PrioritySource.user_stated,
       'priorities_page',
     )
-    const needed = answersNeeded() + PRIORITY_ANSWER_MARGIN
     const [optedOut, members] = await this.optedOutAndMembers(context)
     const reachable = people.filter((person) => !optedOut.has(person.id))
     const recipients = [
@@ -607,16 +632,32 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       date: askedAt,
       priorityId: priority.id,
     })
-    const answering = recipients.slice(0, needed)
-    await this.textIngest.ingestReplies({
-      outreachId: outreach.id,
-      sourceLabel: 'staff_upload',
-      rows: answering.map((person, index) => ({
-        phone: person.cellPhone,
-        content: PRIORITY_REPLIES[index % PRIORITY_REPLIES.length]!,
-        receivedAt: addMinutes(askedAt, 20 + index * 11),
-      })),
-    })
+    const answering = recipients.slice(0, options.answers ?? recipients.length)
+    if (answering.length > 0) {
+      await this.textIngest.ingestReplies({
+        outreachId: outreach.id,
+        sourceLabel: 'staff_upload',
+        rows: answering.map((person, index) => ({
+          phone: person.cellPhone,
+          content: PRIORITY_REPLIES[index % PRIORITY_REPLIES.length]!,
+          receivedAt: addMinutes(askedAt, 20 + index * 11),
+        })),
+      })
+      const codes = options.split === 'even' ? EVEN_CODES : LEAN_CODES
+      await this.client.priorityAnswer.createMany({
+        data: answering.map((person, index) => ({
+          organizationSlug: context.organizationSlug,
+          outreachId: outreach.id,
+          personId: person.id,
+          source: PriorityAnswerSource.text,
+          sourceId: `${outreach.id}:${person.id}`,
+          code: codes[index % codes.length]!,
+          model: 'seed',
+          codedAt: new Date(),
+        })),
+        skipDuplicates: true,
+      })
+    }
     return {
       effort: effortSummary(outreach, recipients.length, answering.length),
       priorityId: priority.id,

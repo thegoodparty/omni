@@ -189,10 +189,16 @@ export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
   count: number
   sampleSize?: number
+  roundTwoSize?: number
   widensOutreachIds?: number[]
 }): string | null => {
   const verb = SAMPLE_VERB[proposal.channel]
   const of = proposal.count.toLocaleString()
+  // One purchase in two rounds: the total, then how it splits.
+  if (proposal.roundTwoSize !== undefined && isSampled(proposal)) {
+    const total = proposal.sampleSize + proposal.roundTwoSize
+    return `${verb} ${total.toLocaleString()} of ${of}: ${proposal.sampleSize.toLocaleString()} now, ${proposal.roundTwoSize.toLocaleString()} two weeks later`
+  }
   if (widens(proposal)) {
     return isSampled(proposal)
       ? `${verb} up to ${proposal.sampleSize.toLocaleString()} of the ${of} not asked yet`

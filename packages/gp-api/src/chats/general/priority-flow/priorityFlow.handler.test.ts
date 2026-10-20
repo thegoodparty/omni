@@ -1233,7 +1233,7 @@ describe('PriorityFlowHandler', () => {
         '- phone banking, with the script a caller reads as the message.',
       )
       expect(prompt).toContain(
-        '- text, with the text as the message, and targetResponses, assumedReplyRate and civicPanelAsk as returned.',
+        '- text, with the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned.',
       )
       expect(prompt).toContain('the stepId the check is on and side main')
       expect(prompt).toContain('The official gives 2 hours a week.')
@@ -1843,9 +1843,11 @@ describe('PriorityFlowHandler', () => {
     const thin: PriorityReadStatus = {
       answers: 54,
       needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
       good: false,
       status: 'notYetRepresentative',
-      underrepresented: ['renters', 'age65plus'],
+      underrepresented: ['women', 'age65plus'],
     }
     let readStatuses: ReturnType<typeof vi.fn>
 
@@ -1889,37 +1891,39 @@ describe('PriorityFlowHandler', () => {
       expect(readStatuses).not.toHaveBeenCalled()
       const prompt = withReadStatus().buildSystemPrompt(baseCtx())
       expect(prompt).not.toContain('BEFORE A GOOD READ')
-      expect(prompt).not.toContain('needed for a good read')
+      expect(prompt).not.toContain('Groups heard from')
     })
 
     it('tells the agent where the read stands in <priority>', () => {
       const prompt = withReadStatus().buildSystemPrompt(at(thin))
       expect(prompt).toContain(
-        'Answers: 54 of 96 needed for a good read. Representative: Not yet representative. Hear more from: renters and people 65 and over. Good read: no.',
+        'Groups heard from: 9 of 12. Status: A few groups need more answers. Hear more from: women and people 65 and over. Good read: no.',
       )
       const good = withReadStatus().buildSystemPrompt(
         at({
           answers: 103,
           needed: 96,
+          groupsHeard: 12,
+          groupsTotal: 12,
           good: true,
           status: 'representative',
           underrepresented: [],
         }),
       )
       expect(good).toContain(
-        'Answers: 103 of 96 needed for a good read. Representative: Representative. Hear more from: nobody in particular. Good read: yes.',
+        'Groups heard from: 12 of 12. Status: Every group heard. Hear more from: nobody in particular. Good read: yes.',
       )
     })
 
     it('aims outreach at who to hear more from, and never at weights', () => {
       const prompt = withReadStatus().buildSystemPrompt(at(thin))
-      expect(prompt).toContain('Then offer outreach aimed at that group.')
+      expect(prompt).toContain('Then offer outreach aimed at those groups.')
       expect(prompt).toContain(
-        'you could not check them against the census, and never call them representative',
+        'you could not check which groups they came from, and never say every group was heard',
       )
       expect(prompt).toContain('set areaTarget to unreached on the proposal')
       expect(prompt).toContain(
-        'Never mention weights, weighting, quotas, discounting',
+        'Never mention weights, weighting, raking, models, quotas or confidence ranges',
       )
     })
 

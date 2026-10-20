@@ -748,10 +748,9 @@ Once the office has an active plan, the open card follows it: the sync
 reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
 `ModuleRef` because importing the contacts module closes a module cycle, and
 before the lock, since the read is what moves the plan), and the card's
-title is the plan's `next.line`, its summary the panel page rail's answers
-line ("Your panel can give about <expectedAnswers> of the <answersNeeded>
-answers you need.", or "Your panel can give the <answersNeeded> answers you
-need." once it can), its button the panel page's own words for that step ("Start the
+title is the plan's `next.line`, its summary where the panel stands
+(`civicPanelStandingLine`: "62 members so far, from 9 of 12 groups in your
+district.", without the groups when the census could not be read), its button the panel page's own words for that step ("Start the
 text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
 knocking"; "See your plan" while waiting) and its link `next.href` (the
 panel page on that step, or the page itself with no link). With no plan, an
@@ -861,12 +860,13 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 `utils/civicPanelBuild.util.ts`, contracts in
 `people/CivicPanelBuildPlan.schema.ts`). The webapp's panel page
 (`/dashboard/contacts/citizens-panel`) is its home: the weekly time
-question, the steps, Next and the answers the panel can give.
+question, the steps, Next and the groups the panel covers.
 
-**Sized in answers.** Every panel size targets answers to one question, not
-members (Bryan, 2026-10-15), and the answers are sized for coverage
-(Samuel, 2026-10-20,
-`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+**Sized for coverage.** The member goal is the members it takes for every
+major group to be expected to answer one question three times
+(`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+Officials never see the answer count behind it; the panel page shows the
+groups covered.
 Contracts' `answersNeeded(smallestMajorShare)`
 (`outreach/AnswersNeeded.const.ts`) is `ceil(MIN_VOICES_PER_GROUP /
 share)`: enough answers for the district's smallest major group (one
@@ -905,9 +905,15 @@ plan's goal to the district's, written back to the row, so plans made toward
 the old 100 members read like new ones with no migration. A goal may come
 down (a census figure moved) but never below the members the panel has: the
 plan then completes. The response's `progress` is `{ members, goal,
-answersNeeded, expectedAnswers }` (`CivicPanelBuildProgressSchema`):
-`expectedAnswers` is `panelExpectedAnswers(members)`, members ×
-`PANEL_ASSUMED_REPLY_RATE`, rounded. Without an active plan `goal` is the
+answersNeeded, expectedAnswers, groupsCovered, groupsTotal }`
+(`CivicPanelBuildProgressSchema`): `expectedAnswers` is
+`panelExpectedAnswers(members)`, members × `PANEL_ASSUMED_REPLY_RATE`,
+rounded; the sizing fields never reach a screen. `groupsCovered` of
+`groupsTotal` is `panelCoverage` (`utils/civicPanelSteering.util.ts`): the
+major groups (age band, gender, tract, and race when `raceNameable` holds)
+holding at least `PANEL_MEMBERS_PER_GROUP` (8: three answers at the 40%
+answer rate) members. The census is read for any panel with a member, and
+both are 0 when it cannot be. Without an active plan `goal` is the
 district's, so an office whose old plan completed at 100 can make a new one.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
@@ -971,21 +977,22 @@ or named. Race is read only into counts and draw weights, never onto a
 person or a filter: the Serve ethnicity gate below is unchanged.
 `CensusCompositionSource.weightingInputs` reads the members' cells and the
 census (`findWeightingInputs`), cached 15 minutes per office and member set
-in the plan service; a failed read leans nowhere. Gaps are census share
-(`weightingTargets`: ACS adults by sex and age band, adults per tract over the block
-groups the district's people live in) against the members' unweighted share
+in the plan service; a failed read leans nowhere. Draw weights come
+from gaps: census share (`weightingTargets`: ACS adults by sex and age band,
+adults per tract over the block groups the district's people live in)
+against the members' unweighted share
 among those with a known value, values under
 `MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.
 Texts (and calls, below) draw weighted: per value `clamp(c / p, 0.5, 2)`
 (2 where `p = 0`), a person's weight the product clamped to [0.5, 2],
 passed as `drawListSample`'s server-only `weights` and applied in
 `buildSampleSql`'s order. Doors walk the barely reached tract
-(`tractShortfalls`, the `unreachedTracts` rule on members) trailing most,
+(`tractShortfalls`, on members) trailing most,
 through `walkableAreaWithin`'s `tract`, and fall back to the district-wide
 pick when it holds fewer households than the step. Calls drop landline-first
 once the panel's 65+ share reaches the census's, and draw weighted from
 the whole phone pool. Nothing leans below `PANEL_MIN_MEMBERS_FOR_BALANCE`
-(30) members, and the census is not read then. A step's
+(30) members. A step's
 `steeredToward` (`UnderrepresentedGroup`) is written when it is drawn;
 before that the read predicts it for a not-started step. A call step's
 `landlineFirst` (whether its draw put landlines first) is recorded and
@@ -993,13 +1000,15 @@ predicted the same way; a call step drawn before it was recorded reads
 true unless it leaned. A door step
 leaning toward `unreachedAreas` reads "Knock on doors in a part of your
 district we haven't reached" as its Next line. The response's `balance`
-(null when the census cannot be read) is the panel's one status, in the
-priority read's labels: `tooEarly` under 30 members; with `D` the largest
-|c − p| and bar `max(0.10, 1.96·sqrt(0.25 / members))`,
-`notYetRepresentative` past the bar, else `gettingClose` under the goal and
-`representative` at it. `inviteMore` is the group trailing furthest by the
-priority read's rule (at least 5 points), null once representative. The
-official never sees a share, weight or target.
+(null when the census cannot be read) is the panel's one status, in its
+own words (`CIVIC_PANEL_BALANCE_STATUS_LABELS`, never the priority's
+labels): `tooFewMembers` under 30 members, then `missingGroups` while any
+major group is short of members, else `everyGroup`. `inviteMore` is the
+largest missing group, set whenever groups are missing, even once the goal
+is met; a text step's `steeredToward` is that same group (draw weights still
+follow the share gaps). The panel page offers a new plan only under the member
+goal, since the API refuses one past it; past it the balance section's line
+is the next step. The official never sees a share, weight or target.
 
 **Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
@@ -1033,7 +1042,12 @@ answer rate: `DOOR_ANSWER_RATE` 10%,
 measure them. The text is the most any short group needs to reach
 `MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
 by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
-phone reaches does not size it. The tool says whether every major group
+phone reaches does not size it. That text is one purchase in two rounds
+(`splitPriorityText` in contracts): its card's `sampleSize` is the half
+sent at random on the chosen date, and `roundTwoSize` the half held for a
+follow-up two weeks later, drawn toward the groups heard from least
+(Samuel, 2026-10-20). A text too small for two halves of 25 goes out
+whole. The tool says whether every major group
 reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
@@ -1250,8 +1264,9 @@ has no signed webhook):
   for active/recently-completed jobs, maps phone → person through the
   capture rows, and writes `respondedAt` / `optedOutAt` idempotently on the
   vendor event id. Opt-outs come from the reply text (`isOptOutMessage`),
-  plus a 6-hourly pass over Peerly's own opt-out flags for the ones its AI
-  or texters mark without a stop word. Opt-outs drive the record's Opted
+  plus a pass over Peerly's own opt-out flags for the ones its AI or
+  texters mark without a stop word: each send's flags are read at most
+  every 6 hours for its first 3 days. Opt-outs drive the record's Opted
   In/Out chip.
 
 ### The AI assistant

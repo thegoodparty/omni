@@ -824,7 +824,9 @@ export const EVENTS = {
     // results_page }. Typed messages are AI Chat - Message Sent.
     GetAnswersClicked: 'Priorities - Get Answers Clicked',
     // `heldBack` is true while the priority has no good read yet;
-    // `weightingStatus` is the read's status against the census.
+    // `readStatus` is the read's status, `answersFloor` the fewest answers
+    // that could give every major group its three, and `groupsHeard` of
+    // `groupsTotal` the major groups that have them.
     ResultsViewed: 'Priorities - Results Viewed',
   },
   CivicPanel: {

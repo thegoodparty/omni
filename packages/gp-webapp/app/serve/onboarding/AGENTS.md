@@ -70,15 +70,18 @@ behind, so the save never holds the motion.
   marker, no tiles). The
   map never swaps once drawn, and the step never errors.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
-  middle; the sample is sized to `answersNeeded()` from contracts (100,
-  enough for every group making up 3% or more of any district to answer 3
-  times; the step has no district mix to size it to) and spread by a greedy
-  minimum-distance pick; 38 of it fill in on the grow step. No joined count is
-  shown.
+  middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
+  each part of a 4 by 4 grid over the district, so it spreads across the map;
+  half of it fills in on the grow step. No count is shown, on the map or in
+  the copy: the sample step's headline is "A few voices from every group tell
+  you where your community stands", its line is "We pick people at random from
+  every part of your district, so you hear what everyone thinks.", and its
+  info box says the aim ("We aim to hear from every age group, neighborhood,
+  race and gender in your district.").
 - **Motion** (`DISTRICT_MOTION`): intro sweeps in by neighborhood over ~1.2s
   with a 1s count-up, once a session; dim 400ms with a one-time pop on the
   loud cluster (`animate-pop-in`); sample 600ms with a 5ms stagger; grow turns
-  the sample to rings, then fills 38 at a 40ms stagger. Back runs 300ms with
+  the sample to rings, then fills half of it at a 40ms stagger. Back runs 300ms with
   no stagger. Reduced motion shows each end state. The four steps render one
   `DistrictStoryStep`, so the map stays mounted and only its mode changes.
   No Lottie: the map is per-district data.
