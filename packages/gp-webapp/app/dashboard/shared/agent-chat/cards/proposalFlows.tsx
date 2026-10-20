@@ -289,6 +289,9 @@ export const ProposalFlowsProvider = ({
     }
   }, [opened, queryClient, close])
 
+  const savedLists = useRef(new Map<string, number>())
+  const savingLists = useRef(new Map<string, Promise<number | null>>())
+
   const openDoorKnocking = useCallback(
     async (opened: Opened) => {
       const { proposal } = opened
@@ -298,29 +301,39 @@ export const ProposalFlowsProvider = ({
       const area = proposal.walkableArea
         ? walkableAreaPolygon(proposal.walkableArea)
         : null
-      let listId = proposal.savedFilterId ?? null
+      const key = proposal.proposalKey
+      // A second press while the first is saving would save a second list.
+      if (savingLists.current.has(key)) return
+      let listId = proposal.savedFilterId ?? savedLists.current.get(key) ?? null
       if (listId === null && audience) {
-        try {
-          const { data } = await clientRequest(
-            'POST /v1/voters/voter-file/filter',
-            {
-              name: audience.name,
-              ...transformVoterFileFiltersForBackend(audience.filters),
-              supportStatus: audience.supportStatus,
-              precincts: audience.precincts,
-              ...(audience.sample && { sample: audience.sample }),
-              ...(audience.unreachedAreaOfPriorityId && {
-                unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
-              }),
-              ...(area && { geoPoly: area }),
-            },
-          )
-          listId = data.id
-        } catch {
-          // The card's button stays live, so pressing it again retries.
-          errorSnackbar("We couldn't save this list. Try again.")
-          return
-        }
+        const run = (async () => {
+          try {
+            const { data } = await clientRequest(
+              'POST /v1/voters/voter-file/filter',
+              {
+                name: audience.name,
+                ...transformVoterFileFiltersForBackend(audience.filters),
+                supportStatus: audience.supportStatus,
+                precincts: audience.precincts,
+                ...(audience.sample && { sample: audience.sample }),
+                ...(audience.unreachedAreaOfPriorityId && {
+                  unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
+                }),
+                ...(area && { geoPoly: area }),
+              },
+            )
+            return data.id
+          } catch {
+            // The card's button stays live, so pressing it again retries.
+            errorSnackbar("We couldn't save this list. Try again.")
+            return null
+          }
+        })()
+        savingLists.current.set(key, run)
+        listId = await run
+        savingLists.current.delete(key)
+        if (listId === null) return
+        savedLists.current.set(key, listId)
       }
       // The card's link rides to the walk's own create, which puts the check
       // out on the server: nothing here survives the navigation to say so.
@@ -336,9 +349,6 @@ export const ProposalFlowsProvider = ({
     },
     [router, errorSnackbar],
   )
-
-  const savedLists = useRef(new Map<string, number>())
-  const savingLists = useRef(new Map<string, Promise<number | null>>())
 
   // Saves the card's audience as a list once, the way the builder would have
   // after the official confirmed it, so the flow can open on the message.

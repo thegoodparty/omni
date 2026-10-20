@@ -1404,6 +1404,28 @@ describe('PriorityFlowHandler', () => {
       )
     })
 
+    it('takes a door card without an area when round one sized none this turn', async () => {
+      priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
+      const tool = buildWithPanels().buildTools(
+        panelsOn(42),
+      ).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      expect(
+        await tool.execute({
+          audience: 'Renters on the flood blocks',
+          deepLinkOnly: false,
+          stepId: 'define' as const,
+          side: 'contrast' as const,
+          channel: 'doorKnocking' as const,
+          count: 120,
+          audienceFilters: { homeownerNo: true },
+          message: 'Hi, I am here for Bryan Ortiz. Is it the drains?',
+        }),
+      ).toEqual({ presented: true, deepLinkOnly: true })
+    })
+
     it('still checks a panel part as a text with the join ask on', async () => {
       priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
       const tool = buildWithPanels().buildTools(
@@ -1514,6 +1536,14 @@ describe('PriorityFlowHandler', () => {
             'I am calling for Bryan Ortiz, your City Council Member. Is it the drains?',
         }),
       ).toHaveProperty('error', expect.stringContaining('door knocking only'))
+      // Once round one picked an area, a door card without it would save a
+      // district-wide list.
+      expect(
+        await tool.execute({ ...door, walkableArea: undefined }),
+      ).toHaveProperty(
+        'error',
+        expect.stringContaining('This door card has no walkableArea'),
+      )
       expect(
         await tool.execute({
           ...base,

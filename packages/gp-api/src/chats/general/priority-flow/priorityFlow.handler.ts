@@ -497,6 +497,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
               sizedAreas,
             )
             if (area !== null) return { error: area }
+          } else if (
+            input.channel === 'doorKnocking' &&
+            sizedAreas.length > 0
+          ) {
+            // Without its area the list would be saved district-wide.
+            return {
+              error:
+                'This door card has no walkableArea. Present it with the ' +
+                'walkableArea size_round_one returned, exactly as given.',
+            }
           }
           if (input.areaTarget === 'unreached') {
             const area = await this.unreachedAreaRefusal(ctx, input)
