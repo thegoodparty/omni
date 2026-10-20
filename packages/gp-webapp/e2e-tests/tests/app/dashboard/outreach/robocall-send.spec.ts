@@ -85,6 +85,8 @@ const relayRobocallAudioUploads = async (page: Page): Promise<void> => {
 const stepHeading = (page: Page, title: string) =>
   page.getByRole('heading', { level: 3, name: title, exact: true })
 
+const AUTHORIZE_PATH = /\/v1\/outreach\/robocall\/(\d+)\/authorize$/
+
 // ─── Stripe helper ────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the Stripe-provided test card.
 // Mirrors the pattern in pro-upgrade.helper.ts.
@@ -114,15 +116,6 @@ const fillStripeCard = async (page: Page): Promise<void> => {
   await frame.locator('#payment-countryInput').selectOption('US')
   await page.waitForTimeout(300)
   await frame.locator('#payment-postalCodeInput').fill('82001')
-  await page.waitForTimeout(300)
-
-  // Stripe Link's save-my-info checkbox keeps the submit disabled while checked.
-  const saveCheckbox = frame.getByLabel(
-    'Save my information for faster checkout',
-  )
-  if (await saveCheckbox.isChecked().catch(() => false)) {
-    await saveCheckbox.uncheck()
-  }
   await page.waitForTimeout(500)
 }
 
@@ -274,11 +267,14 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       await nameInput.fill('E2E robocall test')
     }
 
-    // Any future date works: the pipeline time-travels the send to now. A
-    // week out can fall in next month, so page the calendar when it does.
+    // Tomorrow: authorize places the hold only for a send within
+    // ROBOCALL_HOLD_WINDOW_DAYS (3), and staging only claims authorized runs.
+    // A later send is deferred (card saved, no hold) and never stages. The
+    // pipeline then time-travels the send to now. Tomorrow can fall in next
+    // month, so page the calendar when it does.
     await page.locator('#robocall-send-date').click()
     const targetDay = new Date()
-    targetDay.setDate(targetDay.getDate() + 7)
+    targetDay.setDate(targetDay.getDate() + 1)
     if (targetDay.getMonth() !== new Date().getMonth()) {
       await page.getByRole('button', { name: 'Go to the next month' }).click()
     }
@@ -350,24 +346,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       timeout: 15_000,
     })
 
-    // Capture the outreachId from the draft-create response that fires the
-    // moment the pay step mounts (POST /v1/outreach/robocall).
-    let outreachId: number | null = null
-    const [draftResp] = await Promise.all([
-      page.waitForResponse(
-        (resp) =>
-          resp.url().includes('/v1/outreach/robocall') &&
-          resp.request().method() === 'POST' &&
-          !resp.url().includes('/compliance') &&
-          !resp.url().includes('/number') &&
-          !resp.url().includes('/authorize') &&
-          !resp.url().includes('/promo') &&
-          !resp.url().includes('/save-card-intent'),
-      ),
-      page.getByRole('button', { name: 'Continue to payment' }).click(),
-    ])
-    const draftBody = (await draftResp.json()) as { outreachId: number }
-    outreachId = draftBody.outreachId
+    await page.getByRole('button', { name: 'Continue to payment' }).click()
 
     // ── 11. Pay step: Stripe card entry and authorize ─────────────────────────
     await expect(stepHeading(page, 'Payment')).toBeVisible({ timeout: 15_000 })
@@ -382,11 +361,22 @@ test.describe('Robocall send — M2 mock pipeline', () => {
 
     await fillStripeCard(page)
 
-    // The authorize button text is "Authorize $X.XX" where X is the estimate.
-    await expect(
-      page.getByRole('button', { name: /^Authorize \$/ }),
-    ).toBeEnabled({ timeout: 15_000 })
-    await page.getByRole('button', { name: /^Authorize \$/ }).click()
+    // The button sits below the fold of the drawer's own scroll container,
+    // where a click without scrolling first never reaches it.
+    const authorizeButton = page.getByRole('button', { name: /^Authorize \$/ })
+    await expect(authorizeButton).toBeEnabled({ timeout: 15_000 })
+    await authorizeButton.scrollIntoViewIfNeeded()
+    const authorizeRequest = page.waitForRequest(
+      (req) =>
+        req.method() === 'POST' &&
+        AUTHORIZE_PATH.test(new URL(req.url()).pathname),
+    )
+    await authorizeButton.click()
+    const outreachId = Number(
+      AUTHORIZE_PATH.exec(
+        new URL((await authorizeRequest).url()).pathname,
+      )?.[1],
+    )
 
     // Wait for the success screen — Stripe confirm + gp-api authorize can take
     // up to 30s.
@@ -398,10 +388,10 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     // this number (callhubMock.controller.ts).
     await expect(page.getByText('+15551234567', { exact: true })).toBeVisible()
 
-    expect(outreachId).not.toBeNull()
+    expect(outreachId).toBeGreaterThan(0)
 
     // ── 12. Run the backend pipeline ──────────────────────────────────────────
-    await runRobocallPipeline(client, campaignId, outreachId!)
+    await runRobocallPipeline(client, campaignId, outreachId)
 
     // ── 13. Assert final state ────────────────────────────────────────────────
     await eventually(
@@ -415,7 +405,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
         const { data: outreach } = await client.get<{
           status: string
           robocall?: { settleState?: string }
-        }>(`/v1/outreach/${outreachId!}`)
+        }>(`/v1/outreach/${outreachId}`)
         expect(outreach.status).toBe('completed')
         expect(outreach.robocall?.settleState).toBe('captured')
       },
