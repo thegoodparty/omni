@@ -1,7 +1,22 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { ApiException } from '@hubspot/api-client/lib/codegen/crm/contacts'
+import { HttpService } from '@nestjs/axios'
+import { BadGatewayException } from '@nestjs/common'
+import axios from 'axios'
+import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
+import { AddressInfo } from 'net'
+import pino from 'pino'
 import { of, throwError } from 'rxjs'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { serializeError } from 'serialize-error'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { Campaign, User } from '../../generated/prisma'
 import { CrmUsersService } from './crmUsers.service'
 
@@ -412,7 +427,7 @@ describe('CrmUsersService test-user guard', () => {
       expect(failing).toHaveBeenCalledTimes(2)
     })
 
-    it('does not retry a 4xx and reports a readable message', async () => {
+    it('does not retry a 4xx and reports its status', async () => {
       const failing = vi.fn()
       const err = Object.assign(new Error('bad'), {
         isAxiosError: true,
@@ -435,8 +450,164 @@ describe('CrmUsersService test-user guard', () => {
           'registerPage',
           'https://app.goodparty.org/sign-up',
         ),
-      ).rejects.toThrow('bad field')
+      ).rejects.toThrow('Error submitting form to HubSpot: 400')
       expect(failing).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('CrmUsersService - submitCrmForm failure logging (ENG-11358)', () => {
+  const EMAIL = 'jane.voter@example.com'
+  const FIRST_NAME = 'Janetta'
+  const fields = [
+    { name: 'email', value: EMAIL },
+    { name: 'firstname', value: FIRST_NAME },
+  ]
+  const hubspot = { client: { config: { accessToken: 'test-token' } } }
+  const slack = { errorMessage: vi.fn() }
+  const logger = createMockLogger()
+
+  let server: Server
+  let baseUrl: string
+  let respond: (req: IncomingMessage, res: ServerResponse) => void
+
+  beforeAll(async () => {
+    server = createServer((req, res) => respond(req, res))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    )
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // A real axios failure, so the logged error carries everything a
+  // production AxiosError does: config, request and response.
+  const submit = () => {
+    const instance = axios.create()
+    instance.interceptors.request.use((config) => {
+      config.url = `${baseUrl}/submit`
+      return config
+    })
+    return new CrmUsersService(
+      hubspot as never,
+      {} as never,
+      {} as never,
+      new HttpService(instance),
+      slack as never,
+      logger,
+    ).submitCrmForm(
+      'form-1',
+      fields,
+      'registerPage',
+      'https://goodparty.org/sign-up',
+    )
+  }
+
+  // What pino writes to stdout, configured like logger-module.ts.
+  const loggedOutput = (level: 'warn' | 'error' = 'error') => {
+    const lines: string[] = []
+    const output = pino(
+      {
+        base: null,
+        formatters: {
+          log: (obj) => {
+            for (const key of Object.keys(obj)) {
+              if (obj[key] instanceof Error) {
+                obj[key] = pino.stdSerializers.err(obj[key])
+              }
+            }
+            return obj
+          },
+        },
+      },
+      { write: (line: string) => lines.push(line) },
+    )
+    const [logFields, message] = vi.mocked(logger[level]).mock.calls[0] as [
+      object,
+      string,
+    ]
+    output[level](logFields, message)
+    return lines.join('')
+  }
+
+  const slackOutput = () => {
+    const [{ error }] = slack.errorMessage.mock.calls[0] as [{ error: Error }]
+    return JSON.stringify(serializeError(error))
+  }
+
+  it('logs HubSpot status and error types when HubSpot rejects the form', async () => {
+    respond = (req, res) => {
+      req.resume()
+      req.on('end', () => {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            status: 'error',
+            message: 'The request is not valid',
+            correlationId: 'corr-1',
+            errors: [
+              {
+                message: "Error in 'fields.email'. Invalid email address",
+                errorType: 'INVALID_EMAIL',
+              },
+            ],
+          }),
+        )
+      })
+    }
+
+    await expect(submit()).rejects.toThrow(
+      new BadGatewayException('Error submitting form to HubSpot: 400'),
+    )
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({ code: 'ERR_BAD_REQUEST' }),
+        formId: 'form-1',
+        hubspotStatus: 400,
+        hubspotCorrelationId: 'corr-1',
+        hubspotErrorTypes: ['INVALID_EMAIL'],
+      }),
+      expect.any(String),
+    )
+    expect(loggedOutput()).not.toContain(EMAIL)
+    expect(loggedOutput()).not.toContain(FIRST_NAME)
+    expect(slackOutput()).not.toContain(EMAIL)
+  })
+
+  it('names the network error when HubSpot never responds', async () => {
+    respond = (req) => req.socket.destroy()
+
+    await expect(submit()).rejects.toThrow(
+      new BadGatewayException('Error submitting form to HubSpot: ECONNRESET'),
+    )
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({ code: 'ECONNRESET' }),
+        formId: 'form-1',
+      }),
+      expect.any(String),
+    )
+    expect(loggedOutput('warn')).not.toContain(EMAIL)
+    expect(loggedOutput('warn')).not.toContain(FIRST_NAME)
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.objectContaining({ code: 'ECONNRESET' }),
+        formId: 'form-1',
+        hubspotStatus: undefined,
+      }),
+      expect.any(String),
+    )
+    expect(loggedOutput()).not.toContain(EMAIL)
+    expect(loggedOutput()).not.toContain(FIRST_NAME)
+    expect(slackOutput()).not.toContain(EMAIL)
   })
 })

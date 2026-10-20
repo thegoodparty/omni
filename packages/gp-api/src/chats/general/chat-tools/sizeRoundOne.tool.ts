@@ -15,7 +15,7 @@ import {
   TEXT_ANSWER_RATE,
   type TargetedDimension,
 } from '@/contacts/utils/civicPanelAllocation.util'
-import type { PoolCell } from '@/peopleDb/databricks/districtCensusSql.util'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   raceNameable,
   weightingTargets,
@@ -45,14 +45,14 @@ const sizeRoundOneInput = z.object({
     ),
 })
 
-const sizeOf = (cells: PoolCell[]): number =>
+const sizeOf = (cells: DistrictCell[]): number =>
   cells.reduce((sum, cell) => sum + cell.count, 0)
 
 // The district's mix when its census cannot be read: everyone the doors can
 // reach, among those with a known value. Gender stays out until the census
 // publishes it, as it does for the census mix.
-const poolShares = (cells: PoolCell[]): RakingTargets => {
-  const sharesOf = (valueOf: (cell: PoolCell) => string | null) => {
+const poolShares = (cells: DistrictCell[]): RakingTargets => {
+  const sharesOf = (valueOf: (cell: DistrictCell) => string | null) => {
     const counts = new Map<string, number>()
     let known = 0
     for (const cell of cells) {
@@ -81,7 +81,7 @@ type RoundOneCard = {
 
 const cardFor = (
   channel: keyof typeof ROUND_ONE_AUDIENCES,
-  pool: PoolCell[],
+  pool: DistrictCell[],
   sampleSize: number,
 ): RoundOneCard | null =>
   sampleSize === 0
@@ -127,7 +127,7 @@ export const buildSizeRoundOneTool = (deps: {
       deps.contacts.countByGroupWithin(deps.organization, {
         ...ROUND_ONE_AUDIENCES[channel],
       })
-    let pools: [PoolCell[], PoolCell[], PoolCell[]]
+    let pools: [DistrictCell[], DistrictCell[], DistrictCell[]]
     try {
       pools = await Promise.all([
         count('doorKnocking'),

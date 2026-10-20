@@ -4,10 +4,11 @@ How a priority's answers become a read of the district, and who the next
 text goes to. Pure math lives in
 `packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
 `packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (how big
-round 1 is, and who the round 2 text leans toward). Round 1 sizing is wired
-to the priority chat; the model and round 2 are not wired to a route, a job
-or a send yet. This page says what they are for and what has to land before
-they are.
+round 1 is, and who the round 2 text leans toward). The model is the
+priority results page's read (`mrpReadStatus.util.ts`, behind
+`serve-citizen-panels`), and round 1 sizing is wired to the priority chat;
+round 2 is not wired to a job or a send yet. This page says what they are
+for and what has to land before round 2 is.
 
 ## Why
 
@@ -79,7 +80,9 @@ population and know your model", for a readable account.
   wider than it needs.
 - **Scales.** `learnMrpScales` learns how much each dimension splits
   opinion from past questions (empirical Bayes by EM). A dimension that never
-  matters shrinks, so its groups pool harder.
+  matters shrinks, so its groups pool harder. The results read does not call
+  it yet: every dimension takes `DEFAULT_MRP_SCALE`, because learning needs
+  each past priority's answer cells, a warehouse read apiece.
 - **Ranking.** A group's score is its share of the district times the width
   of its range. Raw width alone would chase the smallest groups forever.
 
@@ -98,31 +101,39 @@ population and know your model", for a readable account.
 ## What the official sees
 
 The priority results page as it is (Samuel, 2026-10-19: no new UI). The
-model feeds the shapes the page already reads:
+model feeds the shapes the page already reads, through
+`PriorityResultsService` (`resultsFor`, `readStatuses`):
 
-- **Status** (`priorityReadStatus`'s labels): `tooEarly` while a major
-  group has no answer, `notYetRepresentative` while one has fewer than
-  three, `gettingClose` while a major group's 90% range is wider than 20
-  points, `representative` once none is.
-- **Hear from more** (`underrepresented`): the groups `batchTargets` ranks
-  first, in the page's existing group names.
-- **Shares** the page shows weighted come from the model instead of raking.
+- **The frame and the answers.** `buildDistrictCellsSql` counts the
+  district's people by age band, gender, tract and race;
+  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half, a
+  person's answers averaged) in the same cells. Race folds into `other` as
+  the steering folds it (under 2% of the district), and sits out when the
+  census has no race figures. Both are counts, never a person
+  (`CensusCompositionSource.mrpInputs`; the district's cells are shared for
+  15 minutes, a priority's read is kept 15 minutes per its coded answers).
+- **Status** (`mrpReadStatus`, in the page's existing labels): `tooEarly`
+  while a major group has no answer, `notYetRepresentative` while one has
+  fewer than three, `gettingClose` while a major group's 90% range is wider
+  than 20 points, `representative` once none is. Major groups are on age,
+  tract, gender, and race only when `raceNameable` holds. `enoughAnswers`
+  stays for a district that cannot be read.
+- **Answers needed** (`needed`): the people heard plus the fewest more
+  answers that could give every major group three.
+- **Hear from more** (`underrepresented`): of the groups holding the read
+  back, the first two `batchTargets` ranks, in the page's existing group
+  names; every tract reads as the parts not reached.
 - **Representation bars** stay as they are: who answered against the
-  district.
+  district, unweighted. The contract carries no model share, so the model's
+  estimates are not shown anywhere yet.
 
 ## Before it is live
 
-1. **Coding answers.** The classifier above; today a priority answer only
-   records that someone replied (`priorityResults.service.ts`,
-   `responded`).
-2. **Shadow run.** Fit the model on existing priorities and compare it with
-   the raked read, internally only.
-3. **Round 2 scheduling.** A send created and paid for at setup with no
+1. **Round 2 scheduling.** A send created and paid for at setup with no
    list, and a job on its date that fits, ranks, draws and hands it off.
    Today a Serve send freezes its list at checkout and goes to staff review
    on payment; round 2 needs the review to cover the message at setup and
    the list drawn later.
-4. **The results page** reading the model, above.
 
 Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
 1"): with one scheduled send there is no reply loop to speed up.

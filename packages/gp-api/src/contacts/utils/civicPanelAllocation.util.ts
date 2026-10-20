@@ -5,7 +5,7 @@ import {
   PANEL_DOOR_ASSUMED_JOIN_RATE,
   type CivicPanelBuildChannel,
 } from '@goodparty_org/contracts'
-import type { PoolCell } from '@/peopleDb/databricks/districtCensusSql.util'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
 import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
@@ -39,7 +39,7 @@ export interface BatchTarget {
   score: number
 }
 
-const isTargeted = (
+export const isTargeted = (
   group: MrpGroupEstimate,
   dimensions: readonly TargetedDimension[],
 ): group is MrpGroupEstimate & { dimension: TargetedDimension } =>
@@ -133,9 +133,9 @@ export const TEXT_ANSWER_RATE = DEFAULT_TEXT_REPLY_RATE
 // Who each channel can reach, counted by group: anyone at the door, any
 // phone for calls, a cell phone for the text.
 export interface RoundOnePools {
-  door: PoolCell[]
-  phone: PoolCell[]
-  text: PoolCell[]
+  door: DistrictCell[]
+  phone: DistrictCell[]
+  text: DistrictCell[]
 }
 
 export interface RoundOneGroup {
@@ -155,17 +155,17 @@ export interface RoundOneSize {
 }
 
 const valueOf = (
-  cell: PoolCell,
+  cell: DistrictCell,
   dimension: TargetedDimension,
 ): string | null => (dimension === 'age' ? cell.ageBand : cell[dimension])
 
-const sizeOf = (cells: PoolCell[]): number =>
+const sizeOf = (cells: DistrictCell[]): number =>
   cells.reduce((sum, cell) => sum + cell.count, 0)
 
 // The chance a resident drawn at random from the pool is in the group.
 // Residents with no known value count in the pool but in no group.
 const shareOf = (
-  cells: PoolCell[],
+  cells: DistrictCell[],
   dimension: TargetedDimension,
   value: string,
 ): number => {

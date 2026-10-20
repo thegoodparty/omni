@@ -2,13 +2,7 @@ import type {
   AcsCounts,
   RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import {
-  poolSmallValues,
-  rake,
-  type RakingCell,
-  type RakingResult,
-  type RakingTargets,
-} from './raking.util'
+import type { RakingCell, RakingTargets } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
 import { MIN_DISTRICT_SHARE_FOR_RACE_GROUP } from './representation.util'
 
@@ -120,7 +114,7 @@ export const MIN_KNOWN_RACE = 10
 export const MIN_KNOWN_RACE_SHARE = 0.7
 
 export const raceNameable = (
-  cells: Pick<RespondentCell, 'count' | 'race'>[],
+  cells: ReadonlyArray<{ count: number; race: string | null }>,
 ): boolean => {
   let total = 0
   let known = 0
@@ -207,25 +201,3 @@ export const unreachedTracts = (
   tractAdults: Map<string, number>,
 ): string[] =>
   tractShortfalls(respondents, tractAdults).map(({ tract }) => tract)
-
-// Weights the answers to the district's census mix, pooling small groups
-// first.
-export const weighToCensus = (
-  respondents: RespondentCell[],
-  census: WeightingCensus,
-): RakingResult => {
-  let targets = weightingTargets(census)
-  let cells = placeCells(toRakingCells(respondents), targets)
-  for (const dimension of Object.keys(targets)) {
-    const pooled = poolSmallValues(
-      cells,
-      targets,
-      dimension,
-      MIN_ANSWERS_PER_WEIGHTING_GROUP,
-      POOLED_VALUE,
-    )
-    cells = pooled.cells
-    targets = pooled.targets
-  }
-  return rake(cells, targets)
-}

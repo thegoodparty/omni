@@ -101,7 +101,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // STRING and compares byte-exact, where Postgres compared as `uuid` and
 // normalized case — an exclude set that matches nothing silently WIDENS an
 // audience.
-const idList = (values: ReadonlyArray<string | number>): string =>
+export const idList = (values: ReadonlyArray<string | number>): string =>
   values
     .map((value) => {
       const id = String(value).toLowerCase()

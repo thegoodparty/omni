@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_LIST_SAMPLE_SIZE } from '@goodparty_org/contracts'
-import type { PoolCell } from '@/peopleDb/databricks/districtCensusSql.util'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
 import {
   batchTargets,
@@ -97,13 +97,13 @@ describe('splitBatch', () => {
 
 describe('sizeRoundOne', () => {
   const cell = (
-    ageBand: PoolCell['ageBand'],
+    ageBand: DistrictCell['ageBand'],
     tract: string | null,
-    race: PoolCell['race'],
+    race: DistrictCell['race'],
     count: number,
-  ): PoolCell => ({ ageBand, gender: null, tract, race, count })
+  ): DistrictCell => ({ ageBand, gender: null, tract, race, count })
 
-  const district: PoolCell[] = [
+  const district: DistrictCell[] = [
     cell('18to64', 't1', 'white', 6_000),
     cell('65plus', 't2', 'black', 3_000),
     cell('18to64', 't3', null, 1_000),

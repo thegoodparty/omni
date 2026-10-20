@@ -27,6 +27,7 @@ import {
 } from '../util/outreachResultsCsv.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
+import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
 
 /**
@@ -521,6 +522,18 @@ export class OutreachResultsAdminService extends createPrismaBase(
         this.logger.error(
           { err, organizationSlug, outreachId },
           'Could not start synthesis for a text send with results',
+        )
+      }
+      // A priority send's replies are coded against its question now too.
+      // The service skips a send on no priority.
+      try {
+        this.moduleRef
+          .get(PriorityAnswerCodingService, { strict: false })
+          .codeOutreachInBackground(outreachId)
+      } catch (err) {
+        this.logger.error(
+          { err, organizationSlug, outreachId },
+          'Could not start coding answers for a text send with results',
         )
       }
     }

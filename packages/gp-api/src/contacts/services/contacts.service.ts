@@ -71,7 +71,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import type { PoolCell } from '@/peopleDb/databricks/districtCensusSql.util'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   type PeopleDataset,
   PeopleDatasetService,
@@ -2431,7 +2431,7 @@ export class ContactsService {
   async countByGroupWithin(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
-  ): Promise<PoolCell[]> {
+  ): Promise<DistrictCell[]> {
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
       filterInput,

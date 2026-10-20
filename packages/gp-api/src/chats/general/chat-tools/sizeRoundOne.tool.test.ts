@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import type {
   AcsCounts,
-  PoolCell,
+  DistrictCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { WeightingCensus } from '@/priorities/util/censusWeighting.util'
 import { buildSizeRoundOneTool, ROUND_ONE_AUDIENCES } from './sizeRoundOne.tool'
@@ -11,13 +11,13 @@ import { buildSizeRoundOneTool, ROUND_ONE_AUDIENCES } from './sizeRoundOne.tool'
 const ORGANIZATION = { slug: 'eo-maple' } as Organization
 
 const cell = (
-  ageBand: PoolCell['ageBand'],
+  ageBand: DistrictCell['ageBand'],
   tract: string,
-  race: PoolCell['race'],
+  race: DistrictCell['race'],
   count: number,
-): PoolCell => ({ ageBand, gender: 'female', tract, race, count })
+): DistrictCell => ({ ageBand, gender: 'female', tract, race, count })
 
-const POOL: PoolCell[] = [
+const POOL: DistrictCell[] = [
   cell('18to64', 't1', 'white', 6_000),
   cell('65plus', 't2', 'black', 3_000),
   cell('18to64', 't3', 'hispanic', 1_000),
@@ -53,7 +53,7 @@ const build = ({
   census = CENSUS,
   planHoursPerWeek = 1,
 }: {
-  pools?: { door: PoolCell[]; phone: PoolCell[]; text: PoolCell[] }
+  pools?: { door: DistrictCell[]; phone: DistrictCell[]; text: DistrictCell[] }
   census?: WeightingCensus | null
   planHoursPerWeek?: number | null
 } = {}) => {

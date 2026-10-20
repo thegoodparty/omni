@@ -14,7 +14,7 @@ import {
 import { Injectable } from '@nestjs/common'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
-import type { PoolCell } from '../databricks/districtCensusSql.util'
+import type { DistrictCell } from '../databricks/districtCensusSql.util'
 import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
@@ -81,7 +81,7 @@ export class VoterQueryService {
   async getPoolCells(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
-  ): Promise<PoolCell[]> {
+  ): Promise<DistrictCell[]> {
     return this.readLog.measure({
       op: 'pool-cells',
       districtId: dto.districtId,

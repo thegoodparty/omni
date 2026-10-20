@@ -1,5 +1,6 @@
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, VendorMockVendor } from '@/generated/prisma'
 
@@ -56,6 +57,49 @@ export class VendorMockRecordService extends createPrismaBase(
 
   async findByCampaign(campaignId: number) {
     return this.model.findMany({ where: { campaignId } })
+  }
+
+  // Returns the vb_campaign mock records for a campaign's robocalls.
+  // CallHub records are stored without a campaignId (they're global to the
+  // mock controller), so we resolve them via the campaign's OutreachRobocall
+  // rows and their callhubCampaignPkStr.
+  async findCallhubForCampaign(campaignId: number) {
+    const robocalls = await this.client.outreachRobocall.findMany({
+      where: { outreach: { campaignId } },
+      select: { callhubCampaignPkStr: true },
+    })
+    const pkStrs = robocalls
+      .map((r) => r.callhubCampaignPkStr)
+      .filter((pk): pk is string => pk !== null)
+    if (pkStrs.length === 0) return []
+    return this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'vb_campaign',
+        externalId: { in: pkStrs },
+      },
+    })
+  }
+
+  // Sets the mocked CallHub voice-broadcast status to END for the campaign's
+  // most recent staged or dialing/dialed robocall run.
+  async completeCallhubCampaign(campaignId: number) {
+    this.assertNonProdDeploy()
+    const robocall = await this.client.outreachRobocall.findFirst({
+      where: {
+        outreach: { campaignId },
+        callhubCampaignPkStr: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!robocall?.callhubCampaignPkStr) return
+    await this.setFlag(
+      VendorMockVendor.callhub,
+      'vb_campaign',
+      robocall.callhubCampaignPkStr,
+      'status',
+      CALLHUB_VB_STATUS.END,
+    )
   }
 
   async campaignIdFor(organizationSlug: string | undefined) {
