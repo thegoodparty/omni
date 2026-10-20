@@ -307,8 +307,11 @@ user_id = <id>`. Known traps:
 2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
-   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
-   next dashboard load:
+   `primary_result='lost'`. Onboarding no longer sets a primary date for a
+   partisan race outside AK, CA, LA and WA (`candidateRunsInPrimary` in
+   `elections/util/primaryBallot.util.ts`), so only campaigns written before
+   that can hit this. Repair needs BOTH writes or the modal re-traps on next
+   dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
 primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
