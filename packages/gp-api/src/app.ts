@@ -17,6 +17,8 @@ import cookie from '@fastify/cookie'
 import { HttpExceptionFilter } from './exceptions/http-exception.filter'
 import { PrismaExceptionFilter } from './exceptions/prisma-exception.filter'
 import { randomUUID } from 'crypto'
+import { IncomingMessage } from 'http'
+import { stripVendorMockTrailingSlash } from './vendorMocks/vendorMockUrl.util'
 
 type BootstrapParams = {
   loggingEnabled: boolean
@@ -38,6 +40,8 @@ export const bootstrap = async (
     // only run this app behind known infrastructure that sets the header
     // honestly — never directly exposed to the internet.
     trustProxy: true,
+    rewriteUrl: (req: IncomingMessage) =>
+      stripVendorMockTrailingSlash(req.url ?? '/'),
   })
 
   /**

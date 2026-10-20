@@ -10,6 +10,8 @@ const {
   CALLHUB_HTTP_TIMEOUT = '30000',
 } = process.env
 
+export const CALLHUB_MOCK_API_KEY = 'mock-key'
+
 export class CallhubBaseConfig {
   readonly baseUrl = vendorBaseUrl('callhub', CALLHUB_API_BASE_URL)
   readonly httpTimeoutMs = parseInt(CALLHUB_HTTP_TIMEOUT, 10)
@@ -23,7 +25,7 @@ export class CallhubBaseConfig {
   // OutreachModule wired CallhubModule in. Missing config must break the
   // CallHub endpoints, never app startup.
   get apiKey(): string {
-    if (VENDOR_MODE === 'mock') return 'mock-key'
+    if (VENDOR_MODE === 'mock') return CALLHUB_MOCK_API_KEY
     if (!CALLHUB_API_KEY) {
       throw new Error('Missing CALLHUB_API_KEY config')
     }

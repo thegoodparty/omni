@@ -78,6 +78,12 @@ Auth state is enforced globally via three guards registered in order. Most route
 ## Gotchas
 
 - `AUTH_SECRET` must be set at boot — module throws otherwise. No fallback path.
+- **`SessionGuard` never verifies the `Authorization` header under
+  `/v1/vendor-mocks/`.** Those routes receive a real vendor client's own
+  credential (CallHub sends `Token <key>`), and `verifySessionToken` throws
+  on it before `@PublicAccess()` is consulted, so every mocked call 401'd on
+  previews. The guard goes straight to the public-and-no-roles check there,
+  so a vendor-mock route without `@PublicAccess()` is still rejected.
 - `effectiveUser.util.ts` returns `req.actorUser ?? req.user` — **the admin**
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated
