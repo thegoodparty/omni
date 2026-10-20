@@ -1617,6 +1617,7 @@ export type APIEndpoints = {
         phone?: string
         email?: string
       }[]
+      seedFromDistrict?: { byName: number; byPhone: number }
     }
     Response: {
       importId: string

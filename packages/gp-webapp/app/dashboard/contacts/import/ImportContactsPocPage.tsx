@@ -28,7 +28,8 @@ type ImportField =
   | 'email'
   | 'skip'
 
-type ImportRow = APIEndpoints['POST /v1/poc/contacts/import']['Request']['rows'][number]
+type ImportRow =
+  APIEndpoints['POST /v1/poc/contacts/import']['Request']['rows'][number]
 type ImportResult = APIEndpoints['POST /v1/poc/contacts/import']['Response']
 type CommitResult =
   APIEndpoints['POST /v1/poc/contacts/import/:importId/commit']['Response']
@@ -195,7 +196,15 @@ export const ImportContactsPocPage = () => {
     setIsWorking(true)
     const startedAt = performance.now()
     try {
-      const res = await clientRequest('POST /v1/poc/contacts/import', { rows })
+      const seed = Number(
+        new URLSearchParams(window.location.search).get('seed') ?? 0,
+      )
+      const res = await clientRequest('POST /v1/poc/contacts/import', {
+        rows,
+        ...(seed > 0
+          ? { seedFromDistrict: { byName: seed, byPhone: seed } }
+          : {}),
+      })
       setUploadMs(Math.round(performance.now() - startedAt))
       setImportResult(res.data)
       setSentRowLines(lines)
@@ -372,7 +381,7 @@ export const ImportContactsPocPage = () => {
               loading={isWorking}
               onClick={handleUpload}
             >
-              Upload {dataRows.length} people
+              Upload
             </Button>
           </div>
           {isWorking && (
@@ -393,7 +402,7 @@ export const ImportContactsPocPage = () => {
             <p className="text-sm text-muted-foreground">
               {importResult.counts.total} people ready to add.
               {skippedCount > 0
-                ? ` ${skippedCount} rows had no name and were left out.`
+                ? ` ${skippedCount} ${skippedCount === 1 ? 'row' : 'rows'} had no first or last name and ${skippedCount === 1 ? 'was' : 'were'} left out.`
                 : ''}
             </p>
           </div>
@@ -423,14 +432,16 @@ export const ImportContactsPocPage = () => {
                 {importResult.ambiguous.length > 0 && (
                   <>
                     <p className="text-sm text-muted-foreground">
-                      These rows look like more than one person we have.
-                      For now we&apos;ll add them as new people.
+                      These rows look like more than one person we have. For now
+                      we&apos;ll add them as new people.
                     </p>
                     <ul className="text-sm">
                       {importResult.ambiguous.map((row) => (
                         <li key={row.rowIndex}>
-                          Row {sentRowLines[row.rowIndex] ?? row.rowIndex + 1}:{' '}
-                          {row.candidateCount} possible matches
+                          {sentRowLines[row.rowIndex] !== undefined
+                            ? `Row ${sentRowLines[row.rowIndex]}`
+                            : `Test match row ${row.rowIndex + 1}`}
+                          : {row.candidateCount} possible matches
                         </li>
                       ))}
                     </ul>
