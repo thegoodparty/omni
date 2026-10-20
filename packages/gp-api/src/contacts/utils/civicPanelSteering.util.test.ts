@@ -6,9 +6,9 @@ import {
   type RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
-  balanceBar,
   doorTractFor,
   panelBalance,
+  panelCoverage,
   panelGaps,
   panelSteering,
   type PanelMix,
@@ -140,58 +140,65 @@ describe('panelGaps race', () => {
   })
 })
 
-describe('balanceBar', () => {
-  it('is the 95% margin at small sizes and never under 10 points', () => {
-    expect(balanceBar(30)).toBeCloseTo(0.1789, 3)
-    expect(balanceBar(96)).toBeGreaterThan(0.1)
-    expect(balanceBar(97)).toBe(0.1)
-    expect(balanceBar(400)).toBe(0.1)
+describe('panelCoverage', () => {
+  it('counts the major groups holding enough members to expect three answers', () => {
+    // Everyone 35 to 44, tracts A 85 and B 15 (8 members is enough), C none.
+    const coverage = panelCoverage(
+      mixOf([cell({ count: 85, tract: A }), cell({ count: 15, tract: B })]),
+    )
+    // Six age bands and three tracts; 35 to 44, A and B are in.
+    expect(coverage).toMatchObject({ groupsCovered: 3, groupsTotal: 9 })
+  })
+
+  it('counts a group at exactly the members it takes', () => {
+    const at = (members: number) =>
+      panelCoverage(
+        mixOf([
+          cell({ count: 50, tract: A }),
+          cell({ count: members, tract: B }),
+        ]),
+      ).groupsCovered
+    expect(at(7)).toBe(2)
+    expect(at(8)).toBe(3)
+  })
+
+  it('names the missing groups, the largest first', () => {
+    const { missing } = panelCoverage(mixOf([cell({ count: 100, tract: A })]))
+    expect(missing[0]).toBe('unreachedAreas')
+    expect(missing).toContain('age65plus')
   })
 })
 
 describe('panelBalance', () => {
-  const gaps = (panelShare: number) => [
-    {
-      dimension: 'age' as const,
-      value: '65plus',
-      censusShare: 0.2,
-      panelShare,
-    },
-    {
-      dimension: 'age' as const,
-      value: '18to64',
-      censusShare: 0.8,
-      panelShare: 1 - panelShare,
-    },
-  ]
+  const coverage = (groupsCovered: number) => ({
+    groupsCovered,
+    groupsTotal: 12,
+    missing: ['age65plus' as const],
+  })
 
-  it('is too early under 30 members', () => {
-    expect(panelBalance({ members: 29, goal: 240, gaps: gaps(0) })).toEqual({
-      status: 'tooEarly',
+  it('has too few members under 30', () => {
+    expect(panelBalance({ members: 29, coverage: coverage(2) })).toEqual({
+      status: 'tooFewMembers',
       inviteMore: null,
     })
   })
 
-  it('is not yet representative past the bar, naming who to invite', () => {
-    expect(panelBalance({ members: 100, goal: 240, gaps: gaps(0.05) })).toEqual(
-      { status: 'notYetRepresentative', inviteMore: 'age65plus' },
-    )
+  it('names a group to invite while any group is missing, at any size', () => {
+    expect(panelBalance({ members: 30, coverage: coverage(11) })).toEqual({
+      status: 'missingGroups',
+      inviteMore: 'age65plus',
+    })
+    expect(panelBalance({ members: 400, coverage: coverage(11) })).toEqual({
+      status: 'missingGroups',
+      inviteMore: 'age65plus',
+    })
   })
 
-  it('reads the wider bar on a small panel', () => {
-    // 15 points behind: past 10, inside 30 members' 17.9.
-    expect(
-      panelBalance({ members: 30, goal: 240, gaps: gaps(0.05) }).status,
-    ).toBe('gettingClose')
-  })
-
-  it('is getting close inside the bar below the goal, representative at it', () => {
-    expect(panelBalance({ members: 200, goal: 240, gaps: gaps(0.18) })).toEqual(
-      { status: 'gettingClose', inviteMore: null },
-    )
-    expect(panelBalance({ members: 240, goal: 240, gaps: gaps(0.12) })).toEqual(
-      { status: 'representative', inviteMore: null },
-    )
+  it('has every group once none is missing', () => {
+    expect(panelBalance({ members: 100, coverage: coverage(12) })).toEqual({
+      status: 'everyGroup',
+      inviteMore: null,
+    })
   })
 })
 
@@ -220,11 +227,10 @@ describe('panelSteering', () => {
     expect(
       panelSteering({
         members: 29,
-        goal: 240,
         mix: mixOf([cell({ count: 29 })]),
       }),
-    ).toEqual({
-      balance: { status: 'tooEarly', inviteMore: null },
+    ).toMatchObject({
+      balance: { status: 'tooFewMembers', inviteMore: null },
       weights: null,
       leansToward: null,
       doorTract: null,
@@ -233,9 +239,12 @@ describe('panelSteering', () => {
   })
 
   it('leans nowhere when the census could not be read', () => {
-    expect(panelSteering({ members: 100, goal: 240, mix: null })).toMatchObject(
-      { balance: null, weights: null, landlineFirst: true },
-    )
+    expect(panelSteering({ members: 100, mix: null })).toMatchObject({
+      balance: null,
+      coverage: null,
+      weights: null,
+      landlineFirst: true,
+    })
   })
 
   it('weights each value by census over panel share, within 0.5 to 2', () => {
@@ -243,7 +252,6 @@ describe('panelSteering', () => {
     // tracts A 85%, B 15%, C none.
     const steering = panelSteering({
       members: 100,
-      goal: 240,
       mix: mixOf([
         cell({ count: 85, tract: A }),
         cell({ count: 15, tract: B }),
@@ -263,14 +271,13 @@ describe('panelSteering', () => {
     expect(steering.weights?.minWeight).toBe(0.5)
     expect(steering.weights?.maxWeight).toBe(2)
     expect(steering.leansToward).toBe('unreachedAreas')
-    expect(steering.balance?.status).toBe('notYetRepresentative')
+    expect(steering.balance?.status).toBe('missingGroups')
     expect(steering.landlineFirst).toBe(true)
   })
 
   it('leans toward a race group the panel trails, never toward other', () => {
     const steering = panelSteering({
       members: 100,
-      goal: 240,
       mix: raceMixOf([
         cell({ count: 50, tract: A, race: 'white' }),
         cell({ count: 5, tract: A, race: 'black' }),
@@ -288,7 +295,6 @@ describe('panelSteering', () => {
   it('drops landline-first once the panel holds its share of people 65 and over', () => {
     const steering = panelSteering({
       members: 100,
-      goal: 240,
       mix: mixOf([
         cell({ count: 45, tract: A }),
         cell({ count: 5, ageBand: '18to24', tract: A }),

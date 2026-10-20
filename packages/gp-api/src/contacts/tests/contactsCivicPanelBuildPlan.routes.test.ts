@@ -330,6 +330,8 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
       goal: 240,
       answersNeeded: 96,
       expectedAnswers: 4,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
     expect(
       res.data.plan?.steps.map(({ channel, targetSize, status }) => ({
@@ -458,8 +460,10 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
         goal: 240,
         answersNeeded: 96,
         expectedAnswers: 0,
+        groupsCovered: 0,
+        groupsTotal: 0,
       },
-      balance: { status: 'tooEarly', inviteMore: null },
+      balance: { status: 'tooFewMembers', inviteMore: null },
     })
   })
 
@@ -477,6 +481,8 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 24,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 
@@ -729,16 +735,18 @@ const joinPanel = async (slug: string, count: number) => {
 }
 
 describe('steering the plan by census', () => {
-  it('is too early under 30 members, without reading the census', async () => {
+  it('has too few members under 30, and leans nowhere', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
-    const mix = stubMix([members(29)])
+    stubMix([members(29)])
     await joinPanel(slug, 29)
 
     const res = await createPlan(slug, 1)
 
-    expect(res.data.balance).toEqual({ status: 'tooEarly', inviteMore: null })
-    expect(mix).not.toHaveBeenCalled()
+    expect(res.data.balance).toEqual({
+      status: 'tooFewMembers',
+      inviteMore: null,
+    })
     expect(res.data.plan?.steps.map((step) => step.steeredToward)).toEqual([
       null,
       null,
@@ -770,7 +778,7 @@ describe('steering the plan by census', () => {
     const res = await createPlan(slug, 1)
 
     expect(res.data.balance).toEqual({
-      status: 'notYetRepresentative',
+      status: 'missingGroups',
       inviteMore: 'unreachedAreas',
     })
     expect(
@@ -1127,6 +1135,8 @@ describe('step status and waves', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 92,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 

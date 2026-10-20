@@ -114,7 +114,10 @@ export class TestFixturesService {
     }
 
     if (input.activity) {
-      await this.activitySeed.seed(orgSlug, {})
+      await this.activitySeed.seed(orgSlug, {
+        answers: input.answers,
+        split: input.split,
+      })
     }
 
     const session = await this.mintSession(clerkUserId)

@@ -15,7 +15,7 @@ import {
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { WEIGHTING_STATUS } from 'app/dashboard/priorities/[priorityId]/weightingStatus'
+import { PANEL_STATUS_PROPERTY } from 'app/dashboard/priorities/[priorityId]/readStatusProperty'
 import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import {
   CITIZENS_PANEL_LIST_PATH,
@@ -51,10 +51,14 @@ export const CitizensPanelView = ({
     goal: panelGoalMembers(answersNeeded()),
     answersNeeded: answersNeeded(),
     expectedAnswers: panelExpectedAnswers(summary.members),
+    groupsCovered: 0,
+    groupsTotal: 0,
   }
   const activePlan =
     planState?.plan?.status === 'active' ? planState.plan : null
-  const underGoal = progress.members < progress.goal
+  const needsMore =
+    progress.members < progress.goal ||
+    progress.groupsCovered < progress.groupsTotal
 
   const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
   // Once per visit, on what the page was given, not on later plan changes.
@@ -63,10 +67,12 @@ export const CitizensPanelView = ({
       members: summary.members,
       goalMembers: progress.goal,
       expectedAnswers: progress.expectedAnswers,
-      answersNeeded: progress.answersNeeded,
+      answersFloor: progress.answersNeeded,
+      groupsCovered: progress.groupsCovered,
+      groupsTotal: progress.groupsTotal,
       planStatus: initialPlan?.plan?.status ?? 'none',
       howCloseStatus: initialPlan?.balance
-        ? WEIGHTING_STATUS[initialPlan.balance.status]
+        ? PANEL_STATUS_PROPERTY[initialPlan.balance.status]
         : null,
       entry,
     })
@@ -102,7 +108,7 @@ export const CitizensPanelView = ({
               next={planState.next}
               onPlan={setPlanState}
             />
-          ) : underGoal ? (
+          ) : needsMore ? (
             <CivicPanelPlanStart onPlan={setPlanState} />
           ) : null}
 

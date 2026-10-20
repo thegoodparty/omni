@@ -307,6 +307,18 @@ export const isGetAnswersMessage = (content: string): boolean =>
   content === GET_ANSWERS_MESSAGE
 
 /**
+ * The hidden turn the app sends when an official opens a priority from "Ask
+ * your civic panel", so the agent starts the priority's check and the
+ * official lands on the Who to hear from step.
+ */
+export const ASK_RESIDENTS_MARKER = '[Ask residents]'
+
+export const ASK_RESIDENTS_MESSAGE = `${ASK_RESIDENTS_MARKER} Help me hear from residents on this priority.`
+
+export const isAskResidentsMessage = (content: string): boolean =>
+  content === ASK_RESIDENTS_MESSAGE
+
+/**
  * A tool that refuses its arguments returns `{ error }` so the model can fix
  * them and call again. Its card must never show: the server drops the call's
  * persisted arguments and the live surfaces drop its widget, so the refused

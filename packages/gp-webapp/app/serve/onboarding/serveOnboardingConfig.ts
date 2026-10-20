@@ -420,16 +420,16 @@ export const SERVE_STORY_COPY = {
     notHeardFrom: 'Not heard from yet',
   },
   sample: {
-    title: (answers: number): ServeStoryTitle => ({
-      lead: 'With about',
-      accent: `${answers} answers`,
-      tail: ", you'll know where your community stands",
-    }),
+    title: {
+      lead: 'A few voices from',
+      accent: 'every group',
+      tail: 'tell you where your community stands',
+    } satisfies ServeStoryTitle,
     description:
-      'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
-    howWeGotIt: 'How we got this number',
-    explanation: (answers: number): string =>
-      `We picked ${answers} so that every group making up 3% or more of your district is expected to answer at least 3 times.`,
+      'We help you reach every group in your community, so you know what each one thinks.',
+    howWeGotIt: 'How we aim for this',
+    explanation:
+      'We aim for at least three answers from every group that makes up 3% or more of your district, by age, neighborhood, race and gender.',
   },
   grow: {
     title: "We'll help you build and grow the list of people you hear from",

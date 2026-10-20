@@ -252,18 +252,18 @@ group in the district has answered on it, pooled across texts, calls and
 doors, and a model of the coded answers is sure enough of each. gp-api
 decides it in one place, `mrpReadStatus`
 (`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
-`{ answers, needed, good, status, underrepresented }`. A major group holds
+`{ answers, needed, groupsHeard, groupsTotal, good, status, underrepresented }`. A major group holds
 3% or more of the district on age band, tract, gender, or race when
 `raceNameable` holds (10 coded answers with a known race, 70% of all); the
 pooled `other` never counts.
 
-| `status`               | Rule                                                                                                     |
-| ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `tooEarly`             | a major group has no coded answer                                                                        |
-| `notYetRepresentative` | a major group has fewer than 3                                                                           |
-| `gettingClose`         | a major group's 90% range is wider than 20 points                                                        |
-| `representative`       | none of the above; `good` is exactly this                                                                |
-| `enoughAnswers`        | the district could not be read and answers meet `answersNeeded`; `good`, but no claim about who answered |
+| `status`               | Label                               | Rule                                                                                                     |
+| ---------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `tooEarly`             | Waiting to hear from some groups    | a major group has no coded answer                                                                        |
+| `notYetRepresentative` | A few groups need more answers      | a major group has fewer than 3                                                                           |
+| `gettingClose`         | Still unsure what some groups think | a major group's 90% range is wider than 20 points                                                        |
+| `representative`       | Every group heard                   | none of the above; `good` is exactly this                                                                |
+| `enoughAnswers`        | Enough people have answered         | the district could not be read and answers meet `answersNeeded`; `good`, but no claim about who answered |
 
 The model is MRP (`gp-api/src/priorities/util/mrp.util.ts`,
 `docs/features/civic-panel-mrp.md`): each person's coded answers to the
@@ -274,17 +274,22 @@ modeled ethnicity folded as the panel's steering folds it
 (`docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`); it shapes
 the model either way and counts as a group only when nameable. Scales are
 the model's defaults; nothing learns them from past priorities yet.
-`answers` is the people heard (the results page's count); `needed` is
-`answers` plus the fewest more that could give every major group 3 (the
-dimension furthest short), so "N more answers" counts what is missing.
+`groupsHeard` of `groupsTotal` are the major groups with at least 3 coded
+answers; both are 0 when the district could not be read. `answers` is the
+people heard (the results page's count); `needed` is `answers` plus the
+fewest more that could give every major group 3 (the dimension furthest
+short). It is a floor, not a promise, and no screen shows it: only analytics
+(`answersFloor`) and sizing read it.
 `underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
 the one or two groups holding the read back: short of voices, or with a
 range still too wide; every tract reads as `unreachedAreas`
-(`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the district cannot be
-read, `needed` is `answersNeeded()` from contracts (100, enough for the
-smallest major group any district can have), enough answers are a good
-read labeled "Enough answers", never "Representative", and fewer are too
-early. A read is kept in process for 15 minutes per priority and its coded
+(`underrepresentedGroupName` in contracts: "people in parts of your district
+we haven't heard from", or "people in a few neighborhoods" once every
+neighborhood has answered and the model is only unsure). When the district
+cannot be read, `needed` is `answersNeeded()` from contracts (100, enough for
+the smallest major group any district can have), enough answers are a good
+read labeled "Enough people have answered", never "Every group heard", and
+fewer are too early. A read is kept in process for 15 minutes per priority and its coded
 answers (`PriorityResultsService`), so a new or recoded answer reads again
 and a failure is never kept. **The official never sees a share, a range or
 a model**: only the status, the groups and actions.
@@ -295,31 +300,34 @@ a model**: only the status, the groups and actions.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it one row: too early, "N more answers for a good read" with a
-  thin bar; otherwise a status dot and "Not yet representative. Hear from
-  more renters" (or "Getting close. ...", "Getting close. A few more answers
-  will do it"), each with Get answers; or a check, "Representative of your
-  district" (or "Enough answers") and See what we heard. The text links to
-  the results page; the button is the one action.
+  sheet. Under it one row: a status dot and the status line naming the
+  groups ("Waiting to hear from people 65 and over", "Hear from more people
+  18 to 64 and women", "Still unsure what people 65 and over think"), a thin
+  bar of groups ("9 of 12 groups heard") and Get answers; or a check, "You've
+  heard from every group" (or "Enough people have answered") and See what we
+  heard. The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
-  with the status label and dot, the answers still needed with a bar while
-  there are fewer than `needed`, "Hear from more renters and people 65 and
-  over", Get answers, a quiet "What we heard" link, then "Where this stands".
+  with the status label and dot, the status line naming the groups, "9 of 12
+  groups heard" with a bar, Get answers, a quiet "What we heard" link, then "Where this stands".
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. The agent proposes more answers as a
   card (`buildGoodReadBlock` in `priorityFlow.prompt.ts`); nothing sends
   from the button. The results page's Get answers links back with
   `?getAnswers=1`, which `page.tsx` reads and the workspace turns into the
-  same turn once, then drops from the address.
+  same turn once, then drops from the address. "Ask your civic panel" on the
+  Chief of Staff opens a priority with `?ask=1` instead: the workspace sends
+  one hidden `ASK_RESIDENTS_MESSAGE` turn (`isAppTurn`, filtered like the
+  rest), and the agent works the Who to hear from step and offers the check on
+  the problem as a card.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,
   quotes or "most said"; it names the status and the group to hear more
   from and offers outreach aimed at it, and a direct "what have people said"
   gets one or two honest sentences and "too early to act on". It never
-  mentions weights or discounting.
+  mentions weights, models or counts of answers.
 - **Parts not reached yet**: a proposal on a priority can carry
   `areaTarget: 'unreached'`. Saving its list sends `unreachedAreaOfPriorityId`
   to `POST /v1/voters/voter-file/filter`, and gp-api draws the area and saves

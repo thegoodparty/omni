@@ -1,4 +1,5 @@
 import {
+  ASK_RESIDENTS_MARKER,
   GET_ANSWERS_MARKER,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
@@ -6,7 +7,7 @@ import {
   PROPOSAL_SENT_MARKER,
   READ_REPRESENTATIVENESS_LABELS,
   REPORT_BACK_MARKER,
-  UNDERREPRESENTED_GROUP_NAMES,
+  underrepresentedGroupName,
   type PriorityReadStatus,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
@@ -378,7 +379,7 @@ const hearMoreFrom = (read: PriorityReadStatus): string =>
   read.underrepresented.length === 0
     ? 'nobody in particular'
     : read.underrepresented
-        .map((group) => UNDERREPRESENTED_GROUP_NAMES[group])
+        .map((group) => underrepresentedGroupName(group, read.status))
         .join(' and ')
 
 // Behind serve-citizen-panels, with the read status in <priority>. A good
@@ -386,17 +387,18 @@ const hearMoreFrom = (read: PriorityReadStatus): string =>
 const buildGoodReadBlock = (canPropose: boolean): string =>
   [
     'BEFORE A GOOD READ',
-    `- <priority> says how many people have answered on this priority, across texts, calls and doors, how many a good read of the district takes, and how closely the people who answered look like the district: ${READ_STATUS_NAMES}. Representative is a good read. Enough answers is a good read the census could not be checked against: say they have enough answers, but you could not check them against the census, and never call them representative. Good read: no means they do not have one yet.`,
-    '- <priority> also names who to hear more from: the groups the answers trail the district on. Use exactly those words.',
+    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
+    '- <priority> also names which groups to hear from next: the ones with too few answers or that we are still unsure of. Use exactly those words.',
     '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
-    '- Nudge toward a good read instead, in one line. Too early: how many more answers it takes. Otherwise: say the status and who to hear more from, for example "You\'ve heard from plenty of people, but few renters." Then offer outreach aimed at that group.',
-    '- Aim the outreach with the filters for that group: renters or homeowners, an age band. For "people in parts of your district we haven\'t reached", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
-    '- Never mention weights, weighting, quotas, discounting or an effective number of answers. The official sees the status and the groups, nothing more.',
+    '- Nudge toward a good read instead, in one line: say the status and which groups to hear from next, for example "You\'ve heard from most groups, but not yet people 65 and over." Never give a count of answers. Then offer outreach aimed at those groups.',
+    '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in parts of your district we haven\'t reached", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
+    '- Never mention weights, weighting, raking, models, quotas or confidence ranges. The official sees the status and the groups, nothing more.',
     '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
     '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
     ...(canPropose
       ? [
           `- A message that starts with ${GET_ANSWERS_MARKER} comes from the app, not the official: they pressed Get answers. Do not restate it. Propose getting more answers for the check that is out now, as a card, the way READING WHAT CAME BACK follows up a thin read. If no check is out yet, offer the check the current step needs, built the way a check is always built. The official sends it from the card: never say anything was sent, and never send anything yourself. If <priority> already says Good read: yes, say so in one line and offer what came back instead.`,
+          `- A message that starts with ${ASK_RESIDENTS_MARKER} comes from the app, not the official: they opened this priority from Ask your civic panel to hear from residents. Do not restate it. Work the Who to hear from step: if the problem is not settled yet, settle it in a line first, then offer the check on the problem as a card, built the way a check is always built, so the answers come back to Who to hear from. If a check on the problem is already out or answered, say where Who to hear from stands in one line and offer what comes next. The official sends the card themselves: never say anything was sent, and never send anything yourself.`,
         ]
       : []),
   ].join('\n')
@@ -468,7 +470,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     ...(ctx.readStatus === undefined
       ? []
       : [
-          `Answers: ${ctx.readStatus.answers} of ${ctx.readStatus.needed} needed for a good read. Representative: ${READ_REPRESENTATIVENESS_LABELS[ctx.readStatus.status]}. Hear more from: ${hearMoreFrom(ctx.readStatus)}. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
+          `Groups heard from: ${ctx.readStatus.groupsTotal === 0 ? 'not known' : `${ctx.readStatus.groupsHeard} of ${ctx.readStatus.groupsTotal}`}. Status: ${READ_REPRESENTATIVENESS_LABELS[ctx.readStatus.status]}. Hear more from: ${hearMoreFrom(ctx.readStatus)}. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
         ]),
     '</priority>',
   ].join('\n')
