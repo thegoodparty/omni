@@ -768,7 +768,7 @@ var ProductMap = (function () {
       {
         id: 'review',
         t: 'Review the draft',
-        state: 'shared',
+        state: 'ok',
         evs: [
           'Ordinances - Draft Details Viewed',
           'Ordinances - Draft Chat Opened',
