@@ -1,0 +1,43 @@
+# Path B: Lakeflow Connect PostgreSQL CDC from the POC Aurora cluster into
+# goodparty_data_catalog.poc_import_contacts_lakeflow. Deployed by a Databricks
+# workspace admin (README step 5). Bundles cannot create Unity Catalog
+# connections, so the connection named by var.connection_name is created with
+# the CLI first (README step 5.4).
+bundle:
+  name: poc-import-contacts-lakeflow
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    default: goodparty_data_catalog
+  schema:
+    default: poc_import_contacts_lakeflow
+  connection_name:
+    default: poc_import_contacts_pg
+  source_database:
+    default: poc_org_layer
+  slot_name:
+    default: lakeflow_org_contact_event
+  publication_name:
+    default: lakeflow_org_contact_event
+  reader_group:
+    description: Gets SELECT on the mirror schema (gp-api and the freshness benchmark read with a personal token).
+    default: dbt-users
+  gateway_driver_node_type:
+    description: Databricks asks for 8+ cores on the gateway driver.
+    default: m5.2xlarge
+  gateway_worker_node_type:
+    default: m5.large
+  ingestion_cron:
+    description: Quartz cron for the ingestion pipeline job. Every 5 minutes is the shortest interval Databricks recommends.
+    default: 0 0/5 * * * ?
+  alert_email:
+    default: swain@goodparty.org
+
+targets:
+  poc:
+    default: true
+    workspace:
+      host: https://dbc-3d8ca484-79f3.cloud.databricks.com

@@ -1,0 +1,110 @@
+resources:
+  schemas:
+    lakeflow:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: Import contacts replication POC, path B (Lakeflow Connect mirror of the Postgres change log). Drop after the POC.
+      grants:
+        - principal: ${var.reader_group}
+          privileges:
+            - USE_SCHEMA
+            - SELECT
+
+  pipelines:
+    lakeflow_gateway:
+      name: poc-import-contacts-lakeflow-gateway
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.lakeflow.name}
+      channel: CURRENT
+      continuous: true
+      serverless: false
+      gateway_definition:
+        connection_name: ${var.connection_name}
+        gateway_storage_catalog: ${var.catalog}
+        gateway_storage_schema: ${resources.schemas.lakeflow.name}
+        gateway_storage_name: lakeflow_gateway_staging
+      clusters:
+        - label: default
+          driver_node_type_id: ${var.gateway_driver_node_type}
+          node_type_id: ${var.gateway_worker_node_type}
+          num_workers: 1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.lakeflow.name}
+        name: gateway_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}
+
+    lakeflow_ingestion:
+      name: poc-import-contacts-lakeflow-ingestion
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.lakeflow.name}
+      channel: CURRENT
+      # Continuous variant: Databricks documents continuous mode for SQL
+      # Server, MySQL and Oracle only, and says the PostgreSQL ingestion
+      # pipeline cannot run continuously. If they enable it for PostgreSQL,
+      # uncomment these three lines, set the job below to PAUSED and redeploy.
+      # continuous: true
+      # configuration:
+      #   pipelines.managedIngestion.continuous.runMode: SPEED
+      ingestion_definition:
+        ingestion_gateway_id: ${resources.pipelines.lakeflow_gateway.id}
+        source_type: POSTGRESQL
+        objects:
+          - table:
+              source_catalog: ${var.source_database}
+              source_schema: public
+              source_table: org_contact_event
+              destination_catalog: ${var.catalog}
+              destination_schema: ${resources.schemas.lakeflow.name}
+              destination_table: org_contact_event
+        source_configurations:
+          - catalog:
+              source_catalog: ${var.source_database}
+              postgres:
+                slot_config:
+                  slot_name: ${var.slot_name}
+                  publication_name: ${var.publication_name}
+        table_configuration:
+          scd_type: SCD_TYPE_1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.lakeflow.name}
+        name: ingestion_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}
+
+  jobs:
+    lakeflow_ingestion_schedule:
+      name: poc-import-contacts-lakeflow-ingestion-schedule
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: ${var.ingestion_cron}
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+      tasks:
+        - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakeflow_ingestion.id}
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}

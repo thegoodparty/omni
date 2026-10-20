@@ -17,6 +17,11 @@ export = () => {
   const walDiskAlarmBytes =
     config.getNumber('walDiskAlarmBytes') ?? 5 * 1024 ** 3
   const alarmEmail = config.get('alarmEmail')
+  const enableLakeflow = config.getBoolean('enableLakeflow') ?? false
+  const lakeflowGatewayCidrs =
+    config.getObject<string[]>('lakeflowGatewayCidrs') ?? []
+  const lakeflowFailoverReader =
+    config.getBoolean('lakeflowFailoverReader') ?? false
 
   const name = 'gp-poc-replication'
   const parameterGroupFamily = 'aurora-postgresql17'
@@ -170,6 +175,50 @@ export = () => {
       }),
   )
 
+  const lakeflowReplicationSecret = enableLakeflow
+    ? new aws.secretsmanager.Secret(`${name}-lakeflow-replication-user`, {
+        name: `${name}-lakeflow-replication-user`,
+        description:
+          'Lakeflow Connect replication user for the POC cluster. Value set by the DB admin, never by Pulumi.',
+        recoveryWindowInDays: 0,
+      })
+    : undefined
+
+  if (enableLakeflow) {
+    lakeflowGatewayCidrs.forEach(
+      (cidr, i) =>
+        new aws.vpc.SecurityGroupIngressRule(
+          `${name}-db-lakeflow-gateway-${i}`,
+          {
+            securityGroupId: securityGroup.id,
+            description: 'lakeflow connect ingestion gateway (classic compute)',
+            ipProtocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            cidrIpv4: cidr,
+          },
+        ),
+    )
+  }
+
+  const lakeflowReader =
+    enableLakeflow && lakeflowFailoverReader
+      ? new aws.rds.ClusterInstance(
+          `${name}-lakeflow-reader`,
+          {
+            identifier: `${name}-reader`,
+            clusterIdentifier: cluster.id,
+            instanceClass: 'db.serverless',
+            engine: aws.rds.EngineType.AuroraPostgresql,
+            engineVersion: cluster.engineVersion,
+            publiclyAccessible: false,
+            promotionTier: 0,
+            applyImmediately: true,
+          },
+          { ignoreChanges: ['engineVersion'], dependsOn: [writer] },
+        )
+      : undefined
+
   return {
     vpcCidr: vpc.cidrBlock,
     subnetIds: subnets.ids,
@@ -186,5 +235,7 @@ export = () => {
     ),
     alarmTopicArn: alarmTopic.arn,
     alarmNames: alarms.map((alarm) => alarm.name),
+    lakeflowReplicationSecretArn: lakeflowReplicationSecret?.arn,
+    lakeflowReaderIdentifier: lakeflowReader?.identifier,
   }
 }
