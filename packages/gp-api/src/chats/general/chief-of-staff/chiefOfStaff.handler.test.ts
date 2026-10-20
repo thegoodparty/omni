@@ -856,8 +856,8 @@ describe('ChiefOfStaffHandler', () => {
       expect(civicPanel).toContain('Never use the word "just".')
       expect(civicPanel).toContain(
         'You may say the status their panel page shows (the panelStatus a ' +
-          'panel tool returns: Too early, Not yet representative, Getting ' +
-          'close or Representative) and the group it says to invite next ' +
+          'panel tool returns: Too few members yet, Missing some groups or ' +
+          'Every group on your panel) and the group it says to invite next ' +
           '(inviteMoreNext), in those words.',
       )
       expect(civicPanel).toContain(

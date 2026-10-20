@@ -131,7 +131,14 @@ const withPlan = (
     steps,
   },
   next,
-  progress: { members: 60, goal: 240, answersNeeded: 96, expectedAnswers: 24 },
+  progress: {
+    members: 60,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 24,
+    groupsCovered: 3,
+    groupsTotal: 12,
+  },
   balance: null,
 })
 
@@ -142,7 +149,14 @@ const filledShare = (top: HTMLElement) =>
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 0, goal: 240, answersNeeded: 96, expectedAnswers: 0 },
+  progress: {
+    members: 0,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 0,
+    groupsCovered: 0,
+    groupsTotal: 12,
+  },
   balance: null,
 }
 
@@ -287,7 +301,7 @@ describe('the plan', () => {
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
   })
 
-  it('names who a round leans toward, never how', () => {
+  it('names who a batch leans toward, never how', () => {
     renderPage(
       withPlan([
         step({ id: 'step-text', steeredToward: 'age65plus' }),
@@ -302,7 +316,7 @@ describe('the plan', () => {
 
     expect(
       within(rowOf('Text 3,150 residents')).getByText(
-        'This round invites more people 65 and over.',
+        'This batch invites more people 65 and over.',
       ),
     ).toBeInTheDocument()
     expect(
@@ -312,7 +326,7 @@ describe('the plan', () => {
     ).toBeInTheDocument()
   })
 
-  it('says landlines first on a call step only while its round puts them first', () => {
+  it('says landlines first on a call step only while its batch puts them first', () => {
     renderPage(
       withPlan([
         step({ ...CALLS, landlineFirst: true }),
@@ -497,19 +511,17 @@ describe('the plan', () => {
     ).toBeDisabled()
   })
 
-  it('shows members toward the goal at the top, above the plan', () => {
+  it('shows the groups covered at the top, above the plan', () => {
     renderPage(withPlan([TEXT, CALLS]))
 
     const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('60 of 240 members')
-    expect(
-      within(top).getByText('About 24 answers per question today'),
-    ).toBeInTheDocument()
+    expect(top).toHaveTextContent('60 members, in 3 of 12 groups')
     expect(
       within(top).getByText(
-        '240 members gets you about 96 answers per question, enough to hear from every group in your district.',
+        'Invite people from the groups still missing so every part of your district has a voice.',
       ),
     ).toBeInTheDocument()
+    expect(top).not.toHaveTextContent(/answers/)
     expect(filledShare(top)).toBe('25')
     expect(
       top.compareDocumentPosition(screen.getByText('Your plan')) &
@@ -522,7 +534,7 @@ describe('the plan', () => {
     renderPage(NO_PLAN)
 
     const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('0 of 240 members')
+    expect(top).toHaveTextContent('0 members, in 0 of 12 groups')
     expect(filledShare(top)).toBe('0')
     expect(
       top.compareDocumentPosition(
@@ -534,7 +546,7 @@ describe('the plan', () => {
     expect(screen.queryByTestId('civic-panel-rail')).toBeNull()
   })
 
-  it('fills the bar once the panel reaches its goal', () => {
+  it('fills the bar once every group is covered', () => {
     renderPage({
       ...withPlan([TEXT]),
       progress: {
@@ -542,11 +554,16 @@ describe('the plan', () => {
         goal: 240,
         answersNeeded: 96,
         expectedAnswers: 100,
+        groupsCovered: 12,
+        groupsTotal: 12,
       },
     })
 
     const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('250 of 240 members')
+    expect(top).toHaveTextContent('250 members, in 12 of 12 groups')
+    expect(top).toHaveTextContent(
+      'Every part of your district has a voice on your panel.',
+    )
     expect(filledShare(top)).toBe('100')
   })
 

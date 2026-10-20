@@ -1048,20 +1048,26 @@ describe('PriorityWorkspace', () => {
     const thin: PriorityReadStatus = {
       answers: 24,
       needed: 96,
+      groupsHeard: 3,
+      groupsTotal: 12,
       good: false,
       status: 'tooEarly',
-      underrepresented: [],
+      underrepresented: ['age65plus'],
     }
     const skewed: PriorityReadStatus = {
       answers: 103,
       needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
       good: false,
       status: 'notYetRepresentative',
-      underrepresented: ['renters', 'age65plus'],
+      underrepresented: ['women', 'age65plus'],
     }
     const good: PriorityReadStatus = {
       answers: 103,
       needed: 96,
+      groupsHeard: 12,
+      groupsTotal: 12,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -1097,7 +1103,7 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /72 more answers for a good read/,
+        name: /Waiting to hear from people 65 and over/,
       })
       expect(status).toHaveAttribute(
         'href',
@@ -1105,7 +1111,7 @@ describe('PriorityWorkspace', () => {
       )
       expect(
         within(status).getByRole('progressbar', {
-          name: '24 of 96 answers for a good read',
+          name: '3 of 12 groups heard',
         }),
       ).toBeInTheDocument()
       expect(
@@ -1161,7 +1167,7 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText('Representative of your district'),
+        within(bar).getByText("You've heard from every group"),
       ).toBeInTheDocument()
       expect(
         within(bar).getByRole('link', { name: 'See what we heard' }),
@@ -1177,8 +1183,12 @@ describe('PriorityWorkspace', () => {
 
       const rail = screen.getByRole('complementary')
       expect(
-        within(rail).getByText('72 more answers for a good read'),
+        within(rail).getByText('Waiting to hear from some groups'),
       ).toBeInTheDocument()
+      expect(
+        within(rail).getByText('Waiting to hear from people 65 and over'),
+      ).toBeInTheDocument()
+      expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
@@ -1195,26 +1205,30 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const rail = screen.getByRole('complementary')
-      expect(within(rail).getByText('Representative')).toBeInTheDocument()
+      expect(within(rail).getByText('Every group heard')).toBeInTheDocument()
       expect(
         within(rail).getByRole('link', { name: 'See what we heard' }),
       ).toBeInTheDocument()
     })
 
-    it('says enough answers, not representative, when the census was not checked', async () => {
+    it('says enough people answered, not every group, when the census was not checked', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: { ...good, status: 'enoughAnswers' },
       })
       await screen.findByText('Here is where this stands.')
 
       const bar = screen.getByTestId('priority-phone-bar')
-      expect(within(bar).getByText('Enough answers')).toBeInTheDocument()
+      expect(
+        within(bar).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
       expect(
         within(bar).getByRole('link', { name: 'See what we heard' }),
       ).toBeInTheDocument()
       const rail = screen.getByRole('complementary')
-      expect(within(rail).getByText('Enough answers')).toBeInTheDocument()
-      expect(screen.queryByText(/Representative/)).not.toBeInTheDocument()
+      expect(
+        within(rail).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/every group/i)).not.toBeInTheDocument()
     })
 
     it('names who to hear more from once there are enough answers', async () => {
@@ -1225,18 +1239,16 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText('Not yet representative. Hear from more renters'),
+        within(bar).getByText('Hear from more women and people 65 and over'),
       ).toBeInTheDocument()
       const rail = screen.getByRole('complementary')
       expect(
-        within(rail).getByText('Not yet representative'),
+        within(rail).getByText('A few groups need more answers'),
       ).toBeInTheDocument()
       expect(
-        within(rail).getByText('Hear from more renters and people 65 and over'),
+        within(rail).getByText('Hear from more women and people 65 and over'),
       ).toBeInTheDocument()
-      expect(
-        within(rail).queryByText(/more answers for a good read/),
-      ).not.toBeInTheDocument()
+      expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1402,7 +1414,7 @@ describe('PriorityWorkspace', () => {
         expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
       )
       expect(
-        (await screen.findAllByText('Representative of your district')).length,
+        (await screen.findAllByText("You've heard from every group")).length,
       ).toBeGreaterThan(0)
     })
   })
