@@ -206,7 +206,7 @@ export const CivicPanelBuildPlanSchema = z.object({
 export type CivicPanelBuildPlan = z.infer<typeof CivicPanelBuildPlanSchema>
 
 // Where the panel stands, in answers to one question. `answersNeeded` is
-// the district's (answersNeeded in PanelAnswers), `expectedAnswers` what the
+// the district's (answersNeeded of its smallest major group), `expectedAnswers` what the
 // members are expected to give it, and `goal` the members it takes to give
 // all of them.
 export const CivicPanelBuildProgressSchema = z.object({

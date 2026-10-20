@@ -13,10 +13,11 @@ to land before the rest is live.
 
 ## Why
 
-The current read sizes every question for 10 points either way at 95%
-confidence (`answersNeeded`, 96 answers). That margin assumes the people who
-answer were drawn at random. Nobody who answers a text from their council
-member was: they chose to. The figure looks rigorous and holds nothing.
+The read used to size every question for 10 points either way at 95%
+confidence (96 answers). That margin assumes the people who answer were
+drawn at random. Nobody who answers a text from their council member was:
+they chose to. The figure looked rigorous and held nothing. `answersNeeded`
+now sizes for coverage, and the civic panel's goal follows it.
 
 The replacement asks two different questions:
 

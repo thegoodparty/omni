@@ -26,7 +26,6 @@ import type { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelB
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
-  panelGoalMembers,
 } from '@goodparty_org/contracts'
 import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 
@@ -680,7 +679,6 @@ describe('ChiefOfStaffHandler', () => {
         {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
-          getDistrictPopulation: vi.fn(() => Promise.resolve(105_154)),
         } as unknown as ContactsService,
         {
           findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
@@ -934,10 +932,9 @@ describe('ChiefOfStaffHandler', () => {
       expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
     })
 
-    it('reads the district population once a turn for the goal and the reads', async () => {
-      const turn = async (population: number | null) => {
-        const getDistrictPopulation = vi.fn(() => Promise.resolve(105_154))
-        const districtPopulation = vi.fn(() => Promise.resolve(population))
+    it('sizes the panel goal from the district once a turn', async () => {
+      const turn = async (answers: number) => {
+        const districtAnswersNeeded = vi.fn(() => Promise.resolve(answers))
         const readStatuses = vi.fn(() => Promise.resolve(new Map()))
         context.civicPanelBuildState = vi.fn(() =>
           Promise.resolve({
@@ -958,7 +955,6 @@ describe('ChiefOfStaffHandler', () => {
           {
             getFilterDimensions: vi.fn(() => []),
             countContacts: vi.fn(),
-            getDistrictPopulation,
           } as unknown as ContactsService,
           undefined,
           undefined,
@@ -968,27 +964,21 @@ describe('ChiefOfStaffHandler', () => {
           { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
           undefined,
           {
-            districtPopulation,
+            districtAnswersNeeded,
             readStatuses,
           } as unknown as PriorityResultsService,
         )
         await handler.loadContext('c1', USER_ID)
-        return { getDistrictPopulation, districtPopulation, readStatuses }
+        return { districtAnswersNeeded, readStatuses }
       }
 
-      const known = await turn(105_154)
-      expect(known.districtPopulation).toHaveBeenCalledTimes(1)
-      expect(known.getDistrictPopulation).not.toHaveBeenCalled()
-      expect(known.readStatuses).toHaveBeenCalledWith(ORG, [], 105_154)
-      expect(context.civicPanelBuildState).toHaveBeenCalledWith(
-        ORG,
-        panelGoalMembers(105_154),
-      )
-
-      const unknown = await turn(null)
-      expect(unknown.districtPopulation).toHaveBeenCalledTimes(1)
-      expect(unknown.readStatuses).toHaveBeenCalledWith(ORG, [], null)
+      const city = await turn(96)
+      expect(city.districtAnswersNeeded).toHaveBeenCalledTimes(1)
+      expect(city.readStatuses).toHaveBeenCalledWith(ORG, [])
       expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 240)
+
+      await turn(15)
+      expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 38)
     })
   })
 

@@ -158,7 +158,8 @@ export const DISTRICT_GRID_CELL_DEGREES = 0.004
 // people, to read the district: answers pooled across texts, calls and
 // doors, every large group in the district heard from, and a model of the
 // coded answers sure enough of each. gp-api's mrpReadStatus decides `good`:
-// representative, or answersNeeded met when the district could not be read.
+// representative, or answersNeeded() (100) met when the district could not
+// be read.
 // `needed` is the answers so far plus those still missing for every large
 // group to have three.
 export const PriorityReadStatusSchema = z.object({

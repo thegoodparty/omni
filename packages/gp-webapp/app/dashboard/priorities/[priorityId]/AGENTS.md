@@ -281,9 +281,8 @@ dimension furthest short), so "N more answers" counts what is missing.
 the one or two groups holding the read back: short of voices, or with a
 range still too wide; every tract reads as `unreachedAreas`
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the district cannot be
-read, `needed` is `answersNeeded(population)` from contracts for the census
-row's population (`CensusCompositionSource.population`, memoized per
-district; an unknown one uses the uncorrected 96), enough answers are a good
+read, `needed` is `answersNeeded()` from contracts (100, enough for the
+smallest major group any district can have), enough answers are a good
 read labeled "Enough answers", never "Representative", and fewer are too
 early. A read is kept in process for 15 minutes per priority and its coded
 answers (`PriorityResultsService`), so a new or recoded answer reads again

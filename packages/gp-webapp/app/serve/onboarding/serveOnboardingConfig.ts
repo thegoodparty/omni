@@ -429,7 +429,7 @@ export const SERVE_STORY_COPY = {
       'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
     howWeGotIt: 'How we got this number',
     explanation: (answers: number): string =>
-      `We picked ${answers} so that when residents split close to evenly, you know their view within about 10 points either way. Accuracy depends on how many people answer, not how many live in your district.`,
+      `We picked ${answers} so that every group making up 3% or more of your district is expected to answer at least 3 times.`,
   },
   grow: {
     title: "We'll help you build and grow the list of people you hear from",
