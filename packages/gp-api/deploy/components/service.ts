@@ -416,20 +416,31 @@ export function createService({
       dependsOn: listenerRule ? [listenerRule] : [],
       // Autoscaling owns the prod task count. Without this, a deploy can reset
       // it to the minimum mid-traffic.
-      ignoreChanges: ['desiredCount'],
+      ignoreChanges: isProd ? ['desiredCount'] : [],
     },
   )
 
   if (isProd) {
     // Register and Put are upserts, so these adopt the SST-era target and
-    // policies by name instead of creating duplicates.
-    const scalableTarget = new aws.appautoscaling.Target('scalableTarget', {
-      serviceNamespace: 'ecs',
-      scalableDimension: 'ecs:service:DesiredCount',
-      resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
-      minCapacity: prodMinTasks,
-      maxCapacity: 24,
+    // policies by name instead of creating duplicates. The register is only an
+    // upsert while it carries no tags: AWS treats a tagged
+    // RegisterScalableTarget as create-only and rejects it when the target
+    // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
+    // it. A provider without defaultTags keeps the adoption working.
+    const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+      region: aws.config.region,
     })
+    const scalableTarget = new aws.appautoscaling.Target(
+      'scalableTarget',
+      {
+        serviceNamespace: 'ecs',
+        scalableDimension: 'ecs:service:DesiredCount',
+        resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+        minCapacity: prodMinTasks,
+        maxCapacity: 24,
+      },
+      { provider: untaggedProvider },
+    )
 
     // The SST-era policies scaled in with a 0s cooldown: on 2026-10-19 they
     // removed a task every minute, 16 down to 2, and the 2 left saturated
