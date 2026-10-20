@@ -27,6 +27,14 @@ name: release
 on:
   push:
     branches: [main]
+    # A push that only touches these deploys nothing, so it starts no train;
+    # the next code push releases everything since. Root-level *.md only:
+    # Markdown under packages/ is read at runtime (runbooks, prompts). The
+    # autopilot image bakes in a copy of the repo, but it fetches and resets
+    # to main before each run, so it doesn't need a release to see new docs.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       sha:
