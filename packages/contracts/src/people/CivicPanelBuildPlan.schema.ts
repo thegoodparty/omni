@@ -133,10 +133,10 @@ export type MarkCivicPanelBuildStepInput = z.infer<
 >
 
 // How the panel compares with the district's census, unweighted, on age
-// band, gender and tract (and race when enough members have one). The official sees the
-// status, in the priority read's labels, and the one group to invite more
-// of, never a share, a weight or a target. Below this many members it is
-// too early to tell.
+// band, gender and tract (and race when enough members have one). The
+// official sees the status, in the priority read's labels, and the one group
+// to invite more of, never a share, a weight or a target. Below this many
+// members it is too early to tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
 export const CivicPanelBalanceSchema = z.object({
