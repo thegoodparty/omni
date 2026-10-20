@@ -583,7 +583,9 @@ charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
   reclaims it past `ROBOCALL_CHARGING_STALE_MINUTES` (15) via a stale-guarded
   self-transition CAS and re-runs the settle path. Before charging, `settleClaimed`
   SEARCHES Stripe for an already-succeeded fresh-charge PI (by the
-  `robocall_fresh_charge` kind + outreachId metadata) and, if found, commits
+  `robocall_fresh_charge` kind + outreachId metadata, scoped to the row's Stripe
+  customer so another PR preview's charge for the same outreach id never matches)
+  and, if found, commits
   `charged` off it WITHOUT charging again — so recovery is idempotent independent
   of Stripe's 24h idempotency-key window, which a recovery delayed by a crash +
   investigation can outlast. The stable key is a second layer for within-window

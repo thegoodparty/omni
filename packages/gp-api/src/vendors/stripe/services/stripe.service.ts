@@ -413,13 +413,19 @@ export class StripeService {
   // is eventually consistent (~1m index lag); recovery only
   // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
   // longer. Returns the succeeded PI's id + amount_received, or null.
-  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+  // Scoped to the customer for the same reason the keys carry it: PR previews
+  // share one Stripe account and repeat outreach ids, so outreachId alone can
+  // match another preview's charge.
+  async findSucceededChargeByOutreach(
+    outreachId: number,
+    customerId: string,
+  ): Promise<{
     paymentIntentId: string
     amountReceived: number | null
   } | null> {
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'succeeded' AND ` +
+        `status:'succeeded' AND customer:'${customerId}' AND ` +
         `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
         `metadata['outreachId']:'${outreachId}'`,
     })
@@ -500,10 +506,17 @@ export class StripeService {
   // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
   // lag ~1m before it is indexed); the recovery only runs on rows already
   // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
-  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+  // Scoped to the customer like findSucceededChargeByOutreach. A row with no
+  // customer recorded keeps the unscoped search: the cost of missing a live
+  // orphan is a second hold on the card, worse than matching a preview's.
+  async findLiveManualHoldsByOutreach(
+    outreachId: number,
+    customerId: string | null,
+  ): Promise<string[]> {
+    const customerClause = customerId ? `customer:'${customerId}' AND ` : ''
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'requires_capture' AND ` +
+        `status:'requires_capture' AND ${customerClause}` +
         `metadata['outreachId']:'${outreachId}'`,
     })
     return res.data.map((intent) => intent.id)

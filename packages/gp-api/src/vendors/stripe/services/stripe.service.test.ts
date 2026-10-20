@@ -395,11 +395,12 @@ describe('StripeService.createOffSessionCharge', () => {
       data: [{ id: 'pi_landed', amount_received: 450 }],
     })
 
-    const found = await service.findSucceededChargeByOutreach(42)
+    const found = await service.findSucceededChargeByOutreach(42, 'cus_1')
 
     expect(found).toEqual({ paymentIntentId: 'pi_landed', amountReceived: 450 })
     const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
     expect(query).toContain("status:'succeeded'")
+    expect(query).toContain("customer:'cus_1'")
     expect(query).toContain("metadata['kind']:'robocall_fresh_charge'")
     expect(query).toContain("metadata['outreachId']:'42'")
   })
@@ -407,7 +408,29 @@ describe('StripeService.createOffSessionCharge', () => {
   it('returns null when no succeeded fresh charge exists', async () => {
     paymentIntentsSearch.mockResolvedValue({ data: [] })
 
-    expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
+    expect(await service.findSucceededChargeByOutreach(42, 'cus_1')).toBeNull()
+  })
+
+  it("finds live holds by outreach, scoped to the row's customer", async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [{ id: 'pi_live' }] })
+
+    expect(await service.findLiveManualHoldsByOutreach(42, 'cus_1')).toEqual([
+      'pi_live',
+    ])
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).toContain("status:'requires_capture'")
+    expect(query).toContain("customer:'cus_1'")
+    expect(query).toContain("metadata['outreachId']:'42'")
+  })
+
+  it('searches live holds unscoped when the row has no customer', async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [] })
+
+    await service.findLiveManualHoldsByOutreach(42, null)
+
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).not.toContain('customer:')
+    expect(query).toContain("metadata['outreachId']:'42'")
   })
 })
 
