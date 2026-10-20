@@ -240,42 +240,48 @@ same list so neither asks what the record answers.
 
 ## A good read
 
-Behind `serve-citizen-panels`, a priority has a good read once the people who
-answered on it, pooled across texts, calls and doors (the results page's
-count), are enough for the district and look like it. gp-api decides it in one
-place, `priorityReadStatus`
-(`gp-api/src/priorities/util/priorityReadStatus.util.ts`), returning
-`{ answers, needed, good, status, underrepresented }`:
+Behind `serve-citizen-panels`, a priority has a good read once every large
+group in the district has answered on it, pooled across texts, calls and
+doors, and a model of the coded answers is sure enough of each. gp-api
+decides it in one place, `mrpReadStatus`
+(`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
+`{ answers, needed, good, status, underrepresented }`. A major group holds
+3% or more of the district on age band, tract, gender, or race when
+`raceNameable` holds (10 coded answers with a known race, 70% of all); the
+pooled `other` never counts.
 
-| `status`               | Rule                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)                   |
-| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census                |
-| `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed`             |
-| `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this                 |
-| `enoughAnswers`        | the census could not be read and answers meet `needed`; `good`, but no claim about who answered |
+| `status`               | Rule                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `tooEarly`             | a major group has no coded answer                                                                        |
+| `notYetRepresentative` | a major group has fewer than 3                                                                           |
+| `gettingClose`         | a major group's 90% range is wider than 20 points                                                        |
+| `representative`       | none of the above; `good` is exactly this                                                                |
+| `enoughAnswers`        | the district could not be read and answers meet `answersNeeded`; `good`, but no claim about who answered |
 
-The answers are raked to the district's census marginals
-(`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
-ACS adults 18 to 64 and 65 and over, owner and renter households, adults
-per census tract, and race (white, Black, Hispanic, Asian, other; all-ages
-ACS shares against L2's modeled ethnicity, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`). Small groups pool, weights are capped at 0.2x to 5x the
-average, and an unknown value sits out its dimension. Gender is wired as a
-dimension and joins once the census marts publish sex by age. A race group
-is named only when `raceNameable` holds (10 answers with a known race, 70%
-of all); otherwise race only weights. `other` is never named. `underrepresented` names the one or two groups whose raw share
-trails the census most, by at least 5 points
-(`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
-read, enough answers are a good read labeled "Enough answers", never
-"Representative", and fewer are too early. A weighting is kept in process for
-15 minutes per priority and answer count (`PriorityResultsService`), so a new
-answer reweighs and a failure is never kept. The tenure target is owner
-households, not adults, a known bias that makes renters look less heard; it
-waits on a statistician. `needed` is
-`answersNeeded(population)` from contracts for the census row's population
-(`CensusCompositionSource.population`, memoized per district); an unknown one
-uses the uncorrected 96. **The official never sees a weight, a quota or a
-discounted count**: only the status, the groups and actions.
+The model is MRP (`gp-api/src/priorities/util/mrp.util.ts`,
+`docs/features/civic-panel-mrp.md`): each person's coded answers to the
+priority (`PriorityAnswer`; yes 1, no 0, mixed half, not an answer left out,
+averaged when a person answered twice) fit by age band, gender, tract and
+race, reweighted to the district's own voter-file cells. Race is L2's
+modeled ethnicity folded as the panel's steering folds it
+(`docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`); it shapes
+the model either way and counts as a group only when nameable. Scales are
+the model's defaults; nothing learns them from past priorities yet.
+`answers` is the people heard (the results page's count); `needed` is
+`answers` plus the fewest more that could give every major group 3 (the
+dimension furthest short), so "N more answers" counts what is missing.
+`underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
+the one or two groups holding the read back: short of voices, or with a
+range still too wide; every tract reads as `unreachedAreas`
+(`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the district cannot be
+read, `needed` is `answersNeeded(population)` from contracts for the census
+row's population (`CensusCompositionSource.population`, memoized per
+district; an unknown one uses the uncorrected 96), enough answers are a good
+read labeled "Enough answers", never "Representative", and fewer are too
+early. A read is kept in process for 15 minutes per priority and its coded
+answers (`PriorityResultsService`), so a new or recoded answer reads again
+and a failure is never kept. **The official never sees a share, a range or
+a model**: only the status, the groups and actions.
 `PriorityResultsService.readStatuses` serves `GET /v1/priorities/:id/read-status`
 (404 with the flag off), `readStatus` on the results response, the
 `<priority>` context of the priority flow and the Chief of Staff's

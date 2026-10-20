@@ -19,9 +19,11 @@ scoping every row to the caller (see below).
 | `DELETE /v1/test-fixtures/users`                      | `AdminOrM2MGuard`   | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                 |
 | `POST /v1/test-fixtures/users/:id/session`            | `AdminOrM2MGuard`   | Re-mint the 1h session token for runs longer than an hour                                          |
 | `POST /v1/test-fixtures/organizations/:slug/activity` | `AdminOrM2MGuard`   | Fill an existing org with weeks of outreach on every channel (see below)                           |
-| `POST /v1/test-fixtures/vendor-mocks/actions`         | session + ownership | Apply a mock action (e.g. `geoapify.route.fail`) to vendor mock records for a campaign             |
-| `GET /v1/test-fixtures/vendor-mocks/records`          | session + ownership | List a campaign's `VendorMockRecord` rows and the deploy's `vendorMode` (`?campaignId=N`)          |
-| `POST /v1/test-fixtures/jobs/:name/run`               | `AdminOrM2MGuard`   | Run a named background job on demand — allowlist is empty in M1, extended by later milestones      |
+| `POST /v1/test-fixtures/vendor-mocks/actions`         | session + ownership | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign            |
+| `GET /v1/test-fixtures/vendor-mocks/records`          | session + ownership | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`            |
+| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`  | session + isTestUser | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it) |
+| `POST /v1/test-fixtures/vendor-mocks/time-travel`     | session + ownership | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today` |
+| `POST /v1/test-fixtures/jobs/:name/run`               | `AdminOrM2MGuard`   | Run a named background job on demand (robocall.staging/send/completion/capture)                    |
 | `POST /v1/test-fixtures/judge-chat-cases`             | session             | Stage one Universal Judge chat case for the caller (see below)                                     |
 | `DELETE /v1/test-fixtures/judge-chat-cases/:slug`     | session             | Remove one, and only one the caller owns under a `judge-` slug                                     |
 

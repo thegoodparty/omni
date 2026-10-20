@@ -29,7 +29,7 @@ export interface BatchTarget {
   score: number
 }
 
-const isTargeted = (
+export const isTargeted = (
   group: MrpGroupEstimate,
   dimensions: readonly TargetedDimension[],
 ): group is MrpGroupEstimate & { dimension: TargetedDimension } =>
