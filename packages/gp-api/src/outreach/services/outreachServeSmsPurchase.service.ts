@@ -675,9 +675,11 @@ export class OutreachServeSmsPurchaseHandlerService
           ? session.payment_intent
           : session.payment_intent?.id
       if (paymentIntentId) {
+        // Keyed on the payment: outreach ids repeat across PR previews,
+        // which share one Stripe account.
         await this.stripe.refundPaymentIntent(
           paymentIntentId,
-          `outreach-cancel-${outreachId}`,
+          `outreach-cancel-${paymentIntentId}`,
         )
       }
     } catch (err) {
