@@ -32,7 +32,7 @@ import {
   OUTREACH_CHANNEL_LABELS,
 } from '../shared/outreachChannelLabels'
 import { isNotNil } from 'es-toolkit'
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -44,6 +44,7 @@ import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
+import { PocPersonActions, PocRemovedPerson } from './PocPersonActions'
 import {
   DoorKnockActivityRow,
   formatDateTime,
@@ -379,6 +380,7 @@ export const PersonRecord: React.FC<{
   topIssues?: ReactNode
   activityFeed?: ReactNode
   showMap?: boolean
+  pocActions?: ReactNode
 }> = ({
   person,
   isServe,
@@ -387,6 +389,7 @@ export const PersonRecord: React.FC<{
   topIssues,
   activityFeed,
   showMap = true,
+  pocActions,
 }) => {
   const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
   const { on: showActivitiesAndIssues } = useFlagOn(
@@ -427,6 +430,7 @@ export const PersonRecord: React.FC<{
         {formatPersonName(person)}
       </h2>
       <p className="text-xl font-semibold mb-6">{details}</p>
+      {pocActions}
       {/* ENG-10836: Win-only status row (Voter Likelihood / Support Status
           dropdowns + read-only Opt In Status pill) — replaces the Win branch
           of the Support Status Field below and the OptedInChip that used to
@@ -490,6 +494,7 @@ export const PersonRecord: React.FC<{
           )}
           <Field label="Cell Phone Number" value={person.cellPhone} />
           <Field label="Landline" value={person.landline} />
+          {person.pocEmail && <Field label="Email" value={person.pocEmail} />}
         </InfoSection>
         {/* Win's voter-file card. Serve renders nothing here at all: the
             three rows it used to carry were a support status Serve can never
@@ -557,6 +562,7 @@ export default function PersonOverlay(): React.JSX.Element {
     isWinContext,
   } = useContactsTable()
   const { person, isLoadingPerson, isErrorPerson } = currentlySelectedPerson
+  const [removedPersonId, setRemovedPersonId] = useState<string | null>(null)
 
   const handleClose = (open: boolean) => {
     if (!open) {
@@ -572,7 +578,12 @@ export default function PersonOverlay(): React.JSX.Element {
       </SheetTitle>
       <SheetContent className="w-screen sm:w-[90vw] sm:max-w-xl h-full overflow-y-auto z-[1301]">
         <div className="p-6">
-          {isErrorPerson ? (
+          {removedPersonId && removedPersonId === currentlySelectedPersonId ? (
+            <PocRemovedPerson
+              personId={removedPersonId}
+              onRestored={() => setRemovedPersonId(null)}
+            />
+          ) : isErrorPerson ? (
             <div className="flex flex-col items-center justify-center h-full">
               <h2 className="text-2xl font-semibold mb-4">
                 Error Loading Contact
@@ -588,7 +599,7 @@ export default function PersonOverlay(): React.JSX.Element {
                 Close
               </button>
             </div>
-          ) : isLoadingPerson ? (
+          ) : isLoadingPerson && !person ? (
             <div>
               <div className="h-10 bg-gray-200 rounded animate-pulse mb-4 w-3/4"></div>
               <div className="h-6 bg-gray-200 rounded animate-pulse mb-4 w-1/3"></div>
@@ -627,6 +638,12 @@ export default function PersonOverlay(): React.JSX.Element {
                 }
                 topIssues={<TopIssuesContent />}
                 activityFeed={<ActivitiesContent />}
+                pocActions={
+                  <PocPersonActions
+                    person={person}
+                    onRemoved={setRemovedPersonId}
+                  />
+                }
               />
             )
           )}

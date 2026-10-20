@@ -1606,6 +1606,55 @@ export type APIEndpoints = {
     Request: {}
     Response: Person
   }
+  'POST /v1/poc/contacts/import': {
+    Request: {
+      rows: {
+        firstName: string
+        lastName: string
+        address?: string
+        city?: string
+        zip?: string
+        phone?: string
+        email?: string
+      }[]
+    }
+    Response: {
+      importId: string
+      counts: {
+        total: number
+        matched: number
+        ambiguous: number
+        new: number
+      }
+      ambiguous: { rowIndex: number; candidateCount: number }[]
+      timingsMs: Record<string, number>
+    }
+  }
+  'POST /v1/poc/contacts/import/:importId/commit': {
+    Request: {}
+    Response: {
+      importId: string
+      counts: {
+        insertedEvents: number
+        createEvents: number
+        setEvents: number
+        people: number
+      }
+      timingsMs: Record<string, number>
+    }
+  }
+  'PATCH /v1/poc/contacts/:personId/field': {
+    Request: { field: string; value: string | null }
+    Response: { timingsMs: Record<string, number> }
+  }
+  'POST /v1/poc/contacts/:personId/remove': {
+    Request: {}
+    Response: { timingsMs: Record<string, number> }
+  }
+  'POST /v1/poc/contacts/:personId/restore': {
+    Request: {}
+    Response: { timingsMs: Record<string, number> }
+  }
   'POST /v1/contacts/count': {
     Request: {
       activityConditions?: ActivityConditionInput[]
