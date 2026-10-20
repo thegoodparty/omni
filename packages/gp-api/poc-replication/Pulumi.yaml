@@ -1,0 +1,3 @@
+name: gp-api-poc-replication
+runtime: nodejs
+description: Import contacts replication POC (dedicated Aurora cluster). Destroy after the POC.

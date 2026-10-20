@@ -6,6 +6,6 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["deploy/**/*.ts"],
+  "include": ["deploy/**/*.ts", "poc-replication/**/*.ts"],
   "exclude": ["node_modules"]
 }

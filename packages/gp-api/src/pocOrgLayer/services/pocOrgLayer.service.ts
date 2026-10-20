@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  OnModuleDestroy,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { Pool } from 'pg'
 import { Organization } from '@/generated/prisma'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { DatabricksVoterService } from '@/peopleDb/databricks/databricksVoter.service'
@@ -10,7 +15,9 @@ import {
   ORG_LAYER_FIELDS,
   ORG_LAYER_IMPORT_ROW_TABLE,
   ORG_LAYER_LOG_TABLE,
+  ORG_LAYER_PG_LOG_TABLE,
   ORG_LAYER_SCHEMA,
+  orgLayerStore,
   type OrgLayerField,
 } from '@/peopleDb/databricks/orgLayer.poc'
 import type { PocImportRow } from '../pocOrgLayer.schema'
@@ -35,8 +42,9 @@ export const POC_SETTABLE_FIELDS: readonly OrgLayerField[] = [
 ]
 
 @Injectable()
-export class PocOrgLayerService {
+export class PocOrgLayerService implements OnModuleDestroy {
   private tablesReady: Promise<void> | null = null
+  private pgPool: Pool | null = null
 
   constructor(
     private readonly logger: PinoLogger,
@@ -45,6 +53,21 @@ export class PocOrgLayerService {
     private readonly voters: DatabricksVoterService,
   ) {
     this.logger.setContext(PocOrgLayerService.name)
+  }
+
+  async onModuleDestroy() {
+    await this.pgPool?.end()
+  }
+
+  private pg(): Pool {
+    const connectionString = process.env.POC_ORG_LAYER_DATABASE_URL
+    if (!connectionString) {
+      throw new Error(
+        'POC_ORG_LAYER_DATABASE_URL must be set when POC_ORG_LAYER_STORE=postgres',
+      )
+    }
+    this.pgPool ??= new Pool({ connectionString, max: 5 })
+    return this.pgPool
   }
 
   private timed = async <T>(
@@ -299,6 +322,9 @@ export class PocOrgLayerService {
   }
 
   async commitImport(org: Organization, importId: string, actorId: number) {
+    if (orgLayerStore() === 'postgres') {
+      return this.commitImportToPostgres(org, importId, actorId)
+    }
     const timingsMs: Record<string, number> = {}
     const startedAt = Date.now()
     const bag = createBag()
@@ -369,6 +395,112 @@ export class PocOrgLayerService {
     return { importId, counts, timingsMs }
   }
 
+  private async commitImportToPostgres(
+    org: Organization,
+    importId: string,
+    actorId: number,
+  ) {
+    const timingsMs: Record<string, number> = {}
+    const startedAt = Date.now()
+    const bag = createBag()
+    const orgParam = bag.bind(org.slug)
+    const importIdParam = bag.bind(importId)
+    const staged = await this.timed(timingsMs, 'readStaged', () =>
+      this.client.query({
+        sql:
+          'SELECT m.status, m.person_id, ' +
+          ROW_FIELD_COLUMNS.map(([column]) => `r.${column}`).join(', ') +
+          ` FROM ${ORG_LAYER_IMPORT_ROW_TABLE} r` +
+          ` JOIN ${ORG_LAYER_MATCH_TABLE} m` +
+          ' ON m.import_id = r.import_id AND m.row_index = r.row_index' +
+          ` WHERE r.import_id = ${importIdParam}` +
+          ` AND r.org_slug = ${orgParam} AND m.org_slug = ${orgParam}`,
+        params: bag.params,
+      }),
+    )
+
+    const eventIds: string[] = []
+    const personIds: string[] = []
+    const kinds: string[] = []
+    const fields: Array<string | null> = []
+    const values: Array<string | null> = []
+    for (const [status, matchedPersonId, ...cells] of staged.rows) {
+      const personId =
+        status === 'matched' && matchedPersonId ? matchedPersonId : randomUUID()
+      if (status !== 'matched') {
+        eventIds.push(randomUUID())
+        personIds.push(personId)
+        kinds.push('create')
+        fields.push(null)
+        values.push(null)
+      }
+      ROW_FIELD_COLUMNS.forEach(([, field], i) => {
+        const value = cells[i]
+        if (!value?.trim()) return
+        eventIds.push(randomUUID())
+        personIds.push(personId)
+        kinds.push('set')
+        fields.push(field)
+        values.push(value)
+      })
+    }
+
+    const inserted = await this.timed(timingsMs, 'commit', () =>
+      this.pg().query(
+        `INSERT INTO ${ORG_LAYER_PG_LOG_TABLE} (event_id, org_slug, person_id,` +
+          ' kind, field, value, source, import_id, actor_user_id, created_at)' +
+          ' SELECT e.event_id, $1, e.person_id, e.kind, e.field, e.value,' +
+          " 'import', $2, $3, now()" +
+          ' FROM unnest($4::uuid[], $5::text[], $6::text[], $7::text[],' +
+          ' $8::text[]) AS e(event_id, person_id, kind, field, value)',
+        [
+          org.slug,
+          importId,
+          actorId,
+          eventIds,
+          personIds,
+          kinds,
+          fields,
+          values,
+        ],
+      ),
+    )
+    const counts = await this.timed(timingsMs, 'commitSummary', async () => {
+      const { rows } = await this.pg().query<{
+        creates: string
+        sets: string
+        people: string
+      }>(
+        "SELECT count(*) FILTER (WHERE kind = 'create') AS creates," +
+          " count(*) FILTER (WHERE kind = 'set') AS sets," +
+          ' count(DISTINCT person_id) AS people' +
+          ` FROM ${ORG_LAYER_PG_LOG_TABLE}` +
+          ' WHERE org_slug = $1 AND import_id = $2',
+        [org.slug, importId],
+      )
+      const [row] = rows
+      return {
+        insertedEvents: inserted.rowCount ?? 0,
+        createEvents: Number(row?.creates ?? 0),
+        setEvents: Number(row?.sets ?? 0),
+        people: Number(row?.people ?? 0),
+      }
+    })
+    timingsMs.total = Date.now() - startedAt
+    this.logger.info(
+      {
+        op: 'poc-import-commit',
+        store: 'postgres',
+        orgSlug: org.slug,
+        importId,
+        counts,
+        timingsMs,
+      },
+      'poc org layer write',
+    )
+    return { importId, counts, timingsMs }
+  }
+
   async setField(
     org: Organization,
     personId: string,
@@ -393,21 +525,41 @@ export class PocOrgLayerService {
     value: string | null = null,
   ) {
     const timingsMs: Record<string, number> = {}
-    const bag = createBag()
-    await this.timed(timingsMs, 'insert', () =>
-      this.client.query({
+    const store = orgLayerStore()
+    const eventId = randomUUID()
+    await this.timed(timingsMs, 'insert', async () => {
+      if (store === 'postgres') {
+        await this.pg().query(
+          `INSERT INTO ${ORG_LAYER_PG_LOG_TABLE} (event_id, org_slug,` +
+            ' person_id, kind, field, value, source, import_id,' +
+            ' actor_user_id, created_at)' +
+            " VALUES ($1, $2, $3, $4, $5, $6, 'manual', NULL, $7, now())",
+          [eventId, org.slug, personId, kind, field, value, actorId],
+        )
+        return
+      }
+      const bag = createBag()
+      await this.client.query({
         sql:
           `INSERT INTO ${ORG_LAYER_LOG_TABLE} (event_id, org_slug, person_id,` +
           ' kind, field, value, source, import_id, actor_user_id, created_at)' +
-          ` VALUES (${bag.bind(randomUUID())}, ${bag.bind(org.slug)},` +
+          ` VALUES (${bag.bind(eventId)}, ${bag.bind(org.slug)},` +
           ` ${bag.bind(personId)},` +
           ` ${bag.bind(kind)}, ${bag.bind(field)}, ${bag.bind(value)},` +
           ` 'manual', NULL, ${bag.bind(actorId, 'INT')}, current_timestamp())`,
         params: bag.params,
-      }),
-    )
+      })
+    })
     this.logger.info(
-      { op: `poc-${kind}`, orgSlug: org.slug, personId, field, timingsMs },
+      {
+        op: `poc-${kind}`,
+        store,
+        orgSlug: org.slug,
+        personId,
+        eventId,
+        field,
+        timingsMs,
+      },
       'poc org layer write',
     )
     return { timingsMs }

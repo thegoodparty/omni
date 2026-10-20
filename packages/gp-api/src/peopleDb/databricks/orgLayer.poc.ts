@@ -7,6 +7,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 export const ORG_LAYER_SCHEMA = 'goodparty_data_catalog.poc_import_contacts'
 export const ORG_LAYER_LOG_TABLE = `${ORG_LAYER_SCHEMA}.org_contact_event`
 export const ORG_LAYER_IMPORT_ROW_TABLE = `${ORG_LAYER_SCHEMA}.org_import_row`
+export const ORG_LAYER_PG_LOG_TABLE = 'org_contact_event'
 
 export const ORG_LAYER_FIELDS = [
   'FirstName',
@@ -24,6 +25,27 @@ export const orgLayerStorage = new AsyncLocalStorage<{ orgSlug: string }>()
 
 export const isOrgLayerPocEnabled = (): boolean =>
   process.env.POC_ORG_LAYER_ENABLED === 'true'
+
+export type OrgLayerStore = 'delta' | 'postgres'
+
+export const orgLayerStore = (): OrgLayerStore => {
+  const store = process.env.POC_ORG_LAYER_STORE || 'delta'
+  if (store !== 'delta' && store !== 'postgres') {
+    throw new Error(`Bad POC_ORG_LAYER_STORE ${store}`)
+  }
+  return store
+}
+
+const NAME_PART = '(?:[A-Za-z0-9_]+|`[^`]+`)'
+const LOG_SOURCE = new RegExp(`^${NAME_PART}(?:\\.${NAME_PART}){2}$`)
+
+export const orgLayerLogSource = (): string => {
+  const source = process.env.POC_ORG_LAYER_LOG_SOURCE || ORG_LAYER_LOG_TABLE
+  if (!LOG_SOURCE.test(source)) {
+    throw new Error(`Bad POC_ORG_LAYER_LOG_SOURCE ${source}`)
+  }
+  return source
+}
 
 const ORG_SLUG = /^[a-z0-9-]+$/
 const IDENT = /^[A-Za-z0-9_]+$/
@@ -66,7 +88,7 @@ export const personViewSql = (args: {
     ${pivots},
     max(kind = 'create') AS is_new,
     coalesce(max_by(kind, created_at) FILTER (WHERE kind IN ('remove', 'restore')) = 'remove', false) AS removed
-  FROM ${ORG_LAYER_LOG_TABLE} WHERE org_slug = ${lit(orgSlug)} GROUP BY person_id
+  FROM ${orgLayerLogSource()} WHERE org_slug = ${lit(orgSlug)} GROUP BY person_id
 )
 SELECT b.* EXCEPT (${exceptCols}), coalesce(b.id, p.person_id) AS id, ${lit(state)} AS State${districtCol}, ${fields}, p.email AS poc_email,
   CASE WHEN b.id IS NULL THEN 'org' WHEN p.person_id IS NULL THEN 'vendor' ELSE 'vendor+org' END AS poc_origin
