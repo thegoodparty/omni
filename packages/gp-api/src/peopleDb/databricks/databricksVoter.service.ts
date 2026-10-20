@@ -824,8 +824,7 @@ export class DatabricksVoterService {
 const withPocEmail = (
   columnNames: readonly string[],
   isOrgView: boolean,
-): string[] =>
-  isOrgView ? [...columnNames, 'poc_email'] : [...columnNames]
+): string[] => (isOrgView ? [...columnNames, 'poc_email'] : [...columnNames])
 
 const toDbPerson = (
   columns: readonly string[],
