@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { VendorMockVendor } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 
 const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
@@ -163,10 +164,11 @@ describe('Phone list upload and status', () => {
     const upload = await service.client.post(`${BASE}/phonelists`, form)
     const token = upload.data.Data.token as string
 
-    await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/jobs/p2p.phoneListFinish/run',
-      {},
-    )
+    // testUserRunJob requires isTestUser; backdate directly instead
+    await service.prisma.vendorMockRecord.updateMany({
+      where: { vendor: VendorMockVendor.peerly, kind: 'phone_list' },
+      data: { createdAt: new Date(Date.now() - 15_000) },
+    })
 
     const status = await service.client.get(
       `${BASE}/phonelists/${token}/checkstatus`,
@@ -202,6 +204,9 @@ describe('peerly.balance.empty mock action', () => {
 
   it('sets balance to 0 after the action', async () => {
     const slug = `balance-test-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
     const campaign = await service.prisma.campaign.create({
       data: {
         userId: service.user.id,
