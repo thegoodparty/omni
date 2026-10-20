@@ -1,5 +1,4 @@
 import {
-  ASK_RESIDENTS_MARKER,
   GET_ANSWERS_MARKER,
   HIGH_CONFIDENCE_MIN_REPLIES,
   HIGH_CONFIDENCE_MIN_SHARE,
@@ -308,7 +307,7 @@ const buildCheckWorkBlock = (
 const ROUND_ONE_CARDS = [
   'door knocking, with what to say at the door as the message, and walkableArea exactly as returned, with no sampleSize',
   'phone banking, with the script a caller reads as the message',
-  'text, with the text as the message, and targetResponses, assumedReplyRate and civicPanelAsk as returned',
+  'text, with the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned',
 ]
 
 const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
@@ -324,7 +323,7 @@ const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
     '  3. Every card gets the same question, adapted only to how it is asked, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). Every card invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into a message.',
     '  4. A card it did not return is not needed this round. Say nothing about it.',
     '  5. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
-    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many doors the walk knocks, in one neighborhood, and how many people the calls and the text go to, their sampleSize. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
+    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many doors the walk knocks, in one neighborhood, and how many people the calls and the text go to, their sampleSize. When the text card has a roundTwoSize, say in one line that the text is one purchase in two rounds: sampleSize texts on the date they pick, then roundTwoSize more about two weeks later to the groups they have heard from least, with nothing more for them to do. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
     '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which cards are real.',
     '- Once any card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
     '- The people who answer chose to, so they never stand in for everyone. Say so in one line when you report what they said.',
@@ -398,7 +397,6 @@ const buildGoodReadBlock = (canPropose: boolean): string =>
     ...(canPropose
       ? [
           `- A message that starts with ${GET_ANSWERS_MARKER} comes from the app, not the official: they pressed Get answers. Do not restate it. Propose getting more answers for the check that is out now, as a card, the way READING WHAT CAME BACK follows up a thin read. If no check is out yet, offer the check the current step needs, built the way a check is always built. The official sends it from the card: never say anything was sent, and never send anything yourself. If <priority> already says Good read: yes, say so in one line and offer what came back instead.`,
-          `- A message that starts with ${ASK_RESIDENTS_MARKER} comes from the app, not the official: they opened this priority from Ask your civic panel to hear from residents. Do not restate it. Work the Who to hear from step: if the problem is not settled yet, settle it in a line first, then offer the check on the problem as a card, built the way a check is always built, so the answers come back to Who to hear from. If a check on the problem is already out or answered, say where Who to hear from stands in one line and offer what comes next. The official sends the card themselves: never say anything was sent, and never send anything yourself.`,
         ]
       : []),
   ].join('\n')
@@ -471,6 +469,11 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
       ? []
       : [
           `Groups heard from: ${ctx.readStatus.groupsTotal === 0 ? 'not known' : `${ctx.readStatus.groupsHeard} of ${ctx.readStatus.groupsTotal}`}. Status: ${READ_REPRESENTATIVENESS_LABELS[ctx.readStatus.status]}. Hear more from: ${hearMoreFrom(ctx.readStatus)}. Good read: ${ctx.readStatus.good ? 'yes' : 'no'}.`,
+          ...(ctx.readStatus.followUp
+            ? [
+                `Follow-up text: ${ctx.readStatus.followUp.texts} texts on ${ctx.readStatus.followUp.scheduledLocalDate}, already paid for, to the groups heard from least. Do not offer another text for this check before then.`,
+              ]
+            : []),
         ]),
     '</priority>',
   ].join('\n')

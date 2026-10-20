@@ -136,9 +136,16 @@ contacts AGENTS.md, "Round 1 sizing"): doors and calls from the official's
 weekly hours on their panel plan, asked once with `ask_clarify_question`
 when there is no plan, and the text so every major group is expected to
 give at least 3 answers. The text carries `civicPanelAsk`; calls and doors
-close on the panel's join question as every Serve call and walk does. No
-new UI: the calls and the text are ordinary proposal cards with
-`sampleSize`, and the door card carries the area as `walkableArea` (a box,
+close on the panel's join question as every Serve call and walk does. The
+calls and the text are ordinary proposal cards with `sampleSize`. The text
+is one purchase in two rounds: `roundTwoSize` is the half held for a
+follow-up two weeks later, drawn toward the groups heard from least. Its
+card reads "Text 2,000 of 58,520: 1,000 now, 1,000 two weeks later"
+(`proposalSampleLine`), `SmsFlow` forwards it on the create, the review
+step quotes both as one count with a Follow-up row (`SmsReviewStep`), and
+once paid the read status's `followUp` puts "Follow-up text to N people on
+Nov 3, to the groups you've heard from least" under the strip and in the
+rail block until it sends. The door card carries the area as `walkableArea` (a box,
 contracts' `WalkableAreaBoxSchema`). Starting it saves the list with that
 box as its drawn boundary (`geoPoly`, so its members are who the box holds)
 and opens door knocking with it on `?area=`, the first turf, as a panel
@@ -316,11 +323,7 @@ a model**: only the status, the groups and actions.
   card (`buildGoodReadBlock` in `priorityFlow.prompt.ts`); nothing sends
   from the button. The results page's Get answers links back with
   `?getAnswers=1`, which `page.tsx` reads and the workspace turns into the
-  same turn once, then drops from the address. "Ask your civic panel" on the
-  Chief of Staff opens a priority with `?ask=1` instead: the workspace sends
-  one hidden `ASK_RESIDENTS_MESSAGE` turn (`isAppTurn`, filtered like the
-  rest), and the agent works the Who to hear from step and offers the check on
-  the problem as a card.
+  same turn once, then drops from the address.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,

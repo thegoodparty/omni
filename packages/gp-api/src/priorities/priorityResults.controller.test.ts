@@ -564,6 +564,32 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toMatchObject({ answers: 0, good: false })
   })
 
+  it('says when a paid follow-up text goes out, until it does', async () => {
+    const { outreach } = await createTextSend(3, 0)
+    const followUp = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending,
+        priorityId,
+        roundOneOutreachId: outreach.id,
+        scheduledLocalDate: '2026-11-03',
+        textCount: 250,
+      },
+    })
+
+    expect((await readStatus()).data.followUp).toEqual({
+      scheduledLocalDate: '2026-11-03',
+      texts: 250,
+    })
+
+    await service.prisma.outreach.update({
+      where: { id: followUp.id },
+      data: { status: OutreachStatus.in_progress },
+    })
+    expect((await readStatus()).data.followUp).toBeUndefined()
+  })
+
   it('says enough answers, not representative, when the district cannot be read', async () => {
     mrpInputs.mockResolvedValue(null)
     await createCodedSend(100, 3)

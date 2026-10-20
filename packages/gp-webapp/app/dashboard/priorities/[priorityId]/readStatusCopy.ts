@@ -43,6 +43,9 @@ export const READ_STATUS_COPY = {
     "Some groups haven't answered yet. We'll show what we heard once every group has.",
   unsureGroups:
     "We'll show what we heard once we're sure what every group thinks.",
+  // A follow-up text paid for with the first: when it goes and to whom.
+  followUp: (texts: number, date: string): string =>
+    `Follow-up text to ${texts.toLocaleString()} people on ${date}, to the groups you've heard from least`,
   hearFromMoreHeading: 'Hear from more',
   groupName: (group: UnderrepresentedGroup, read: PriorityReadStatus): string =>
     underrepresentedGroupName(group, read.status),
@@ -54,10 +57,6 @@ export const resultsHref = (priorityId: string): string =>
 // The results page's Get answers goes back to the priority, which sends the
 // agent the same hidden turn its own button does.
 export const GET_ANSWERS_PARAM = 'getAnswers'
-
-// "Ask your civic panel" opens a priority on its Who to hear from step, with
-// the check the agent offers there.
-export const ASK_RESIDENTS_PARAM = 'ask'
 
 export const getAnswersHref = (priorityId: string): string =>
   `/dashboard/priorities/${encodeURIComponent(priorityId)}?${GET_ANSWERS_PARAM}=1`

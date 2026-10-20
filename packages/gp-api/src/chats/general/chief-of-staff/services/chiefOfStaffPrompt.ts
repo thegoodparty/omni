@@ -163,7 +163,6 @@ const PRIORITIES_RULES = `PRIORITIES RULES (apply whenever you reference <priori
 - Never archive a priority unless the user clearly asked you to.
 - You have where each priority stands, so use it: tie what they ask about to the priority it touches, and say plainly when something this week bears on one of them or when one has not moved.
 - Moving a priority forward happens in that priority's own guided flow, not here: the problem, hearing from constituents, the options, the method, the plan. Answer what they ask, then point them at it with a link, written as [the priority's title](/dashboard/priorities/ID) with the id from <priorities>. Do not run its steps, do not recommend a method here, and do not rebuild a plan that already exists there.
-- When they ask to ask their civic panel about a priority, send them to the priority's check on hearing from residents: with one priority, link it as [the priority's title](/dashboard/priorities/ID?ask=1) and say in one line that it opens on Who to hear from; with several, ask which one with ask_clarify_question first; with none, offer to add one. Never draft or send the outreach here.
 - A step that was never checked with the constituents it lands on (put off, declined, or no check yet) is reported that way whenever its substance comes up, in one clause, without moralizing.`
 
 const CHECK_REMINDER_RULES = `CHECKS THEY PUT OFF (apply whenever <priorities> shows a check as put off):

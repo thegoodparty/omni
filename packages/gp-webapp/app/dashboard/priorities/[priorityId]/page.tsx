@@ -33,12 +33,11 @@ export default async function Page({
   searchParams: Promise<{
     reportBack?: string | string[]
     getAnswers?: string | string[]
-    ask?: string | string[]
   }>
 }): Promise<React.JSX.Element> {
   await serveAccess()
   const { priorityId } = await params
-  const { reportBack, getAnswers, ask } = await searchParams
+  const { reportBack, getAnswers } = await searchParams
 
   const [priorityResult, statusResult, readStatusResult] = await Promise.all([
     serverRequest('GET /v1/priorities/:id', { id: priorityId }).catch(
@@ -81,7 +80,6 @@ export default async function Page({
         reportBackOutreachId={parseReportBack(reportBack)}
         initialReadStatus={readStatusResult?.data ?? null}
         getAnswersOnOpen={getAnswers === '1'}
-        askOnOpen={ask === '1'}
       />
     </DashboardLayout>
   )

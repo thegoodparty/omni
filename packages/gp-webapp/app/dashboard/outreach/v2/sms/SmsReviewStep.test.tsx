@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react'
 import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
 import { mswServer } from 'helpers/test-utils/api-mocking'
-import { SmsReviewStep } from './SmsReviewStep'
+import { FOLLOW_UP_NOTE, SmsReviewStep } from './SmsReviewStep'
 
 // What the mocked Stripe form reports as its live total once mounted; null
 // means Stripe has not priced the session yet. `providerError` stands in for
@@ -348,5 +348,29 @@ describe('SmsReviewStep card declines', () => {
       screen.queryByText("Your payment didn't go through"),
     ).not.toBeInTheDocument()
     expect(screen.queryByTestId('checkout-payment')).not.toBeInTheDocument()
+  })
+})
+
+describe('SmsReviewStep follow-up', () => {
+  it("shows a priority text's follow-up beside the send date", async () => {
+    renderStep({
+      isServe: true,
+      timeZone: undefined,
+      contactCount: 600,
+      followUp: { count: 300, sendAt: new Date(2026, 10, 3) },
+    })
+
+    expect(await screen.findByText('Follow-up')).toBeInTheDocument()
+    expect(screen.getByText(/^300 on /)).toBeInTheDocument()
+    expect(screen.getByText('600')).toBeInTheDocument()
+    expect(screen.getByText(FOLLOW_UP_NOTE)).toBeInTheDocument()
+  })
+
+  it('shows no follow-up on an ordinary text', async () => {
+    renderStep()
+
+    await screen.findByText('Send date')
+    expect(screen.queryByText('Follow-up')).not.toBeInTheDocument()
+    expect(screen.queryByText(FOLLOW_UP_NOTE)).not.toBeInTheDocument()
   })
 })

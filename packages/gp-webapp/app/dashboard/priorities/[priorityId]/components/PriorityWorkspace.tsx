@@ -20,9 +20,7 @@ import {
   ListIcon,
 } from '@styleguide/components/ui/icons'
 import {
-  ASK_RESIDENTS_MESSAGE,
   GET_ANSWERS_MESSAGE,
-  isAskResidentsMessage,
   isGetAnswersMessage,
   isReportBackMessage,
   isToolRefusal,
@@ -162,8 +160,7 @@ const isAppTurn = (content: string): boolean =>
   content === KICKOFF ||
   isProposalSentMessage(content) ||
   isReportBackMessage(content) ||
-  isGetAnswersMessage(content) ||
-  isAskResidentsMessage(content)
+  isGetAnswersMessage(content)
 
 const ResultsLink = ({
   priorityId,
@@ -202,8 +199,6 @@ type PriorityWorkspaceProps = {
   initialReadStatus?: PriorityReadStatus | null
   // The results page's Get answers opened this priority.
   getAnswersOnOpen?: boolean
-  // "Ask your civic panel" opened this priority.
-  askOnOpen?: boolean
 }
 
 const PriorityWorkspaceBody = ({
@@ -216,7 +211,6 @@ const PriorityWorkspaceBody = ({
   reportBackOutreachId = null,
   initialReadStatus = null,
   getAnswersOnOpen = false,
-  askOnOpen = false,
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const { enabled: panelsOn } = useServeCitizenPanelsFlag()
@@ -224,7 +218,6 @@ const PriorityWorkspaceBody = ({
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
   const getAnswersRef = useRef(getAnswersOnOpen)
-  const askRef = useRef(askOnOpen)
   const openedReadRef = useRef(initialReadStatus)
   const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
     initialReadStatus,
@@ -506,9 +499,7 @@ const PriorityWorkspaceBody = ({
         reportBackRef.current = null
         const getAnswers = getAnswersRef.current
         getAnswersRef.current = false
-        const ask = askRef.current
-        askRef.current = false
-        if (reportBackId !== null || getAnswers || ask) {
+        if (reportBackId !== null || getAnswers) {
           router.replace(`/dashboard/priorities/${priorityId}`, {
             scroll: false,
           })
@@ -516,7 +507,6 @@ const PriorityWorkspaceBody = ({
         const reportBackTurn =
           reportBackId === null ? null : reportBackMessage(reportBackId)
         const getAnswersTurn = getAnswers ? GET_ANSWERS_MESSAGE : null
-        const askTurn = ask ? ASK_RESIDENTS_MESSAGE : null
         const trackGetAnswers = () => {
           trackEvent(EVENTS.Priorities.GetAnswersClicked, {
             priorityId,
@@ -527,13 +517,10 @@ const PriorityWorkspaceBody = ({
           if (reportBackTurn === null && getAnswersTurn !== null) {
             trackGetAnswers()
           }
-          sendRef.current(
-            reportBackTurn ?? getAnswersTurn ?? askTurn ?? KICKOFF,
-            {
-              hidden: true,
-              idOverride: id,
-            },
-          )
+          sendRef.current(reportBackTurn ?? getAnswersTurn ?? KICKOFF, {
+            hidden: true,
+            idOverride: id,
+          })
           return
         }
         if (
@@ -557,13 +544,6 @@ const PriorityWorkspaceBody = ({
         ) {
           trackGetAnswers()
           pendingSent.current.push(getAnswersTurn)
-          setSentTick((tick) => tick + 1)
-        }
-        if (
-          askTurn !== null &&
-          !sinceOfficial.some((m) => m.content === askTurn)
-        ) {
-          pendingSent.current.push(askTurn)
           setSentTick((tick) => tick + 1)
         }
         if (history[history.length - 1]?.role !== 'user') return

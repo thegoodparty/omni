@@ -6,7 +6,6 @@ import {
   mintProposalKey,
   PROPOSAL_SENT_MARKER,
   reportBackMessage,
-  ASK_RESIDENTS_MESSAGE,
   GET_ANSWERS_MESSAGE,
   type PriorityReadStatus,
   type PriorityStatus,
@@ -147,7 +146,6 @@ const renderWorkspace = (
   read: {
     initialReadStatus?: PriorityReadStatus | null
     getAnswersOnOpen?: boolean
-    askOnOpen?: boolean
   } = {},
 ) =>
   render(
@@ -161,7 +159,6 @@ const renderWorkspace = (
       reportBackOutreachId={reportBackOutreachId}
       initialReadStatus={read.initialReadStatus ?? null}
       getAnswersOnOpen={read.getAnswersOnOpen ?? false}
-      askOnOpen={read.askOnOpen ?? false}
     />,
   )
 
@@ -1309,21 +1306,6 @@ describe('PriorityWorkspace', () => {
         EVENTS.Priorities.GetAnswersClicked,
         { priorityId: 'pri-1', source: 'results_page' },
       )
-    })
-
-    it('starts the check on Who to hear from when Ask your civic panel sent the official here', async () => {
-      renderWorkspace(emptyPriorityStatus(), null, { askOnOpen: true })
-      await screen.findByText('Here is where this stands.')
-
-      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
-      expect(mocks.streamMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ content: ASK_RESIDENTS_MESSAGE }),
-      )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        { scroll: false },
-      )
-      expect(screen.queryByText(/Help me hear from residents/)).toBeNull()
     })
 
     it('does not ask again when a reload kept the results page link', async () => {
