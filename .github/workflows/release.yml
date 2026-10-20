@@ -152,9 +152,10 @@ jobs:
               [ -n "$summary" ] || return 0
               # shellcheck disable=SC2086
               set -- $summary
-              # Registered-but-not-started, running or green on the tip all
-              # mean the newer train decides. Only a tip that also failed keeps
-              # this one red.
+              # Not registered yet, running or green on the tip all mean the
+              # newer train decides: its own await-checks waits for that run
+              # and fails if it fails, so no failure goes unreported. Only a
+              # tip that has already failed keeps this one red.
               if [ "$1" -gt 0 ] && [ "$3" -eq 0 ] && [ "$2" -eq 0 ]; then
                 return 0
               fi
