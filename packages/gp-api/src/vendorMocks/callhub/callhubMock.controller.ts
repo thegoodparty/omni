@@ -20,10 +20,17 @@ import { CALLHUB_MOCK_API_KEY } from '@/vendors/callhub/config/callhubBaseConfig
 // Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
 // GET), so the mock does too: staging polls numbers_count until it reaches
 // the audience size, and only the CSV knows that size.
+// Hostname is restricted to .amazonaws.com: the mock-key is a public constant
+// so any request with it passes assertAuth; without a hostname allowlist an
+// attacker on an internet-facing preview can SSRF to arbitrary HTTPS
+// endpoints by posting csv_url to bulk_create.
 const fetchCsv = async (url: string): Promise<string> => {
   const parsed = new URL(url)
   if (parsed.protocol !== 'https:') {
     throw new BadGatewayException('csv_url must be HTTPS')
+  }
+  if (!parsed.hostname.endsWith('.amazonaws.com')) {
+    throw new BadGatewayException('csv_url must be an S3 presigned URL')
   }
   const res = await fetch(url)
   if (!res.ok) {

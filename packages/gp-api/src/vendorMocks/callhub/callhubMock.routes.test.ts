@@ -146,6 +146,22 @@ describe('POST phonebooks + bulk_create + numbers_count', () => {
     expect(countRes.data.phonenumber_count).toBe(2)
     fetchSpy.mockRestore()
   })
+
+  it('rejects csv_url not from amazonaws.com', async () => {
+    const createRes = await service.client.post(
+      `${BASE}/v1/phonebooks/`,
+      { name: 'ssrf-book' },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+
+    const bulkRes = await service.client.post(
+      `${BASE}/v1/contacts/bulk_create/`,
+      { phonebook_id: pk, csv_url: 'https://attacker.example.com/data.csv' },
+      AUTH,
+    )
+    expect(bulkRes.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
 })
 
 describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
