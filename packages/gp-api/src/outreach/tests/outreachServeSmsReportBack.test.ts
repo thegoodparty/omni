@@ -241,7 +241,7 @@ describe('a Serve text that reports back', () => {
     expect(refund).toHaveBeenCalledTimes(1)
     expect(refund).toHaveBeenCalledWith(
       'pi_second',
-      `outreach-cancel-${second.id}`,
+      'outreach-cancel-pi_second',
     )
   })
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  civicPanelStandingLine,
   type ChatClarifyQuestion,
   type CivicPanelBuildNext,
   type CivicPanelBuildStep,
@@ -39,10 +40,6 @@ export const SAVE_PANEL_WEEKLY_TIME_TOOL = 'save_panel_weekly_time'
 // (gp-api civicPanelBuildCardContent), so the chat and the home agree.
 export const CIVIC_PANEL_CHAT_COPY = {
   seePlan: 'See your plan',
-  answers: (expected: number, needed: number) =>
-    expected >= needed
-      ? `Your panel can give the ${needed.toLocaleString('en-US')} answers you need.`
-      : `Your panel can give about ${expected.toLocaleString('en-US')} of the ${needed.toLocaleString('en-US')} answers you need.`,
 } as const
 
 // The panel page's own question and answers, so the chat and the page ask
@@ -143,10 +140,7 @@ export const CivicPanelNextStepCard = () => {
     )
   })()
 
-  const progress = CIVIC_PANEL_CHAT_COPY.answers(
-    data.progress.expectedAnswers,
-    data.progress.answersNeeded,
-  )
+  const progress = civicPanelStandingLine(data.progress)
   return (
     <div
       className={cn(OPTION_CARD_CLASS, 'flex w-full max-w-md flex-col gap-3')}

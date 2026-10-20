@@ -4,7 +4,6 @@ import { LoaderCircle } from 'lucide-react'
 import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
-import { answersNeeded } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
@@ -112,12 +111,8 @@ export const DistrictStoryStep = ({
     if (ready) return
     if (!(pointsSettled && statsSettled) && !timedOut) return
     const known = stats.data?.districtPopulation ?? null
-    const sampleSize = answersNeeded()
     setPopulation(known)
-    setModel(
-      (points && buildDistrictDots(points, sampleSize)) ??
-        buildAbstractDots(sampleSize),
-    )
+    setModel((points && buildDistrictDots(points)) ?? buildAbstractDots())
   }, [
     ready,
     pointsSettled,
@@ -395,15 +390,12 @@ const StoryText = ({
 
   if (step === 'story-sample') {
     const copy = SERVE_STORY_COPY.sample
-    const answers = answersNeeded()
     return (
       <>
-        <Title title={copy.title(answers)} accentClass="text-primary" long />
+        <Title title={copy.title} accentClass="text-primary" long />
         <Description>
           {copy.description}{' '}
-          <AnswersInfo label={copy.howWeGotIt}>
-            {copy.explanation(answers)}
-          </AnswersInfo>
+          <AnswersInfo label={copy.howWeGotIt}>{copy.explanation}</AnswersInfo>
         </Description>
       </>
     )
