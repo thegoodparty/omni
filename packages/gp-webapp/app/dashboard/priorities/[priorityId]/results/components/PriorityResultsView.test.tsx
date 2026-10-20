@@ -163,6 +163,12 @@ describe('PriorityResultsView', () => {
     expect(
       screen.getByText('people in a few neighborhoods'),
     ).toBeInTheDocument()
+    // Every group heard but the model not sure yet: a full bar in the
+    // warning tone, never the success one.
+    const bar = screen.getByRole('progressbar', {
+      name: '12 of 12 groups heard',
+    })
+    expect(bar.className).toContain('bg-warning')
     expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
   })
 

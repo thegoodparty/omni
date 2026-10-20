@@ -6,12 +6,13 @@ import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type PriorityResults,
 } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
+  READ_PROGRESS_TONE,
   READ_STATUS_DOT,
   getAnswersHref,
   readPercent,
@@ -133,7 +134,7 @@ export const PriorityResultsView = ({
               <Progress
                 value={readPercent(readStatus)}
                 aria-label={READ_STATUS_COPY.progress(readStatus)}
-                className="h-2"
+                className={cn('h-2', READ_PROGRESS_TONE[readStatus.status])}
               />
             </>
           ) : null}

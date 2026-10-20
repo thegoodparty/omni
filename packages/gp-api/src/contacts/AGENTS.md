@@ -1005,7 +1005,10 @@ own words (`CIVIC_PANEL_BALANCE_STATUS_LABELS`, never the priority's
 labels): `tooFewMembers` under 30 members, then `missingGroups` while any
 major group is short of members, else `everyGroup`. `inviteMore` is the
 largest missing group, set whenever groups are missing, even once the goal
-is met. The official never sees a share, weight or target.
+is met; a text step's `steeredToward` is that same group (draw weights still
+follow the share gaps). The panel page offers a new plan only under the member
+goal, since the API refuses one past it; past it the balance section's line
+is the next step. The official never sees a share, weight or target.
 
 **Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).

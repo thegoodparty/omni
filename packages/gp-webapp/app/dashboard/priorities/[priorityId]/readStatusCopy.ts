@@ -67,6 +67,19 @@ export const readPercent = (read: PriorityReadStatus): number =>
     ? 0
     : Math.min(100, Math.round((read.groupsHeard / read.groupsTotal) * 100))
 
+// The groups bar takes its status's tone, so a full bar before a good read
+// (every group heard, the model not sure yet) is never the success colour.
+export const READ_PROGRESS_TONE: Record<PriorityReadStatus['status'], string> =
+  {
+    tooEarly:
+      'bg-muted-foreground/20 [&>[data-slot=progress-indicator]]:bg-muted-foreground',
+    notYetRepresentative:
+      'bg-destructive/20 [&>[data-slot=progress-indicator]]:bg-destructive',
+    gettingClose: 'bg-warning/20 [&>[data-slot=progress-indicator]]:bg-warning',
+    representative: '',
+    enoughAnswers: '',
+  }
+
 // The dot beside a status, so the label is never read by colour alone.
 export const READ_STATUS_DOT: Record<PriorityReadStatus['status'], string> = {
   tooEarly: 'bg-muted-foreground',

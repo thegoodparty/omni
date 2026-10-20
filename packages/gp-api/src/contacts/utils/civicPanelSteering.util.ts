@@ -17,14 +17,10 @@ import {
   weightingTargets,
   type WeightingCensus,
 } from '@/priorities/util/censusWeighting.util'
-import {
-  underrepresentedGroupOf,
-  underrepresentedGroups,
-} from '@/priorities/util/priorityReadStatus.util'
+import { underrepresentedGroupOf } from '@/priorities/util/priorityReadStatus.util'
 import {
   poolSmallValues,
   type RakingCell,
-  type RakingGap,
   type RakingTargets,
 } from '@/priorities/util/raking.util'
 
@@ -151,20 +147,6 @@ export const steerWeights = (
   }
 }
 
-// The group trailing the census furthest, by the priority read's rule (at
-// least MIN_UNDERREPRESENTED_GAP behind), or null.
-const furthestBehind = (gaps: PanelGap[]): UnderrepresentedGroup | null => {
-  const raking: RakingGap[] = gaps.map((gap) => ({
-    dimension: gap.dimension,
-    value: gap.value,
-    share: gap.panelShare,
-    unweightedShare: gap.panelShare,
-    censusShare: gap.censusShare,
-  }))
-  // panelGaps holds race gaps only when race may be named.
-  return underrepresentedGroups(raking, true)[0] ?? null
-}
-
 export interface PanelCoverage {
   groupsCovered: number
   groupsTotal: number
@@ -252,7 +234,8 @@ export interface PanelSteering {
   coverage: PanelCoverage | null
   // Null: every resident weighs the same.
   weights: SampleWeights | null
-  // The group the weights favor most, named on the step.
+  // The largest group short of members, the one the balance's inviteMore
+  // names, so a step and the status line never name different groups.
   leansToward: UnderrepresentedGroup | null
   doorTract: string | null
   // Calls draw landlines first unless the panel already holds at least the
@@ -297,7 +280,7 @@ export const panelSteering = ({
     balance: panelBalance({ members, coverage }),
     coverage,
     weights: steerWeights(gaps, pooled, mix.census),
-    leansToward: furthestBehind(gaps),
+    leansToward: coverage.missing[0] ?? null,
     doorTract: doorTractFor(mix),
     landlineFirst: !older || older.panelShare < older.censusShare,
   }

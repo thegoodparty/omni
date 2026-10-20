@@ -56,9 +56,7 @@ export const CitizensPanelView = ({
   }
   const activePlan =
     planState?.plan?.status === 'active' ? planState.plan : null
-  const needsMore =
-    progress.members < progress.goal ||
-    progress.groupsCovered < progress.groupsTotal
+  const underGoal = progress.members < progress.goal
 
   const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
   // Once per visit, on what the page was given, not on later plan changes.
@@ -108,7 +106,7 @@ export const CitizensPanelView = ({
               next={planState.next}
               onPlan={setPlanState}
             />
-          ) : needsMore ? (
+          ) : underGoal ? (
             <CivicPanelPlanStart onPlan={setPlanState} />
           ) : null}
 

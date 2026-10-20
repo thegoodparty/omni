@@ -270,7 +270,9 @@ describe('panelSteering', () => {
     expect(steering.weights?.tract[C]).toBe(2)
     expect(steering.weights?.minWeight).toBe(0.5)
     expect(steering.weights?.maxWeight).toBe(2)
-    expect(steering.leansToward).toBe('unreachedAreas')
+    // The largest group short of members, the one the balance names too.
+    expect(steering.leansToward).toBe('age65plus')
+    expect(steering.balance?.inviteMore).toBe(steering.leansToward)
     expect(steering.balance?.status).toBe('missingGroups')
     expect(steering.landlineFirst).toBe(true)
   })

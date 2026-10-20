@@ -851,11 +851,12 @@ describe('steering the plan by census', () => {
     expect(read.steeredToward).toBe('unreachedAreas')
   })
 
-  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+  it('records a call step that dropped landline-first and leans toward the group the status names', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
     // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
-    // nobody trails by enough to lean toward.
+    // landlines are dropped, and the step leans toward the same group the
+    // balance asks to invite next.
     stubMix([
       members(9, { ageBand: '65plus', tract: TRACT_A }),
       members(11, { tract: TRACT_A }),
@@ -866,7 +867,7 @@ describe('steering the plan by census', () => {
     const plan = await createPlan(slug, 1)
     expect(stepOf(plan, 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
     const draw = stubDraws()
 
@@ -878,7 +879,7 @@ describe('steering the plan by census', () => {
     )
     expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
   })
 

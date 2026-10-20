@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import type { PriorityReadStatus } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 import {
+  READ_PROGRESS_TONE,
   READ_STATUS_COPY,
   READ_STATUS_DOT,
   readPercent,
@@ -48,7 +49,7 @@ const ReadProgress = ({
   <Progress
     value={readPercent(readStatus)}
     aria-label={READ_STATUS_COPY.progress(readStatus)}
-    className={className}
+    className={cn(className, READ_PROGRESS_TONE[readStatus.status])}
   />
 )
 
