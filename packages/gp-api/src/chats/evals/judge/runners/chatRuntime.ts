@@ -303,10 +303,26 @@ export const inProcessChatRuntime = (
 ): ChatArmRuntime => ({
   kind: 'inprocess',
 
-  // Refuses nothing. This runtime is the one every directive in the case
-  // schema was designed against, and a refusal here would be a regression
-  // rather than honesty.
-  assertCanDrive: () => undefined,
+  // Refuses one thing. This runtime is the one every directive in the case
+  // schema was designed against, but it cannot give priority_flow a district:
+  // useTestService pins getPositionById to null, so the constituent tools
+  // never register and the scope's outreach cases would measure an agent
+  // with no one to reach. A real-model priority_flow run needs a deployed
+  // arm. Dry runs replace the model, so the district changes nothing there.
+  assertCanDrive: (one) => {
+    if (
+      one.scope === ChatScope.priority_flow &&
+      one.realModel === true &&
+      one.accountState?.district !== false
+    ) {
+      throw new UnsupportedOnRuntimeError(
+        unsupportedText('inprocess', one, [
+          'priority_flow needs a district that resolves, and only a deployed ' +
+            'arm has one (JUDGE_ARM_RUNTIME=http)',
+        ]),
+      )
+    }
+  },
 
   stageCase: async (request) =>
     seedChatOrg(

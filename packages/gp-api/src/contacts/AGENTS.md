@@ -270,6 +270,26 @@ the product is silently wrong — check the live vocabulary against the
 `mart_gp_api` voter mart in Databricks before trusting any filter-related bug
 report.
 
+### The Early_Vote_Status vocabulary
+
+`Early_Vote_Status` is the likelihood of voting before Election Day, early in
+person or by mail: the higher of Haystaq's `hs_likely_ev` and `hs_likely_vbm`
+(0-100), bucketed `Very unlikely` (<25), `Unlikely` (<55), `Likely` (<80),
+`Very likely` (>=80), `Unknown` (no score), in the mart's sentence case.
+The product speaks Title Case (`Very Likely`, `Very Unlikely`) like its other
+multi-word person values; `peopleDb/earlyVoteStatus.ts` translates both ways,
+for the Person payload and for filter values going into SQL. The CSV copies
+the column raw, so it still says `Very likely`. Both scores are within-state
+percentiles, so the buckets are relative to the state, not probabilities; the
+max skews high, which is why the cuts sit above `Voter_Status`'s. It reaches the
+filter as the `earlyVote*` booleans → `earlyVoteStatus`, with the same
+`Unknown`-also-matches-NULL rule as `voterStatus`, but none of the
+per-person override handling below: there is no editable early-vote status.
+It is Win-only everywhere: hidden in the UI and dropped from Serve downloads
+like Voter Likelihood, and also `modes: 'win'` in the filter catalog, which
+Voter Likelihood (`audience`) is not, so the assistant never offers it to an
+`eo-` org.
+
 ### Override-aware Voter Likelihood filtering (ENG-10838)
 
 The wizard's Voter Likelihood filter (the `audience*` booleans /
@@ -691,14 +711,18 @@ two `date-range` dimensions (`civicPanelJoinedWhen`, `lastAsked`), all in
 `GET /v1/dashboard/cards` runs `DashboardCardsService.syncCivicPanelCards`
 before it lists (with it off, it lists no `civic_panel` card at all). The
 office's one build card (`sourceExternalId` from contracts'
-`civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) links to
-contracts' `CIVIC_PANEL_BUILD_CARD_HREF`, the panel page
-(`CIVIC_PANEL_PAGE_HREF`), which asks the weekly time question or shows the
-plan already made (see "Building the panel across channels"). The Chief of
+`civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) carries contracts'
+`CIVIC_PANEL_BUILD_CARD_HREF`, the panel page (`CIVIC_PANEL_PAGE_HREF`), which
+asks the weekly time question or shows the plan already made (see "Building
+the panel across channels"). Its pre-plan button, `CIVIC_PANEL_BUILD_CARD_CTA`
+(Build my panel), does not follow that link on the home: `TaskStack` sends the
+hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the chat, so every entry point
+starts the same conversation; the panel page keeps its own form. The Chief of
 Staff chat runs that same plan (`chats/general/chief-of-staff`,
 `civicPanelPlan.tools.ts` and `civicPanelBuildBlock`). Asked to build the
-panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the intro's Build your
-civic panel or the explainer's Build my panel, or in their own words) with no
+panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build my
+panel, the intro's Build your civic panel or Grow your civic panel, or the
+explainer's Build my panel, or in their own words) with no
 plan, it explains the panel in a line or two and calls
 `ask_panel_weekly_time`, which the webapp draws as the page's own question
 and answers (1, 2, 3, or 4 or more hours a week). The answer goes to
@@ -716,11 +740,14 @@ says or guesses one person's race (`CIVIC_PANEL_CLAIM_RULE`). The group may be a
 race group, such as Black residents. With a plan, it shows that
 card and never asks again (`ask_panel_weekly_time` refuses), and "I can give
 2 hours now" goes to the same save, which then calls `updateHours` (PATCH's
-path). A 409 it cannot settle (nobody left to reach, the goal already met)
+path). A 409 it cannot settle (nobody left to reach)
 comes back as `planMade: false` with the API's words, and the agent says so
 and links the panel page. A 409 because the page made a plan meanwhile
 updates that plan instead. The chat never proposes an invite text of its
-own: every invite comes from the plan. The card's quiet What's a civic
+own: every invite comes from the plan. Once the first invite is out and the
+office has no priorities, the build reply ends on one line asking which
+priorities they want to work on and offering to record them
+(`civicPanelBuildBlock`); priority check audiences are not touched. The card's quiet What's a civic
 panel? opens the Chief of Staff chat with the hidden turn
 `EXPLAIN_CIVIC_PANEL_MESSAGE`: the agent explains the panel and builds
 nothing unless the official says yes (`civicPanelExplainLines`).
@@ -728,10 +755,9 @@ Once the office has an active plan, the open card follows it: the sync
 reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
 `ModuleRef` because importing the contacts module closes a module cycle, and
 before the lock, since the read is what moves the plan), and the card's
-title is the plan's `next.line`, its summary the panel page rail's answers
-line ("Your panel can give about <expectedAnswers> of the <answersNeeded>
-answers you need.", or "Your panel can give the <answersNeeded> answers you
-need." once it can), its button the panel page's own words for that step ("Start the
+title is always "Hear from more than the loudest voices", its summary where the panel stands
+(`civicPanelStandingLine`: "62 members so far, from 9 of 12 groups in your
+district.", without the groups when the census could not be read), its button the panel page's own words for that step ("Start the
 text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
 knocking"; "See your plan" while waiting) and its link `next.href` (the
 panel page on that step, or the page itself with no link). With no plan, an
@@ -779,10 +805,10 @@ advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The Chief of Staff's single invite text is
 `panelSeedSampleSize(goalMembers)`: `ceil(goalMembers /
-PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,000 at 240
+PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,334 at 250
 members and 3%), with the district's goal (see "Sized in answers" below).
-The outreach page's own invite has no population at hand and uses
-`PANEL_SEED_SAMPLE_SIZE`, the same for the uncorrected 240.
+The outreach page's own invite has no district mix at hand and uses
+`PANEL_SEED_SAMPLE_SIZE`, the same for the largest goal, 250.
 
 **Reporting back is a card too.** The same read runs
 `DashboardCardsService.syncReportBackCards`: one `report_back` card per
@@ -841,33 +867,39 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 `utils/civicPanelBuild.util.ts`, contracts in
 `people/CivicPanelBuildPlan.schema.ts`). The webapp's panel page
 (`/dashboard/contacts/citizens-panel`) is its home: the weekly time
-question, the steps, Next and the answers the panel can give.
+question, the steps, Next and the groups the panel covers.
 
-**Sized in answers.** Every panel size targets answers to one question, not
-members (Bryan, 2026-10-15). Contracts' `answersNeeded(population)`
-(`outreach/AnswersNeeded.const.ts`, the same figure Serve onboarding shows)
-is the
-finite-population-corrected sample for 10 points either way at 95%
-confidence near an even split, `n0 = 1.96² × 0.25 / 0.1²` (96.04), `n = n0 /
-(1 + (n0 - 1) / N)`, rounded: 96 for Asheville (105,154), 92 for a town of
-2,000. Without a census population (no row, no district, or a failed read)
-it is the uncorrected 96. The panel's own math is in
-`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(population)` is
-`ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE)`, 240 or 230.
-`ContactsService.getDistrictPopulation` reads the population
-(`StatsService.findDistrictPopulation`, the census mart's
-`district_population` on its own, without the voter scan) and folds any
-failure into null. The priority flow and the Chief of Staff chat read it
-instead through `PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hand the figure to
-both their panel sizing and `readStatuses`.
+**Sized for coverage.** The member goal is the members it takes for every
+major group to be expected to answer one question three times
+(`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+Officials never see the answer count behind it; the panel page shows the
+groups covered.
+Contracts' `answersNeeded(smallestMajorShare)`
+(`outreach/AnswersNeeded.const.ts`) is `ceil(MIN_VOICES_PER_GROUP /
+share)`: enough answers for the district's smallest major group (one
+holding `MAJOR_GROUP_SHARE`, 3%, or more on age band, gender, tract, or race
+when `raceNameable` holds for the district) to be expected to answer 3
+times. 100 where that group is 3% of the district, 15 where it is 20%.
+`CensusCompositionSource.districtAnswersNeeded` reads it from the
+district's cells (`smallestMajorShare` in
+`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
+reads, cached 15 minutes per district); without them (no district row, no
+district, or a failed read) it is `answersNeeded()`, 100, the most any
+district needs. The panel's own math is in
+`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
+`ceil(answers / PANEL_ASSUMED_REPLY_RATE)`, 250 at most. The plan service
+reads it itself; the Chief of Staff chat reads it once a turn through
+`PriorityResultsService.districtAnswersNeeded`. A very small district with
+fewer people to reach than its goal ends `exhausted`, not stuck. A
+priority's checks are not sized here: see "Round 1 sizing" below.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
 (Prisma cannot declare it), plus an advisory lock per office around every
 write. It ends `completed` once members reach `goalMembers` (the district's
 `panelGoalMembers`) or `exhausted` once a wave can reach nobody;
-either way a new plan can be made. `CivicPanelBuildStep` is one text, one
+either way a new plan can be made, a panel already past its goal included
+(see "Keep your panel fresh"). `CivicPanelBuildStep` is one text, one
 call list or one walkable area in a wave (`wave`, `channel`, `position`,
 `targetSize`: residents to text, residents to call, households to knock).
 `voterFileFilterId` is the frozen sample list the step drew; `outreachId`,
@@ -881,10 +913,29 @@ plan's goal to the district's, written back to the row, so plans made toward
 the old 100 members read like new ones with no migration. A goal may come
 down (a census figure moved) but never below the members the panel has: the
 plan then completes. The response's `progress` is `{ members, goal,
-answersNeeded, expectedAnswers }` (`CivicPanelBuildProgressSchema`):
-`expectedAnswers` is `panelExpectedAnswers(members)`, members ×
-`PANEL_ASSUMED_REPLY_RATE`, rounded. Without an active plan `goal` is the
+answersNeeded, expectedAnswers, groupsCovered, groupsTotal }`
+(`CivicPanelBuildProgressSchema`): `expectedAnswers` is
+`panelExpectedAnswers(members)`, members × `PANEL_ASSUMED_REPLY_RATE`,
+rounded; the sizing fields never reach a screen. `groupsCovered` of
+`groupsTotal` is `panelCoverage` (`utils/civicPanelSteering.util.ts`): the
+major groups (age band, gender, tract, and race when `raceNameable` holds)
+holding at least `PANEL_MEMBERS_PER_GROUP` (8: three answers at the 40%
+answer rate) members. The census is read for any panel with a member, and
+both are 0 when it cannot be. Without an active plan `goal` is the
 district's, so an office whose old plan completed at 100 can make a new one.
+
+**Keep your panel fresh.** A panel past its goal is not done. `create` with
+members at or over the district's goal makes a plan with `keepFresh` true
+(`CivicPanelBuildPlan.keepFresh`) and a `goalMembers` of members plus
+`PANEL_KEEP_FRESH_MEMBERS` (50), sized from the same weekly hours question.
+Its goal stays where it was set (it does not follow the district's), the
+read's `progress.goal` stays the district's so the bar still reads "every
+group", and the plan completes once those members join, after which a new one
+can be made. Waves, steps and steering are the ordinary plan's, and steering
+already leans toward the thinnest groups. The panel page shows the hours form
+under "Keep your panel fresh" in place of the plan start, and the Chief of
+Staff's build turn asks the same question, so Grow your civic panel leads
+into it.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
 official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`
@@ -932,9 +983,9 @@ draft does.
 
 **Steering by census** (`utils/civicPanelSteering.util.ts`, Bryan,
 2026-10-18). Each draw leans toward the groups the panel trails, so the
-panel drifts toward the district's census mix. Dimensions are age (18 to
-64, 65+), tract and race, plus gender once the marts publish sex by age
-(wired through `WeightingCensus.genderShares`, inactive until then). Tenure
+panel drifts toward the district's census mix. Dimensions are age (the
+census's six adult bands, 18 to 24 through 65+), gender (census sex against
+the voter file's `M`/`F`), tract and race, all from `weightingTargets`. Tenure
 is out until a statistician rules on its household target. Race (Bryan and
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`) is L2's
 modeled `EthnicGroups_EthnicGroup1Desc` folded into white, Black, Hispanic,
@@ -947,21 +998,22 @@ or named. Race is read only into counts and draw weights, never onto a
 person or a filter: the Serve ethnicity gate below is unchanged.
 `CensusCompositionSource.weightingInputs` reads the members' cells and the
 census (`findWeightingInputs`), cached 15 minutes per office and member set
-in the plan service; a failed read leans nowhere. Gaps are census share
-(`weightingTargets`: ACS adults for age, adults per tract over the block
-groups the district's people live in) against the members' unweighted share
+in the plan service; a failed read leans nowhere. Draw weights come
+from gaps: census share (`weightingTargets`: ACS adults by sex and age band,
+adults per tract over the block groups the district's people live in)
+against the members' unweighted share
 among those with a known value, values under
 `MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.
 Texts (and calls, below) draw weighted: per value `clamp(c / p, 0.5, 2)`
 (2 where `p = 0`), a person's weight the product clamped to [0.5, 2],
 passed as `drawListSample`'s server-only `weights` and applied in
 `buildSampleSql`'s order. Doors walk the barely reached tract
-(`tractShortfalls`, the `unreachedTracts` rule on members) trailing most,
+(`tractShortfalls`, on members) trailing most,
 through `walkableAreaWithin`'s `tract`, and fall back to the district-wide
 pick when it holds fewer households than the step. Calls drop landline-first
 once the panel's 65+ share reaches the census's, and draw weighted from
 the whole phone pool. Nothing leans below `PANEL_MIN_MEMBERS_FOR_BALANCE`
-(30) members, and the census is not read then. A step's
+(30) members. A step's
 `steeredToward` (`UnderrepresentedGroup`) is written when it is drawn;
 before that the read predicts it for a not-started step. A call step's
 `landlineFirst` (whether its draw put landlines first) is recorded and
@@ -969,13 +1021,67 @@ predicted the same way; a call step drawn before it was recorded reads
 true unless it leaned. A door step
 leaning toward `unreachedAreas` reads "Knock on doors in a part of your
 district we haven't reached" as its Next line. The response's `balance`
-(null when the census cannot be read) is the panel's one status, in the
-priority read's labels: `tooEarly` under 30 members; with `D` the largest
-|c − p| and bar `max(0.10, 1.96·sqrt(0.25 / members))`,
-`notYetRepresentative` past the bar, else `gettingClose` under the goal and
-`representative` at it. `inviteMore` is the group trailing furthest by the
-priority read's rule (at least 5 points), null once representative. The
-official never sees a share, weight or target.
+(null when the census cannot be read) is the panel's one status, in its
+own words (`CIVIC_PANEL_BALANCE_STATUS_LABELS`, never the priority's
+labels): `tooFewMembers` under 30 members, then `missingGroups` while any
+major group is short of members, else `everyGroup`. `inviteMore` is the
+largest missing group, set whenever groups are missing, even once the goal
+is met; a text step's `steeredToward` is that same group (draw weights still
+follow the share gaps). Past the member goal the panel page's
+form is Keep your panel fresh (see below), and the balance section's line
+names the next group. The official never sees a share, weight or target.
+
+**Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
+Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+A priority check's first round, which the priority chat proposes as a door,
+a call and a text card at once (`size_round_one`,
+`chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
+`MAJOR_GROUP_SHARE` (3%) or more of the district on a steered dimension:
+age band, gender, tract, and race only when `raceNameable` holds for the
+door pool, never `other`. District shares are
+`weightingTargets` of the census (`PriorityResultsService.districtCensus`),
+or the door pool's own mix when the census cannot be read. Each channel's
+pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,
+peopleDb `buildPoolCellsSql`, counts only): `notContactedRecently` for
+doors, plus `hasAnyPhone` for calls and `hasCellPhone` for the text. Doors
+and calls take the official's weekly hours exactly as `sizePanelWave` splits
+them, uncapped by any member gap (`roundOneHours`); the hours are the active
+plan's, or the official's answer in the chat. The doors are one walkable
+area (`PriorityResultsService.roundOneDoorArea`), picked the way a plan's
+door step is: `walkableAreaWithin` in the tract the priority's answers trail
+most (`doorTractFor`, once `PANEL_MIN_MEMBERS_FOR_BALANCE` people have
+answered), else, or when that tract holds too few doors, across the
+district. The area goes on the door card as `walkableArea`, the padded box
+around its doors (`areaAround`), and the card's count is who that box holds
+(`resolveGeoMemberIds`, then `countByGroupWithin` within those ids), so the
+door part of a group's answers comes from who lives there, not from the
+district. A group's expected answers are the invites reaching it on each
+channel (the channel's size times the group's share of who it reaches: the
+area for the doors, the pool for calls and the text) times that channel's
+answer rate: `DOOR_ANSWER_RATE` 10%,
+`CALL_ANSWER_RATE` 5%, `TEXT_ANSWER_RATE` 3%, placeholders until offices
+measure them. The text is the most any short group needs to reach
+`MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
+by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
+phone reaches does not size it. That text is one purchase in two rounds
+(`splitPriorityText` in contracts): its card's `sampleSize` is the half
+sent at random on the chosen date, and `roundTwoSize` the half held for a
+follow-up two weeks later, drawn toward the groups heard from least
+(Samuel, 2026-10-20). A text too small for two halves of 25 goes out
+whole. The tool says whether every major group
+reaches 3 (`coversEveryGroup`).
+
+**Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
+`priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
+the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
+`batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
+share times range width; `batchWeights` turns that into the same
+`SampleWeights` this steering passes, within [0.5, 4]; `splitBatch` keeps
+`UNSTEERED_BATCH_SHARE` (15%) of the send unsteered. Groups under
+`MAJOR_GROUP_SHARE` (3%) and the pooled `other` are never leaned toward, and
+the caller leaves race out unless `raceNameable` holds. The model is
+`priorities/util/mrp.util.ts`. Design and what is left:
+`docs/features/civic-panel-mrp.md`.
 
 **Statuses** (`stepStatus`, read on every GET, never stored).
 `not_started` until something is made from the step's list; `in_progress`
@@ -1175,10 +1281,14 @@ has no signed webhook):
   campaign" activity conditions. Watch: it infers from `end_date` (the
   scheduled end), not delivery truth — refinement via CDR ingestion is
   ENG-10740 (open).
-- `outreachInboundSweep.service.ts` — fetches per-lead results for
-  active/recently-completed jobs, maps phone → person through the capture
-  rows, writes `respondedAt` / `optedOutAt` idempotently on the vendor
-  event id. Opt-outs drive the record's Opted In/Out chip.
+- `outreachInboundSweep.service.ts` — hourly, streams the message report
+  for active/recently-completed jobs, maps phone → person through the
+  capture rows, and writes `respondedAt` / `optedOutAt` idempotently on the
+  vendor event id. Opt-outs come from the reply text (`isOptOutMessage`),
+  plus a pass over Peerly's own opt-out flags for the ones its AI or
+  texters mark without a stop word: each send's flags are read at most
+  every 6 hours for its first 3 days. Opt-outs drive the record's Opted
+  In/Out chip.
 
 ### The AI assistant
 

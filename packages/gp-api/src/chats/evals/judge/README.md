@@ -40,8 +40,10 @@ unticked for the plan.
 **Reading the result.** The verdict is in the run's summary: open **Actions →
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
-for the one at the time you posted. The PR thread says the sweep started but
-not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+for the one at the time you posted. When a live sweep ends, its report is
+posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
+per-case rulings quote agent output, so they stay in the private bucket and
+never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
 **CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
 has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
@@ -433,11 +435,22 @@ What the real id buys is that a credentialed run no longer fails HARDER than
 an uncredentialed one. A synthetic id 404s, and
 `src/elections/services/elections.service.ts` rethrows a 404 as
 `NotFoundException`, so the lookup propagated out of `loadContext` and failed
-the whole turn rather than quietly dropping two tools. What would register the
-pair now is letting the sweep arm's `getPositionById` reach election-api, with
-the Databricks credential alongside it. Until then the two integration tests
-prove the handler and the resolver wire up correctly when a position is
-supplied, not that any environment supplies one.
+the whole turn rather than quietly dropping two tools.
+
+**A deployed arm (`JUDGE_ARM_RUNTIME=http`) is where the district resolves.**
+The target's own gp-api asks its own election-api, and its own Databricks
+credential answers the constituent tools. The fixture route checks this
+rather than assuming it: after seeding, `JudgeChatFixtureService.setUp` runs
+`DistrictResolverService.resolveByOrgSlug` and answers 503, with the fixture
+removed, when the district does not resolve. The case is then an infraError
+before a turn is paid for, instead of a run that measured an agent with no
+district while recording one. The resolved district comes back on the
+response as `district`.
+
+**priority_flow is refused in process on a spending arm** (`assertCanDrive`
+in `runners/chatRuntime.ts`). Its outreach cases only mean something with a
+district, so a real-model run of it needs a deployed arm. A dry run, or a case
+with `accountState.district: false`, is still driven in process.
 
 A question that needs state nobody seeded produces "I don't have that" on
 **both** arms, which is a tie that measures nothing. Each chat list's `note`
@@ -645,14 +658,12 @@ the briefing prompt renders differently. `.strict()` keeps it closed: an
 open bag of column overrides would let a case list seed a state no deployment
 can produce, and the verdict would be about an agent we do not ship.
 
-`district` is the one whose effect cannot be measured here. It gates only the
-constituent-data pair, and no run this harness makes resolves a district to
-gate on: the seeded `positionId` is real, but `useTestService()` pins
-`getPositionById` to null for the sweep arm, and `resolveByOrgSlug` therefore
-returns null. So the pair is unregistered whatever `positionId` says, and the
-digest is identical either way. The Databricks credential the provider factory
-returns null without is a second gate behind that one, never reached. What is
-ours is the row, and the runner asserts it.
+`district` is the one whose effect cannot be measured in process. It gates
+the constituent-data pair, and an in-process run never resolves a district to
+gate on: `useTestService()` pins `getPositionById` to null for the sweep arm,
+so the pair is unregistered whatever `positionId` says. A deployed arm does
+resolve it, and its fixture route refuses to stage a case when it does not
+(see above).
 
 **Every refusal happens before a turn is driven.** A chat turn costs real
 money, so: the schema refuses an undefined state or an unimplemented failure

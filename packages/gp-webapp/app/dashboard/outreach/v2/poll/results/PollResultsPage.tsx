@@ -24,6 +24,7 @@ import {
 } from '@styleguide'
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import { GatherMoreFlow } from '../gather/GatherMoreFlow'
 import { PollCommentList } from './PollCommentList'
 import { PollThemeDetail } from './PollThemeDetail'
@@ -348,9 +349,9 @@ export const PollResultsPage = ({ outreachId }: { outreachId: number }) => {
 
   return (
     <DashboardLayout
-      pathname="/dashboard/polls"
+      pathname="/dashboard/constituent-outreach"
       showAlert={false}
-      navHeader={{ icon: 'send', label: 'Polls' }}
+      navHeader={{ icon: 'megaphone', label: NAV_LABELS.constituentOutreach }}
     >
       <Paper className="min-h-full">
         {view.kind === 'replies' && ready ? (
@@ -365,7 +366,7 @@ export const PollResultsPage = ({ outreachId }: { outreachId: number }) => {
         ) : (
           <div className="flex flex-col gap-6">
             <Link
-              href="/dashboard/polls"
+              href="/dashboard/constituent-outreach"
               className="inline-flex w-fit items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
             >
               <ArrowLeftIcon size={16} />

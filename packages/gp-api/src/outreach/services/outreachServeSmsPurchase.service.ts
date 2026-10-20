@@ -7,6 +7,7 @@ import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
+import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
 import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -170,6 +171,8 @@ export class OutreachServeSmsPurchaseHandlerService
         textCount: true,
         reportBackForOutreachId: true,
         outreachType: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+        roundTwo: { select: { id: true, textCount: true, status: true } },
       },
     })
 
@@ -213,7 +216,14 @@ export class OutreachServeSmsPurchaseHandlerService
           claimData,
           sessionId,
         )
-      : await this.model.updateMany({ where: claimWhere, data: claimData })
+      : row.roundTwo?.status === OutreachStatus.pending_payment
+        ? await this.claimWithFollowUp(
+            claimWhere,
+            claimData,
+            row.roundTwo,
+            sessionId,
+          )
+        : await this.model.updateMany({ where: claimWhere, data: claimData })
 
     const isPoll = row.outreachType === OutreachType.poll
 
@@ -238,6 +248,17 @@ export class OutreachServeSmsPurchaseHandlerService
       return
     }
 
+    // A priority's round 2 is paid for now and handed off once its list is
+    // drawn, close to its send date. The draw enqueues it then, and only
+    // then puts the priority's check out.
+    if (isUndrawnSample(row.voterFileFilter)) {
+      this.logger.info(
+        { outreachId, organizationSlug, sessionId },
+        'Serve round 2 text claimed after payment; held for its draw',
+      )
+      return
+    }
+
     try {
       await this.enqueueSend(outreachId)
     } catch (error) {
@@ -247,15 +268,30 @@ export class OutreachServeSmsPurchaseHandlerService
       // guard on `status = pending` means a revert can never clobber a status
       // something else has since moved on. `stripeCheckoutSessionId` is left
       // in place deliberately: the row is paid, and a bare `pending_payment`
-      // with no session id would read as an unpaid draft.
-      await this.model.updateMany({
+      // with no session id would read as an unpaid draft. A follow-up claimed
+      // with it goes back too, so it can never send without its first half.
+      const revert = {
         where: {
           id: outreachId,
           organizationSlug,
           status: OutreachStatus.pending,
         },
         data: { status: OutreachStatus.pending_payment },
-      })
+      }
+      if (row.roundTwo) {
+        await this.client.$transaction([
+          this.client.outreach.updateMany(revert),
+          this.client.outreach.updateMany({
+            where: {
+              roundOneOutreachId: outreachId,
+              status: OutreachStatus.pending,
+            },
+            data: { status: OutreachStatus.pending_payment },
+          }),
+        ])
+      } else {
+        await this.model.updateMany(revert)
+      }
       this.logger.error(
         { error, outreachId, organizationSlug, sessionId },
         'Serve SMS send could not be enqueued after payment; claim reverted',
@@ -592,6 +628,38 @@ export class OutreachServeSmsPurchaseHandlerService
     )
   }
 
+  // A priority text's follow-up is paid for in its first send's checkout,
+  // so both are claimed in one write: a paid first send never leaves its
+  // follow-up unpaid, and the follow-up then waits on its draw like any
+  // round 2. Each records what it billed.
+  private claimWithFollowUp(
+    claimWhere: Prisma.OutreachWhereInput,
+    claimData: Prisma.OutreachUpdateManyMutationInput,
+    followUp: { id: number; textCount: number | null },
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    return this.client.$transaction(async (tx) => {
+      const claimed = await tx.outreach.updateMany({
+        where: claimWhere,
+        data: claimData,
+      })
+      if (claimed.count === 0) return claimed
+      await tx.outreach.updateMany({
+        where: { id: followUp.id, status: OutreachStatus.pending_payment },
+        data: {
+          status: OutreachStatus.pending,
+          ...(followUp.textCount === null
+            ? {}
+            : { billableTextCount: followUp.textCount }),
+          ...(sessionId.startsWith('cs_')
+            ? { stripeCheckoutSessionId: sessionId }
+            : {}),
+        },
+      })
+      return claimed
+    })
+  }
+
   // The same refund a cancel-before-send issues, keyed on the row so a
   // redelivered completion can never refund twice. A failed refund leaves
   // the row canceled holding its session, which the console lists for staff.
@@ -607,9 +675,11 @@ export class OutreachServeSmsPurchaseHandlerService
           ? session.payment_intent
           : session.payment_intent?.id
       if (paymentIntentId) {
+        // Keyed on the payment: outreach ids repeat across PR previews,
+        // which share one Stripe account.
         await this.stripe.refundPaymentIntent(
           paymentIntentId,
-          `outreach-cancel-${outreachId}`,
+          `outreach-cancel-${paymentIntentId}`,
         )
       }
     } catch (err) {
@@ -654,6 +724,7 @@ export class OutreachServeSmsPurchaseHandlerService
         status: true,
         textCount: true,
         reportBackForOutreachId: true,
+        roundTwo: { select: { status: true, textCount: true } },
       },
     })
 
@@ -698,7 +769,13 @@ export class OutreachServeSmsPurchaseHandlerService
       )
     }
 
-    return { textCount: draft.textCount }
+    // A priority text's follow-up is bought with it: one checkout, both
+    // counts.
+    const followUp =
+      draft.roundTwo?.status === OutreachStatus.pending_payment
+        ? (draft.roundTwo.textCount ?? 0)
+        : 0
+    return { textCount: draft.textCount + followUp }
   }
 
   /**
@@ -726,7 +803,10 @@ export class OutreachServeSmsPurchaseHandlerService
   ): Promise<void> {
     const row = await this.model.findFirst({
       where: { id: outreachId, organizationSlug, campaignId: null },
-      select: { status: true },
+      select: {
+        status: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+      },
     })
 
     if (!row) {
@@ -756,6 +836,14 @@ export class OutreachServeSmsPurchaseHandlerService
 
     if (row.status === OutreachStatus.pending && isPoll) {
       // Held for review on purpose: the approval enqueues it, not payment.
+      return
+    }
+
+    if (
+      row.status === OutreachStatus.pending &&
+      isUndrawnSample(row.voterFileFilter)
+    ) {
+      // A round 2 text waiting on its draw, which enqueues it.
       return
     }
 

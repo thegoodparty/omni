@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
@@ -368,6 +370,20 @@ const TaskStack = ({
                       completeOnboarding.mutate('meet')
                     }
                     onOpenCard(front.onboardingKey)
+                  }}
+                >
+                  {front.ctaLabel}
+                </Button>
+              ) : onDiscussCard &&
+                front.buildsPanel &&
+                front.ctaLabel === CIVIC_PANEL_BUILD_CARD_CTA ? (
+                <Button
+                  type="button"
+                  size="medium"
+                  className={PRIMARY_ON_PHONE}
+                  onClick={() => {
+                    start()
+                    onDiscussCard(BUILD_CITIZENS_PANEL_MESSAGE)
                   }}
                 >
                   {front.ctaLabel}

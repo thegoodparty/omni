@@ -17,6 +17,7 @@ import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 const {
   CLERK_SECRET_KEY,
+  CLERK_JWT_KEY,
   GP_API_MACHINE_SECRET,
   CLERK_AUTHORIZED_PARTIES,
   AGENT_MCP_TOKEN_SECRET,
@@ -129,6 +130,7 @@ export class ClerkAuthService implements AuthProvider {
     const payload = await clerkCall('verifyToken', {}, () =>
       verifyToken(token, {
         secretKey: CLERK_SECRET_KEY,
+        jwtKey: CLERK_JWT_KEY || undefined,
         authorizedParties,
       }),
     ).catch(() => {

@@ -821,9 +821,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       if (electedOfficeId) {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
-      window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/chief-of-staff',
-      )}`
+      const handoff = new URLSearchParams({
+        next: '/dashboard/chief-of-staff',
+      })
+      if (electedOfficeId) handoff.set('org', `eo-${electedOfficeId}`)
+      window.location.href = `/post-auth-redirect?${handoff.toString()}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
       errorSnackbar('We couldn’t save your office. Please try again.')
@@ -1365,12 +1367,6 @@ const WelcomeStep = ({
           )
         })}
       </div>
-
-      <p className="mt-8 text-sm text-muted-foreground">
-        Ready? Hit{' '}
-        <span className="font-semibold text-foreground">Continue</span> to get
-        started.
-      </p>
     </div>
   )
 }
@@ -1882,12 +1878,11 @@ const SwitchToCampaignStep = ({
           className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
           style={{ fontFamily: 'var(--font-geist)' }}
         >
-          Let&apos;s switch you to campaign mode
+          Let&apos;s get you set up for your campaign
         </h1>
         <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-          The elected-official experience is built for sitting officials. Since
-          you&apos;re still campaigning, we&apos;ll set you up with a winning
-          campaign plan instead.
+          This part of GoodParty.org is for officials already in office, so
+          we&apos;ll take you to the campaign tools.
         </p>
       </main>
 

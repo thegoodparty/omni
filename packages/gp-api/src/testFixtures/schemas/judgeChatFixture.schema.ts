@@ -67,6 +67,16 @@ export const JudgeChatCaseResponseSchema = z.object({
   electedOfficeId: z.string().optional(),
   anchor: ChatAnchorSchema.optional(),
   briefing: createBriefingChatSchema.optional(),
+  // The district the deployment resolved for the seeded position. Absent only
+  // when the case asked for no district.
+  district: z
+    .object({
+      state: z.string(),
+      l2DistrictType: z.string(),
+      l2DistrictName: z.string(),
+      level: z.string().nullable(),
+    })
+    .optional(),
 })
 
 export const TearDownJudgeChatCaseResponseSchema = z.object({

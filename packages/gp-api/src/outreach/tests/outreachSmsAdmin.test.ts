@@ -1250,7 +1250,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(retrieveSession).toHaveBeenCalledWith('cs_test_seed')
       expect(refund).toHaveBeenCalledWith(
         'pi_booked_1',
-        `outreach-cancel-${row.id}`,
+        'outreach-cancel-pi_booked_1',
       )
       // No live booking read gates a staff cancel.
       expect(getJob).not.toHaveBeenCalled()

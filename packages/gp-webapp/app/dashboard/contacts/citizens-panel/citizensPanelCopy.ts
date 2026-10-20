@@ -46,6 +46,9 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   weeklyQuestion: 'How much time can you give each week?',
   weeklyCaption:
     'Your own calls and door knocking reach the residents a text misses.',
+  keepFreshTitle: 'Keep your panel fresh',
+  keepFreshCaption:
+    'Keep adding new members, leaning toward the groups with the fewest.',
   hoursPerWeek: (hours: number) =>
     hours === 1 ? '1 hour a week' : `${hours} hours a week`,
   moreHoursPerWeek: '4 or more hours a week',
@@ -75,14 +78,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   },
   // A step's line when its draw leans toward a group the panel trails.
   stepLean: {
-    text: (group: string) => `This round invites more ${group}.`,
+    text: (group: string) => `This batch invites more ${group}.`,
     phone_banking: (time: string) =>
       `People a text can't reach. ${time} of your time.`,
     door_knocking: (time: string) =>
       `A part of your district we haven't reached. ${time} of your time.`,
   },
   balanceTitle: 'How your panel compares with your district',
-  balanceTooEarly: (minimum: number) =>
+  balanceTooFew: (minimum: number) =>
     `We'll compare your panel with your district once ${minimum} people join.`,
   inviteMore: (group: string) => `Invite more ${group} next.`,
   duration: (minutes: number) =>
@@ -121,17 +124,17 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   skipError: "We couldn't skip this step. Try again.",
   textingOff: "Texting isn't set up for your office yet.",
   callListName: 'Civic panel calls',
-  progressLabel: 'Members toward your goal',
-  ofGoal: (goal: string) => ` of ${goal} members`,
-  answersToday: (answers: string) =>
-    `About ${answers} answers per question today`,
-  // The goal in answers: members × the panel reply rate, as "4 in 10".
-  goalWhy: (inTen: number, goal: string, needed: string) =>
-    `About ${inTen} in 10 members answer each question, so ${goal} members gets you the ${needed} answers you need.`,
+  progressLabel: 'Groups of your district with enough members',
+  membersLabel: (members: number) => (members === 1 ? ' member' : ' members'),
+  inGroups: (covered: number, total: number) =>
+    `, in ${covered} of ${total} groups`,
+  groupsMissing:
+    'Invite people from the groups still missing so every part of your district has a voice.',
+  groupsComplete: 'Every part of your district has a voice on your panel.',
   yourTime: 'Your time',
   changeHours: 'Change',
   changeHoursLabel: 'Change your weekly time',
-  changeHoursCaption: 'Your next round of invites uses the new time.',
+  changeHoursCaption: 'Your next batch of invites uses the new time.',
   saveHours: 'Save weekly time',
   cancel: 'Cancel',
   saveHoursError: "We couldn't change your weekly time. Try again.",

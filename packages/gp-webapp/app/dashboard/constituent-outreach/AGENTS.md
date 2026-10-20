@@ -107,7 +107,7 @@ generation services, the spine scoping — are in
   the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
   district's cell phones (`hasCellPhone`, the one filter, which is also what
   the builder needs before Continue enables), saved as a random draw of
-  contracts' `PANEL_SEED_SAMPLE_SIZE` (8,000, sized for the uncorrected panel goal of 240 members, since the page has no district population), so a smaller district is
+  contracts' `PANEL_SEED_SAMPLE_SIZE` (8,334, sized for the largest panel goal of 250 members, since the page has no district mix), so a smaller district is
   texted whole. With the panels flag off the same link
   opens a plain text flow; with the SMS flag off it opens nothing. Both are
   spent on close, so the tile opens a plain flow afterwards.
@@ -120,7 +120,12 @@ generation services, the spine scoping — are in
   `SERVE_TEXT` checkout. A paid poll is then held for review, and its row reads
   "In review". The Polls page (`/dashboard/polls`) merges these rows
   (`GET /v1/outreach/serve`, `outreachType: poll`) into its list and opens the
-  same flow from Create Poll when the flag is on.
+  same flow from Create Poll when the flag is on. `?compose=poll` opens the
+  flow directly once the flag resolves (a community issue's "Run a poll on
+  this issue" links here that way when the flag is on, and to the old
+  `/dashboard/polls/create` when it is off); with the flag off it opens
+  nothing. The poll results page highlights Outreach and its back link
+  returns here.
 
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the

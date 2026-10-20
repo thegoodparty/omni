@@ -118,7 +118,10 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   })
   async sweepRobocallStaging(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runStaging()
+  }
 
+  async runStaging(): Promise<void> {
     const now = new Date()
     const staleCutoff = subMinutes(now, ROBOCALL_STAGING_STALE_MINUTES)
     const candidates = await this.model.findMany({

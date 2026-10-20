@@ -4,9 +4,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { basemapZoom, type DistrictCamera } from './districtDots'
 
-// The provider and key the contacts and door-knocking maps use. Positron is
-// its light grey style, so the dots read over the streets.
-export const BASEMAP_STYLE_URL = `https://maps.geoapify.com/v1/styles/positron/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`
+// The provider and key the contacts and door-knocking maps use. OSM Bright is
+// its full-color street style, the look of Google and Redfin maps; the dots
+// carry a white edge so they stand out on it.
+export const BASEMAP_STYLE_URL = `https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`
 
 // Streets behind the story's dots. A picture, not a widget: no drag, zoom or
 // scroll capture. The dots never wait on it, and a missing or refused key, no

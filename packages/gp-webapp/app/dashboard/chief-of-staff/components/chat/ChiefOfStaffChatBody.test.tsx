@@ -3083,6 +3083,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       id: 'plan-1',
       status: 'active' as const,
       goalMembers: 100,
+      keepFresh: false,
       hoursPerWeek: 2,
       currentWave: 1,
       createdAt: new Date('2026-10-15T00:00:00.000Z'),
@@ -3113,7 +3114,14 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
         : [],
     },
     next,
-    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
     balance: null,
   })
 
@@ -3193,7 +3201,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Your panel can give about 5 of the 96 answers you need.',
+        '62 members so far, from 9 of 12 groups in your district.',
       ),
     ).toBeInTheDocument()
     // The button opens the calls themselves (civicPanelWidgets.test.tsx).

@@ -2,15 +2,10 @@ import type {
   AcsCounts,
   RespondentCell,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import {
-  poolSmallValues,
-  rake,
-  type RakingCell,
-  type RakingResult,
-  type RakingTargets,
-} from './raking.util'
+import type { RakingCell, RakingTargets } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
 import { MIN_DISTRICT_SHARE_FOR_RACE_GROUP } from './representation.util'
+import { adultAgeBandShares, adultSexShares } from './censusSexAge.util'
 
 // A value with fewer answers than this pools with the other small ones, so
 // no handful of people carries a whole group's weight.
@@ -27,21 +22,6 @@ const shares = (
   return Object.fromEntries(
     entries.map(([key, value]) => [key, (value ?? 0) / total]),
   )
-}
-
-const ageTargets = (district: AcsCounts): Record<string, number> | null => {
-  const { totalPopulation, populationUnder18, population65Plus } = district
-  if (
-    totalPopulation === null ||
-    populationUnder18 === null ||
-    population65Plus === null
-  ) {
-    return null
-  }
-  return shares({
-    '18to64': totalPopulation - populationUnder18 - population65Plus,
-    '65plus': population65Plus,
-  })
 }
 
 // Households, not people: the census publishes tenure per household, and a
@@ -90,15 +70,14 @@ const raceTargets = (district: AcsCounts): Record<string, number> | null => {
 export interface WeightingCensus {
   district: AcsCounts
   tractAdults: Map<string, number>
-  // Adult shares by gender, once the marts publish sex by age.
-  genderShares?: { male: number; female: number } | null
 }
 
 // The census marginals each answer is weighted to. A dimension the census
 // cannot give for this district is left out rather than guessed.
 export const weightingTargets = (census: WeightingCensus): RakingTargets => {
   const targets: RakingTargets = {}
-  const age = ageTargets(census.district)
+  // Adults in the census's six age bands, both sexes together.
+  const age = adultAgeBandShares(census.district)
   if (age) targets.age = age
   const tenure = tenureTargets(census.district)
   if (tenure) targets.tenure = tenure
@@ -106,10 +85,10 @@ export const weightingTargets = (census: WeightingCensus): RakingTargets => {
   if (tract) targets.tract = tract
   const race = raceTargets(census.district)
   if (race) targets.race = race
-  if (census.genderShares) {
-    const gender = shares(census.genderShares)
-    if (gender) targets.gender = gender
-  }
+  // Census sex among adults. Respondents' Gender is the voter file's M or F,
+  // and a blank one sits this dimension out.
+  const gender = adultSexShares(census.district)
+  if (gender) targets.gender = { ...gender }
   return targets
 }
 
@@ -119,7 +98,9 @@ export const weightingTargets = (census: WeightingCensus): RakingTargets => {
 export const MIN_KNOWN_RACE = 10
 export const MIN_KNOWN_RACE_SHARE = 0.7
 
-export const raceNameable = (cells: RespondentCell[]): boolean => {
+export const raceNameable = (
+  cells: ReadonlyArray<{ count: number; race: string | null }>,
+): boolean => {
   let total = 0
   let known = 0
   for (const cell of cells) {
@@ -198,32 +179,4 @@ export const tractShortfalls = (
           censusShare - share >= MIN_UNDERREPRESENTED_GAP),
     )
     .sort((a, b) => a.tract.localeCompare(b.tract))
-}
-
-export const unreachedTracts = (
-  respondents: RespondentCell[],
-  tractAdults: Map<string, number>,
-): string[] =>
-  tractShortfalls(respondents, tractAdults).map(({ tract }) => tract)
-
-// Weights the answers to the district's census mix, pooling small groups
-// first.
-export const weighToCensus = (
-  respondents: RespondentCell[],
-  census: WeightingCensus,
-): RakingResult => {
-  let targets = weightingTargets(census)
-  let cells = placeCells(toRakingCells(respondents), targets)
-  for (const dimension of Object.keys(targets)) {
-    const pooled = poolSmallValues(
-      cells,
-      targets,
-      dimension,
-      MIN_ANSWERS_PER_WEIGHTING_GROUP,
-      POOLED_VALUE,
-    )
-    cells = pooled.cells
-    targets = pooled.targets
-  }
-  return rake(cells, targets)
 }

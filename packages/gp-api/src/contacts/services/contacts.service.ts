@@ -71,6 +71,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   type PeopleDataset,
   PeopleDatasetService,
@@ -2425,6 +2426,47 @@ export class ContactsService {
     )
   }
 
+  // The people the criteria match, counted by age band, gender, tract and
+  // race: who a channel can reach, group by group, or only among
+  // `withinPersonIds` when given. Counts only.
+  async countByGroupWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    withinPersonIds?: string[],
+  ): Promise<DistrictCell[]> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    const idResolution =
+      withinPersonIds === undefined
+        ? criteria
+        : intersectIdFilterResolutions(
+            criteria,
+            withinPersonIds.length === 0
+              ? { kind: 'empty' }
+              : { kind: 'filter', idFilter: { in: withinPersonIds } },
+          )
+    if (idResolution.kind === 'empty') return []
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) =>
+        this.voterQueryService.getPoolCells(
+          AggregatesDTO.create({
+            districtId,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            affinityColumn: await this.affinityColumnFor(organization, filters),
+          }),
+          dataset,
+        ),
+    )
+  }
+
   // The densest walkable area of `households` doors among the people the
   // criteria match, chosen in the warehouse over the whole district (or the
   // tract), each door with its residents. Rooftop-geocoded only, like a
@@ -3022,28 +3064,6 @@ export class ContactsService {
       ({ districtId, dataset }) =>
         this.fetchStatsByDistrictId(districtId, dataset),
     )
-  }
-
-  // The district's census population, for sizing the civic panel to the
-  // answers a question needs. Null when there is no census row, no district,
-  // or the read fails: the sizing then uses the uncorrected figure, which
-  // only ever asks for a few more answers than a small district needs.
-  async getDistrictPopulation(
-    organization: Organization,
-  ): Promise<number | null> {
-    try {
-      return await this.withOrgDistrictResolution(
-        organization,
-        ({ districtId, dataset }) =>
-          this.peopleStatsService.findDistrictPopulation(districtId, dataset),
-      )
-    } catch (err) {
-      this.logger.warn(
-        { err, organizationSlug: organization.slug },
-        'district population read failed; panel sized without it',
-      )
-      return null
-    }
   }
 
   async resolveDistrictIdFromPosition(
