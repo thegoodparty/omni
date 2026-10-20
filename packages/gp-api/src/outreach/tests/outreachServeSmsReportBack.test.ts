@@ -217,6 +217,38 @@ describe('a Serve text that reports back', () => {
     })
   })
 
+  it('counts only the answerers a text can reach as canReach', async () => {
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: slug },
+    })
+    for (const personId of [randomUUID(), randomUUID()]) {
+      await service.prisma.pollIndividualMessage.create({
+        data: {
+          id: randomUUID(),
+          personId,
+          sentAt: new Date(),
+          sender: 'CONSTITUENT',
+          isOptOut: false,
+          outreachId: askedId,
+        },
+      })
+    }
+    const countByGroupWithin = vi
+      .spyOn(service.app.get(ContactsService), 'countByGroupWithin')
+      .mockResolvedValue([{ count: 1 }] as never)
+
+    const [send] = await service.app
+      .get(OutreachReportBackService)
+      .listForOffice(slug, office.id)
+
+    expect(countByGroupWithin).toHaveBeenCalledWith(
+      expect.anything(),
+      { hasCellPhone: true },
+      expect.any(Array),
+    )
+    expect(send).toMatchObject({ answered: 2, canReach: 1 })
+  })
+
   // The priority's read changing makes a new card, which is a new reason to
   // tell people what was heard.
   it('lets another go out once the priority read changes', async () => {

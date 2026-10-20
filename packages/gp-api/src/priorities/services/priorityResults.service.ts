@@ -293,9 +293,13 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     for (const row of rows) {
       if (row.priorityId === null) continue
       const state = byPriority.get(row.priorityId) ?? { sent: false }
+      // A denied or failed follow-up never reached anyone but is closed: the
+      // check gets no third text.
       if (
         row.status === OutreachStatus.in_progress ||
-        row.status === OutreachStatus.completed
+        row.status === OutreachStatus.completed ||
+        row.status === OutreachStatus.denied ||
+        row.status === OutreachStatus.failed
       ) {
         state.sent = true
       } else if (

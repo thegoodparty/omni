@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { sizeOf } from '@/contacts/utils/civicPanelAllocation.util'
 import { format } from 'date-fns'
 import {
   DashboardCardType,
@@ -79,6 +82,32 @@ export const reportBackAudience = (priorityTitle: string): string =>
 export class OutreachReportBackService extends createPrismaBase(
   MODELS.Outreach,
 ) {
+  constructor(private readonly moduleRef: ModuleRef) {
+    super()
+  }
+
+  // How many of these people a text can reach: those with a cell phone. A
+  // door or call answerer may have none, and the Serve text refuses a draft
+  // it cannot fill. Resolved lazily, so this module imports nothing. When the
+  // district cannot be read, everyone counts and the create has the last word.
+  private async textableCount(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<number> {
+    if (personIds.length === 0) return 0
+    try {
+      const organization = await this.client.organization.findUniqueOrThrow({
+        where: { slug: organizationSlug },
+      })
+      const cells = await this.moduleRef
+        .get(ContactsService, { strict: false })
+        .countByGroupWithin(organization, { hasCellPhone: true }, personIds)
+      return sizeOf(cells)
+    } catch {
+      return personIds.length
+    }
+  }
+
   repliesInWhere(
     organizationSlug: string,
     electedOfficeId: string,
@@ -206,7 +235,7 @@ export class OutreachReportBackService extends createPrismaBase(
           sentOn: sentOnOf(send),
           audience: reportBackAudience(title),
           reached: answered.length,
-          canReach: answered.length,
+          canReach: await this.textableCount(organizationSlug, answered),
           answered: answered.length,
           themes,
           reportBack,

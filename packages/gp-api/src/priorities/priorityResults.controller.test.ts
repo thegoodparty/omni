@@ -596,6 +596,25 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect((await readStatus()).data.followUpSent).toBe(true)
   })
 
+  it('treats a denied or failed follow-up as closed, never a third text', async () => {
+    const { outreach } = await createTextSend(3, 0)
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.failed,
+        priorityId,
+        roundOneOutreachId: outreach.id,
+        scheduledLocalDate: '2026-11-03',
+        textCount: 250,
+      },
+    })
+
+    const read = (await readStatus()).data
+    expect(read.followUp).toBeUndefined()
+    expect(read.followUpSent).toBe(true)
+  })
+
   it('says no check is out until something has gone to residents', async () => {
     expect((await readStatus()).data.checkOut).toBeUndefined()
 
