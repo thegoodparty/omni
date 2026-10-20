@@ -488,12 +488,6 @@ jobs:
 
       - wait-all:
 
-      # What the release train's one-shot GP Bot teardown will destroy in dev.
-      # Its plan JSON lands in PLAN_DIR, so the IAM simulation below covers
-      # the deletes too. Prod is not planned here, same as every other root.
-      - name: Plan GP Bot destroy (dev)
-        run: bash packages/gp-ai/infrastructure/scripts/ci-destroy-gp-bot.sh plan dev
-
       - name: Post consolidated plan comment
         uses: actions/github-script@v7
         with:
