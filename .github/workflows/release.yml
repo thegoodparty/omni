@@ -55,6 +55,10 @@ jobs:
   await-checks:
     name: Await checks
     runs-on: ubuntu-latest
+    # actions: write lets a superseded run cancel itself (see the wait step).
+    permissions:
+      contents: read
+      actions: write
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       force: ${{ steps.force.outputs.force }}
@@ -103,6 +107,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.resolve.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           # Per-service check workflows whose green-ness gates a deploy. None is
@@ -114,6 +120,53 @@ jobs:
           # job in the train's dev stage.
           REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
+
+          # "<total> <succeeded> <running> <conclusions>" for one workflow at
+          # one SHA, or empty on an API error.
+          runs_summary() {
+            gh api "repos/$REPO/actions/workflows/$2/runs?head_sha=$1&event=push&per_page=20" \
+              --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo ""
+          }
+
+          # A red check on a commit that main has already moved past is not
+          # worth a red train and a #bot-urgent alert: the queued train for the
+          # newer commit covers the same work. Such a run cancels itself, which
+          # the failure alert already treats as batching. It still fails when
+          # the newer commit's run of a failed workflow has also failed, so a
+          # real breakage reports once. Only push runs qualify: a dispatch
+          # names its SHA on purpose. Cancelling here is safe because no deploy
+          # has started yet.
+          cancel_if_superseded() {
+            [ "$EVENT" = "push" ] || return 0
+            local tip status wf seen summary
+            tip=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null) || return 0
+            [ -n "$tip" ] && [ "$tip" != "$SHA" ] || return 0
+            status=$(gh api "repos/$REPO/compare/$SHA...$tip" --jq .status 2>/dev/null) || return 0
+            [ "$status" = "ahead" ] || return 0
+            for entry in $failed; do
+              wf="${entry%%(*}"; seen="${entry#*(}"; seen="${seen%)}"
+              if [[ "$seen" =~ ^(cancelled,?)+$ ]]; then
+                continue
+              fi
+              summary=$(runs_summary "$tip" "$wf")
+              [ -n "$summary" ] || return 0
+              # shellcheck disable=SC2086
+              set -- $summary
+              # Registered-but-not-started, running or green on the tip all
+              # mean the newer train decides. Only a tip that also failed keeps
+              # this one red.
+              if [ "$1" -gt 0 ] && [ "$3" -eq 0 ] && [ "$2" -eq 0 ]; then
+                return 0
+              fi
+            done
+            echo "::notice::Superseded: main is at ${tip:0:10}, past $SHA, and its train covers this one. Checks here:$failed. Cancelling this run instead of failing it."
+            # Cancellation lands within seconds. If it never does, fail as before.
+            if gh run cancel "$RUN_ID" -R "$REPO"; then
+              sleep 120
+            fi
+            echo "::error::Could not cancel superseded run $RUN_ID."
+            exit 1
+          }
 
           while :; do
             pending=0
@@ -128,8 +181,7 @@ jobs:
               # fact passed. A workflow is green if ANY of its runs for this
               # SHA concluded success; it is pending while any is still going;
               # only an all-completed, none-succeeded set is a real failure.
-              summary=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=20" \
-                --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo "")
+              summary=$(runs_summary "$SHA" "$wf")
               if [ -z "$summary" ]; then
                 pending=$((pending+1)); continue # API hiccup — re-read next pass
               fi
@@ -147,6 +199,7 @@ jobs:
             done
 
             if [ -n "$failed" ]; then
+              cancel_if_superseded
               echo "::error::Dev checks failed for $SHA:$failed. Not deploying."
               exit 1
             fi
