@@ -192,14 +192,11 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
     .getByRole('button', { name: 'Edit Safe and affordable housing' })
     .waitFor({ state: 'visible', timeout: 10_000 })
 
-  await page.getByRole('button', { name: 'Continue' }).click()
-
-  // 8. Payment — embedded Stripe Payment Element.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/payment/)
-
-  // Capture the session ID from the checkout-session response. gp-api returns
-  // only `clientSecret` for Pro subscriptions (no `id` field), so derive the
-  // session ID from the Stripe client secret format:
+  // Arm the checkout-session interceptor before clicking Continue. PaymentContent
+  // POSTs to /checkout-session on mount, so the interceptor must be live before
+  // the navigation that mounts it; arming after waitForURL is too late.
+  // gp-api returns only `clientSecret` for Pro subscriptions (no `id` field),
+  // so derive the session ID from the Stripe client secret format:
   // `cs_test_<id>_secret_<random>` → `split('_secret_')[0]` gives `cs_test_<id>`.
   let proSessionId: string | null = null
   await page.route(
@@ -215,6 +212,11 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
       await route.fulfill({ response })
     },
   )
+
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  // 8. Payment — embedded Stripe Payment Element.
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/payment/)
 
   const stripeFrame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
