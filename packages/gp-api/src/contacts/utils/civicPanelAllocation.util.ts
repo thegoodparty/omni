@@ -50,11 +50,16 @@ export const isTargeted = (
   group.value !== POOLED_VALUE
 
 // The share of the district's smallest major group, the one answersNeeded
-// sizes for. Null when the frame has no major group.
+// sizes for. Null when the frame has no major group. Shares are of the whole
+// district, as the model's are: someone whose value is unknown answers for
+// no group on that dimension, so dividing by the known alone would inflate
+// a group and size for fewer answers than it needs.
 export const smallestMajorShare = (
   frame: MrpFrameCell[],
   dimensions: readonly TargetedDimension[],
 ): number | null => {
+  const total = frame.reduce((sum, cell) => sum + cell.count, 0)
+  if (total === 0) return null
   const shares = dimensions.flatMap((dimension) => {
     const counts = new Map<string, number>()
     for (const cell of frame) {
@@ -62,14 +67,11 @@ export const smallestMajorShare = (
       if (value === undefined) continue
       counts.set(value, (counts.get(value) ?? 0) + cell.count)
     }
-    const known = [...counts.values()].reduce((sum, n) => sum + n, 0)
-    return known === 0
-      ? []
-      : [...counts].flatMap(([value, count]) =>
-          value !== POOLED_VALUE && count / known >= MAJOR_GROUP_SHARE
-            ? [count / known]
-            : [],
-        )
+    return [...counts].flatMap(([value, count]) =>
+      value !== POOLED_VALUE && count / total >= MAJOR_GROUP_SHARE
+        ? [count / total]
+        : [],
+    )
   })
   return shares.length === 0 ? null : Math.min(...shares)
 }

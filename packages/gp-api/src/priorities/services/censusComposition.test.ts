@@ -263,6 +263,19 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       ).toBe(20)
     })
 
+    it('sizes a group by its share of the whole district, unknowns included', async () => {
+      // Hispanic residents are 3% of everyone but 4% of those with a known
+      // race; it is the 3% that sets how many answers reach them.
+      expect(
+        await sizeFor([
+          cell('18to64', 'female', 'a', 'white', 450),
+          cell('65plus', 'male', 'a', 'black', 270),
+          cell('18to64', 'male', 'a', 'hispanic', 30),
+          cell('65plus', 'female', 'a', null, 250),
+        ]),
+      ).toBe(100)
+    })
+
     it('reads no census row, or a failure, as unknown', async () => {
       expect(
         await withCells(
