@@ -54,7 +54,10 @@ export class PeerlyP2pMockController {
   tokenAuth() {
     this.assertMockMode()
     const exp = getUnixTime(addSeconds(new Date(), 3600))
-    return { token: signHs256Jwt({ exp, accountNumber: 'mock-peerly' }) }
+    return {
+      token: signHs256Jwt({ exp, accountNumber: 'mock-peerly' }),
+      user: { username: 'mock-peerly', user_id: 1 },
+    }
   }
 
   // P2P JOBS
@@ -221,7 +224,7 @@ export class PeerlyP2pMockController {
   async createP2pTest(@Param('id') id: string) {
     this.assertMockMode()
     await this.findJobRecord(id)
-    return { results: [] }
+    return { id: randomUUID() }
   }
 
   @Get('v2/p2p/:id/detailedstats')
@@ -331,7 +334,7 @@ export class PeerlyP2pMockController {
     return jsonObj(record.state as Prisma.JsonValue)
   }
 
-  @Post('phonelists/addcontact')
+  @Post('phonelists/:id/addcontact')
   addPhoneListContact() {
     this.assertMockMode()
     return {}
