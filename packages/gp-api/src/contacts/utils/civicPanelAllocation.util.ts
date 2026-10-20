@@ -1,10 +1,20 @@
+import {
+  DEFAULT_TEXT_REPLY_RATE,
+  MAX_LIST_SAMPLE_SIZE,
+  PANEL_CALL_ASSUMED_JOIN_RATE,
+  PANEL_DOOR_ASSUMED_JOIN_RATE,
+  type CivicPanelBuildChannel,
+} from '@goodparty_org/contracts'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
 import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
+import type { RakingTargets } from '@/priorities/util/raking.util'
+import { asksFor, sizePanelWave } from './civicPanelBuild.util'
 
-// Round 2 of a priority's outreach: who its scheduled text leans toward,
-// from the model's read of round 1's answers. See
-// docs/features/civic-panel-mrp.md.
+// A priority's two rounds of outreach: how big round 1's doors, calls and
+// text are, and who round 2's scheduled text leans toward, from the model's
+// read of round 1's answers. See docs/features/civic-panel-mrp.md.
 
 // Below this many answers a group's estimate is mostly the model's guess.
 export const MIN_VOICES_PER_GROUP = 3
@@ -112,4 +122,139 @@ export const splitBatch = (
 ): { steered: number; unsteered: number } => {
   const unsteered = Math.round(size * UNSTEERED_BATCH_SHARE)
   return { steered: size - unsteered, unsteered }
+}
+
+// Placeholders for the share of residents who answer, until measured rates
+// replace them.
+export const DOOR_ANSWER_RATE = PANEL_DOOR_ASSUMED_JOIN_RATE
+export const CALL_ANSWER_RATE = PANEL_CALL_ASSUMED_JOIN_RATE
+export const TEXT_ANSWER_RATE = DEFAULT_TEXT_REPLY_RATE
+
+// Who each part of round 1 can reach, counted by group: the residents of
+// the walkable area the doors were picked in, anyone with a phone for
+// calls, and anyone with a cell phone for the text.
+export interface RoundOnePools {
+  doorArea: DistrictCell[]
+  phone: DistrictCell[]
+  text: DistrictCell[]
+}
+
+export interface RoundOneGroup {
+  dimension: TargetedDimension
+  value: string
+  // Of the district.
+  share: number
+  expectedAnswers: number
+}
+
+export interface RoundOneSize {
+  texts: number
+  // Every major group, with the answers round 1 is expected to bring.
+  groups: RoundOneGroup[]
+}
+
+const valueOf = (
+  cell: DistrictCell,
+  dimension: TargetedDimension,
+): string | null => (dimension === 'age' ? cell.ageBand : cell[dimension])
+
+export const sizeOf = (cells: DistrictCell[]): number =>
+  cells.reduce((sum, cell) => sum + cell.count, 0)
+
+// The chance a resident drawn from the pool is in the group. Residents with
+// no known value count in the pool but in no group.
+const shareOf = (
+  cells: DistrictCell[],
+  dimension: TargetedDimension,
+  value: string,
+): number => {
+  const pool = sizeOf(cells)
+  return pool === 0
+    ? 0
+    : sizeOf(cells.filter((cell) => valueOf(cell, dimension) === value)) / pool
+}
+
+const stepsOf = (
+  steps: ReturnType<typeof sizePanelWave>,
+  channel: CivicPanelBuildChannel,
+): number =>
+  steps
+    .filter((step) => step.channel === channel)
+    .reduce((sum, step) => sum + step.targetSize, 0)
+
+// Round 1's doors and calls: the official's hours as the panel plan splits
+// them. No member gap caps round 1, so the hours alone size both.
+export const roundOneHours = ({
+  hoursPerWeek,
+  doorPool,
+  phonePool,
+}: {
+  hoursPerWeek: number
+  doorPool: number
+  phonePool: number
+}): { doors: number; calls: number } => {
+  const wave = sizePanelWave({
+    gap: Number.POSITIVE_INFINITY,
+    hoursPerWeek,
+    pools: { text: 0, phone: phonePool, door: doorPool },
+  })
+  return {
+    doors: stepsOf(wave, 'door_knocking'),
+    calls: stepsOf(wave, 'phone_banking'),
+  }
+}
+
+// Round 1's text: it covers whatever major groups the doors and calls leave
+// short of MIN_VOICES_PER_GROUP expected answers, capped by who it can
+// reach. Every door is in one walkable area, so the doors reach a group only
+// as far as it lives there. A group no cell phone reaches cannot be helped
+// by the text, so it does not size it.
+export const sizeRoundOne = ({
+  doors,
+  calls,
+  districtShares,
+  dimensions,
+  pools,
+}: {
+  doors: number
+  calls: number
+  districtShares: RakingTargets
+  dimensions: readonly TargetedDimension[]
+  pools: RoundOnePools
+}): RoundOneSize => {
+  const majors = dimensions.flatMap((dimension) =>
+    Object.entries(districtShares[dimension] ?? {}).flatMap(([value, share]) =>
+      share >= MAJOR_GROUP_SHARE && value !== POOLED_VALUE
+        ? [{ dimension, value, share }]
+        : [],
+    ),
+  )
+  const reach = majors.map((group) => ({
+    ...group,
+    fromHours:
+      doors *
+        shareOf(pools.doorArea, group.dimension, group.value) *
+        DOOR_ANSWER_RATE +
+      calls *
+        shareOf(pools.phone, group.dimension, group.value) *
+        CALL_ANSWER_RATE,
+    perText:
+      shareOf(pools.text, group.dimension, group.value) * TEXT_ANSWER_RATE,
+  }))
+  const needed = Math.max(
+    0,
+    ...reach
+      .filter((g) => g.fromHours < MIN_VOICES_PER_GROUP && g.perText > 0)
+      .map((g) => asksFor(MIN_VOICES_PER_GROUP - g.fromHours, g.perText)),
+  )
+  const texts = Math.min(needed, sizeOf(pools.text), MAX_LIST_SAMPLE_SIZE)
+  return {
+    texts,
+    groups: reach.map(({ dimension, value, share, fromHours, perText }) => ({
+      dimension,
+      value,
+      share,
+      expectedAnswers: Math.round((fromHours + texts * perText) * 10) / 10,
+    })),
+  }
 }

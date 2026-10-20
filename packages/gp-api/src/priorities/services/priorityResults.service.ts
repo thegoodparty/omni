@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core'
 import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   type GeoJsonShape,
   type PriorityReadStatus,
   type PriorityResults,
@@ -24,7 +25,11 @@ import {
   SynthesisScope,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { ContactsService } from '@/contacts/services/contacts.service'
+import {
+  ContactsService,
+  type ContactsFilterResolutionInput,
+} from '@/contacts/services/contacts.service'
+import { doorTractFor } from '@/contacts/utils/civicPanelSteering.util'
 import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -33,6 +38,7 @@ import {
 } from './censusComposition'
 import { estimateMrp } from '../util/mrp.util'
 import { mrpReadStatus, type MrpRead } from '../util/mrpReadStatus.util'
+import type { WeightingCensus } from '../util/censusWeighting.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
   [OutreachType.text]: 'text',
@@ -283,6 +289,74 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     } catch {
       return null
     }
+  }
+
+  // The district's census, for sizing a priority's first round of outreach.
+  // No district, or a census read that fails, is null: the caller sizes
+  // without it.
+  async districtCensus(
+    organization: Organization,
+  ): Promise<WeightingCensus | null> {
+    try {
+      const district =
+        await this.resolveContacts().resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      return inputs?.census ?? null
+    } catch {
+      return null
+    }
+  }
+
+  // The one walkable area of `households` doors a priority's first round
+  // knocks, picked as the civic panel plan picks its door step's: in the
+  // tract the priority's answers trail most once there are enough of them
+  // to say, else, or when that tract holds too few doors, across the
+  // district.
+  async roundOneDoorArea(
+    organization: Organization,
+    priorityId: string,
+    criteria: ContactsFilterResolutionInput,
+    households: number,
+  ): Promise<{ lat: number; lng: number; personIds: string[] }[]> {
+    const contacts = this.resolveContacts()
+    const tract = await this.trailingTract(organization, priorityId)
+    if (tract !== null) {
+      const inTract = await contacts.walkableAreaWithin(
+        organization,
+        criteria,
+        [],
+        households,
+        tract,
+      )
+      if (inTract.length >= households) return inTract
+    }
+    return contacts.walkableAreaWithin(organization, criteria, [], households)
+  }
+
+  private async trailingTract(
+    organization: Organization,
+    priorityId: string,
+  ): Promise<string | null> {
+    const people = [
+      ...new Set(
+        (
+          (await this.sendsFor(organization.slug, [priorityId])).get(
+            priorityId,
+          ) ?? []
+        ).flatMap((send) => send.respondentIds),
+      ),
+    ]
+    if (people.length < PANEL_MIN_MEMBERS_FOR_BALANCE) return null
+    const district =
+      await this.resolveContacts().resolveEligibleDistrict(organization)
+    const mix = await this.census.weightingInputs({
+      ...district,
+      personIds: people,
+    })
+    return mix ? doorTractFor(mix) : null
   }
 
   // The parts of the district a priority's answers have barely reached, for

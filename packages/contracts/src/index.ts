@@ -233,8 +233,6 @@ export {
 export {
   panelGoalMembers,
   panelExpectedAnswers,
-  sizePanelAsk,
-  type PanelAskSize,
   panelSeedSampleSize,
   PANEL_SEED_SAMPLE_SIZE,
 } from './people/PanelAnswers'
@@ -870,6 +868,8 @@ export {
   isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
+  WalkableAreaBoxSchema,
+  type WalkableAreaBox,
   type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,

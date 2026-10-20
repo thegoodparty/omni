@@ -50,7 +50,10 @@ folded into the census categories), beside the district's ACS row, and
 the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
-`buildDistrictTractAdultsSql` sums adults per tract, and
+`buildDistrictTractAdultsSql` sums adults per tract,
+`buildPoolCellsSql` counts everyone a filter matches in the district's
+cells (who a channel or a door area can reach, for sizing a priority's
+first round, read through `VoterQueryService.getPoolCells`), and
 `buildTractGridCellsSql` returns the grid squares a set of tracts' people
 live in, from which gp-api draws the area a priority has not reached. All
 return counts or square indexes, never a person. The civic panel reads the

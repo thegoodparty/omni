@@ -71,6 +71,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   type PeopleDataset,
   PeopleDatasetService,
@@ -2422,6 +2423,47 @@ export class ContactsService {
         )
         return pagination.totalResults
       },
+    )
+  }
+
+  // The people the criteria match, counted by age band, gender, tract and
+  // race: who a channel can reach, group by group, or only among
+  // `withinPersonIds` when given. Counts only.
+  async countByGroupWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    withinPersonIds?: string[],
+  ): Promise<DistrictCell[]> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    const idResolution =
+      withinPersonIds === undefined
+        ? criteria
+        : intersectIdFilterResolutions(
+            criteria,
+            withinPersonIds.length === 0
+              ? { kind: 'empty' }
+              : { kind: 'filter', idFilter: { in: withinPersonIds } },
+          )
+    if (idResolution.kind === 'empty') return []
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) =>
+        this.voterQueryService.getPoolCells(
+          AggregatesDTO.create({
+            districtId,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            affinityColumn: await this.affinityColumnFor(organization, filters),
+          }),
+          dataset,
+        ),
     )
   }
 

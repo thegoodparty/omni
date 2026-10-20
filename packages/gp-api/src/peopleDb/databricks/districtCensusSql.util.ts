@@ -9,6 +9,7 @@ import {
   tractSql,
   type Bag,
   type DbxDistrict,
+  type DbxScopeArgs,
   type DbxStatement,
 } from './databricksVoterSql.util'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -260,6 +261,19 @@ export const buildRespondentCellsSql = (
     ` ${raceSql()} AS race, count(*) AS respondents` +
     ` FROM ${district.table} v ${where}` +
     ' GROUP BY 1, 2, 3, 4, 5'
+  return { sql, params: bag.params }
+}
+
+// How many of the people a scope matches share each age band, gender,
+// tract and race: counts per combination, never a person. Unknowns stay
+// NULL.
+export const buildPoolCellsSql = (args: DbxScopeArgs): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race, count(*) AS people` +
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}` +
+    ' GROUP BY 1, 2, 3, 4'
   return { sql, params: bag.params }
 }
 

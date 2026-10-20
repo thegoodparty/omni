@@ -3,12 +3,13 @@
 How a priority's answers become a read of the district, and who the next
 text goes to. Pure math lives in
 `packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
-`packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (who the
-round 2 text leans toward). The model is the priority results page's
-read (`mrpReadStatus.util.ts`, behind `serve-citizen-panels`) and drives
-the round 2 draw (`priorities/services/priorityRoundTwoDraw.service.ts`).
-This page says what they are for and what has to land before the rest is
-live.
+`packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (how big
+round 1 is, and who the round 2 text leans toward). The model is the
+priority results page's read (`mrpReadStatus.util.ts`, behind
+`serve-citizen-panels`) and drives the round 2 draw
+(`priorities/services/priorityRoundTwoDraw.service.ts`); round 1 sizing is
+wired to the priority chat. This page says what they are for and what has
+to land before the rest is live.
 
 ## Why
 
@@ -81,8 +82,13 @@ texts now (404 on prod).
 this flow (Samuel, 2026-10-19, superseding the 2026-10-15 sizing). A major
 group holds 3% or more of the district on a steered dimension. Each needs
 three expected answers: invites to the group times the channel's assumed
-rate. Doors and calls take the official's hours as `sizePanelWave` splits
-them today; the text covers whatever groups the hours leave short.
+rate (doors 10%, calls 5%, a cold text 3%, placeholders until measured).
+Doors and calls take the official's hours as `sizePanelWave` splits them;
+the doors are one walkable area, so they count toward the groups living
+there. The text covers whatever groups the area and the calls leave short,
+capped by the reachable cell phones. The priority chat proposes all three as cards at
+once (`size_round_one`, `sizeRoundOne`; detail in the contacts AGENTS.md,
+"Round 1 sizing").
 
 **Coding answers.** Replies stay free text. An AI classifier reads each
 reply against the question and records yes, no or mixed, plus "not an
@@ -155,8 +161,7 @@ model feeds the shapes the page already reads, through
 
 ## Before it is live
 
-1. **Round 1 sizing** by coverage, above.
-2. **The chat proposing round 2.** The priority flow's card carries
+1. **The chat proposing round 2.** The priority flow's card carries
    `roundTwoSize` (contracts `OutreachProposalSchema`) and the Serve text
    flow forwards it, but no prompt proposes it yet.
 
