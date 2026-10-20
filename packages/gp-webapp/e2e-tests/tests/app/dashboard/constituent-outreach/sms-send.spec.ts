@@ -220,11 +220,11 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     }
     await page.locator(`td[data-day="${isoDate}"] button`).click()
 
-    await page.getByRole('button', { name: /^Continue/ }).click()
-
     // ── 9. Set up interceptors before the review step mounts ──────────────────
     // The review step creates the outreach on mount and opens the Stripe
     // checkout immediately; interceptors must be armed before we get there.
+    // Arming after the Continue click is too late — the review step can mount
+    // and fire its requests before the awaited page.route() calls resolve.
 
     let outreachId: number | null = null
     await page.route(/\/api\/v1\/outreach\/serve\/sms$/, async (route) => {
@@ -251,6 +251,8 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
         await route.continue()
       },
     )
+
+    await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── 10. Review step: wait for Stripe, fill card, pay ─────────────────────
     await expect(stepHeading(page, 'Review & pay')).toBeVisible({
