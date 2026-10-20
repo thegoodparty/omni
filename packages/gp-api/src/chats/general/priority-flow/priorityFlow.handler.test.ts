@@ -1233,7 +1233,7 @@ describe('PriorityFlowHandler', () => {
         '- phone banking, with the script a caller reads as the message.',
       )
       expect(prompt).toContain(
-        '- text, with the text as the message, and targetResponses, assumedReplyRate and civicPanelAsk as returned.',
+        '- text, with the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned.',
       )
       expect(prompt).toContain('the stepId the check is on and side main')
       expect(prompt).toContain('The official gives 2 hours a week.')

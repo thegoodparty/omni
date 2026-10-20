@@ -41,6 +41,9 @@ export const READ_STATUS_COPY = {
       : label
   },
   tooEarly: "It's too early to tell what your community thinks.",
+  // A follow-up text paid for with the first: when it goes and to whom.
+  followUp: (texts: number, date: string): string =>
+    `Follow-up text to ${texts.toLocaleString()} people on ${date}, to the groups you've heard from least`,
   notLikeDistrict:
     "We're hearing less from some groups than live in your district. We'll show what we heard once answers look like your district.",
   hearFromMoreHeading: 'Hear from more',

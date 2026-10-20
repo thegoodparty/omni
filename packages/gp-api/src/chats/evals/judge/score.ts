@@ -15,6 +15,7 @@ import {
   type SlotVerdict,
 } from './judge'
 import type { NormalizedAgent, SlotMap } from './normalize'
+import type { RegressionSignals } from './regressionSignals'
 import { errorClass, publicToolName } from './toolErrorDetails'
 import { priceUsd, sharesPricing } from './pricing'
 import {
@@ -228,8 +229,13 @@ export interface AgentScore {
   // because the manifest requires no top-level field or could not be read.
   outputContractNote?: ContractNote
   // Per case, whether each arm reached the outcome its `handledWhen`
-  // sentence describes. Absent when no case carries one. Not in the label.
+  // sentence describes. Absent when no case carries one. Moves the label
+  // only through `signals.handling`.
   handling?: ConditionHandling
+  // Set by the sweep after scoring. When present, `label` is the combined
+  // verdict and `signals.qualityLabel` the quality comparison's alone, while
+  // `labelNote` still explains the quality label.
+  signals?: RegressionSignals
 }
 
 export interface ControlsScoredAnyway {

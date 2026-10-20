@@ -57,7 +57,9 @@ The representation bars compare who answered with the district, unweighted.
 ## Round 2 draw
 
 `services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is
-paid for at setup and drawn later: the `priorityRoundTwoDraw` cron
+the held half of its first text's purchase (`roundOneOutreachId`, two weeks
+after it; see `outreach/AGENTS.md`), paid for in the same checkout and
+drawn later: the `priorityRoundTwoDraw` cron
 (`41 7 * * *` ET, `CronLockService` daily slot, reads before it claims)
 draws every paid send whose list is still an undrawn sample and whose send
 date is on or before `roundTwoDrawCutoff` (three business days out, the last
@@ -70,10 +72,14 @@ day a Serve text for that date could be booked).
   leaves a drawn send `pending`. The job hands off any round 2 send whose
   list was sampled more than 10 minutes after it was saved (only round 2
   lists are) and more than 30 minutes ago, with members, still `pending`.
-- **Check.** The priority's check goes out only after the enqueue
-  (`recordOutreachSentOrLog`), as for any Serve text. `recordOutreachSent`
-  skips a send whose list is still undrawn, so payment, a redelivered
-  webhook and `healSends` cannot put it out early.
+- **Check.** The first send puts the check out when it is paid. The draw
+  records it again after its enqueue (`recordOutreachSentOrLog`), which
+  leaves a side already out as it is. `recordOutreachSent` skips a send
+  whose list is still undrawn, so a follow-up never puts a check out
+  before it is drawn.
+- **Shown.** `readStatuses` carries the next paid, unsent follow-up per
+  priority as `followUp` (`scheduledLocalDate`, `texts`), for the priority
+  page and the agent's `<priority>` block.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
 - **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,
