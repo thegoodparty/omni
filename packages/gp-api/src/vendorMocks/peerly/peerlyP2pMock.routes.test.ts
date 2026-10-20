@@ -111,7 +111,7 @@ describe('P2P job CRUD', () => {
     const id = create.data.id as string
     const res = await service.client.post(
       `${BASE}/1to1/jobs/${id}/assignlist`,
-      { phone_list_id: 'list-123' },
+      { list_id: 'list-123' },
     )
     expect(res.status).toBe(HttpStatus.CREATED)
     const job = await service.client.get(`${BASE}/1to1/jobs/${id}`)

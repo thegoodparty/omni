@@ -159,7 +159,7 @@ export class PeerlyP2pMockController {
     const record = await this.findJobRecord(id)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const current = jsonObj(record.state as Prisma.JsonValue)
-    const phoneListId = body['phone_list_id'] ?? body['list_id']
+    const phoneListId = body['list_id']
     await this.vendorMockRecord.upsert(VendorMockVendor.peerly, 'p2p_job', id, {
       ...current,
       phoneListId,
