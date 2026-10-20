@@ -21,9 +21,10 @@ const PRISMA_LOG_LEVELS = [
 ]
 
 // Previews share one small Aurora across ~10 concurrent PR stacks, so they get
-// the same cap gp-api's own pool takes in docker-entrypoint.sh. dev/prod keep
-// election-api's per-task value so the total against the cluster is unchanged.
-const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '25'
+// the same cap gp-api's own pool takes in docker-entrypoint.sh. dev/prod take
+// 50: at the 24-task prod max, doubled during a deploy, that is 2,400
+// connections against the cluster's 5,000 cap.
+const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '50'
 
 export type ElectionDbPrismaClient = PrismaClient<
   Prisma.PrismaClientOptions,
