@@ -4,6 +4,7 @@ import { ServeSmsPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
 import { ProposalLinkSchema } from '../chats/ChatCard.schema'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 // Serve SMS: texting for elected officials. Fulfilled by the shared delivery
 // layer (CSV to Slack today, a vendor later), never by Peerly — an elected
@@ -40,6 +41,12 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // No scheduledLocalTime. Serve sends at a fixed 11am local, matching what
 // polls already ships, so the time is a constant rather than a choice — see
 // docs/features/serve-sms.md, "Send timing".
+// A priority's round 2 is drawn this many business days before its send
+// date: the last day a Serve text for that date can still be booked (more
+// than 2 business days out), so staff keep their usual lead. Its send date
+// has to be later than this from today.
+export const ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS = 3
+
 export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
@@ -55,6 +62,16 @@ export const ServeSmsCreateRequestSchema = z
     // The earlier text this one reports back on. It marks the send as a
     // report back rather than a new ask, and is how its card is completed.
     reportBackForOutreachId: z.number().int().positive().optional(),
+    // A priority's round 2: one text of this many, paid for now and drawn
+    // from the list a few business days before it sends, leaning toward the
+    // groups the priority's answers say least about. The list is the pool it
+    // draws from, and the send needs the priority it belongs to.
+    roundTwoSize: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_LIST_SAMPLE_SIZE)
+      .optional(),
   })
   .extend(ProposalLinkSchema.shape)
 export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>

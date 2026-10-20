@@ -211,6 +211,25 @@ export const OutreachProposalSchema = z.object({
         'opted out since.',
     ),
   /**
+   * On a priority: this text is the priority's round 2, sent to this many
+   * of the audience on its send date. Who they are is drawn shortly before,
+   * when staff still have their two business days, toward the groups the
+   * answers so far say least about,
+   * leaving out everyone round 1 reached. The audience is the pool it draws
+   * from, saved whole, so a card carrying it has no sampleSize.
+   */
+  roundTwoSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_LIST_SAMPLE_SIZE)
+    .optional()
+    .describe(
+      "Text only, on a priority: the priority's round 2, this many texts. " +
+        'Who gets them is picked from the audience a few days before the ' +
+        'send date. Leave sampleSize out.',
+    ),
+  /**
    * On a priority: keep the audience to the parts of the district its
    * answers have not reached. The list is saved with that area as a drawn
    * boundary, built by gp-api when the list is saved; no card carries

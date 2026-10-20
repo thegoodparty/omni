@@ -224,6 +224,20 @@ describe("the Chief of Staff's civic panel invite", () => {
   })
 })
 
+describe('a round 2 card', () => {
+  it('saves the pool whole and hands the flow its size', async () => {
+    const {
+      sampleSize: _sample,
+      panelSampleSize: _panel,
+      ...whole
+    } = panelAndFresh
+    await openCard({ ...whole, roundTwoSize: 300 })
+
+    expect(saved[0]).not.toHaveProperty('sample')
+    expect(smsFlow.props?.roundTwoSize).toBe(300)
+  })
+})
+
 describe('a report back card', () => {
   const reportBack: Proposal = {
     kind: 'outreach_proposal',
