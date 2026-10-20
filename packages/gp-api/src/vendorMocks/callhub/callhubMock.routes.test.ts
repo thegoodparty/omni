@@ -66,6 +66,21 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
     const res = await service.client.post(`${BASE}/v1/numbers/rent`, {}, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
+
+  it('accepts the mock key the client sends when CALLHUB_API_KEY is set', async () => {
+    vi.stubEnv('CALLHUB_API_KEY', 'real-dev-key')
+    const mockKey = { headers: { Authorization: 'Token mock-key' } }
+    const ok = await service.client.post(`${BASE}/v1/numbers/rent`, {}, mockKey)
+    expect(ok.status).toBe(HttpStatus.CREATED)
+
+    const wrong = await service.client.post(
+      `${BASE}/v1/numbers/rent`,
+      {},
+      { headers: { Authorization: 'Token some-other-key' } },
+    )
+    expect(wrong.status).toBe(HttpStatus.UNAUTHORIZED)
+    vi.unstubAllEnvs()
+  })
 })
 
 describe('POST phonebooks + bulk_create + numbers_count', () => {

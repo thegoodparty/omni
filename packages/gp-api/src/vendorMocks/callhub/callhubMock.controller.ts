@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+import { CALLHUB_MOCK_API_KEY } from '@/vendors/callhub/config/callhubBaseConfig'
 
 // Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
 // GET), so the mock does too: staging polls numbers_count until it reaches
@@ -304,11 +305,14 @@ export class CallhubMockController {
     if (VENDOR_MODE !== 'mock') throw new NotFoundException()
   }
 
+  // In mock mode the real client always sends CALLHUB_MOCK_API_KEY, even
+  // where CALLHUB_API_KEY is also set (PR previews share it with dev).
   private assertAuth(auth: string | undefined) {
     const expectedKey = process.env.CALLHUB_API_KEY
-    if (!auth || (expectedKey && auth !== `Token ${expectedKey}`)) {
-      throw new UnauthorizedException()
-    }
+    const accepted =
+      auth === `Token ${CALLHUB_MOCK_API_KEY}` ||
+      (!!auth && (!expectedKey || auth === `Token ${expectedKey}`))
+    if (!accepted) throw new UnauthorizedException()
   }
 }
 
