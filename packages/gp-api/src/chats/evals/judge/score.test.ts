@@ -543,11 +543,11 @@ describe("cannot_determine and CAN'T SAY", () => {
     })
     expect(result.overall.delta).toBe(1)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 20/)
+    expect(result.labelNote).toMatch(/below the floor of 5/)
   })
 
   it('gates below the case-count floor whatever the delta says', () => {
-    const judgments = Array.from({ length: 5 }, (_, i) =>
+    const judgments = Array.from({ length: 4 }, (_, i) =>
       judgment({ caseId: `case-${i}`, slotMap: X_IS_CANDIDATE, verdict: 'X' }),
     )
     const result = score(judgments, {
@@ -555,7 +555,7 @@ describe("cannot_determine and CAN'T SAY", () => {
     })
     expect(result.overall.delta).toBe(1)
     expect(result.label).toBe("CAN'T SAY")
-    expect(result.labelNote).toMatch(/below the floor of 20/)
+    expect(result.labelNote).toMatch(/below the floor of 5/)
   })
 
   // An ungraded judgment is a judge failure. It has to be countable apart
