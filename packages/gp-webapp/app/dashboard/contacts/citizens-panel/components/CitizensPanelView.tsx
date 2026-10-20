@@ -106,9 +106,9 @@ export const CitizensPanelView = ({
               next={planState.next}
               onPlan={setPlanState}
             />
-          ) : underGoal ? (
-            <CivicPanelPlanStart onPlan={setPlanState} />
-          ) : null}
+          ) : (
+            <CivicPanelPlanStart keepFresh={!underGoal} onPlan={setPlanState} />
+          )}
 
           {planState?.balance ? (
             <CivicPanelBalanceSection balance={planState.balance} />

@@ -380,7 +380,7 @@ const StoryText = ({
             {copy.heardFrom}
           </span>
           <span className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/55" />
+            <span className="h-3 w-3 rounded-full bg-muted-foreground/80" />
             {copy.notHeardFrom}
           </span>
         </div>
@@ -411,18 +411,13 @@ const StoryText = ({
       <ol className="mt-6 flex flex-col gap-2">
         {copy.loop.map((item, index) => (
           <li
-            key={item.title}
+            key={item}
             className="flex items-center gap-3 rounded-xl border border-base-border bg-card px-3.5 py-2.5"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {index + 1}
             </span>
-            <span className="flex flex-col">
-              <span className="font-semibold text-foreground">
-                {item.title}
-              </span>
-              <span className="text-sm text-muted-foreground">{item.desc}</span>
-            </span>
+            <span className="font-semibold text-foreground">{item}</span>
           </li>
         ))}
       </ol>

@@ -3,7 +3,10 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { EXPLAIN_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import TaskStack from './TaskStack'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import type { DashboardCard, OnboardingCard } from '../data/contracts'
@@ -255,6 +258,32 @@ describe('<TaskStack>', () => {
     ctaHref: '/dashboard/contacts/citizens-panel',
     dueDate: '2026-10-21T18:00:00.000Z',
     sourceExternalId: 'build:eo-1',
+  })
+
+  it('opens the chat build flow from Build my panel, not the panel page', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    withCards([buildCard])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+    expect(screen.queryByRole('link', { name: 'Build my panel' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Build my panel' }))
+
+    expect(onDiscussCard).toHaveBeenCalledWith(BUILD_CITIZENS_PANEL_MESSAGE)
+  })
+
+  it('keeps linking to the plan step once the build card has one', () => {
+    withCards([
+      {
+        ...buildCard,
+        title: 'Hear from more than the loudest voices',
+        ctaLabel: 'Start the text',
+        ctaHref: '/dashboard/contacts/citizens-panel?step=s1',
+      },
+    ])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+    expect(screen.getByRole('link', { name: 'Start the text' })).toBeVisible()
   })
 
   it('offers no Ask about this on a civic panel card', () => {

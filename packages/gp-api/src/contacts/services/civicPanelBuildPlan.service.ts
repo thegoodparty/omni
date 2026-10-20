@@ -11,6 +11,7 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   panelExpectedAnswers,
   panelGoalMembers,
+  PANEL_KEEP_FRESH_MEMBERS,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   UnderrepresentedGroupSchema,
@@ -228,12 +229,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const goalMembers = panelGoalMembers(
       await this.districtAnswersNeeded(organization),
     )
-    const gap = goalMembers - members
-    if (gap <= 0) {
-      throw new ConflictException(
-        'Your civic panel has already reached its goal',
-      )
-    }
+    const keepFresh = members >= goalMembers
+    const planGoal = keepFresh
+      ? members + PANEL_KEEP_FRESH_MEMBERS
+      : goalMembers
+    const gap = planGoal - members
     const steps = sizePanelWave({
       gap,
       hoursPerWeek,
@@ -262,7 +262,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
-            goalMembers,
+            goalMembers: planGoal,
+            keepFresh,
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
@@ -284,7 +285,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         {
           planId,
           hoursPerWeek,
-          goalMembers,
+          goalMembers: planGoal,
           membersAtStart: members,
           stepCount: steps.length,
           textSteps: stepsOn(CivicPanelBuildChannel.text),
@@ -445,11 +446,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const districtGoal = panelGoalMembers(needed)
     const active = await this.findActive(office.id)
     if (active) {
-      const goalMembers = this.goalFor(
-        active.goalMembers,
-        districtGoal,
-        members,
-      )
+      const goalMembers = active.keepFresh
+        ? active.goalMembers
+        : this.goalFor(active.goalMembers, districtGoal, members)
       if (goalMembers !== active.goalMembers) {
         await this.model.updateMany({
           where: { id: active.id, status: CivicPanelBuildPlanStatus.active },
@@ -477,7 +476,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       groupsTotal: steering.coverage?.groupsTotal ?? 0,
     })
     const goal =
-      plan?.status === CivicPanelBuildPlanStatus.active
+      plan?.status === CivicPanelBuildPlanStatus.active && !plan.keepFresh
         ? plan.goalMembers
         : districtGoal
     const steering = await this.steeringFor(organization, memberIds)
@@ -525,6 +524,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         id: plan.id,
         status: plan.status,
         goalMembers: plan.goalMembers,
+        keepFresh: plan.keepFresh,
         hoursPerWeek: plan.hoursPerWeek,
         currentWave,
         createdAt: plan.createdAt,
