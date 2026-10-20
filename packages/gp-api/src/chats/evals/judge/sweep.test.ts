@@ -304,6 +304,26 @@ describe('the canned judge', () => {
 })
 
 describe('judgeSweep', () => {
+  it('reports which tools each arm called, per case', async () => {
+    const result = await run(await seeded(cases(3)))
+    expect(result.report.toolUse?.[0]?.cases[0]).toEqual({
+      caseId: 'case-0',
+      base: {
+        runs: 1,
+        infraErrors: 0,
+        tools: { crud_priorities: { called: 1, errored: 0 } },
+      },
+      candidate: {
+        runs: 1,
+        infraErrors: 0,
+        tools: { crud_priorities: { called: 1, errored: 0 } },
+      },
+    })
+    expect(result.markdown).toContain(
+      '| case-0 | crud_priorities 1/1 | crud_priorities 1/1 |',
+    )
+  })
+
   it('produces a verdict per agent from both arms', async () => {
     const result = await run(await seeded(cases(3)))
     expect(result.report.agents).toHaveLength(1)

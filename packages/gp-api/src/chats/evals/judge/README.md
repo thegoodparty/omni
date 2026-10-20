@@ -1644,6 +1644,16 @@ chief_of_staff sweep), while each flag from a deliberate break repeated across
 cases, so a one-case flag is a reason to look, not a finding. Flags never move
 the verdict.
 
+**The report says which tools each chat arm called, per case.** Under
+"Tools called", a collapsed table per chat agent gives each case's base and
+candidate cell, e.g. `present_outreach_proposal 3/3, count_contacts 2/3 (1
+errored)`: runs that called the tool at least once, over the runs with a
+result (infraError runs are counted apart). `not run` means that arm has no
+record of the case, which is how a new case shows up. It prints tool names
+only (`toolUse.ts`, a name not shaped like a registered tool prints as
+`unknown`), never arguments or SQL, so a dropped or newly failing tool call is
+visible without the private records.
+
 **The schema the panel is sent has to fit the structured-output API's
 limits**: at most 24 optional parameters and 16 union parameters (a nullable
 field is one) across the whole schema, and a compiled grammar under a size

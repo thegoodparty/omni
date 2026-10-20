@@ -86,6 +86,7 @@ import {
   SweepEnvError,
   type SweepEnv,
 } from './sweepEnv'
+import { chatToolUse } from './toolUse'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
 //
@@ -677,6 +678,7 @@ export const judgeSweep = async (
   // from the comparison still produced an answer, and an answer that broke a
   // rule is a fact about the branch whether or not it was judgeable.
   const broken = invariantViolations(records)
+  const toolUse = chatToolUse(env.agentIds, records)
 
   const agentSpend: AgentSpend[] = env.agentIds.map((agentId) => {
     const forAgent = records.filter((r) => r.agentId === agentId)
@@ -740,6 +742,7 @@ export const judgeSweep = async (
     ...(broken.length > 0 && { invariantViolations: broken }),
     ...(rulings.length > 0 && { rulings }),
     ...(pageReplay.length > 0 && { pageReplay }),
+    ...(toolUse.length > 0 && { toolUse }),
   }
 
   return {

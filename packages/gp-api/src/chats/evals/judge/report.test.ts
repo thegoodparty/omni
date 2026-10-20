@@ -1525,3 +1525,71 @@ describe('the case dimension rows', () => {
     expect(report).not.toContain('case dimension')
   })
 })
+
+describe('the tools-called table', () => {
+  it('shows each arm per case, and says when an arm did not run it', () => {
+    const report = renderReport({
+      agents: [],
+      registry: REGISTRY,
+      toolUse: [
+        {
+          agentId: 'chief_of_staff',
+          cases: [
+            {
+              caseId: 'scenario-hearing-from-constituents',
+              base: { runs: 3, infraErrors: 0, tools: {} },
+              candidate: {
+                runs: 3,
+                infraErrors: 0,
+                tools: {
+                  present_outreach_proposal: { called: 3, errored: 0 },
+                  count_contacts: { called: 2, errored: 1 },
+                },
+              },
+            },
+            {
+              caseId: 'scenario-new',
+              base: { runs: 0, infraErrors: 0, tools: {} },
+              candidate: {
+                runs: 2,
+                infraErrors: 1,
+                tools: { crud_priorities: { called: 2, errored: 0 } },
+              },
+            },
+            {
+              caseId: 'scenario-broken',
+              base: { runs: 0, infraErrors: 3, tools: {} },
+              candidate: { runs: 3, infraErrors: 0, tools: {} },
+            },
+          ],
+        },
+      ],
+    })
+    const start = report.indexOf('### Tools called')
+    const table = report.slice(start, report.indexOf('</details>') + 10)
+    expect(table).toBe(
+      [
+        '### Tools called',
+        '',
+        'Runs that called each tool at least once, out of the runs with a ' +
+          'result; "errored" is runs where a call to it failed.',
+        '',
+        '<details><summary>chief_of_staff: tools called, per case</summary>',
+        '',
+        '| case | base | candidate |',
+        '| --- | --- | --- |',
+        '| scenario-hearing-from-constituents | \u2014 | count_contacts 2/3 ' +
+          '(1 errored), present_outreach_proposal 3/3 |',
+        '| scenario-new | not run | crud_priorities 2/2 (+1 infra error) |',
+        '| scenario-broken | no result (+3 infra error) | \u2014 |',
+        '',
+        '</details>',
+      ].join('\n'),
+    )
+  })
+
+  it('is absent from a report that carries no tool use', () => {
+    const report = renderReport({ agents: [], registry: REGISTRY })
+    expect(report).not.toContain('Tools called')
+  })
+})

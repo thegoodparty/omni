@@ -29,6 +29,7 @@ import {
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
+import type { AgentToolUse, ArmToolUse } from './toolUse'
 
 // The PR comment.
 //
@@ -129,6 +130,8 @@ export interface SweepReport {
   rulings?: readonly StoredRulings[]
   // Absent for an agent whose candidate runs did not ask for page replay.
   pageReplay?: readonly PageReplaySummary[]
+  // Chat agents only. Optional so a report built before it existed renders.
+  toolUse?: readonly AgentToolUse[]
 }
 
 // `location` is null when the write failed. The verdict above it still
@@ -734,6 +737,46 @@ export const identicalOutputLines = (
   ),
 ]
 
+const toolUseCell = (arm: ArmToolUse): string => {
+  if (arm.runs === 0 && arm.infraErrors === 0) return 'not run'
+  const tools = Object.entries(arm.tools)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([name, count]) =>
+        `${name} ${count.called}/${arm.runs}` +
+        (count.errored > 0 ? ` (${count.errored} errored)` : ''),
+    )
+  const called =
+    arm.runs === 0 ? 'no result' : tools.length === 0 ? '—' : tools.join(', ')
+  return arm.infraErrors > 0
+    ? `${called} (+${arm.infraErrors} infra error)`
+    : called
+}
+
+// Collapsed, because a chat agent has dozens of cases and this is reference
+// beside the verdict rather than part of it.
+export const toolUseLines = (agents: readonly AgentToolUse[]): string[] => [
+  '### Tools called',
+  '',
+  'Runs that called each tool at least once, out of the runs with a ' +
+    'result; "errored" is runs where a call to it failed.',
+  '',
+  ...agents.flatMap((agent) => [
+    `<details><summary>${agent.agentId}: tools called, per case</summary>`,
+    '',
+    '| case | base | candidate |',
+    '| --- | --- | --- |',
+    ...agent.cases.map(
+      (c) =>
+        `| ${c.caseId} | ${toolUseCell(c.base)} | ` +
+        `${toolUseCell(c.candidate)} |`,
+    ),
+    '',
+    '</details>',
+    '',
+  ]),
+]
+
 // WHICH RUNS THE MISSING PIN ACTUALLY COST SOMETHING.
 //
 // `JUDGE_DATA_VERSION` may be unset for an ordinary reason — no Databricks
@@ -1096,6 +1139,9 @@ export const renderReport = (
     lines.push(...identicalOutputLines(identical))
     lines.push('')
   }
+
+  const toolUse = report.toolUse ?? []
+  if (toolUse.length > 0) lines.push(...toolUseLines(toolUse))
 
   if (report.armGap !== undefined) {
     lines.push(...armGapLines(report.armGap))
