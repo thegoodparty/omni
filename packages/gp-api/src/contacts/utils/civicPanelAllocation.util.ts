@@ -1,6 +1,8 @@
 import {
   DEFAULT_TEXT_REPLY_RATE,
+  MAJOR_GROUP_SHARE,
   MAX_LIST_SAMPLE_SIZE,
+  MIN_VOICES_PER_GROUP,
   PANEL_CALL_ASSUMED_JOIN_RATE,
   PANEL_DOOR_ASSUMED_JOIN_RATE,
   type CivicPanelBuildChannel,
@@ -8,7 +10,7 @@ import {
 import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
 import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
-import type { MrpGroupEstimate } from '@/priorities/util/mrp.util'
+import type { MrpFrameCell, MrpGroupEstimate } from '@/priorities/util/mrp.util'
 import type { RakingTargets } from '@/priorities/util/raking.util'
 import { asksFor, sizePanelWave } from './civicPanelBuild.util'
 
@@ -16,11 +18,11 @@ import { asksFor, sizePanelWave } from './civicPanelBuild.util'
 // text are, and who round 2's scheduled text leans toward, from the model's
 // read of round 1's answers. See docs/features/civic-panel-mrp.md.
 
-// Below this many answers a group's estimate is mostly the model's guess.
-export const MIN_VOICES_PER_GROUP = 3
-// Smaller groups are still modeled, but chasing each would spend a batch on
-// a few dozen residents.
-export const MAJOR_GROUP_SHARE = 0.03
+// Below MIN_VOICES_PER_GROUP answers a group's estimate is mostly the
+// model's guess. Groups under MAJOR_GROUP_SHARE are still modeled, but
+// chasing each would spend a batch on a few dozen residents. Both live in
+// contracts, beside answersNeeded, which sizes from them.
+export { MAJOR_GROUP_SHARE, MIN_VOICES_PER_GROUP }
 // Drawn without leaning, so drift among the residents the lean never
 // reaches still shows up.
 export const UNSTEERED_BATCH_SHARE = 0.15
@@ -46,6 +48,33 @@ export const isTargeted = (
   dimensions.some((d) => d === group.dimension) &&
   group.share >= MAJOR_GROUP_SHARE &&
   group.value !== POOLED_VALUE
+
+// The share of the district's smallest major group, the one answersNeeded
+// sizes for. Null when the frame has no major group. Shares are of the whole
+// district, as the model's are: someone whose value is unknown answers for
+// no group on that dimension, so dividing by the known alone would inflate
+// a group and size for fewer answers than it needs.
+export const smallestMajorShare = (
+  frame: MrpFrameCell[],
+  dimensions: readonly TargetedDimension[],
+): number | null => {
+  const total = frame.reduce((sum, cell) => sum + cell.count, 0)
+  if (total === 0) return null
+  const shares = dimensions.flatMap((dimension) => {
+    const counts = new Map<string, number>()
+    for (const cell of frame) {
+      const value = cell.values[dimension]
+      if (value === undefined) continue
+      counts.set(value, (counts.get(value) ?? 0) + cell.count)
+    }
+    return [...counts].flatMap(([value, count]) =>
+      value !== POOLED_VALUE && count / total >= MAJOR_GROUP_SHARE
+        ? [count / total]
+        : [],
+    )
+  })
+  return shares.length === 0 ? null : Math.min(...shares)
+}
 
 const scoreOf = (group: MrpGroupEstimate): number =>
   group.share * (group.high - group.low)

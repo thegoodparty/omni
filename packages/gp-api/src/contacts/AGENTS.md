@@ -799,10 +799,10 @@ advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The Chief of Staff's single invite text is
 `panelSeedSampleSize(goalMembers)`: `ceil(goalMembers /
-PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,000 at 240
+PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,334 at 250
 members and 3%), with the district's goal (see "Sized in answers" below).
-The outreach page's own invite has no population at hand and uses
-`PANEL_SEED_SAMPLE_SIZE`, the same for the uncorrected 240.
+The outreach page's own invite has no district mix at hand and uses
+`PANEL_SEED_SAMPLE_SIZE`, the same for the largest goal, 250.
 
 **Reporting back is a card too.** The same read runs
 `DashboardCardsService.syncReportBackCards`: one `report_back` card per
@@ -864,25 +864,27 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 question, the steps, Next and the answers the panel can give.
 
 **Sized in answers.** Every panel size targets answers to one question, not
-members (Bryan, 2026-10-15). Contracts' `answersNeeded(population)`
-(`outreach/AnswersNeeded.const.ts`, the same figure Serve onboarding shows)
-is the
-finite-population-corrected sample for 10 points either way at 95%
-confidence near an even split, `n0 = 1.96² × 0.25 / 0.1²` (96.04), `n = n0 /
-(1 + (n0 - 1) / N)`, rounded: 96 for Asheville (105,154), 92 for a town of
-2,000. Without a census population (no row, no district, or a failed read)
-it is the uncorrected 96. The panel's own math is in
-`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(population)` is
-`ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE)`, 240 or 230.
-`ContactsService.getDistrictPopulation` reads the population
-(`StatsService.findDistrictPopulation`, the census mart's
-`district_population` on its own, without the voter scan) and folds any
-failure into null. The Chief of Staff chat reads it instead through
-`PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hands the figure
-to both its panel sizing and `readStatuses`; the priority flow reads it the
-same way for `readStatuses` alone. A priority's checks are not sized in
-answers: see "Round 1 sizing" below.
+members (Bryan, 2026-10-15), and the answers are sized for coverage
+(Samuel, 2026-10-20,
+`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+Contracts' `answersNeeded(smallestMajorShare)`
+(`outreach/AnswersNeeded.const.ts`) is `ceil(MIN_VOICES_PER_GROUP /
+share)`: enough answers for the district's smallest major group (one
+holding `MAJOR_GROUP_SHARE`, 3%, or more on age band, gender, tract, or race
+when `raceNameable` holds for the district) to be expected to answer 3
+times. 100 where that group is 3% of the district, 15 where it is 20%.
+`CensusCompositionSource.districtAnswersNeeded` reads it from the
+district's cells (`smallestMajorShare` in
+`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
+reads, cached 15 minutes per district); without them (no district row, no
+district, or a failed read) it is `answersNeeded()`, 100, the most any
+district needs. The panel's own math is in
+`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
+`ceil(answers / PANEL_ASSUMED_REPLY_RATE)`, 250 at most. The plan service
+reads it itself; the Chief of Staff chat reads it once a turn through
+`PriorityResultsService.districtAnswersNeeded`. A very small district with
+fewer people to reach than its goal ends `exhausted`, not stuck. A
+priority's checks are not sized here: see "Round 1 sizing" below.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`

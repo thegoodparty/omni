@@ -78,7 +78,7 @@ services so the rows match what a real office writes:
   what links the step to the send and reads it done.
 - **Priority ask**: `PrioritiesService.create`, then a text with
   `priorityId` set, `campaignId` null, to panel members first and then
-  other residents. `answersNeeded(population) + 4` of them reply with fixed
+  other residents. `answersNeeded() + 4` (104) of them reply with fixed
   answers from `PRIORITY_REPLIES`, through the same ingest. Its effort run
   and a pooled `requestPriorityRun` give the results page themes.
 

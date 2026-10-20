@@ -495,11 +495,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     efforts.push(await this.seedPanelInvite(context, people, textStepId))
     // Reading the plan is what links its text step to the invite send.
     await this.panelPlans.read(organization)
-    const { effort, priorityId } = await this.seedPriorityAsk(
-      organization,
-      context,
-      people,
-    )
+    const { effort, priorityId } = await this.seedPriorityAsk(context, people)
     efforts.push(effort)
     return priorityId
   }
@@ -584,7 +580,6 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
   // Panel members are asked first, then residents not on it, the way the
   // priority flow sizes an ask; enough of them answer for a good read.
   private async seedPriorityAsk(
-    organization: Organization,
     context: ActivityContext,
     people: Array<Person & { cellPhone: string }>,
   ): Promise<{ effort: Effort; priorityId: string }> {
@@ -598,9 +593,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       PrioritySource.user_stated,
       'priorities_page',
     )
-    const needed =
-      answersNeeded(await this.contacts.getDistrictPopulation(organization)) +
-      PRIORITY_ANSWER_MARGIN
+    const needed = answersNeeded() + PRIORITY_ANSWER_MARGIN
     const [optedOut, members] = await this.optedOutAndMembers(context)
     const reachable = people.filter((person) => !optedOut.has(person.id))
     const recipients = [

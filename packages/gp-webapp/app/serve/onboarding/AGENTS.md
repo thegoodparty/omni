@@ -70,8 +70,9 @@ behind, so the save never holds the motion.
   marker, no tiles). The
   map never swaps once drawn, and the step never errors.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
-  middle; the sample is sized to `answersNeeded(population)` from contracts
-  (±10 points at 95%, finite-population corrected) and spread by a greedy
+  middle; the sample is sized to `answersNeeded()` from contracts (100,
+  enough for every group making up 3% or more of any district to answer 3
+  times; the step has no district mix to size it to) and spread by a greedy
   minimum-distance pick; 38 of it fill in on the grow step. No joined count is
   shown.
 - **Motion** (`DISTRICT_MOTION`): intro sweeps in by neighborhood over ~1.2s

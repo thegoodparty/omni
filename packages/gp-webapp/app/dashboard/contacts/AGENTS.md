@@ -55,8 +55,9 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   without a plan): "{members} of {goal} members" (members in the accent
   color), a bar filled to members over goal, "About {expectedAnswers}
   answers per question today" on the right from `sm`, and one line on why
-  the goal is what it is in answers ("About 4 in 10 members answer each
-  question, so 240 members gets you the 96 answers you need."), all from the
+  the goal is what it is in answers ("240 members gets you about 96
+  answers per question, enough to hear from every group in your
+  district."), all from the
   API's `progress`. The Constituents page's `CitizensPanelSection` shows the
   same component above its numbers, from its own read of the plan
   (`civicPanelPlanQueryOptions`); a plan it cannot read drops only the bar.

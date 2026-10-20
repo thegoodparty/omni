@@ -1,7 +1,4 @@
-import {
-  PANEL_ASSUMED_REPLY_RATE,
-  type CivicPanelBuildProgress,
-} from '@goodparty_org/contracts'
+import type { CivicPanelBuildProgress } from '@goodparty_org/contracts'
 import { Card, Progress } from '@styleguide'
 import { numberFormatter } from 'helpers/numberHelper'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
@@ -45,7 +42,6 @@ export const CivicPanelProgress = ({
       />
       <p className="text-sm text-muted-foreground">
         {COPY.goalWhy(
-          Math.round(PANEL_ASSUMED_REPLY_RATE * 10),
           numberFormatter(progress.goal),
           numberFormatter(progress.answersNeeded),
         )}

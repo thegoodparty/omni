@@ -92,9 +92,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     // What the panel plan sizes its first wave from.
     const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
     const stats = service.app.get(StatsService)
-    const population = vi
-      .spyOn(stats, 'findDistrictPopulation')
-      .mockResolvedValue(null)
     const weighting = vi
       .spyOn(stats, 'findWeightingInputs')
       .mockResolvedValue({ district: null, cells: [], tractAdults: new Map() })
@@ -102,7 +99,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       engine.mockRestore()
       sample.mockRestore()
       pools.mockRestore()
-      population.mockRestore()
       weighting.mockRestore()
     })
   })

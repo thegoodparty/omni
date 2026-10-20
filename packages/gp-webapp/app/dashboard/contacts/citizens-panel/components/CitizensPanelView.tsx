@@ -44,12 +44,12 @@ export const CitizensPanelView = ({
 }) => {
   const [planState, setPlanState] = useState(initialPlan)
   const hasMembers = summary.members > 0
-  // Without the plan's read there is no district population at hand, so the
-  // goal is the uncorrected one.
+  // Without the plan's read there is no district mix at hand, so the goal is
+  // sized for the smallest major group any district can have.
   const progress = planState?.progress ?? {
     members: summary.members,
-    goal: panelGoalMembers(null),
-    answersNeeded: answersNeeded(null),
+    goal: panelGoalMembers(answersNeeded()),
+    answersNeeded: answersNeeded(),
     expectedAnswers: panelExpectedAnswers(summary.members),
   }
   const activePlan =

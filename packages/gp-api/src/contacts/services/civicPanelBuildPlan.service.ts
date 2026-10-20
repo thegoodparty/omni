@@ -227,7 +227,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     }
     const members = await this.memberCount(organization)
     const goalMembers = panelGoalMembers(
-      await this.contactsService.getDistrictPopulation(organization),
+      await this.districtAnswersNeeded(organization),
     )
     const gap = goalMembers - members
     if (gap <= 0) {
@@ -442,10 +442,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const office = await this.officeFor(organization)
     const memberIds = await this.memberIds(organization)
     const members = memberIds.size
-    const population =
-      await this.contactsService.getDistrictPopulation(organization)
-    const needed = answersNeeded(population)
-    const districtGoal = panelGoalMembers(population)
+    const needed = await this.districtAnswersNeeded(organization)
+    const districtGoal = panelGoalMembers(needed)
     const active = await this.findActive(office.id)
     if (active) {
       const goalMembers = this.goalFor(
@@ -1025,6 +1023,23 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     }
   }
 
+  // The answers a good read of the district needs, enough for every major
+  // group to answer three times. A district that cannot be read is sized for
+  // the smallest major group any district can have.
+  private async districtAnswersNeeded(
+    organization: Organization,
+  ): Promise<number> {
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      return (
+        (await this.census.districtAnswersNeeded(district)) ?? answersNeeded()
+      )
+    } catch {
+      return answersNeeded()
+    }
+  }
+
   // How the panel compares with its district, and how the next draws lean.
   // The census is read only from PANEL_MIN_MEMBERS_FOR_BALANCE members up,
   // and a failed read leans nowhere.
@@ -1194,11 +1209,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return { reached: null, joined }
   }
 
-  // An active plan's goal follows the district's, so plans made before the
-  // goal was sized in answers (100 members) and plans whose census figure
-  // moved read the same as a new one. It may come down, but never below the
-  // members the panel already has: the plan then completes rather than
-  // reading as past its goal.
+  // An active plan's goal follows the district's, so plans made under an
+  // older sizing and plans whose district mix moved read the same as a new
+  // one. It may come down, but never below the members the panel already
+  // has: the plan then completes rather than reading as past its goal.
   private goalFor(
     planGoal: number,
     districtGoal: number,

@@ -1107,10 +1107,8 @@ export {
   isHighConfidence,
 } from './outreach/SampleSizing.const'
 export {
-  ANSWERS_CONFIDENCE_Z,
-  ANSWERS_MARGIN_OF_ERROR,
-  ANSWERS_SPLIT_VARIANCE,
-  ANSWERS_NEEDED_UNCORRECTED,
+  MIN_VOICES_PER_GROUP,
+  MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
 export {

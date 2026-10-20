@@ -62,7 +62,6 @@ const blockGroup = Object.fromEntries(
 
 let compose: MockInstance<CensusCompositionSource['compose']>
 let mrpInputs: MockInstance<CensusCompositionSource['mrpInputs']>
-let population: MockInstance<CensusCompositionSource['population']>
 
 // A district of 800 people 18 to 64 and 200 aged 65 and over. Whoever is
 // in `older` answered from the older band, everyone else from the younger.
@@ -225,13 +224,6 @@ beforeEach(async () => {
     )
     .mockClear()
     .mockImplementation(async ({ answers }) => modelInputs(answers))
-  // A district of 10 needs 9 answers when it cannot be read.
-  population = vi
-    .spyOn(
-      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
-      'population',
-    )
-    .mockResolvedValue(10)
 })
 
 describe('GET /v1/priorities/:id/results', () => {
@@ -566,33 +558,28 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
   it('says enough answers, not representative, when the district cannot be read', async () => {
     mrpInputs.mockResolvedValue(null)
-    await createCodedSend(9, 3)
+    await createCodedSend(100, 3)
 
     const res = await readStatus()
 
     expect(res.data).toEqual({
-      answers: 9,
-      needed: 9,
+      answers: 100,
+      needed: 100,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
     })
-    expect(population).toHaveBeenCalledWith({
-      districtId: 'd-1',
-      dataset: 'voters',
-    })
   })
 
-  it('uses the uncorrected figure when the district and its population are unknown', async () => {
+  it('sizes for the smallest major group when the district is unknown', async () => {
     mrpInputs.mockResolvedValue(null)
-    population.mockResolvedValue(null)
     await createTextSend(12, 0)
 
     const res = await readStatus()
 
     expect(res.data).toEqual({
       answers: 12,
-      needed: 96,
+      needed: 100,
       good: false,
       status: 'tooEarly',
       underrepresented: [],
@@ -616,7 +603,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
     mrpInputs.mockResolvedValueOnce(null)
     await createCodedSend(12, 4)
 
-    expect((await readStatus()).data.status).toBe('enoughAnswers')
+    expect((await readStatus()).data.status).toBe('tooEarly')
     expect((await readStatus()).data.status).toBe('gettingClose')
     expect(mrpInputs).toHaveBeenCalledTimes(2)
   })

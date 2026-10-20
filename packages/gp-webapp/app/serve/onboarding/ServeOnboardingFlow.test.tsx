@@ -198,7 +198,7 @@ const mockDistrict = ({
 const storyHeading = {
   represent: /You represent 32,000 people/,
   loudest: "Until now, you've heard from the loudest voices only",
-  sample: "With about 96 answers, you'll know where your community stands",
+  sample: "With about 100 answers, you'll know where your community stands",
   grow: "We'll help you build and grow the list of people you hear from",
 }
 
@@ -351,19 +351,17 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     expect(
       await screen.findByText(
-        /We picked 96 so that when residents split close to evenly/,
+        /We picked 100 so that every group making up 3% or more/,
       ),
     ).toBeInTheDocument()
   })
 
-  it('sizes the answers to a small district', async () => {
+  it('sizes the answers the same in a small district', async () => {
     mockDistrict({ population: 500 })
     resumedAt('story-sample')
     renderFlow()
 
-    await findStoryHeading(
-      "With about 81 answers, you'll know where your community stands",
-    )
+    await findStoryHeading(storyHeading.sample)
   })
 
   it('resumes on a story step', async () => {
