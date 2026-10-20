@@ -106,7 +106,6 @@ export interface MeasuredEvidence {
 }
 
 export interface ExclusionCounts {
-  toolError: number
   infraError: number
   // Pairs whose two arms hashed to the same config. Nothing failed; there
   // was simply nothing to compare on that case.
@@ -121,13 +120,11 @@ export interface ExclusionCounts {
   // which one meant reproducing the run. The reasons are already on the
   // judgments — this carries them to the report.
   ungradedReasons: readonly string[]
-  // The same treatment for tool-error exclusions, which had only a count.
-  // Grouped so nine pairs failing one way read as one line, not nine.
-  // Covers the pairs excluded for a tool error (chat only) and the pairs
-  // excluded as identicalConfig whose arms hit tool errors anyway: before
-  // background tool errors were scored, those were tool-error exclusions and
-  // listed here, and moving them to another reason must not hide what failed.
-  // A judged background pair's causes are in `scoredToolErrorCauses`.
+  // The same treatment for tool errors on excluded pairs. Grouped so nine
+  // pairs failing one way read as one line, not nine. Covers the pairs
+  // excluded as identicalConfig whose arms hit tool errors: tool errors no
+  // longer exclude a pair, and moving those pairs to another reason must not
+  // hide what failed. A judged pair's causes are in `scoredToolErrorCauses`.
   toolErrorCauses: readonly ToolErrorCause[]
 }
 
@@ -198,10 +195,9 @@ export interface AgentScore {
   regressions: readonly string[]
   exclusions: ExclusionCounts
   // Tool errors on pairs that were JUDGED anyway, grouped like
-  // `exclusions.toolErrorCauses`. Only a background agent has any: its
-  // verdict is on the final artifact, so a run that hit a failing Bash
-  // snippet and recovered is scored rather than excluded (see isComparable),
-  // and this keeps the evidence of what failed beside the verdict.
+  // `exclusions.toolErrorCauses`. A tool error does not exclude a pair (see
+  // isComparable), so this keeps the evidence of what failed beside the
+  // verdict.
   scoredToolErrorCauses: readonly ToolErrorCause[]
   positionConsistency: number | null
   // THE DENOMINATOR, reported with the rate and never without it. 3 of 5 and
@@ -695,8 +691,8 @@ const floorVerdicts = (
 }
 
 // A record written before toolErrorDetails existed has the count and no
-// detail. It still gets a line, so the causes always account for every
-// tool-error exclusion.
+// detail. It still gets a line, so the causes always account for every pair
+// with a tool error.
 const UNRECORDED = 'unrecorded'
 
 const armsWithToolErrors = (records: {
@@ -707,8 +703,7 @@ const armsWithToolErrors = (records: {
 
 // SCORED means a graded judgment exists for the pair. A pair whose every
 // judge call failed is ungraded and counted apart, so listing it here would
-// say it was scored when it was not. Empty for a chat agent, whose tool-error
-// pairs never reach `judgeable`.
+// say it was scored when it was not.
 const scoredWithToolErrors = (
   normalized: NormalizedAgent,
   gradedJudgments: readonly GradedJudgment[],
@@ -723,15 +718,13 @@ const scoredWithToolErrors = (
   })
 }
 
-// Excluded pairs whose tool errors the report should name: every tool-error
-// exclusion, and an identicalConfig exclusion whose arms hit tool errors. The
-// second is a background pair; it was a tool-error exclusion before tool
-// errors stopped excluding background pairs, and its causes must not vanish.
-// An infraError pair is left out, as it always was: a run that died never got
+// Excluded pairs whose tool errors the report should name: an identicalConfig
+// exclusion whose arms hit tool errors. It was a tool-error exclusion before
+// tool errors stopped excluding pairs, and its causes must not vanish. An
+// infraError pair is left out, as it always was: a run that died never got
 // far enough for a tool error to mean anything about it.
 const excludedWithToolErrors = (normalized: NormalizedAgent): ToolErrorPair[] =>
-  normalized.excluded.flatMap(({ reason, arms, records }) => {
-    if (reason === 'toolError') return [{ arms, records }]
+  normalized.excluded.flatMap(({ reason, records }) => {
     if (reason !== 'identicalConfig') return []
     const hit = armsWithToolErrors(records)
     return hit.length > 0 ? [{ arms: hit, records }] : []
@@ -995,8 +988,6 @@ export const scoreAgent = (
       .filter(([, score]) => (score.interval?.upper ?? 0) < 0)
       .map(([name]) => name),
     exclusions: {
-      toolError: normalized.excluded.filter((e) => e.reason === 'toolError')
-        .length,
       infraError: normalized.excluded.filter((e) => e.reason === 'infraError')
         .length,
       identicalConfig: normalized.excluded.filter(

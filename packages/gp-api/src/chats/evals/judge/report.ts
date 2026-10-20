@@ -29,8 +29,6 @@ import {
   type ToolErrorCause,
 } from './score'
 import type { CiContext, RunRecord } from './record'
-import type { AgentToolUse, ArmToolUse } from './toolUse'
-import { publicToolName } from './toolErrorDetails'
 
 // The PR comment.
 //
@@ -131,8 +129,6 @@ export interface SweepReport {
   rulings?: readonly StoredRulings[]
   // Absent for an agent whose candidate runs did not ask for page replay.
   pageReplay?: readonly PageReplaySummary[]
-  // Chat agents only. Optional so a report built before it existed renders.
-  toolUse?: readonly AgentToolUse[]
 }
 
 // `location` is null when the write failed. The verdict above it still
@@ -342,79 +338,27 @@ const handlingLines = (score: AgentScore): string[] => {
   ]
 }
 
-const toolNames = (tools: readonly string[]): string =>
-  tools.map((tool) => publicToolName(tool, 'chat')).join(', ')
-
-// Only when a signal moved the label off the quality comparison's: a signal
-// that agrees with a label the quality delta already reached decided nothing.
+// Only when the handling signal moved the label off the quality comparison's:
+// a signal that agrees with a label the quality delta already reached decided
+// nothing.
 const signalHeadline = (score: AgentScore): string | null => {
   const signals = score.signals
-  if (signals === undefined || score.label === signals.qualityLabel) {
+  const handling = signals?.handling
+  if (
+    signals === undefined ||
+    handling === undefined ||
+    score.label === signals.qualityLabel ||
+    handling.says !== score.label
+  ) {
     return null
   }
-  const reasons: string[] = []
-  const handling = signals.handling
-  if (handling !== undefined && handling.says === score.label) {
-    const p = handling.says === 'WORSE' ? handling.pWorse : handling.pBetter
-    reasons.push(
-      `${score.label} on condition handling: ${handling.regressions} ` +
-        `regressions, ${handling.improvements} improvements ` +
-        `(p = ${p.toFixed(3)}).`,
-    )
-  }
-  const tools = signals.tools
-  if (tools !== undefined && tools.says === score.label) {
-    const worse = tools.says === 'WORSE'
-    const failing = tools.cases.filter(
-      (c) => (worse ? c.candidateOnlyFailures : c.baseOnlyFailures).length > 0,
-    )
-    const names = [
-      ...new Set(
-        failing.flatMap((c) =>
-          worse ? c.candidateOnlyFailures : c.baseOnlyFailures,
-        ),
-      ),
-    ].sort()
-    reasons.push(
-      `${score.label} on tools: ${failing.length} cases had tool calls ` +
-        `fail on the ${worse ? 'candidate' : 'base'} only ` +
-        `(${toolNames(names)}).`,
-    )
-  }
+  const p = handling.says === 'WORSE' ? handling.pWorse : handling.pBetter
   return (
-    `**${reasons.join(' ')}** The quality comparison alone says ` +
+    `**${score.label} on condition handling: ${handling.regressions} ` +
+    `regressions, ${handling.improvements} improvements ` +
+    `(p = ${p.toFixed(3)}).** The quality comparison alone says ` +
     `${signals.qualityLabel}.`
   )
-}
-
-// Tool names and case ids only, never what the agent said.
-const behaviorChangeLines = (score: AgentScore): string[] => {
-  const tools = score.signals?.tools
-  if (tools === undefined) return []
-  if (tools.cases.length === 0) {
-    return [
-      'Behavior changes: no tool was dropped, added, or failing on one arm ' +
-        'only, in any case both arms ran.',
-      '',
-    ]
-  }
-  return [
-    'Behavior changes, per case (a dropped or added tool is reported, not ' +
-      'scored; failures on one arm only decide the label once ' +
-      'they repeat across cases):',
-    ...tools.cases.map((c) => {
-      const parts = [
-        c.dropped.length > 0 && `dropped ${toolNames(c.dropped)}`,
-        c.added.length > 0 && `added ${toolNames(c.added)}`,
-        c.candidateOnlyFailures.length > 0 &&
-          `failed on the candidate only: ${toolNames(c.candidateOnlyFailures)}`,
-        c.baseOnlyFailures.length > 0 &&
-          `failed on the base only: ${toolNames(c.baseOnlyFailures)}`,
-      ].filter((part): part is string => part !== false)
-      return `- ${c.caseId}: ${parts.join('; ')}`
-    }),
-    '',
-  ]
 }
 
 const controlLines = (score: AgentScore): string[] => {
@@ -545,8 +489,8 @@ const consistencyLine = (score: AgentScore, config: JudgeConfig): string => {
 const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
   const base =
-    `Excluded pairs: ${e.toolError} tool error, ${e.infraError} infra ` +
-    `error, ${e.identicalConfig} identical config. Plus ${e.unpaired} ` +
+    `Excluded pairs: ${e.infraError} infra error, ${e.identicalConfig} ` +
+    `identical config. Plus ${e.unpaired} ` +
     `unpaired record(s). Separately, ${e.ungraded} ungraded judgment(s) ` +
     "(the judge itself failed, which is not a CAN'T SAY verdict)."
   // THE REASON, not just the count. A sweep whose judge failed on every pair
@@ -576,10 +520,10 @@ const causeLines = (
   return more > 0 ? [...lines, `- and ${more} more`] : lines
 }
 
-// Under the "Excluded pairs" line, the causes of the tool-error exclusions
-// (chat only). Then, for a background agent, the causes on pairs that were
-// scored anyway, under their own heading so a reader never takes them for
-// exclusions: the pairs are in the verdict, and the list is evidence beside it.
+// Under the "Excluded pairs" line, the tool-error causes on excluded pairs.
+// Then the causes on pairs that were scored anyway, under their own heading so
+// a reader never takes them for exclusions: the pairs are in the verdict, and
+// the list is evidence beside it.
 const toolErrorCauseLines = (score: AgentScore): string[] => {
   const excluded = causeLines(score.agentId, score.exclusions.toolErrorCauses)
   const scored = causeLines(score.agentId, score.scoredToolErrorCauses)
@@ -707,7 +651,6 @@ const agentSection = (
   }
 
   lines.push(...handlingLines(score))
-  lines.push(...behaviorChangeLines(score))
   lines.push(...controlLines(score))
   lines.push(...contractNoteLines(score))
   lines.push(...evidenceLines(score, spend))
@@ -816,46 +759,6 @@ export const identicalOutputLines = (
       `| ${r.agentId} | ${r.identical} of ${r.of} | ` +
       `${r.caseIds.length === 0 ? 'none' : r.caseIds.join(', ')} |`,
   ),
-]
-
-const toolUseCell = (arm: ArmToolUse): string => {
-  if (arm.runs === 0 && arm.infraErrors === 0) return 'not run'
-  const tools = Object.entries(arm.tools)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(
-      ([name, count]) =>
-        `${name} ${count.called}/${arm.runs}` +
-        (count.errored > 0 ? ` (${count.errored} errored)` : ''),
-    )
-  const called =
-    arm.runs === 0 ? 'no result' : tools.length === 0 ? '—' : tools.join(', ')
-  return arm.infraErrors > 0
-    ? `${called} (+${arm.infraErrors} infra error)`
-    : called
-}
-
-// Collapsed, because a chat agent has dozens of cases and this is reference
-// beside the verdict rather than part of it.
-export const toolUseLines = (agents: readonly AgentToolUse[]): string[] => [
-  '### Tools called',
-  '',
-  'Runs that called each tool at least once, out of the runs with a ' +
-    'result; "errored" is runs where a call to it failed.',
-  '',
-  ...agents.flatMap((agent) => [
-    `<details><summary>${agent.agentId}: tools called, per case</summary>`,
-    '',
-    '| case | base | candidate |',
-    '| --- | --- | --- |',
-    ...agent.cases.map(
-      (c) =>
-        `| ${c.caseId} | ${toolUseCell(c.base)} | ` +
-        `${toolUseCell(c.candidate)} |`,
-    ),
-    '',
-    '</details>',
-    '',
-  ]),
 ]
 
 // WHICH RUNS THE MISSING PIN ACTUALLY COST SOMETHING.
@@ -1220,9 +1123,6 @@ export const renderReport = (
     lines.push(...identicalOutputLines(identical))
     lines.push('')
   }
-
-  const toolUse = report.toolUse ?? []
-  if (toolUse.length > 0) lines.push(...toolUseLines(toolUse))
 
   if (report.armGap !== undefined) {
     lines.push(...armGapLines(report.armGap))
