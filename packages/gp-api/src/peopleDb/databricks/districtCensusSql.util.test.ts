@@ -107,7 +107,9 @@ describe('buildDistrictCompositionSql', () => {
     )
     expect(selected).toContain('d.households_income_under_10k')
     expect(selected).toContain('d.households_income_200k_plus')
-    expect(ACS_COUNT_KEYS).toHaveLength(34)
+    expect(selected).toContain('d.population_male_18_to_24')
+    expect(selected).toContain('d.population_female_18_plus')
+    expect(ACS_COUNT_KEYS).toHaveLength(48)
   })
 })
 
@@ -208,6 +210,19 @@ describe('buildRespondentCellsSql', () => {
     expect(sql).toContain("THEN 'renter'")
     expect(sql).not.toMatch(/FirstName|LastName|Phone|Address/)
   })
+
+  it('bands age like the census, oldest first so each age takes its highest band', () => {
+    const { sql } = buildRespondentCellsSql(DISTRICT, [PERSON_ID])
+
+    expect(sql).toContain(
+      "CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
+        " WHEN v.`Age_Int` >= 55 THEN '55to64'" +
+        " WHEN v.`Age_Int` >= 45 THEN '45to54'" +
+        " WHEN v.`Age_Int` >= 35 THEN '35to44'" +
+        " WHEN v.`Age_Int` >= 25 THEN '25to34'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to24' END AS age_band",
+    )
+  })
 })
 
 describe('buildPoolCellsSql', () => {
@@ -240,7 +255,11 @@ describe('buildDistrictCellsSql', () => {
 
     expect(sql).toBe(
       "SELECT CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
-        " WHEN v.`Age_Int` >= 18 THEN '18to64' END AS age_band," +
+        " WHEN v.`Age_Int` >= 55 THEN '55to64'" +
+        " WHEN v.`Age_Int` >= 45 THEN '45to54'" +
+        " WHEN v.`Age_Int` >= 35 THEN '35to44'" +
+        " WHEN v.`Age_Int` >= 25 THEN '25to34'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to24' END AS age_band," +
         " CASE WHEN v.`Gender` = 'M' THEN 'male'" +
         " WHEN v.`Gender` = 'F' THEN 'female' END AS gender," +
         ' substr(v.`Census_Block_Group_Geoid`, 1, 11) AS tract,' +
@@ -317,12 +336,12 @@ describe('mapDistrictCells', () => {
   it('maps each row to a cell, unknowns staying null', () => {
     expect(
       mapDistrictCells([
-        ['18to64', 'male', '53017950100', 'hispanic', '12'],
+        ['35to44', 'male', '53017950100', 'hispanic', '12'],
         [null, null, null, null, '3'],
       ]),
     ).toEqual([
       {
-        ageBand: '18to64',
+        ageBand: '35to44',
         gender: 'male',
         tract: '53017950100',
         race: 'hispanic',
@@ -435,7 +454,7 @@ describe('mapTractAdults', () => {
 
 describe('sampleWeightSql', () => {
   const weights = {
-    age: { '18to64': 0.8, '65plus': 2 },
+    age: { '35to44': 0.8, '65plus': 2 },
     gender: {},
     tract: { '53017950100': 1, '53017950200': 1.5 },
     race: {},
@@ -449,7 +468,11 @@ describe('sampleWeightSql', () => {
     expect(sql).toBe(
       'least(CAST(:p7 AS DOUBLE), greatest(CAST(:p6 AS DOUBLE),' +
         " CASE CASE WHEN v.`Age_Int` >= 65 THEN '65plus'" +
-        " WHEN v.`Age_Int` >= 18 THEN '18to64' END" +
+        " WHEN v.`Age_Int` >= 55 THEN '55to64'" +
+        " WHEN v.`Age_Int` >= 45 THEN '45to54'" +
+        " WHEN v.`Age_Int` >= 35 THEN '35to44'" +
+        " WHEN v.`Age_Int` >= 25 THEN '25to34'" +
+        " WHEN v.`Age_Int` >= 18 THEN '18to24' END" +
         ' WHEN :p0 THEN CAST(:p1 AS DOUBLE)' +
         ' WHEN :p2 THEN CAST(:p3 AS DOUBLE) ELSE 1.0 END *' +
         ' CASE substr(v.`Census_Block_Group_Geoid`, 1, 11)' +
@@ -457,7 +480,7 @@ describe('sampleWeightSql', () => {
     )
     // A factor of 1 and an empty dimension add nothing.
     expect(bag.params.map((p) => p.value)).toEqual([
-      '18to64',
+      '35to44',
       '0.8',
       '65plus',
       '2',

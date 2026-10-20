@@ -25,15 +25,15 @@ const cell = (
 ): DistrictCell => ({ ageBand, gender: 'female', tract, race, count })
 
 const POOL: DistrictCell[] = [
-  cell('18to64', 't1', 'white', 6_000),
+  cell('35to44', 't1', 'white', 6_000),
   cell('65plus', 't2', 'black', 3_000),
-  cell('18to64', 't3', 'hispanic', 1_000),
+  cell('35to44', 't3', 'hispanic', 1_000),
 ]
 // The walkable area's residents, mixed like the district.
 const AREA: DistrictCell[] = [
-  cell('18to64', 't1', 'white', 60),
+  cell('35to44', 't1', 'white', 60),
   cell('65plus', 't2', 'black', 30),
-  cell('18to64', 't3', 'hispanic', 10),
+  cell('35to44', 't3', 'hispanic', 10),
 ]
 
 const doorsAt = (count: number) =>
@@ -45,6 +45,14 @@ const doorsAt = (count: number) =>
 
 const district = (counts: Partial<AcsCounts>): AcsCounts =>
   ({
+    // 10,000 adults in two of the six age bands; no 18+ sex totals, so
+    // gender sits out.
+    populationMale35To44: 3_500,
+    populationFemale35To44: 3_500,
+    populationMale65Plus: 1_500,
+    populationFemale65Plus: 1_500,
+    populationMale18Plus: null,
+    populationFemale18Plus: null,
     totalPopulation: 12_000,
     populationUnder18: 2_000,
     population65Plus: 3_000,
@@ -187,7 +195,7 @@ describe('size_round_one', () => {
   })
 
   it('sizes the text bigger when the area holds one group only', async () => {
-    const { tool } = build({ area: [cell('18to64', 't1', 'white', 100)] })
+    const { tool } = build({ area: [cell('35to44', 't1', 'white', 100)] })
     expect(await tool.execute({})).toMatchObject({
       cards: expect.arrayContaining([
         expect.objectContaining({ channel: 'text', sampleSize: 950 }),
@@ -241,7 +249,7 @@ describe('size_round_one', () => {
       pools: {
         door: POOL,
         phone: POOL,
-        text: [cell('18to64', 't1', 'white', 300)],
+        text: [cell('35to44', 't1', 'white', 300)],
       },
     })
     expect(await tool.execute({})).toMatchObject({

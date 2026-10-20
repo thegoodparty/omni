@@ -66,6 +66,22 @@ export const ACS_COUNT_COLUMNS = {
   householdsIncome125kTo150k: 'households_income_125k_to_150k',
   householdsIncome150kTo200k: 'households_income_150k_to_200k',
   householdsIncome200kPlus: 'households_income_200k_plus',
+  // Adults by census sex (B01001): five bands and 65 and over, and each
+  // sex's 18 and over total, which is the sum of its bands.
+  populationMale18To24: 'population_male_18_to_24',
+  populationMale25To34: 'population_male_25_to_34',
+  populationMale35To44: 'population_male_35_to_44',
+  populationMale45To54: 'population_male_45_to_54',
+  populationMale55To64: 'population_male_55_to_64',
+  populationMale65Plus: 'population_male_65_plus',
+  populationMale18Plus: 'population_male_18_plus',
+  populationFemale18To24: 'population_female_18_to_24',
+  populationFemale25To34: 'population_female_25_to_34',
+  populationFemale35To44: 'population_female_35_to_44',
+  populationFemale45To54: 'population_female_45_to_54',
+  populationFemale55To64: 'population_female_55_to_64',
+  populationFemale65Plus: 'population_female_65_plus',
+  populationFemale18Plus: 'population_female_18_plus',
 } as const
 export type AcsCountKey = keyof typeof ACS_COUNT_COLUMNS
 export const ACS_COUNT_KEYS = Object.keys(ACS_COUNT_COLUMNS).filter(
@@ -110,11 +126,31 @@ export const buildDistrictCompositionSql = (
 // works on tracts: a block group holds too few answers to carry a weight.
 const TRACT_GEOID_LENGTH = 11
 
-// The census reads age in two adult bands (18 to 64, 65 and over), so the
-// voter file's exact age folds into the same two.
+// The census's adult age bands (B01001, both sexes), youngest first.
+// `minAge` is where each starts; each runs to the next one's start, and the
+// last is open-ended. The voter file's exact age folds into the same bands.
+export const ADULT_AGE_BANDS = [
+  { key: '18to24', minAge: 18 },
+  { key: '25to34', minAge: 25 },
+  { key: '35to44', minAge: 35 },
+  { key: '45to54', minAge: 45 },
+  { key: '55to64', minAge: 55 },
+  { key: '65plus', minAge: 65 },
+] as const
+export type AdultAgeBand = (typeof ADULT_AGE_BANDS)[number]['key']
+const ADULT_AGE_BAND_KEYS = ADULT_AGE_BANDS.map(({ key }) => key)
+
+// Oldest first, so each age takes the highest band it reaches. The band
+// keys and ages are constants, never input, so they are written in.
 const ageBandSql = (): string =>
-  `CASE WHEN ${col('Age_Int')} >= 65 THEN '65plus'` +
-  ` WHEN ${col('Age_Int')} >= 18 THEN '18to64' END`
+  'CASE' +
+  [...ADULT_AGE_BANDS]
+    .reverse()
+    .map(
+      ({ key, minAge }) => ` WHEN ${col('Age_Int')} >= ${minAge} THEN '${key}'`,
+    )
+    .join('') +
+  ' END'
 
 // L2's modeled tenure. "Probable" owners count as owners because the census
 // has only owner and renter.
@@ -216,7 +252,7 @@ export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
 }
 
 const RespondentProfileSchema = z.object({
-  ageBand: z.enum(['18to64', '65plus']).nullable(),
+  ageBand: z.enum(ADULT_AGE_BAND_KEYS).nullable(),
   gender: z.enum(['male', 'female']).nullable(),
   tenure: z.enum(['owner', 'renter']).nullable(),
   race: z.enum(RACE_VALUES).nullable(),

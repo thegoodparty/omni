@@ -322,7 +322,7 @@ describe('the plan', () => {
           channel: 'phone_banking',
           targetSize: 40,
           landlineFirst: false,
-          steeredToward: 'age18to64',
+          steeredToward: 'age18to24',
         }),
         step({
           id: 'step-calls-3',

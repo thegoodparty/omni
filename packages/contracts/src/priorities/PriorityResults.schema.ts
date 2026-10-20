@@ -96,7 +96,11 @@ export type ReadRepresentativeness = z.infer<
 >
 
 export const UnderrepresentedGroupSchema = z.enum([
-  'age18to64',
+  'age18to24',
+  'age25to34',
+  'age35to44',
+  'age45to54',
+  'age55to64',
   'age65plus',
   'owners',
   'renters',
@@ -116,7 +120,11 @@ export const UNDERREPRESENTED_GROUP_NAMES: Record<
   UnderrepresentedGroup,
   string
 > = {
-  age18to64: 'people 18 to 64',
+  age18to24: 'people 18 to 24',
+  age25to34: 'people 25 to 34',
+  age35to44: 'people 35 to 44',
+  age45to54: 'people 45 to 54',
+  age55to64: 'people 55 to 64',
   age65plus: 'people 65 and over',
   owners: 'homeowners',
   renters: 'renters',

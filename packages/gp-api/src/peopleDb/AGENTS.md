@@ -184,8 +184,13 @@ published:
   `buildDistrictCensusSql` (state, district type, district name; a State
   district reads the statewide row). ACS 2024 5-year counts allocated from
   block groups by 2020 population share, so values are fractional and run
-  about 2.4% under, like `district_population`. No MOEs, no medians, no
-  gender.
+  about 2.4% under, like `district_population`. No MOEs, no medians.
+  Adults by census sex and age band (`population_{male,female}_*`) are
+  there for weighting; `priorities/util/censusSexAge.util.ts` turns them
+  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
+  bands (`ADULT_AGE_BANDS`). Census
+  sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
+  (about 1% of voters) sits the dimension out.
 - `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
   grouped by `Census_Block_Group_Geoid` and joined to
   `gp_api_block_group_census_demographics`. It returns block group figures

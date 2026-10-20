@@ -21,11 +21,14 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
   ) as AcsCounts
 
 // 1,000 adults, 20% of them 65 and over, in two tracts of 60% and 40%.
+// Adults sit in two of the census's six age bands, 35 to 44 and 65 and
+// over; the 18+ sex totals are left out, so gender sits out of these tests.
 const CENSUS = {
   district: acs({
-    totalPopulation: 1_250,
-    populationUnder18: 250,
-    population65Plus: 200,
+    populationMale35To44: 400,
+    populationFemale35To44: 400,
+    populationMale65Plus: 100,
+    populationFemale65Plus: 100,
   }),
   tractAdults: new Map([
     ['53017950100', 600],
@@ -37,7 +40,7 @@ const cell = (
   count: number,
   overrides: Partial<RespondentCell> = {},
 ): RespondentCell => ({
-  ageBand: '18to64',
+  ageBand: '35to44',
   gender: null,
   tenure: null,
   tract: '53017950100',
@@ -108,12 +111,33 @@ describe('unionDraws', () => {
 describe('roundTwoFrame', () => {
   it('multiplies each dimension in, summing to the district', () => {
     const frame = roundTwoFrame(CENSUS, roundTwoDimensions(false))
-    expect(frame).toHaveLength(4)
+    // Every band is in the frame, the empty ones at a count of 0.
+    expect(frame).toHaveLength(6 * 2)
     expect(frame.reduce((sum, c) => sum + c.count, 0)).toBeCloseTo(1)
     const older = frame.find(
       (c) => c.values.age === '65plus' && c.values.tract === '53017950200',
     )
     expect(older?.count).toBeCloseTo(0.2 * 0.4)
+  })
+
+  it('multiplies gender in once the census has adults by sex', () => {
+    const frame = roundTwoFrame(
+      {
+        ...CENSUS,
+        district: {
+          ...CENSUS.district,
+          populationMale18Plus: 480,
+          populationFemale18Plus: 520,
+        },
+      },
+      roundTwoDimensions(false),
+    )
+    expect(frame).toHaveLength(6 * 2 * 2)
+    expect(frame.reduce((sum, c) => sum + c.count, 0)).toBeCloseTo(1)
+    const women = frame
+      .filter((c) => c.values.gender === 'female')
+      .reduce((sum, c) => sum + c.count, 0)
+    expect(women).toBeCloseTo(0.52)
   })
 })
 
@@ -134,7 +158,7 @@ describe('roundTwoAnswers', () => {
       {
         yes: 4,
         answers: 7,
-        values: { age: '18to64', tract: '53017950100' },
+        values: { age: '35to44', tract: '53017950100' },
       },
       {
         yes: 0,
@@ -152,7 +176,7 @@ describe('roundTwoAnswers', () => {
       frame,
       dimensions,
     )
-    expect(answer?.values).toEqual({ age: '18to64', tract: null })
+    expect(answer?.values).toEqual({ age: '35to44', tract: null })
   })
 })
 
