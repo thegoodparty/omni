@@ -1,3 +1,4 @@
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
@@ -27,6 +28,10 @@ import { StateTransitionsModule } from './stateTransitions.module'
     TestFixturesJudgeController,
     TestFixturesVendorMocksController,
   ],
-  providers: [JudgeChatFixtureService, TestFixturesService],
+  providers: [
+    DistrictResolverService,
+    JudgeChatFixtureService,
+    TestFixturesService,
+  ],
 })
 export class TestFixturesModule {}

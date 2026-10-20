@@ -302,6 +302,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.armRouteFail(campaignId)
     } else if (action === 'callhub.campaign.complete') {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
+    } else if (action === 'peerly.balance.empty') {
+      // Scaffold — Story 2 arms the Peerly empty-balance fixture here.
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }

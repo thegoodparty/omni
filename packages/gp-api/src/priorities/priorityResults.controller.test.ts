@@ -63,11 +63,11 @@ const blockGroup = Object.fromEntries(
 let compose: MockInstance<CensusCompositionSource['compose']>
 let mrpInputs: MockInstance<CensusCompositionSource['mrpInputs']>
 
-// A district of 800 people 18 to 64 and 200 aged 65 and over. Whoever is
+// A district of 800 people 35 to 44 and 200 aged 65 and over. Whoever is
 // in `older` answered from the older band, everyone else from the younger.
 const OLDER = new Set<string>()
 const FRAME: MrpInputs['frame'] = [
-  { count: 800, values: { age: '18to64' } },
+  { count: 800, values: { age: '35to44' } },
   { count: 200, values: { age: '65plus' } },
 ]
 const modelInputs = (answers: PersonAnswer[]): MrpInputs => {
@@ -80,7 +80,7 @@ const modelInputs = (answers: PersonAnswer[]): MrpInputs => {
     frame: FRAME,
     answers: [
       cell(
-        '18to64',
+        '35to44',
         answers.filter(({ personId }) => !OLDER.has(personId)),
       ),
       cell(
@@ -268,7 +268,7 @@ describe('GET /v1/priorities/:id/results', () => {
       needed: 18,
       good: false,
       status: 'tooEarly',
-      underrepresented: ['age18to64', 'age65plus'],
+      underrepresented: ['age35to44', 'age65plus'],
     })
   })
 
@@ -459,7 +459,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
       good: false,
       status: 'tooEarly',
       // Eight answers still leave the model unsure of the younger band.
-      underrepresented: ['age65plus', 'age18to64'],
+      underrepresented: ['age65plus', 'age35to44'],
     })
   })
 
@@ -473,7 +473,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
       needed: 11,
       good: false,
       status: 'notYetRepresentative',
-      underrepresented: ['age65plus', 'age18to64'],
+      underrepresented: ['age65plus', 'age35to44'],
     })
   })
 

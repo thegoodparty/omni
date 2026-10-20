@@ -48,6 +48,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   // 404s outside mock mode (non-prod only); prod traffic is by definition
   // not ours, same posture as test-fixtures.
   'vendor-mocks/geoapify',
+  // Same posture: non-prod only, 404 in live mode, 23 stub routes would
+  // push the total route map past the Loki tenant series cap (500).
+  'vendor-mocks/peerly',
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',

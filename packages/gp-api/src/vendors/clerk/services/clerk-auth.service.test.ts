@@ -125,6 +125,7 @@ describe('ClerkAuthService', () => {
       })
       expect(verifyToken).toHaveBeenCalledWith(CLERK_TOKEN, {
         secretKey: process.env.CLERK_SECRET_KEY,
+        jwtKey: undefined,
         authorizedParties: undefined,
       })
     })

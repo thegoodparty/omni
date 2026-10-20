@@ -15,7 +15,11 @@ export type VendorMockRecordSummary = z.infer<
 
 export const MockActionSchema = z.object({
   campaignId: z.number().int().positive(),
-  action: z.enum(['geoapify.route.fail', 'callhub.campaign.complete']),
+  action: z.enum([
+    'geoapify.route.fail',
+    'callhub.campaign.complete',
+    'peerly.balance.empty',
+  ]),
   params: z.record(z.string(), z.unknown()).optional(),
 })
 export type MockAction = z.infer<typeof MockActionSchema>

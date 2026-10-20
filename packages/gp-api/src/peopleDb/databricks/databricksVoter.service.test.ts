@@ -1041,7 +1041,7 @@ describe('DatabricksVoterService', () => {
       stubDistrict('City_Ward', 'WARD 1')
       query.mockResolvedValueOnce({
         columns: [],
-        rows: [['18to64', null, null, 'white', '1.5', '2']],
+        rows: [['35to44', null, null, 'white', '1.5', '2']],
       })
 
       const cells = await service.findAnswerCells(DISTRICT_ID, 'voters', [
@@ -1051,7 +1051,7 @@ describe('DatabricksVoterService', () => {
       expect(query.mock.calls[0]?.[0].sql).toContain(PERSON_ID)
       expect(cells).toEqual([
         {
-          ageBand: '18to64',
+          ageBand: '35to44',
           gender: null,
           tract: null,
           race: 'white',

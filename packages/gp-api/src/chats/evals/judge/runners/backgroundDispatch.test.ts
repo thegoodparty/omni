@@ -1392,15 +1392,15 @@ describe('the chat budget', () => {
     return found
   }
 
-  // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
-  // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
+  // 65 minutes for chat. chief_of_staff 8 minutes, campaign_assistant 48,
+  // and ordinance_flow's 48 more does not fit; priority_flow's 2 still
   // does, which only holds if the refused agent left its share behind.
   it('refuses by name what does not fit, and leaves its share to the next', () => {
     const count: Record<string, number> = {
       chief_of_staff: 24,
-      priority_flow: 24,
+      campaign_assistant: 24,
       ordinance_flow: 24,
-      campaign_assistant: 3,
+      priority_flow: 3,
     }
     const refused = refuseChat(
       Object.keys(count).map(chatAgent),
@@ -1518,7 +1518,7 @@ describe('the chat budget', () => {
     expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(9)
     expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(9)
     expect(() => loadCases(registered('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 54 minutes for 27 chat turns at 120s each/,
+      /^priority_flow was not admitted to this sweep: would take about 32 minutes for 63 chat turns at 30s each/,
     )
     expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
       ['chief_of_staff', 'campaign_assistant'],
@@ -1638,6 +1638,24 @@ describe('withRuntimeRefusals', () => {
     spendingArm()
     const given = armEnvOf({ agentIds: ids })
     expect(withRuntimeRefusals(given, inProcess())).toBe(given)
+  })
+
+  // The one in-process refusal: no district resolves there, so a spending
+  // arm cannot measure priority_flow. A dry arm replaces the model and can.
+  it('refuses priority_flow in process on a spending arm only', () => {
+    const spending = withRuntimeRefusals(
+      armEnvOf({ agentIds: ['priority_flow', 'chief_of_staff'] }),
+      inProcess(),
+    )
+    expect([...(spending.chatRuntimeRefused?.keys() ?? [])]).toEqual([
+      'priority_flow',
+    ])
+    expect(spending.chatRuntimeRefused?.get('priority_flow')).toMatch(
+      /needs a district that resolves/,
+    )
+
+    const dry = armEnvOf({ agentIds: ['priority_flow'], spends: false })
+    expect(withRuntimeRefusals(dry, inProcess())).toBe(dry)
   })
 
   // briefing_annotation is the agent the HTTP runtime cannot drive at all:
