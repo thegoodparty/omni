@@ -141,7 +141,7 @@ services and `S3Service.getFileBytesWithContentType`;
   create;
   `outreachRobocallCapture.test.ts` covers the capture directly on the service (no
   HTTP route): happy-path captures the actual amount off a live hold (idempotency
-  key `robocall-capture-<id>`) and records the `Receipt` once; undercharge (fewer
+  key `robocall-capture-<holdIntentId>`) and records the `Receipt` once; undercharge (fewer
   calls than the estimate → the smaller amount); INV-1 (an actual over the hold
   clamps to the authorized amount, never overbills); a zero-connected run voids
   the hold and releases the fee, whether the hold is live or already gone; an already-`succeeded` PI reconciles to

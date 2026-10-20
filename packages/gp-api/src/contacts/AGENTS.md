@@ -1033,7 +1033,12 @@ answer rate: `DOOR_ANSWER_RATE` 10%,
 measure them. The text is the most any short group needs to reach
 `MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped
 by the reachable cell phones and `MAX_LIST_SAMPLE_SIZE`; a group no cell
-phone reaches does not size it. The tool says whether every major group
+phone reaches does not size it. That text is one purchase in two rounds
+(`splitPriorityText` in contracts): its card's `sampleSize` is the half
+sent at random on the chosen date, and `roundTwoSize` the half held for a
+follow-up two weeks later, drawn toward the groups heard from least
+(Samuel, 2026-10-20). A text too small for two halves of 25 goes out
+whole. The tool says whether every major group
 reaches 3 (`coversEveryGroup`).
 
 **Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
@@ -1250,8 +1255,9 @@ has no signed webhook):
   for active/recently-completed jobs, maps phone → person through the
   capture rows, and writes `respondedAt` / `optedOutAt` idempotently on the
   vendor event id. Opt-outs come from the reply text (`isOptOutMessage`),
-  plus a 6-hourly pass over Peerly's own opt-out flags for the ones its AI
-  or texters mark without a stop word. Opt-outs drive the record's Opted
+  plus a pass over Peerly's own opt-out flags for the ones its AI or
+  texters mark without a stop word: each send's flags are read at most
+  every 6 hours for its first 3 days. Opt-outs drive the record's Opted
   In/Out chip.
 
 ### The AI assistant

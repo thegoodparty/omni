@@ -193,7 +193,13 @@ The stages:
 1. **`await-checks`.** Waits for this commit's per-service check workflows
    (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
-   for that SHA; a later merge forms the next train.
+   for that SHA; a later merge forms the next train. When `main` has already
+   moved past the SHA, the run first waits for the newer commit's runs of the
+   red checks. If they all pass there, the run cancels itself instead of
+   failing, because the newer commit fixed the problem and a merge burst
+   should not raise a false alert. If any fails there too, the run fails.
+   The cancel happens before any deploy starts, so it cannot strand a Pulumi
+   lock.
 2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
    push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
    Vercel and alias `dev.goodparty.org`).

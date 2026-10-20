@@ -155,7 +155,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       AUTHORIZED,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
     expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
       capturedAmountInCents: AUTHORIZED,
@@ -305,7 +305,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       AUTHORIZED,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -337,7 +337,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       discounted,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -367,7 +367,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       authorized,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -427,7 +427,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
         INTENT_ID,
         AUTHORIZED - PROMO,
-        `p2p-sms-capture-${OUTREACH_ID}`,
+        `p2p-sms-capture-${INTENT_ID}`,
       )
     })
 
@@ -442,7 +442,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
         INTENT_ID,
         calcTextAmountInCents(300) - PROMO,
-        `p2p-sms-capture-${OUTREACH_ID}`,
+        `p2p-sms-capture-${INTENT_ID}`,
       )
     })
 

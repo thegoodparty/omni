@@ -79,9 +79,12 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
   ): Promise<ElectionDbPrismaClient> {
     const url = new URL(databaseUrl)
     url.searchParams.set('connection_limit', CONNECTION_LIMIT)
-    // election-api ran at 20s after exhausting its pool under load (P2024);
-    // gp-api now carries that same traffic.
-    url.searchParams.set('pool_timeout', '20')
+    // A request that cannot get a connection fails after this long. At 20s a
+    // burst from one machine caller (81k reads in 20 minutes on 2026-10-19)
+    // left tens of thousands of requests parked in the pool queue, and the
+    // health probe on the same tasks stalled past its 10s timeout. Failing the
+    // queue fast sheds the excess instead of holding it.
+    url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
 
     const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({
