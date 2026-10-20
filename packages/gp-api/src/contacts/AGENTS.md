@@ -1013,10 +1013,20 @@ pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,
 peopleDb `buildPoolCellsSql`, counts only): `notContactedRecently` for
 doors, plus `hasAnyPhone` for calls and `hasCellPhone` for the text. Doors
 and calls take the official's weekly hours exactly as `sizePanelWave` splits
-them, uncapped by any member gap; the hours are the active plan's, or the
-official's answer in the chat. A group's expected answers are the invites
-reaching it on each channel (the channel's size times the group's share of
-its pool) times that channel's answer rate: `DOOR_ANSWER_RATE` 10%,
+them, uncapped by any member gap (`roundOneHours`); the hours are the active
+plan's, or the official's answer in the chat. The doors are one walkable
+area (`PriorityResultsService.roundOneDoorArea`), picked the way a plan's
+door step is: `walkableAreaWithin` in the tract the priority's answers trail
+most (`doorTractFor`, once `PANEL_MIN_MEMBERS_FOR_BALANCE` people have
+answered), else, or when that tract holds too few doors, across the
+district. The area goes on the door card as `walkableArea`, the padded box
+around its doors (`areaAround`), and the card's count is who that box holds
+(`resolveGeoMemberIds`, then `countByGroupWithin` within those ids), so the
+door part of a group's answers comes from who lives there, not from the
+district. A group's expected answers are the invites reaching it on each
+channel (the channel's size times the group's share of who it reaches: the
+area for the doors, the pool for calls and the text) times that channel's
+answer rate: `DOOR_ANSWER_RATE` 10%,
 `CALL_ANSWER_RATE` 5%, `TEXT_ANSWER_RATE` 3%, placeholders until offices
 measure them. The text is the most any short group needs to reach
 `MIN_VOICES_PER_GROUP` (3), `(3 − expected) / (textShare × rate)`, capped

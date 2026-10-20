@@ -1175,7 +1175,19 @@ describe('PriorityFlowHandler', () => {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
           countSegment: vi.fn(),
-          countByGroupWithin: vi.fn(() => Promise.resolve([])),
+          countByGroupWithin: vi.fn(
+            (_org: never, _criteria: never, within?: string[]) =>
+              Promise.resolve([
+                {
+                  ageBand: '18to64',
+                  gender: null,
+                  tract: 't1',
+                  race: null,
+                  count: within === undefined ? 5_000 : 60,
+                },
+              ]),
+          ),
+          resolveGeoMemberIds: vi.fn(() => Promise.resolve(['p-1'])),
         } as never,
         {} as never,
         undefined,
@@ -1183,6 +1195,16 @@ describe('PriorityFlowHandler', () => {
         undefined,
         {
           districtCensus: vi.fn(() => Promise.resolve(null)),
+          roundOneDoorArea: vi.fn(
+            (_org: never, _id: never, _criteria: never, households: number) =>
+              Promise.resolve(
+                Array.from({ length: households }, (_, index) => ({
+                  lat: 35.6 + index * 0.0001,
+                  lng: -82.55,
+                  personIds: [`p-${index}`],
+                })),
+              ),
+          ),
         } as unknown as PriorityResultsService,
       )
 
@@ -1195,7 +1217,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('ROUND ONE')
       expect(prompt).toContain('Civic panel: 42 members')
       expect(prompt).toContain(
-        'door knocking, a phone bank and a text, each to residents across the district picked at random, offered together as cards in one turn',
+        'door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn',
       )
       expect(prompt).toContain('Size the round with size_round_one')
       expect(prompt).toContain(
@@ -1205,7 +1227,7 @@ describe('PriorityFlowHandler', () => {
         'Present every card it returns with present_outreach_proposal',
       )
       expect(prompt).toContain(
-        '- door knocking, with what to say at the door as the message.',
+        '- door knocking, with what to say at the door as the message, and walkableArea exactly as returned, with no sampleSize.',
       )
       expect(prompt).toContain(
         '- phone banking, with the script a caller reads as the message.',
@@ -1427,11 +1449,15 @@ describe('PriorityFlowHandler', () => {
 
     it('presents each round one card on its own channel, side main', async () => {
       priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
-      const tool = buildWithPanels().buildTools(
-        panelsOn(42),
-      ).present_outreach_proposal
-      if (tool === undefined || !('execute' in tool)) {
-        throw new Error('expected an executable tool')
+      const tools = buildWithPanels().buildTools(panelsOn(42))
+      const { present_outreach_proposal: tool, size_round_one: size } = tools
+      if (
+        tool === undefined ||
+        !('execute' in tool) ||
+        size === undefined ||
+        !('execute' in size)
+      ) {
+        throw new Error('expected executable tools')
       }
       const base = {
         audience: 'Residents across the district',
@@ -1439,16 +1465,55 @@ describe('PriorityFlowHandler', () => {
         stepId: 'define' as const,
         side: 'main' as const,
       }
+      const sized = (await size.execute({})) as {
+        cards: Array<{
+          channel: string
+          walkableArea?: {
+            west: number
+            south: number
+            east: number
+            north: number
+          }
+        }>
+      }
+      const walkableArea = sized.cards.find(
+        (card) => card.channel === 'doorKnocking',
+      )?.walkableArea
+      if (walkableArea === undefined) throw new Error('expected a door area')
+      const door = {
+        ...base,
+        channel: 'doorKnocking' as const,
+        count: 60,
+        walkableArea,
+        audienceFilters: { notContactedRecently: true },
+        message: 'Hi, I am here for Bryan Ortiz. Is it the drains?',
+      }
+      expect(await tool.execute(door)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      // Only the area gp-api picked, kept whole, on a door card.
       expect(
         await tool.execute({
-          ...base,
-          channel: 'doorKnocking' as const,
-          count: 18_000,
-          sampleSize: 40,
-          audienceFilters: { notContactedRecently: true },
-          message: 'Hi, I am here for Bryan Ortiz. Is it the drains?',
+          ...door,
+          walkableArea: { ...walkableArea, west: walkableArea.west - 0.01 },
         }),
-      ).toEqual({ presented: true, deepLinkOnly: true })
+      ).toHaveProperty(
+        'error',
+        expect.stringContaining('not one size_round_one returned'),
+      )
+      expect(await tool.execute({ ...door, sampleSize: 40 })).toHaveProperty(
+        'error',
+        expect.stringContaining('Leave out sampleSize'),
+      )
+      expect(
+        await tool.execute({
+          ...door,
+          channel: 'phoneBanking' as const,
+          message:
+            'I am calling for Bryan Ortiz, your City Council Member. Is it the drains?',
+        }),
+      ).toHaveProperty('error', expect.stringContaining('door knocking only'))
       expect(
         await tool.execute({
           ...base,

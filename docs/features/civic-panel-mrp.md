@@ -53,8 +53,9 @@ group holds 3% or more of the district on a steered dimension. Each needs
 three expected answers: invites to the group times the channel's assumed
 rate (doors 10%, calls 5%, a cold text 3%, placeholders until measured).
 Doors and calls take the official's hours as `sizePanelWave` splits them;
-the text covers whatever groups the hours leave short, capped by the
-reachable cell phones. The priority chat proposes all three as cards at
+the doors are one walkable area, so they count toward the groups living
+there. The text covers whatever groups the area and the calls leave short,
+capped by the reachable cell phones. The priority chat proposes all three as cards at
 once (`size_round_one`, `sizeRoundOne`; detail in the contacts AGENTS.md,
 "Round 1 sizing").
 

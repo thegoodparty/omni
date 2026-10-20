@@ -191,7 +191,7 @@ const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. T
 // Behind serve-citizen-panels the first round of a check is doors, calls and
 // a text across the district, so the two targeted sides wait for its read.
 const PANEL_FIRST_SIDES_RULE =
-  '- A check goes out first as one round, as ROUND ONE says: door knocking, a phone bank and a text, each to residents across the district. Every card of the round is side main, and its who is residents across the district. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important.'
+  '- A check goes out first as one round, as ROUND ONE says: door knocking in one walkable area, and a phone bank and a text to residents across the district. Every card of the round is side main, and its who is residents across the district. The most and least affected groups come only after its answers are in, and only if the read is thin or leans one way. The least affected is side contrast, asked the same question, and never framed as less important.'
 
 const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
 
@@ -299,12 +299,13 @@ const buildCheckWorkBlock = (
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask with ask_clarify_question whether to reach them another way, wait, or skip it.',
   ].join('\n')
 
-// A check's first round goes out on every channel at once, each card a random
-// draw from the district, sized by size_round_one: doors and calls from the
-// official's weekly hours, the text so every major group is expected to
-// answer. One line per card, so a later round can add its own.
+// A check's first round goes out on every channel at once, sized by
+// size_round_one: doors in one walkable area and calls and a text drawn at
+// random from the district, the doors and calls from the official's weekly
+// hours, the text so every major group is expected to answer. One line per
+// card, so a later round can add its own.
 const ROUND_ONE_CARDS = [
-  'door knocking, with what to say at the door as the message',
+  'door knocking, with what to say at the door as the message, and walkableArea exactly as returned, with no sampleSize',
   'phone banking, with the script a caller reads as the message',
   'text, with the text as the message, and targetResponses, assumedReplyRate and civicPanelAsk as returned',
 ]
@@ -312,17 +313,17 @@ const ROUND_ONE_CARDS = [
 const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
   [
     'ROUND ONE',
-    '- When a check is warranted, its first round goes out on every channel at once: door knocking, a phone bank and a text, each to residents across the district picked at random, offered together as cards in one turn. Not the most or least affected groups: those come later, as the steps below say.',
+    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn. Not the most or least affected groups: those come later, as the steps below say.',
     hoursPerWeek === null
       ? '- How much time the official can give each week is not known yet. size_round_one says how to ask it.'
       : `- The official gives ${hoursPerWeek} ${hoursPerWeek === 1 ? 'hour' : 'hours'} a week. size_round_one already knows it.`,
     '  1. Size the round with size_round_one. It counts who each channel reaches and sizes every card, so count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for these cards. If it returns an error, follow what it says, and present nothing until it returns cards.',
-    '  2. Present every card it returns with present_outreach_proposal, in the order it returns them, each with its channel, audienceFilters, count and sampleSize exactly as returned:',
+    '  2. Present every card it returns with present_outreach_proposal, in the order it returns them, each with its channel, audienceFilters, count, and sampleSize where it has one, exactly as returned:',
     ...ROUND_ONE_CARDS.map((card) => `     - ${card}.`),
     '  3. Every card gets the same question, adapted only to how it is asked, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). Every card invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into a message.',
     '  4. A card it did not return is not needed this round. Say nothing about it.',
     '  5. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
-    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many people each card goes to, its sampleSize. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
+    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many doors the walk knocks, in one neighborhood, and how many people the calls and the text go to, their sampleSize. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
     '- Do not find, count or describe the most or least affected group in this turn. Naming them now only confuses which cards are real.',
     '- Once any card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, or leans one way, build the group it is missing as BUILD THE CHECK BEFORE YOU OFFER IT says, as its own card, with widensOutreachIds set to every send this check has had.',
     '- The people who answer chose to, so they never stand in for everyone. Say so in one line when you report what they said.',

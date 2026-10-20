@@ -9,6 +9,7 @@ import {
   DOOR_ANSWER_RATE,
   MAX_TARGET_WEIGHT,
   MIN_TARGET_WEIGHT,
+  roundOneHours,
   sizeRoundOne,
   splitBatch,
   TEXT_ANSWER_RATE,
@@ -95,6 +96,39 @@ describe('splitBatch', () => {
   })
 })
 
+describe('roundOneHours', () => {
+  it('splits the hours into doors and calls the way the panel plan does', () => {
+    const wave = sizePanelWave({
+      gap: Number.POSITIVE_INFINITY,
+      hoursPerWeek: 1,
+      pools: { text: 0, phone: 10_000, door: 10_000 },
+    })
+    const result = roundOneHours({
+      hoursPerWeek: 1,
+      doorPool: 10_000,
+      phonePool: 10_000,
+    })
+    expect(result).toEqual({ doors: 40, calls: 30 })
+    expect(result.doors).toBe(
+      wave
+        .filter((s) => s.channel === 'door_knocking')
+        .reduce((sum, s) => sum + s.targetSize, 0),
+    )
+  })
+
+  it('takes the most doors two walkable areas hold at 20 hours', () => {
+    expect(
+      roundOneHours({ hoursPerWeek: 20, doorPool: 10_000, phonePool: 10_000 }),
+    ).toEqual({ doors: 200, calls: 1_050 })
+  })
+
+  it('sizes nothing a channel cannot reach', () => {
+    expect(
+      roundOneHours({ hoursPerWeek: 1, doorPool: 0, phonePool: 0 }),
+    ).toEqual({ doors: 0, calls: 0 })
+  })
+})
+
 describe('sizeRoundOne', () => {
   const cell = (
     ageBand: DistrictCell['ageBand'],
@@ -108,6 +142,13 @@ describe('sizeRoundOne', () => {
     cell('65plus', 't2', 'black', 3_000),
     cell('18to64', 't3', null, 1_000),
   ]
+  // The same mix as the district, as a walkable area would be in a
+  // perfectly mixed place.
+  const mixedArea: DistrictCell[] = [
+    cell('18to64', 't1', 'white', 60),
+    cell('65plus', 't2', 'black', 30),
+    cell('18to64', 't3', null, 10),
+  ]
   const shares = {
     age: { '18to64': 0.7, '65plus': 0.3 },
     tract: { t1: 0.6, t2: 0.28, t3: 0.1, t4: 0.02 },
@@ -116,10 +157,11 @@ describe('sizeRoundOne', () => {
   const ALL = ['age', 'gender', 'tract', 'race'] as const
   const size = (overrides: Partial<Parameters<typeof sizeRoundOne>[0]> = {}) =>
     sizeRoundOne({
-      hoursPerWeek: 1,
+      doors: 40,
+      calls: 30,
       districtShares: shares,
       dimensions: ALL,
-      pools: { door: district, phone: district, text: district },
+      pools: { doorArea: mixedArea, phone: district, text: district },
       ...overrides,
     })
   const answersOf = (result: ReturnType<typeof sizeRoundOne>) =>
@@ -136,32 +178,34 @@ describe('sizeRoundOne', () => {
     expect(TEXT_ANSWER_RATE).toBe(0.03)
   })
 
-  it('splits the hours into doors and calls the way the panel plan does', () => {
+  it('sizes the text for the group the doors and calls leave furthest short', () => {
     const result = size()
-    const wave = sizePanelWave({
-      gap: Number.POSITIVE_INFINITY,
-      hoursPerWeek: 1,
-      pools: { text: 0, phone: 10_000, door: 10_000 },
-    })
-    expect(result.doors).toBe(40)
-    expect(result.calls).toBe(30)
-    expect(result.doors).toBe(
-      wave
-        .filter((s) => s.channel === 'door_knocking')
-        .reduce((sum, s) => sum + s.targetSize, 0),
-    )
-  })
-
-  it('sizes the text for the group the hours leave furthest short', () => {
-    const result = size()
-    // t3: 40 doors x 10% x 10% + 30 calls x 10% x 5% = 0.55 answers, and
-    // each text reaches it at 10% x 3%: ceil(2.45 / 0.003).
+    // t3: 40 doors x 10% of the area x 10% + 30 calls x 10% x 5% = 0.55
+    // answers, and each text reaches it at 10% x 3%: ceil(2.45 / 0.003).
     expect(result.texts).toBe(817)
     const answers = answersOf(result)
     expect(answers['tract:t3']).toBe(3)
     for (const group of result.groups) {
       expect(group.expectedAnswers).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  it('counts the doors only toward the groups living in the walkable area', () => {
+    const result = size({
+      pools: {
+        doorArea: [cell('18to64', 't1', 'white', 100)],
+        phone: district,
+        text: district,
+      },
+    })
+    // t3 now hears from the calls alone: 30 x 10% x 5% = 0.15 answers, so
+    // the text needs ceil(2.85 / 0.003).
+    expect(result.texts).toBe(950)
+    const answers = answersOf(result)
+    expect(answers['tract:t1']).toBeGreaterThan(
+      answersOf(size())['tract:t1'] ?? 0,
+    )
+    expect(answers['tract:t3']).toBe(3)
   })
 
   it('names only major groups, never other, and race only when asked to', () => {
@@ -184,7 +228,7 @@ describe('sizeRoundOne', () => {
   it('never texts more people than it can reach', () => {
     const result = size({
       pools: {
-        door: district,
+        doorArea: mixedArea,
         phone: district,
         text: [
           cell('18to64', 't1', 'white', 300),
@@ -199,28 +243,28 @@ describe('sizeRoundOne', () => {
   it('leaves a group no cell phone reaches out of the text size', () => {
     const result = size({
       pools: {
-        door: district,
+        doorArea: mixedArea,
         phone: district,
         text: district.filter((c) => c.tract !== 't3'),
       },
     })
-    // The next furthest short: 1.65 answers from the hours, and 1 in 3 of
-    // 9,000 cell phones at 3%.
+    // The next furthest short: 1.65 answers from doors and calls, and 1 in 3
+    // of 9,000 cell phones at 3%.
     expect(result.texts).toBe(135)
     expect(answersOf(result)['tract:t3']).toBe(0.6)
   })
 
-  it('sends no text when the hours already reach every group', () => {
+  it('sends no text when the doors and calls already reach every group', () => {
     const even = [
       cell('18to64', 't1', null, 5_000),
       cell('65plus', 't1', null, 5_000),
     ]
     const result = size({
-      hoursPerWeek: 20,
+      doors: 200,
+      calls: 1_050,
       districtShares: { age: { '18to64': 0.5, '65plus': 0.5 } },
-      pools: { door: even, phone: even, text: even },
+      pools: { doorArea: even, phone: even, text: even },
     })
-    expect(result.doors).toBe(200)
     expect(result.texts).toBe(0)
   })
 
@@ -231,16 +275,18 @@ describe('sizeRoundOne', () => {
     ]
     const result = size({
       districtShares: { tract: { t1: 0.95, t3: 0.05 } },
-      pools: { door: wide, phone: wide, text: wide },
+      pools: { doorArea: wide, phone: wide, text: wide },
     })
     expect(result.texts).toBe(MAX_LIST_SAMPLE_SIZE)
   })
 
   it('reaches nobody when no channel can', () => {
-    expect(size({ pools: { door: [], phone: [], text: [] } })).toMatchObject({
-      doors: 0,
-      calls: 0,
-      texts: 0,
-    })
+    expect(
+      size({
+        doors: 0,
+        calls: 0,
+        pools: { doorArea: [], phone: [], text: [] },
+      }),
+    ).toMatchObject({ texts: 0 })
   })
 })

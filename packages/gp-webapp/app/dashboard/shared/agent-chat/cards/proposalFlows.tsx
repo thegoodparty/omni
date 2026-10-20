@@ -54,8 +54,10 @@ import {
 import {
   proposalListName,
   proposedAudienceOf,
+  walkableAreaPolygon,
   type CardMode,
 } from './proposalPresentation'
+import { walkableAreaParam } from 'app/dashboard/door-knocking/native/walkableAreaParam'
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
@@ -293,6 +295,9 @@ export const ProposalFlowsProvider = ({
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal, opened.priorityId)
+      const area = proposal.walkableArea
+        ? walkableAreaPolygon(proposal.walkableArea)
+        : null
       let listId = proposal.savedFilterId ?? null
       if (listId === null && audience) {
         try {
@@ -307,6 +312,7 @@ export const ProposalFlowsProvider = ({
               ...(audience.unreachedAreaOfPriorityId && {
                 unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
               }),
+              ...(area && { geoPoly: area }),
             },
           )
           listId = data.id
@@ -324,6 +330,8 @@ export const ProposalFlowsProvider = ({
         ...linkOf(opened),
         launchSource: opened.launchSource,
       })
+      const areaParam = area ? walkableAreaParam(area) : null
+      if (areaParam) params.set('area', areaParam)
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
     [router, errorSnackbar],

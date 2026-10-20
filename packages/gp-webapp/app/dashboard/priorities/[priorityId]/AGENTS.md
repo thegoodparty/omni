@@ -127,18 +127,24 @@ inverted, same gates), each on its own card.
 Behind `serve-citizen-panels` the default is round one instead
 (`buildRoundOneBlock`, "ROUND ONE"; `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`):
 a door knocking, a phone banking and a text card for the same check, all
-side `main`, offered together in one turn, each a random sample of
-residents across the district not reached in the last 30 days
-(`notContactedRecently`, plus any phone for calls and a cell phone for the
-text). gp-api's `size_round_one` counts who each channel reaches by group
+side `main`, offered together in one turn, to residents not reached in the
+last 30 days (`notContactedRecently`, plus any phone for calls and a cell
+phone for the text). The doors are one walkable area gp-api picks; the
+calls and the text are random samples across the district. gp-api's `size_round_one` counts who each channel reaches by group
 and sizes the three (`sizeRoundOne`; see the
 contacts AGENTS.md, "Round 1 sizing"): doors and calls from the official's
 weekly hours on their panel plan, asked once with `ask_clarify_question`
 when there is no plan, and the text so every major group is expected to
 give at least 3 answers. The text carries `civicPanelAsk`; calls and doors
 close on the panel's join question as every Serve call and walk does. No
-new UI: each is an ordinary proposal card with `sampleSize`, so a door
-card's list is a random draw rather than a walkable area. The targeted
+new UI: the calls and the text are ordinary proposal cards with
+`sampleSize`, and the door card carries the area as `walkableArea` (a box,
+contracts' `WalkableAreaBoxSchema`). Starting it saves the list with that
+box as its drawn boundary (`geoPoly`, so its members are who the box holds)
+and opens door knocking with it on `?area=`, the first turf, as a panel
+plan's door step does (`proposalFlows.tsx`, `walkableAreaPolygon`). The
+handler only presents a `walkableArea` that `size_round_one` returned that
+turn, on a door card, with no `sampleSize` or `areaTarget`. The targeted
 groups wait for the round's read (`read_outreach_feedback`): only a thin or
 one-sided read brings the most or least affected group, as its own card
 with `widensOutreachIds` set to every send the check has had; a thin read

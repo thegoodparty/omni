@@ -34,6 +34,7 @@ const priorityProposalInputWithoutPanel = priorityProposalInput.omit({
   panelSampleSize: true,
   reportBackForOutreachId: true,
   areaTarget: true,
+  walkableArea: true,
 })
 // Outside a priority there is no check for a send to put out, and so no
 // earlier sample of one to widen.

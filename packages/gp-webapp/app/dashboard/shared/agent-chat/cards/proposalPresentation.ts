@@ -6,6 +6,8 @@ import {
   type OutreachProposal,
   type ProposalChannel,
   type SupportStatusRollup,
+  type GeoJsonPolygon,
+  type WalkableAreaBox,
 } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import { segmentToVoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -127,6 +129,23 @@ export const proposedAudienceOf = (
       priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
   }
 }
+
+/**
+ * A door card's walkable area as the polygon its list is kept to, so the
+ * list holds the doors gp-api picked and the walk opens on the same box.
+ */
+export const walkableAreaPolygon = (box: WalkableAreaBox): GeoJsonPolygon => ({
+  type: 'Polygon',
+  coordinates: [
+    [
+      [box.west, box.south],
+      [box.east, box.south],
+      [box.east, box.north],
+      [box.west, box.north],
+      [box.west, box.south],
+    ],
+  ],
+})
 
 export const outreachDetailHref = (
   outreachId: number,

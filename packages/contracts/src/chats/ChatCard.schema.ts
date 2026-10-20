@@ -93,6 +93,22 @@ export type ProposalAudienceFilters = z.infer<
 >
 
 /**
+ * A walkable area as the box around its doors, in degrees. The same box the
+ * door knocking page takes on `?area=` as a new walk's first turf.
+ */
+export const WalkableAreaBoxSchema = z
+  .object({
+    west: z.number().min(-180).max(180),
+    south: z.number().min(-90).max(90),
+    east: z.number().min(-180).max(180),
+    north: z.number().min(-90).max(90),
+  })
+  .refine((box) => box.west < box.east && box.south < box.north, {
+    message: 'A box runs west to east and south to north',
+  })
+export type WalkableAreaBox = z.infer<typeof WalkableAreaBoxSchema>
+
+/**
  * A ready-to-send piece of outreach. The agent has counted the audience and
  * written the message; the official finishes it in the channel's own flow.
  *
@@ -207,6 +223,15 @@ export const OutreachProposalSchema = z.object({
       'unreached to keep the audience to the parts of the district this ' +
         "priority's answers have not reached. The app draws the area.",
     ),
+  /**
+   * Door knocking on a priority: the one walkable area gp-api picked for the
+   * doors. The list is saved kept to that box, and the walk opens with it as
+   * its first turf.
+   */
+  walkableArea: WalkableAreaBoxSchema.optional().describe(
+    'Door knocking only: the walkableArea size_round_one returned, exactly ' +
+      'as given.',
+  ),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 

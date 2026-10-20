@@ -130,10 +130,11 @@ export const DOOR_ANSWER_RATE = PANEL_DOOR_ASSUMED_JOIN_RATE
 export const CALL_ANSWER_RATE = PANEL_CALL_ASSUMED_JOIN_RATE
 export const TEXT_ANSWER_RATE = DEFAULT_TEXT_REPLY_RATE
 
-// Who each channel can reach, counted by group: anyone at the door, any
-// phone for calls, a cell phone for the text.
+// Who each part of round 1 can reach, counted by group: the residents of
+// the walkable area the doors were picked in, anyone with a phone for
+// calls, and anyone with a cell phone for the text.
 export interface RoundOnePools {
-  door: DistrictCell[]
+  doorArea: DistrictCell[]
   phone: DistrictCell[]
   text: DistrictCell[]
 }
@@ -147,8 +148,6 @@ export interface RoundOneGroup {
 }
 
 export interface RoundOneSize {
-  doors: number
-  calls: number
   texts: number
   // Every major group, with the answers round 1 is expected to bring.
   groups: RoundOneGroup[]
@@ -159,11 +158,11 @@ const valueOf = (
   dimension: TargetedDimension,
 ): string | null => (dimension === 'age' ? cell.ageBand : cell[dimension])
 
-const sizeOf = (cells: DistrictCell[]): number =>
+export const sizeOf = (cells: DistrictCell[]): number =>
   cells.reduce((sum, cell) => sum + cell.count, 0)
 
-// The chance a resident drawn at random from the pool is in the group.
-// Residents with no known value count in the pool but in no group.
+// The chance a resident drawn from the pool is in the group. Residents with
+// no known value count in the pool but in no group.
 const shareOf = (
   cells: DistrictCell[],
   dimension: TargetedDimension,
@@ -183,18 +182,42 @@ const stepsOf = (
     .filter((step) => step.channel === channel)
     .reduce((sum, step) => sum + step.targetSize, 0)
 
-// Round 1: doors and calls spend the official's hours as the panel plan
-// splits them, and the text covers whatever major groups those leave short
-// of MIN_VOICES_PER_GROUP expected answers, capped by who it can reach. A
-// group no cell phone reaches cannot be helped by the text, so it does not
-// size it.
-export const sizeRoundOne = ({
+// Round 1's doors and calls: the official's hours as the panel plan splits
+// them. No member gap caps round 1, so the hours alone size both.
+export const roundOneHours = ({
   hoursPerWeek,
+  doorPool,
+  phonePool,
+}: {
+  hoursPerWeek: number
+  doorPool: number
+  phonePool: number
+}): { doors: number; calls: number } => {
+  const wave = sizePanelWave({
+    gap: Number.POSITIVE_INFINITY,
+    hoursPerWeek,
+    pools: { text: 0, phone: phonePool, door: doorPool },
+  })
+  return {
+    doors: stepsOf(wave, 'door_knocking'),
+    calls: stepsOf(wave, 'phone_banking'),
+  }
+}
+
+// Round 1's text: it covers whatever major groups the doors and calls leave
+// short of MIN_VOICES_PER_GROUP expected answers, capped by who it can
+// reach. Every door is in one walkable area, so the doors reach a group only
+// as far as it lives there. A group no cell phone reaches cannot be helped
+// by the text, so it does not size it.
+export const sizeRoundOne = ({
+  doors,
+  calls,
   districtShares,
   dimensions,
   pools,
 }: {
-  hoursPerWeek: number
+  doors: number
+  calls: number
   districtShares: RakingTargets
   dimensions: readonly TargetedDimension[]
   pools: RoundOnePools
@@ -206,19 +229,11 @@ export const sizeRoundOne = ({
         : [],
     ),
   )
-  // No member gap caps round 1, so the hours alone size doors and calls.
-  const wave = sizePanelWave({
-    gap: Number.POSITIVE_INFINITY,
-    hoursPerWeek,
-    pools: { text: 0, phone: sizeOf(pools.phone), door: sizeOf(pools.door) },
-  })
-  const doors = stepsOf(wave, 'door_knocking')
-  const calls = stepsOf(wave, 'phone_banking')
   const reach = majors.map((group) => ({
     ...group,
     fromHours:
       doors *
-        shareOf(pools.door, group.dimension, group.value) *
+        shareOf(pools.doorArea, group.dimension, group.value) *
         DOOR_ANSWER_RATE +
       calls *
         shareOf(pools.phone, group.dimension, group.value) *
@@ -234,8 +249,6 @@ export const sizeRoundOne = ({
   )
   const texts = Math.min(needed, sizeOf(pools.text), MAX_LIST_SAMPLE_SIZE)
   return {
-    doors,
-    calls,
     texts,
     groups: reach.map(({ dimension, value, share, fromHours, perText }) => ({
       dimension,

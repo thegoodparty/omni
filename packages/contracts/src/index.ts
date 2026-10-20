@@ -868,6 +868,8 @@ export {
   isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
+  WalkableAreaBoxSchema,
+  type WalkableAreaBox,
   type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,
