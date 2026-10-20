@@ -64,6 +64,12 @@ model Outreach {
   reportBackForOutreachId           Int?                               @map("report_back_for_outreach_id")
   reportBackFor                     Outreach?                          @relation("OutreachReportBack", fields: [reportBackForOutreachId], references: [id], onDelete: SetNull)
   reportBacks                       Outreach[]                         @relation("OutreachReportBack")
+  // Set on a priority text's follow-up: the second half of one purchase,
+  // held until its draw, pointing at the first half sent right away. One
+  // follow-up per first round, paid for in the same checkout.
+  roundOneOutreachId                Int?                               @unique @map("round_one_outreach_id")
+  roundOne                          Outreach?                          @relation("OutreachRounds", fields: [roundOneOutreachId], references: [id], onDelete: Cascade)
+  roundTwo                          Outreach?                          @relation("OutreachRounds")
   // The campaign plan task this outreach was launched from, when it was. The
   // task list marks that task done once the outreach is scheduled, then
   // clears this, so a later "Mark not done" on the task sticks.
@@ -183,6 +189,7 @@ model Outreach {
   robocall                          OutreachRobocall?
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]

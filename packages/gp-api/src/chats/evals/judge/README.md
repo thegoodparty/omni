@@ -40,13 +40,43 @@ unticked for the plan.
 **Reading the result.** The verdict is in the run's summary: open **Actions →
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
-for the one at the time you posted. The PR thread says the sweep started but
-not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
-**CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
-has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
-measured difference still shown beside it. The summary also lists what was
+for the one at the time you posted. When a live sweep ends, its report is
+posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
+per-case rulings quote agent output, so they stay in the private bucket and
+never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+**CAN'T SAY**. A verdict needs 5 scored cases (each run 3 times a side, so
+15 pairs); under that it's CAN'T SAY, with the measured difference still
+shown beside it. A background agent reads at most 3 cases a sweep, so its
+verdicts stay CAN'T SAY. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
+
+**Two regression signals can decide the label without the case floor**
+(`regressionSignals.ts`, thresholds in `config.gates.handling` and
+`config.gates.toolFailures`). The quality comparison cannot see an agent's own
+rules: a probe that cut `priority_flow`'s system prompt in half read CAN'T SAY
+there, at -0.06 [-0.28, 0.19].
+
+- **Condition handling.** A one-sided sign test over the settled
+  regressions and improvements in **Condition handling**. Unsettled and shared
+  outcomes don't count. With at least 4 changes and p <= 0.05 it says WORSE
+  or BETTER. That probe's 5 regressions to 0 is p = 0.031, so WORSE.
+- **Tools (chat agents).** A case fails on the candidate only when one tool
+  errored in 2 or more of the candidate's runs of it, while the base called it
+  in 2 or more runs and it never errored there. A tool only one arm called is
+  a dropped or added tool, not a failure. Two or more such cases say WORSE,
+  and the mirror image says BETTER.
+  This is how a candidate whose every tool call fails (all pairs excluded by
+  `isComparable()`) still reads WORSE.
+
+The label is WORSE when the quality verdict or either signal says WORSE.
+It is BETTER when one says BETTER and none says WORSE. Otherwise it is the
+quality label. When a signal moved the label, a bold line under the heading
+names it with its numbers and says what quality alone said. Each chat agent
+also gets a **Behavior changes** list: per case, the tools dropped (called in
+2 or more base runs, no candidate run) or added, and the tools failing on one
+arm only. A dropped or added tool is reported and never decides. Tool names
+only, through `publicToolName`. A case only one arm ran is left out.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
@@ -273,6 +303,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.                                          |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                                                               |
 | `armGap.ts`                                            | The distance between the two captures.                                                                          |
+| `regressionSignals.ts`                                 | The condition-handling and tool-failure signals, and how they combine with the quality label.                   |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                                                      |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                                                              |
 
@@ -455,15 +486,14 @@ A question that needs state nobody seeded produces "I don't have that" on
 says exactly what its scope gets and which cases lean on an absence
 deliberately.
 
-**Eight cases each, seven to ten on the ten real lists, and `gates.minCases`
-is 20.** So a corpus verdict over one of these lists resolves CAN'T SAY however
-the judge voted — the floor was set from measured agent non-determinism (three
-identical Chief of Staff turns gave 6, 4 and 2 tool steps) and a list this
-short measures that rather than the branch.
-Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across twenty agents. **Whether to grow every
-list to 20 or to lower the floor is still open.** Do not read the shortfall as
-a decision either way.
+**`gates.minCases` is 5.** It was 20, set from measured agent
+non-determinism (three identical Chief of Staff turns gave 6, 4 and 2 tool
+steps), which no list reached, so every chat sweep read CAN'T SAY. Each case
+runs 3 attempts a side and the bootstrap interval resamples cases, so a short
+noisy list still lands CAN'T SAY on a wide interval; the floor only stops a
+handful of pairs from reading as a verdict. Eight is one clean baseline plus
+seven single-axis variations, which is what one change can author honestly
+across twenty agents.
 
 A background case's `params` is what the dispatch Lambda is called with, and
 fourteen of the sixteen manifests set `additionalProperties: false`, so a
@@ -785,8 +815,9 @@ nothing else, so the agent never sees any of them.
   unsettled rather than a change. So a regression needs the candidate to fall
   short in every order it was read, and an improvement the same of the base.
   The
-  quotes go to the private rulings file only. The section does not move the
-  verdict label or any score. A pair whose every judgment came back ungraded
+  quotes go to the private rulings file only. The section moves the verdict
+  label only through the handling signal (see "Reading the result") and no
+  score. A pair whose every judgment came back ungraded
   is counted as asked but not graded, and a value read in only one of two
   orders is marked as such. A dry run (JUDGE_SPEND not true) prints no
   handling section, since no model read the runs.
@@ -1813,7 +1844,9 @@ Databricks client resolves lazily, so a broken credential does not fail a run �
 the agent answers with less information instead. Both arms degrade
 identically, and a judge shown two degraded outputs will confidently report a
 code regression. Use `isComparable()`; any chat case where either arm hit a
-tool error resolves to CAN'T SAY and leaves the delta.
+tool error resolves to CAN'T SAY and leaves the delta. Failures on one arm
+only still reach the label, through the tool signal (see "Reading the
+result").
 
 **For a background agent, a tool error does not exclude the pair.** What the
 judge scores is the final artifact. Live sweeps showed background agents

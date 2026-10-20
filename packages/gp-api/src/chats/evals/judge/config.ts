@@ -53,8 +53,9 @@ export interface JudgeGates {
   // C_min. Below this the corpus verdict is CAN'T SAY whatever Δ says,
   // because agents are not deterministic: three Chief of Staff turns on
   // identical seeded state gave 6, 4 and 2 tool steps and replies of 1831,
-  // 1135 and 1137 characters. A handful of cases measures that, not the
-  // branch.
+  // 1135 and 1137 characters. Five cases is fifteen pairs at three attempts
+  // each, and the bootstrap interval resamples cases, so a noisy short list
+  // still reads CAN'T SAY on a wide interval rather than on the floor.
   minCases: number
   // δ, the practical margin. An effect smaller than this is real but not
   // worth acting on, and it reports as CAN'T SAY with that said explicitly.
@@ -72,9 +73,9 @@ export interface JudgeGates {
   // its denominator and gates nothing.
   //
   // 10 is a floor on sample size, not a statistical guarantee. It is chosen to
-  // be reachable at the scale this config designs for — minCases 20 at
-  // attemptsPerCase 3 is 60 pairs, so 12 swapped — while excluding the
-  // handful that a placeholder case list produces.
+  // be reachable at the scale this config designs for — an eight-case chat
+  // list at attemptsPerCase 3 is 24 pairs, so about 5 swapped, and a list
+  // has to grow past that for the floor to bite.
   minSwappedPairs: number
   // Share of judgments allowed to come back cannot_determine.
   cannotDetermineCeiling: number
@@ -87,6 +88,19 @@ export interface JudgeGates {
   // on a genuinely inert change costs a re-read, a false SAME costs a wrong
   // decision. See identicalOutputs.ts.
   failOnAllIdenticalOutputs: boolean
+  // The two regression signals beside the quality delta (see
+  // regressionSignals.ts). Neither is held to `minCases`: that floor is for
+  // a noisy pairwise preference, and these count discrete events. A probe
+  // that cut the agent's system prompt in half read CAN'T SAY on quality
+  // while handling showed 5 regressions to 0 and whole tools went uncalled.
+  //
+  // A one-sided sign test over the settled handling changes. `minChanges`
+  // keeps 3 to 0 (p = 0.125) from ever being argued down to a verdict.
+  handling: { minChanges: number; alpha: number }
+  // A case counts when a tool failed in `minRuns` of one arm's runs of it and
+  // in none of the other's. `minRuns` is also the bar for a tool dropped or
+  // added, which is reported and never decides.
+  toolFailures: { minRuns: number; minCases: number }
 }
 
 export interface JudgePanelConfig {
@@ -189,7 +203,7 @@ export interface JudgeConfig {
   //
   // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
   // is 3 pairs, well under `gates.minCases`, so every background verdict
-  // comes back gated — "below the floor of 20, so the comparison measures the
+  // comes back gated — "below the floor of 5, so the comparison measures the
   // agent's own variance more than the branch". That is the gate working, not
   // a bug: the verdict is directional rather than conclusive. The floor is
   // deliberately NOT lowered to match, because a gate moved to fit the
@@ -220,13 +234,15 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     temperature: 0,
   },
   gates: {
-    minCases: 20,
+    minCases: 5,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
     minSwappedPairs: 10,
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,
+    handling: { minChanges: 4, alpha: 0.05 },
+    toolFailures: { minRuns: 2, minCases: 2 },
   },
   orderSwap: {
     enabled: true,

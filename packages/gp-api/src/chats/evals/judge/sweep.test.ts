@@ -324,6 +324,57 @@ describe('judgeSweep', () => {
     )
   })
 
+  // Every candidate tool call failing excludes every pair from the quality
+  // comparison, so without the tool signal this read CAN'T SAY.
+  it('says WORSE when the candidate alone fails tool calls across cases', async () => {
+    const failing = (caseId: string, attempt: number): RunRecord[] => [
+      {
+        ...BASE,
+        caseId,
+        attempt,
+        runId: `${BASE.sweepId}:${caseId}:base:${attempt}`,
+      },
+      {
+        ...CANDIDATE,
+        caseId,
+        attempt,
+        runId: `${BASE.sweepId}:${caseId}:candidate:${attempt}`,
+        telemetry: { ...CANDIDATE.telemetry, toolErrors: 1 },
+        trace: [
+          {
+            index: 0,
+            kind: 'tool',
+            tool: 'crud_priorities',
+            error: '401 Unauthorized',
+          },
+        ],
+      },
+    ]
+    const result = await run(
+      await seeded([
+        ...failing('a', 1),
+        ...failing('a', 2),
+        ...failing('b', 1),
+        ...failing('b', 2),
+      ]),
+    )
+    const score = result.report.agents[0]
+    expect(score?.exclusions.toolError).toBe(4)
+    expect(score?.signals?.qualityLabel).toBe("CAN'T SAY")
+    expect(score?.label).toBe('WORSE')
+    expect(result.markdown).toContain(
+      '**WORSE on tools: 2 cases had tool calls fail on the candidate only ' +
+        "(crud_priorities).** The quality comparison alone says CAN'T SAY.",
+    )
+  })
+
+  it('leaves the label alone when both arms called the same tools', async () => {
+    const result = await run(await seeded(cases(3)))
+    const score = result.report.agents[0]
+    expect(score?.signals?.tools).toEqual({ cases: [], says: null })
+    expect(score?.label).toBe(score?.signals?.qualityLabel)
+  })
+
   it('produces a verdict per agent from both arms', async () => {
     const result = await run(await seeded(cases(3)))
     expect(result.report.agents).toHaveLength(1)
@@ -647,13 +698,13 @@ describe('judgeSweep', () => {
   // non-zero exit would turn the judge into a required check nobody asked
   // for.
   //
-  // Three cases is below the default floor of 20, so the corpus verdict is
+  // Three cases is below the default floor of 5, so the corpus verdict is
   // CAN'T SAY however the judge voted — which is the point: a non-verdict is
   // reported, not failed.
   it("exits zero on a CAN'T SAY, which is not a failure", async () => {
     const result = await run(await seeded(cases(3)))
     const score = result.report.agents[0]
-    // Judged, and still CAN'T SAY: three cases is below the floor of 20, so
+    // Judged, and still CAN'T SAY: three cases is below the floor of 5, so
     // the gate overrides a unanimous result rather than the judge failing.
     expect(score?.exclusions.ungraded).toBe(0)
     expect(score?.label).toBe("CAN'T SAY")

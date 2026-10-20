@@ -625,11 +625,12 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
     try {
       // Stable idempotency key (deterministic per send), so a retried capture
-      // replays instead of double-charging.
+      // replays instead of double-charging. Keyed on the hold, not the
+      // outreach, for the same reason as the robocall capture's.
       intent = await this.stripe.capturePaymentIntent(
         authorizationIntentId,
         captureAmount,
-        `p2p-sms-capture-${outreachId}`,
+        `p2p-sms-capture-${authorizationIntentId}`,
       )
     } catch (err) {
       // Capture failed. No commit yet, so revert to `authorized` and retry next
