@@ -33,7 +33,7 @@ with no passing verdict, 400 on a failed verdict, and a success stamping
 `services/robocallTranscription.service.test.ts` covers the batch Transcribe
 poll (completion, FAILED → 502, unsupported type) mocking the Transcribe client;
 `outreachRobocallHold.test.ts` covers the pay-time hold: happy-path off-session
-placement (idempotency key `robocall-hold-<id>-1`, satellite persisted,
+placement (idempotency key `robocall-hold-<customer>-<id>-1`, satellite persisted,
 `authorized`, `HoldPlaced` once), the 5-day defer, the INV-2 ceiling → 409 +
 revert (and a large run under the ceiling still placing the hold), a decline →
 `hold_failed` + `HoldFailed` (not a 502), a payment method
@@ -141,7 +141,7 @@ services and `S3Service.getFileBytesWithContentType`;
   create;
   `outreachRobocallCapture.test.ts` covers the capture directly on the service (no
   HTTP route): happy-path captures the actual amount off a live hold (idempotency
-  key `robocall-capture-<id>`) and records the `Receipt` once; undercharge (fewer
+  key `robocall-capture-<holdIntentId>`) and records the `Receipt` once; undercharge (fewer
   calls than the estimate → the smaller amount); INV-1 (an actual over the hold
   clamps to the authorized amount, never overbills); a zero-connected run voids
   the hold and releases the fee, whether the hold is live or already gone; an already-`succeeded` PI reconciles to

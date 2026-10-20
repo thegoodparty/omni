@@ -1,23 +1,31 @@
 import { MAX_LIST_SAMPLE_SIZE } from './ListSample.schema'
-import { answersNeeded } from '../outreach/AnswersNeeded.const'
+import {
+  answersNeeded,
+  MIN_VOICES_PER_GROUP,
+} from '../outreach/AnswersNeeded.const'
 import {
   PANEL_ASSUMED_REPLY_RATE,
   PANEL_SEED_ASSUMED_JOIN_RATE,
 } from '../outreach/CivicPanelJoin'
 
-// Everything the civic panel sizes targets answers to one question, not
-// members (Bryan, 2026-10-15): answersNeeded, shared with Serve onboarding.
+// The civic panel is sized so every major group is expected to answer one
+// question three times: the district's answersNeeded, over the answer rate.
 
-// Rounded to six places first so float noise (96 / 0.4) never asks one more
-// person than the math says.
+// Rounded to six places first so float noise (100 / 0.4) never asks one
+// more person than the math says.
 const ceilClean = (value: number): number => Math.ceil(Number(value.toFixed(6)))
 
 // The members a panel needs so that asking all of them brings back the
-// answers a question needs: ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE),
-// about 240.
-export const panelGoalMembers = (
-  population: number | null | undefined,
-): number => ceilClean(answersNeeded(population) / PANEL_ASSUMED_REPLY_RATE)
+// answers a question needs: ceil(answers / PANEL_ASSUMED_REPLY_RATE), 250
+// at most.
+export const panelGoalMembers = (answers: number): number =>
+  ceilClean(answers / PANEL_ASSUMED_REPLY_RATE)
+
+// The members a group needs on the panel to expect three answers to one
+// question. A group with this many is covered.
+export const PANEL_MEMBERS_PER_GROUP = ceilClean(
+  MIN_VOICES_PER_GROUP / PANEL_ASSUMED_REPLY_RATE,
+)
 
 // The answers a panel of this many members is expected to give one question.
 export const panelExpectedAnswers = (members: number): number =>
@@ -33,8 +41,8 @@ export const panelSeedSampleSize = (goalMembers: number): number =>
     MAX_LIST_SAMPLE_SIZE,
   )
 
-// The invite size where the district's population is not at hand (the
-// outreach page's own panel invite): sized for the uncorrected goal, 8,000.
+// The invite size where the district's mix is not at hand (the outreach
+// page's own panel invite): sized for the largest goal, 8,334.
 export const PANEL_SEED_SAMPLE_SIZE = panelSeedSampleSize(
-  panelGoalMembers(null),
+  panelGoalMembers(answersNeeded()),
 )

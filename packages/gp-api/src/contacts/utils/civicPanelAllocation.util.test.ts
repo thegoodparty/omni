@@ -33,7 +33,7 @@ const estimate = (
 })
 
 const groups: MrpGroupEstimate[] = [
-  estimate('age', '18to64', 0.8, 40, 0.1),
+  estimate('age', '35to44', 0.8, 40, 0.1),
   estimate('age', '65plus', 0.2, 2, 0.5),
   estimate('tract', 't1', 0.5, 30, 0.1),
   estimate('tract', 't2', 0.3, 10, 0.4),
@@ -51,7 +51,7 @@ describe('batchTargets', () => {
       'age:65plus',
       'race:Black',
       'tract:t2',
-      'age:18to64',
+      'age:35to44',
       'tract:t1',
       'tract:t3',
     ])
@@ -138,19 +138,19 @@ describe('sizeRoundOne', () => {
   ): DistrictCell => ({ ageBand, gender: null, tract, race, count })
 
   const district: DistrictCell[] = [
-    cell('18to64', 't1', 'white', 6_000),
+    cell('35to44', 't1', 'white', 6_000),
     cell('65plus', 't2', 'black', 3_000),
-    cell('18to64', 't3', null, 1_000),
+    cell('35to44', 't3', null, 1_000),
   ]
   // The same mix as the district, as a walkable area would be in a
   // perfectly mixed place.
   const mixedArea: DistrictCell[] = [
-    cell('18to64', 't1', 'white', 60),
+    cell('35to44', 't1', 'white', 60),
     cell('65plus', 't2', 'black', 30),
-    cell('18to64', 't3', null, 10),
+    cell('35to44', 't3', null, 10),
   ]
   const shares = {
-    age: { '18to64': 0.7, '65plus': 0.3 },
+    age: { '35to44': 0.7, '65plus': 0.3 },
     tract: { t1: 0.6, t2: 0.28, t3: 0.1, t4: 0.02 },
     race: { white: 0.6, black: 0.3, other: 0.1 },
   }
@@ -193,7 +193,7 @@ describe('sizeRoundOne', () => {
   it('counts the doors only toward the groups living in the walkable area', () => {
     const result = size({
       pools: {
-        doorArea: [cell('18to64', 't1', 'white', 100)],
+        doorArea: [cell('35to44', 't1', 'white', 100)],
         phone: district,
         text: district,
       },
@@ -211,7 +211,7 @@ describe('sizeRoundOne', () => {
   it('names only major groups, never other, and race only when asked to', () => {
     const keys = Object.keys(answersOf(size()))
     expect(keys.sort()).toEqual([
-      'age:18to64',
+      'age:35to44',
       'age:65plus',
       'race:black',
       'race:white',
@@ -231,9 +231,9 @@ describe('sizeRoundOne', () => {
         doorArea: mixedArea,
         phone: district,
         text: [
-          cell('18to64', 't1', 'white', 300),
+          cell('35to44', 't1', 'white', 300),
           cell('65plus', 't2', 'black', 150),
-          cell('18to64', 't3', null, 50),
+          cell('35to44', 't3', null, 50),
         ],
       },
     })
@@ -256,13 +256,13 @@ describe('sizeRoundOne', () => {
 
   it('sends no text when the doors and calls already reach every group', () => {
     const even = [
-      cell('18to64', 't1', null, 5_000),
+      cell('35to44', 't1', null, 5_000),
       cell('65plus', 't1', null, 5_000),
     ]
     const result = size({
       doors: 200,
       calls: 1_050,
-      districtShares: { age: { '18to64': 0.5, '65plus': 0.5 } },
+      districtShares: { age: { '35to44': 0.5, '65plus': 0.5 } },
       pools: { doorArea: even, phone: even, text: even },
     })
     expect(result.texts).toBe(0)
@@ -270,8 +270,8 @@ describe('sizeRoundOne', () => {
 
   it('stays under the sampler ceiling', () => {
     const wide = [
-      cell('18to64', 't1', null, 99_500),
-      cell('18to64', 't3', null, 500),
+      cell('35to44', 't1', null, 99_500),
+      cell('35to44', 't3', null, 500),
     ]
     const result = size({
       districtShares: { tract: { t1: 0.95, t3: 0.05 } },

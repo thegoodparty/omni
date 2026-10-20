@@ -312,8 +312,7 @@ Manager access, AWS metadata endpoint disabled, and a security group that allows
 four egress destinations (broker:8080, ECR+Logs VPC endpoints, the S3 prefix list,
 and VPC DNS). The agent's only path out is broker-proxied tools. The broker is
 deliberately consumer-domain-agnostic — it sees `experiment_id` and
-`organization_slug` as opaque strings, so other consumers (e.g. `engineer_agent`) can
-reuse it.
+`organization_slug` as opaque strings, so other consumers can reuse it.
 
 Per-run auth is a `ScopeTicket` in the broker's DynamoDB table, keyed by a UUID
 `broker_token` the scheduler mints at launch (TTL'd, deleted on publish — anti-replay).

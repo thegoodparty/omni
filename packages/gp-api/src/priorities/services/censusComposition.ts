@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { addMinutes, isAfter } from 'date-fns'
 import {
+  answersNeeded,
   DISTRICT_GRID_CELL_DEGREES,
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type GeoJsonShape,
@@ -17,9 +18,12 @@ import type {
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
+  smallestMajorShare,
+  type TargetedDimension,
+} from '@/contacts/utils/civicPanelAllocation.util'
+import {
   POOLED_VALUE,
   raceNameable,
-  unreachedTracts,
   weightingTargets,
   type WeightingCensus,
 } from '../util/censusWeighting.util'
@@ -89,14 +93,13 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     answers: PersonAnswer[]
   }): Promise<MrpInputs | null>
-  // The parts of the district these people have barely reached, as a
-  // boundary a list can carry. Null when every part has been heard from.
-  // Throws when the warehouse cannot be read: a list must not be saved as
-  // though the area were known.
-  unreachedArea(input: {
+  // These tracts as a boundary a list can carry. Null when no one lives in
+  // them. Throws when the warehouse cannot be read: a list must not be saved
+  // as though the area were known.
+  areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null>
   // These people counted by age band, gender, tenure and tract, beside the
   // district's census, unweighted: what the civic panel steers its invites
@@ -106,9 +109,10 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
-  // The district's census population, or null when it has no row or the
-  // warehouse could not be read.
-  population(input: {
+  // The answers a good read of the district needs: answersNeeded of its
+  // smallest major group, from the cells the model reads. Null when the
+  // district or its people could not be read.
+  districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null>
@@ -122,10 +126,6 @@ export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 // zeros.
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
-  // A district's census figure does not change between reads, and the
-  // priority page and every priority turn ask for it. Only a figure is kept:
-  // a missing row may land later, and a failure is retried.
-  private readonly populations = new Map<string, number>()
   private readonly districtCells = new Map<
     string,
     { cells: Promise<DistrictCells>; expiresAt: Date }
@@ -246,19 +246,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
-  async unreachedArea(input: {
+  async areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null> {
-    const { cells, tractAdults } = await this.stats.findWeightingInputs(
-      input.districtId,
-      input.dataset,
-      input.personIds,
-    )
-    const tracts = unreachedTracts(cells, tractAdults)
-    if (tracts.length === 0) return null
-    return this.shapeOfTracts(input, tracts)
+    if (input.tracts.length === 0) return null
+    return this.shapeOfTracts(input, input.tracts)
   }
 
   // Squares of the results grid wherever the tracts' people live, standing
@@ -277,24 +271,26 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     return gridAreaShape(squares, DISTRICT_GRID_CELL_DEGREES)
   }
 
-  async population(input: {
+  async districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null> {
-    const key = `${input.dataset}:${input.districtId}`
-    const cached = this.populations.get(key)
-    if (cached !== undefined) return cached
     try {
-      const value = await this.stats.findDistrictPopulation(
-        input.districtId,
-        input.dataset,
-      )
-      if (value !== null) this.populations.set(key, value)
-      return value
+      const { district, cells } = await this.districtCellsOf(input)
+      if (!district || cells.length === 0) return null
+      const races = weightingTargets({ district, tractAdults: new Map() }).race
+      const frame = cells.map((cell) => ({
+        count: cell.count,
+        values: knownValues(modelValues(cell, races)),
+      }))
+      const dimensions: TargetedDimension[] = raceNameable(cells)
+        ? ['age', 'gender', 'tract', 'race']
+        : ['age', 'gender', 'tract']
+      return answersNeeded(smallestMajorShare(frame, dimensions))
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'district population read failed; using the uncorrected answers needed',
+        'district cells read failed; sizing for the smallest major group',
       )
       return null
     }

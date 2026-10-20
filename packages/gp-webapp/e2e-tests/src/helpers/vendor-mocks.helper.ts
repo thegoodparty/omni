@@ -1,5 +1,11 @@
 import type { AxiosInstance } from 'axios'
-import type { MockAction, MockRecordsResponse } from '@goodparty_org/contracts'
+import type {
+  AdminOutreachActionRequest,
+  AdminOutreachActionResponse,
+  DeliverStripeEventResponse,
+  MockAction,
+  MockRecordsResponse,
+} from '@goodparty_org/contracts'
 
 /**
  * Triggers a vendor-mock action for a campaign (e.g. arm the Geoapify
@@ -68,3 +74,46 @@ export const callhubAction = (
   campaignId: number,
   action: MockAction['action'],
 ) => mockAction(client, campaignId, action)
+
+/**
+ * Fires a Peerly-specific vendor-mock action for a campaign.
+ * Thin wrapper over mockAction scoped to the Peerly action space.
+ */
+export const peerlyAction = (
+  client: AxiosInstance,
+  campaignId: number,
+  action: MockAction['action'],
+) => mockAction(client, campaignId, action)
+
+/**
+ * Delivers a signed Stripe checkout.session.completed event to the payments
+ * handler in-process, using a real test-mode Stripe session.
+ */
+export const deliverStripeEvent = async (
+  client: AxiosInstance,
+  sessionId: string,
+): Promise<DeliverStripeEventResponse> => {
+  const { data } = await client.post<DeliverStripeEventResponse>(
+    '/v1/test-fixtures/vendor-mocks/stripe/events',
+    { type: 'checkout.session.completed', sessionId },
+  )
+  return data
+}
+
+/**
+ * Applies an admin action to an outreach row using a test-user session,
+ * bypassing the AdminOrM2MGuard. `cas.approve` books canvassers; `results.upload`
+ * ingests a CSV payload.
+ */
+export const adminAction = async (
+  client: AxiosInstance,
+  outreachId: number,
+  action: AdminOutreachActionRequest['action'],
+  payload?: unknown,
+): Promise<AdminOutreachActionResponse> => {
+  const { data } = await client.post<AdminOutreachActionResponse>(
+    `/v1/test-fixtures/vendor-mocks/outreach/${outreachId}/admin-actions`,
+    { action, payload },
+  )
+  return data
+}

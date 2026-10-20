@@ -15,7 +15,11 @@ export type VendorMockRecordSummary = z.infer<
 
 export const MockActionSchema = z.object({
   campaignId: z.number().int().positive(),
-  action: z.enum(['geoapify.route.fail', 'callhub.campaign.complete']),
+  action: z.enum([
+    'geoapify.route.fail',
+    'callhub.campaign.complete',
+    'peerly.balance.empty',
+  ]),
   params: z.record(z.string(), z.unknown()).optional(),
 })
 export type MockAction = z.infer<typeof MockActionSchema>
@@ -59,3 +63,36 @@ export const TimeTravelResponseSchema = z.object({
   poolFreedAt: z.string().datetime().nullable(),
 })
 export type TimeTravelResponse = z.infer<typeof TimeTravelResponseSchema>
+
+export const DeliverStripeEventRequestSchema = z.object({
+  type: z.enum(['checkout.session.completed']),
+  sessionId: z.string(),
+})
+export type DeliverStripeEventRequest = z.infer<
+  typeof DeliverStripeEventRequestSchema
+>
+
+export const DeliverStripeEventResponseSchema = z.object({
+  eventId: z.string(),
+  status: z.literal('delivered'),
+})
+export type DeliverStripeEventResponse = z.infer<
+  typeof DeliverStripeEventResponseSchema
+>
+
+export const AdminOutreachActionRequestSchema = z.object({
+  action: z.enum(['cas.approve', 'results.upload']),
+  payload: z.unknown().optional(),
+})
+export type AdminOutreachActionRequest = z.infer<
+  typeof AdminOutreachActionRequestSchema
+>
+
+export const AdminOutreachActionResponseSchema = z.object({
+  outreachId: z.number().int().positive(),
+  action: z.string(),
+  status: z.literal('applied'),
+})
+export type AdminOutreachActionResponse = z.infer<
+  typeof AdminOutreachActionResponseSchema
+>

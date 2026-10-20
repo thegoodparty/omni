@@ -2,9 +2,10 @@ import { HttpException } from '@nestjs/common'
 import { z } from 'zod'
 import {
   CIVIC_PANEL_PAGE_HREF,
+  civicPanelStandingLine,
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_MIN_HOURS_PER_WEEK,
-  READ_REPRESENTATIVENESS_LABELS,
+  CIVIC_PANEL_BALANCE_STATUS_LABELS,
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelBuildPlanResponse,
 } from '@goodparty_org/contracts'
@@ -43,15 +44,15 @@ const saveInput = z.object({
 // What the model needs to say where things stand, in the panel page's words.
 const standing = (panel: CivicPanelBuildPlanResponse) => ({
   members: panel.progress.members,
-  goal: panel.progress.goal,
-  answersNeeded: panel.progress.answersNeeded,
-  expectedAnswers: panel.progress.expectedAnswers,
+  groupsCovered: panel.progress.groupsCovered,
+  groupsTotal: panel.progress.groupsTotal,
+  standing: civicPanelStandingLine(panel.progress),
   hoursPerWeek: panel.plan?.hoursPerWeek ?? null,
   next: panel.next?.line ?? null,
   // The panel page's status label and the group it says to invite next,
   // in its words. Null when the census could not be compared.
   panelStatus: panel.balance
-    ? READ_REPRESENTATIVENESS_LABELS[panel.balance.status]
+    ? CIVIC_PANEL_BALANCE_STATUS_LABELS[panel.balance.status]
     : null,
   inviteMoreNext: panel.balance?.inviteMore
     ? UNDERREPRESENTED_GROUP_NAMES[panel.balance.inviteMore]
@@ -100,7 +101,7 @@ export const buildCivicPanelPlanTools = ({
     description:
       'Save the hours the official can give each week. With no plan yet it ' +
       'makes their panel plan, the same plan their panel page shows; with ' +
-      'one, it changes the time the next round of invites is sized from. ' +
+      'one, it changes the time the next batch of invites is sized from. ' +
       'Returns where the panel stands, or planMade false with the reason ' +
       'when no plan could be made.',
     inputSchema: saveInput,

@@ -312,7 +312,9 @@ card's own button does.
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve
 home uses it for What's a civic panel?: with no panel yet the answer ends on
-Build my panel, which sends the same hidden build turn.
+Build my panel, which sends the same hidden build turn. With members the
+intro's slot reads Grow your civic panel, the same hidden turn, which the
+Chief of Staff answers with the plan's next step card.
 
 ## The civic panel in the Chief of Staff chat
 

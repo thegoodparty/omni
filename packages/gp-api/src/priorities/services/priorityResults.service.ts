@@ -1,7 +1,13 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
+  answersNeeded,
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   type GeoJsonShape,
@@ -37,7 +43,11 @@ import {
   type CensusCompositionSource,
 } from './censusComposition'
 import { estimateMrp } from '../util/mrp.util'
-import { mrpReadStatus, type MrpRead } from '../util/mrpReadStatus.util'
+import {
+  holdingBackTracts,
+  mrpReadStatus,
+  type MrpRead,
+} from '../util/mrpReadStatus.util'
 import type { WeightingCensus } from '../util/censusWeighting.util'
 
 const CHANNEL_BY_TYPE: Partial<Record<OutreachType, PriorityResultsChannel>> = {
@@ -138,7 +148,6 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const population = await this.districtPopulation(organization)
     const contacts = this.resolveContacts()
     const { points } = await contacts.pointsForPeople(ids, organization)
     const coded =
@@ -165,7 +174,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
 
     return {
       priorityId,
-      readStatus: mrpReadStatus({ answers: ids.length, population, read }),
+      readStatus: mrpReadStatus({ answers: ids.length, read }),
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
       themes,
@@ -186,31 +195,23 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const statuses = await this.readStatuses(electedOffice.organizationSlug, [
       priorityId,
     ])
-    return (
-      statuses.get(priorityId) ??
-      mrpReadStatus({ answers: 0, population: null, read: null })
-    )
+    return statuses.get(priorityId) ?? mrpReadStatus({ answers: 0, read: null })
   }
 
   // Answers pooled per priority, the same people resultsFor counts, against
-  // the district. The caller has already scoped the ids to the office. A
-  // caller that already read the population passes it, so a turn reads it
-  // once.
+  // the district. The caller has already scoped the ids to the office.
   async readStatuses(
     organizationSlug: string,
     priorityIds: string[],
-    knownPopulation?: number | null,
   ): Promise<Map<string, PriorityReadStatus>> {
     if (priorityIds.length === 0) return new Map()
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const [sends, coded, population] = await Promise.all([
+    const [sends, coded, followUps] = await Promise.all([
       this.sendsFor(organizationSlug, priorityIds),
       this.codedAnswers(organizationSlug, priorityIds),
-      knownPopulation !== undefined
-        ? Promise.resolve(knownPopulation)
-        : this.districtPopulation(organization),
+      this.followUpsFor(organizationSlug, priorityIds),
     ])
     return new Map(
       await Promise.all(
@@ -225,13 +226,55 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
             id,
             coded.get(id) ?? NO_CODED_ANSWERS,
           )
+          const followUp = followUps.get(id)
           return [
             id,
-            mrpReadStatus({ answers: people.length, population, read }),
+            {
+              ...mrpReadStatus({ answers: people.length, read }),
+              ...(followUp && { followUp }),
+            },
           ]
         }),
       ),
     )
+  }
+
+  // Each priority's next follow-up text: paid for (held `pending` until its
+  // draw hands it off) and not sent yet.
+  private async followUpsFor(
+    organizationSlug: string,
+    priorityIds: string[],
+  ): Promise<Map<string, { scheduledLocalDate: string; texts: number }>> {
+    const rows = await this.client.outreach.findMany({
+      where: {
+        organizationSlug,
+        campaignId: null,
+        priorityId: { in: priorityIds },
+        roundOneOutreachId: { not: null },
+        status: OutreachStatus.pending,
+      },
+      orderBy: { scheduledLocalDate: Prisma.SortOrder.asc },
+      select: { priorityId: true, scheduledLocalDate: true, textCount: true },
+    })
+    const byPriority = new Map<
+      string,
+      { scheduledLocalDate: string; texts: number }
+    >()
+    for (const row of rows) {
+      if (
+        row.priorityId === null ||
+        row.scheduledLocalDate === null ||
+        !row.textCount ||
+        byPriority.has(row.priorityId)
+      ) {
+        continue
+      }
+      byPriority.set(row.priorityId, {
+        scheduledLocalDate: row.scheduledLocalDate,
+        texts: row.textCount,
+      })
+    }
+    return byPriority
   }
 
   private async assertOwned(
@@ -279,15 +322,18 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     return byPriority
   }
 
-  // No district, or a census read that fails, is an unknown population:
-  // answersNeeded falls back to its uncorrected figure.
-  async districtPopulation(organization: Organization): Promise<number | null> {
+  // The answers a good read of the district needs, which the civic panel
+  // is sized to give. No district, or a read that fails, sizes for the
+  // smallest major group.
+  async districtAnswersNeeded(organization: Organization): Promise<number> {
     try {
       const district =
         await this.resolveContacts().resolveEligibleDistrict(organization)
-      return await this.census.population(district)
+      return (
+        (await this.census.districtAnswersNeeded(district)) ?? answersNeeded()
+      )
     } catch {
-      return null
+      return answersNeeded()
     }
   }
 
@@ -359,8 +405,9 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     return mix ? doorTractFor(mix) : null
   }
 
-  // The parts of the district a priority's answers have barely reached, for
-  // a list saved to hear from them. 404 on a priority another org holds.
+  // The neighborhoods the model has too few answers from, or is unsure of,
+  // for a list saved to hear from them: the same tracts the status names.
+  // 404 on a priority another org holds.
   async unreachedAreaFor(
     organizationSlug: string,
     priorityId: string,
@@ -373,15 +420,20 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const organization = await this.client.organization.findUniqueOrThrow({
       where: { slug: organizationSlug },
     })
-    const sends = await this.sendsFor(organizationSlug, [priorityId])
-    const people = [
-      ...new Set(
-        (sends.get(priorityId) ?? []).flatMap((send) => send.respondentIds),
-      ),
-    ]
+    const coded =
+      (await this.codedAnswers(organizationSlug, [priorityId])).get(
+        priorityId,
+      ) ?? NO_CODED_ANSWERS
+    const read = await this.mrpReadOf(organization, priorityId, coded)
+    if (read === null) {
+      throw new ServiceUnavailableException('The district could not be read')
+    }
     const district =
       await this.resolveContacts().resolveEligibleDistrict(organization)
-    return this.census.unreachedArea({ ...district, personIds: people })
+    return this.census.areaOfTracts({
+      ...district,
+      tracts: holdingBackTracts(read),
+    })
   }
 
   // The coded answers on the sends resultsFor counts, per priority. A

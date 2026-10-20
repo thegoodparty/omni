@@ -14,10 +14,12 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
+  CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
   CIVIC_PANEL_PAGE_HREF,
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
+  civicPanelStandingLine,
   civicPanelStepCardSourceId,
   type CivicPanelBuildChannel,
   type CivicPanelBuildPlanResponse,
@@ -103,9 +105,11 @@ const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   summary:
     'A civic panel is a group of residents who agree to tell you what ' +
     'they think before you decide.',
-  ctaLabel: 'Build my panel',
+  ctaLabel: CIVIC_PANEL_BUILD_CARD_CTA,
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }
+
+const CIVIC_PANEL_ACTIVE_CARD_TITLE = 'Hear from more than the loudest voices'
 
 // The panel page's own button words for the step the card points at.
 const START_STEP_LABELS: Record<CivicPanelBuildChannel, string> = {
@@ -120,7 +124,7 @@ const KEEP_GOING_LABELS: Record<CivicPanelBuildChannel, string> = {
 }
 
 // Before a plan, the card asks the official to start; once there is one, it
-// is the panel page's Next line and opens that step.
+// leads with the value and opens the plan's next step.
 export const civicPanelBuildCardContent = (
   panel: CivicPanelBuildPlanResponse,
 ): typeof CIVIC_PANEL_BUILD_CARD_CONTENT => {
@@ -135,11 +139,8 @@ export const civicPanelBuildCardContent = (
         ? START_STEP_LABELS[next.channel]
         : KEEP_GOING_LABELS[next.channel]
   return {
-    title: next.line,
-    summary:
-      progress.expectedAnswers >= progress.answersNeeded
-        ? `Your panel can give the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`
-        : `Your panel can give about ${progress.expectedAnswers.toLocaleString('en-US')} of the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`,
+    title: CIVIC_PANEL_ACTIVE_CARD_TITLE,
+    summary: civicPanelStandingLine(progress),
     ctaLabel,
     ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
   }

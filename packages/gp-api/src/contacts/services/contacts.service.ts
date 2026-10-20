@@ -3066,28 +3066,6 @@ export class ContactsService {
     )
   }
 
-  // The district's census population, for sizing the civic panel to the
-  // answers a question needs. Null when there is no census row, no district,
-  // or the read fails: the sizing then uses the uncorrected figure, which
-  // only ever asks for a few more answers than a small district needs.
-  async getDistrictPopulation(
-    organization: Organization,
-  ): Promise<number | null> {
-    try {
-      return await this.withOrgDistrictResolution(
-        organization,
-        ({ districtId, dataset }) =>
-          this.peopleStatsService.findDistrictPopulation(districtId, dataset),
-      )
-    } catch (err) {
-      this.logger.warn(
-        { err, organizationSlug: organization.slug },
-        'district population read failed; panel sized without it',
-      )
-      return null
-    }
-  }
-
   async resolveDistrictIdFromPosition(
     ballotReadyPositionId: string,
   ): Promise<string | undefined> {

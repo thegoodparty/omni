@@ -15,15 +15,22 @@ describe('underrepresentedGroups', () => {
     expect(
       underrepresentedGroups(
         [
-          gap('tenure', 'renter', 0.2, 0.4),
-          gap('tenure', 'owner', 0.8, 0.6),
           gap('age', '65plus', 0.1, 0.18),
           gap('tract', '53017950100', 0.02, 0.3),
           gap('tract', 'other', 0.05, 0.1),
         ],
         true,
       ),
-    ).toEqual(['unreachedAreas', 'renters'])
+    ).toEqual(['unreachedAreas', 'age65plus'])
+  })
+
+  it('names an age band by its census range', () => {
+    expect(
+      underrepresentedGroups(
+        [gap('age', '18to24', 0.04, 0.12), gap('age', 'other', 0.1, 0.3)],
+        false,
+      ),
+    ).toEqual(['age18to24'])
   })
 
   it('skips groups trailing by less than 5 points', () => {

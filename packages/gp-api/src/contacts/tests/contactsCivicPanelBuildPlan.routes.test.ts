@@ -20,6 +20,10 @@ import { FeaturesService } from '@/features/services/features.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import {
   ACS_COUNT_KEYS,
@@ -230,14 +234,20 @@ const sendText = (
     },
   })
 
-// Asheville's census population: 96 answers, a goal of 240 members.
-const CITY = 105_154
+// A district whose smallest major group is 3.125%: 96 answers, a goal of
+// 240 members.
+const CITY = 96
+// One whose smallest major group is a little larger: a goal of 230.
+const TOWN = 92
 
-// The district's census population, as the warehouse would read it.
-const stubPopulation = (population: number | null) =>
+// The answers the district needs, as its cells would read.
+const stubAnswersNeeded = (answers: number | null) =>
   vi
-    .spyOn(service.app.get(StatsService), 'findDistrictPopulation')
-    .mockResolvedValue(population)
+    .spyOn(
+      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+      'districtAnswersNeeded',
+    )
+    .mockResolvedValue(answers)
 
 // Members counted by age band and tract beside the district's census, as
 // the warehouse would read them. No district row by default: no census to
@@ -257,11 +267,21 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
     ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
   ) as AcsCounts
 
-// 1,000 adults, 20% of them 65 and over, in tracts of 50%, 40% and 10%.
+// 1,000 adults: 16% in each age band under 65 and 20% at 65 and over, in
+// tracts of 50%, 40% and 10%.
 const DISTRICT_ACS = acs({
-  totalPopulation: 1_250,
-  populationUnder18: 250,
-  population65Plus: 200,
+  populationMale18To24: 80,
+  populationFemale18To24: 80,
+  populationMale25To34: 80,
+  populationFemale25To34: 80,
+  populationMale35To44: 80,
+  populationFemale35To44: 80,
+  populationMale45To54: 80,
+  populationFemale45To54: 80,
+  populationMale55To64: 80,
+  populationFemale55To64: 80,
+  populationMale65Plus: 100,
+  populationFemale65Plus: 100,
 })
 const TRACT_A = '53017950100'
 const TRACT_B = '53017950200'
@@ -276,7 +296,7 @@ const members = (
   count: number,
   overrides: Partial<RespondentCell> = {},
 ): RespondentCell => ({
-  ageBand: '18to64',
+  ageBand: '35to44',
   gender: null,
   tenure: null,
   tract: TRACT_A,
@@ -286,7 +306,7 @@ const members = (
 })
 
 beforeEach(() => {
-  stubPopulation(CITY)
+  stubAnswersNeeded(CITY)
   stubMix(null)
 })
 
@@ -310,6 +330,8 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
       goal: 240,
       answersNeeded: 96,
       expectedAnswers: 4,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
     expect(
       res.data.plan?.steps.map(({ channel, targetSize, status }) => ({
@@ -376,6 +398,37 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ])
   })
 
+  it('makes a keep-fresh plan once the panel is past its goal, and keeps it active', async () => {
+    stubPools(TEXT_ONLY)
+    stubAnswersNeeded(1)
+    const slug = await seedOffice()
+    for (let i = 0; i < 3; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const created = await createPlan(slug, 1)
+
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(created.data.plan).toMatchObject({
+      status: 'active',
+      keepFresh: true,
+      goalMembers: 53,
+    })
+    expect(created.data.progress).toMatchObject({ members: 3, goal: 3 })
+
+    const read = await readPlan(slug)
+    expect(read.data.plan).toMatchObject({ status: 'active', keepFresh: true })
+  })
+
+  it('makes an ordinary plan, not keep-fresh, while the panel is under its goal', async () => {
+    stubPools(TEXT_ONLY)
+    const slug = await seedOffice()
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.plan).toMatchObject({ keepFresh: false, goalMembers: 240 })
+  })
+
   it('keeps one active plan per office', async () => {
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
@@ -438,13 +491,15 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
         goal: 240,
         answersNeeded: 96,
         expectedAnswers: 0,
+        groupsCovered: 0,
+        groupsTotal: 0,
       },
-      balance: { status: 'tooEarly', inviteMore: null },
+      balance: { status: 'tooFewMembers', inviteMore: null },
     })
   })
 
   it('sizes the goal to a small town', async () => {
-    stubPopulation(2_000)
+    stubAnswersNeeded(TOWN)
     const slug = await seedOffice()
     for (let i = 0; i < 61; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
@@ -457,29 +512,32 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 24,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 
-  it('sizes the goal without a census population as 96 answers', async () => {
-    stubPopulation(null)
+  it('sizes the goal for the smallest major group when the district cannot be read', async () => {
+    stubAnswersNeeded(null)
     const slug = await seedOffice()
 
     const res = await readPlan(slug)
 
-    expect(res.data.progress).toMatchObject({ goal: 240, answersNeeded: 96 })
+    expect(res.data.progress).toMatchObject({ goal: 250, answersNeeded: 100 })
   })
 
-  it('sizes the goal without the warehouse as 96 answers', async () => {
+  it('sizes the goal without the warehouse as 100 answers', async () => {
+    stubAnswersNeeded(CITY).mockRestore()
     vi.spyOn(
       service.app.get(StatsService),
-      'findDistrictPopulation',
+      'findDistrictCells',
     ).mockRejectedValue(new Error('warehouse down'))
     const slug = await seedOffice()
 
     const res = await readPlan(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.progress).toMatchObject({ goal: 240, answersNeeded: 96 })
+    expect(res.data.progress).toMatchObject({ goal: 250, answersNeeded: 100 })
   })
 
   it('brings a plan made toward 100 members up to the district goal', async () => {
@@ -510,7 +568,7 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
 
   it('lowers a goal to the district, never below the members it has', async () => {
     stubPools(TEXT_ONLY)
-    stubPopulation(2_000)
+    stubAnswersNeeded(TOWN)
     const slug = await seedOffice()
     const office = await service.prisma.electedOffice.findUniqueOrThrow({
       where: { organizationSlug: slug },
@@ -708,16 +766,18 @@ const joinPanel = async (slug: string, count: number) => {
 }
 
 describe('steering the plan by census', () => {
-  it('is too early under 30 members, without reading the census', async () => {
+  it('has too few members under 30, and leans nowhere', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
-    const mix = stubMix([members(29)])
+    stubMix([members(29)])
     await joinPanel(slug, 29)
 
     const res = await createPlan(slug, 1)
 
-    expect(res.data.balance).toEqual({ status: 'tooEarly', inviteMore: null })
-    expect(mix).not.toHaveBeenCalled()
+    expect(res.data.balance).toEqual({
+      status: 'tooFewMembers',
+      inviteMore: null,
+    })
     expect(res.data.plan?.steps.map((step) => step.steeredToward)).toEqual([
       null,
       null,
@@ -749,7 +809,7 @@ describe('steering the plan by census', () => {
     const res = await createPlan(slug, 1)
 
     expect(res.data.balance).toEqual({
-      status: 'notYetRepresentative',
+      status: 'missingGroups',
       inviteMore: 'unreachedAreas',
     })
     expect(
@@ -780,7 +840,14 @@ describe('steering the plan by census', () => {
     expect(res.status).toBe(HttpStatus.OK)
     const weights = draw.mock.calls[0]?.[0].weights
     expect(weights).toMatchObject({
-      age: { '18to64': 0.8, '65plus': 2 },
+      age: {
+        '18to24': 2,
+        '25to34': 2,
+        '35to44': 0.5,
+        '45to54': 2,
+        '55to64': 2,
+        '65plus': 2,
+      },
       minWeight: 0.5,
       maxWeight: 2,
     })
@@ -795,7 +862,7 @@ describe('steering the plan by census', () => {
     stubPools(LARGE)
     stubMix([
       members(20, { ageBand: '65plus', tract: TRACT_A }),
-      members(16, { tract: TRACT_B }),
+      members(16, { tract: TRACT_A }),
       members(4, { tract: TRACT_C }),
     ])
     await joinPanel(slug, 40)
@@ -808,17 +875,19 @@ describe('steering the plan by census', () => {
     const callDraw = draw.mock.calls[0]?.[0]
     expect(filterKeys(callDraw as FilterArg)).not.toContain('hasLandline')
     expect(filterKeys(callDraw as FilterArg)).toContain('hasAnyPhone')
-    expect(callDraw?.weights?.age['18to64']).toBeGreaterThan(1)
+    // Half the panel is 65 and over against a fifth of adults.
+    expect(callDraw?.weights?.age['65plus']).toBe(0.5)
     const read = stepOf(await readPlan(slug), 'phone_banking')
     expect(read.landlineFirst).toBe(false)
-    expect(read.steeredToward).toBe('age18to64')
+    expect(read.steeredToward).toBe('unreachedAreas')
   })
 
-  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+  it('records a call step that dropped landline-first and leans toward the group the status names', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
     // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
-    // nobody trails by enough to lean toward.
+    // landlines are dropped, and the step leans toward the same group the
+    // balance asks to invite next.
     stubMix([
       members(9, { ageBand: '65plus', tract: TRACT_A }),
       members(11, { tract: TRACT_A }),
@@ -829,7 +898,7 @@ describe('steering the plan by census', () => {
     const plan = await createPlan(slug, 1)
     expect(stepOf(plan, 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
     const draw = stubDraws()
 
@@ -841,7 +910,7 @@ describe('steering the plan by census', () => {
     )
     expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
   })
 
@@ -1081,7 +1150,7 @@ describe('step status and waves', () => {
   })
 
   it('closes the plan once the panel reaches its goal', async () => {
-    stubPopulation(2_000)
+    stubAnswersNeeded(TOWN)
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
     await createPlan(slug, 1)
@@ -1098,6 +1167,8 @@ describe('step status and waves', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 92,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 
@@ -1108,7 +1179,7 @@ describe('step status and waves', () => {
     for (let i = 0; i < 235; i++) {
       await setPanel(slug, randomUUID(), CivicPanelStatus.member)
     }
-    stubPopulation(2_000)
+    stubAnswersNeeded(TOWN)
 
     const res = await readPlan(slug)
 
@@ -1474,7 +1545,7 @@ describe('civic panel analytics', () => {
   })
 
   it('tracks a member joining and the goal reached, never who joined', async () => {
-    stubPopulation(2_000)
+    stubAnswersNeeded(TOWN)
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
     await createPlan(slug, 1)

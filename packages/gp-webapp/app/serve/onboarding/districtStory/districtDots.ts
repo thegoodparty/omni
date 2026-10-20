@@ -2,10 +2,9 @@ export const VIEW_WIDTH = 100
 export const VIEW_HEIGHT = 93
 
 export const TARGET_DOTS = 640
-// Illustrative: the story sizes it to the answers a district needs.
-export const SAMPLE_SIZE = 100
+// Illustrative: a few highlighted dots in each part of the district.
+export const SAMPLE_PER_CELL = 4
 const LOUD_SIZE = 12
-const JOINED_SIZE = 38
 const MIN_REAL_DOTS = 100
 const PADDING = 6
 const SEED = 20261015
@@ -78,36 +77,41 @@ const toPath = (points: { x: number; y: number }[]): string =>
     ? ''
     : `M${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L')} Z`
 
-// The illustrative picks: a loud cluster nearest the middle, ~100 spread out
-// by a greedy minimum-distance pick, and a subset of those that "join".
+const GRID = 4
+
+const cellOf = (p: { x: number; y: number }): number => {
+  const column = Math.min(GRID - 1, Math.floor((p.x / VIEW_WIDTH) * GRID))
+  const row = Math.min(GRID - 1, Math.floor((p.y / VIEW_HEIGHT) * GRID))
+  return row * GRID + column
+}
+
+// The illustrative picks: a loud cluster nearest the middle, a few dots
+// picked at random in every part of the district, and a subset of those
+// that "join".
 const assignRoles = (
   positions: { x: number; y: number }[],
   rand: () => number,
   center: { x: number; y: number },
-  sampleSize: number,
 ): DistrictDot[] => {
-  const byChance = shuffle(
-    positions.map((_, index) => index),
+  const byCell = new Map<number, number[]>()
+  for (const index of shuffle(
+    positions.map((_, position) => position),
     rand,
-  )
-  const sample: number[] = []
-  const picked = new Set<number>()
-  for (const gap of [7, 6, 5, 4, 3, 0]) {
-    for (const index of byChance) {
-      if (sample.length >= sampleSize) break
-      if (picked.has(index)) continue
-      const p = positions[index]!
-      const clear = sample.every((other) => {
-        const q = positions[other]!
-        return Math.hypot(q.x - p.x, q.y - p.y) >= gap
-      })
-      if (clear) {
-        sample.push(index)
-        picked.add(index)
-      }
-    }
-    if (sample.length >= sampleSize) break
+  )) {
+    const cell = cellOf(positions[index]!)
+    const picks = byCell.get(cell) ?? []
+    if (picks.length < SAMPLE_PER_CELL) byCell.set(cell, [...picks, index])
   }
+  // One dot from each part, then a second from each, so the stagger and the
+  // dots that join spread across the map.
+  const sample = Array.from({ length: SAMPLE_PER_CELL }, (_, round) =>
+    [...byCell.keys()]
+      .sort((a, b) => a - b)
+      .flatMap((cell) => {
+        const index = byCell.get(cell)?.[round]
+        return index === undefined ? [] : [index]
+      }),
+  ).flat()
 
   const loud = new Set(
     positions
@@ -122,23 +126,25 @@ const assignRoles = (
 
   const sampleOrder = new Map(sample.map((index, order) => [index, order]))
   const joined = new Map(
-    sample.slice(0, JOINED_SIZE).map((index, order) => [index, order]),
+    sample
+      .slice(0, Math.ceil(sample.length / 2))
+      .map((index, order) => [index, order]),
   )
 
   // Waves sweep across the map in a few neighborhoods, not dot by dot.
   const cells = shuffle(
-    Array.from({ length: 16 }, (_, cell) => cell),
+    Array.from({ length: GRID * GRID }, (_, cell) => cell),
     rand,
   )
-  const cellWave = new Map(cells.map((cell, order) => [cell, order / 15]))
+  const cellWave = new Map(
+    cells.map((cell, order) => [cell, order / (cells.length - 1)]),
+  )
 
   return positions.map((p, index) => {
-    const column = Math.min(3, Math.floor((p.x / VIEW_WIDTH) * 4))
-    const row = Math.min(3, Math.floor((p.y / VIEW_HEIGHT) * 4))
     return {
       x: p.x,
       y: p.y,
-      wave: cellWave.get(row * 4 + column) ?? 0,
+      wave: cellWave.get(cellOf(p)) ?? 0,
       loud: loud.has(index),
       sample: sampleOrder.has(index),
       sampleOrder: sampleOrder.get(index) ?? -1,
@@ -178,10 +184,7 @@ export const basemapZoom = (camera: DistrictCamera, widthPx: number): number =>
 // Real locations, cut down to about TARGET_DOTS by a seeded random pick. A
 // random pick keeps the district's density, so each dot stands for about the
 // same number of residents. Returns null when there is too little to draw.
-export const buildDistrictDots = (
-  points: LatLng[],
-  sampleSize = SAMPLE_SIZE,
-): DistrictDots | null => {
+export const buildDistrictDots = (points: LatLng[]): DistrictDots | null => {
   const unique = new Map<string, LatLng>()
   for (const point of points) {
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) continue
@@ -229,7 +232,7 @@ export const buildDistrictDots = (
   const positions = shuffle(fitted, rand).slice(0, TARGET_DOTS)
   const center = centroid(positions)
   return {
-    dots: assignRoles(positions, rand, center, sampleSize),
+    dots: assignRoles(positions, rand, center),
     outline: null,
     camera: {
       center: fromMercator({
@@ -278,7 +281,7 @@ const insideOutline = (x: number, y: number): boolean => {
 
 // The stand-in when an office has no location data: the same story on a
 // generic district, so the step never errors.
-export const buildAbstractDots = (sampleSize = SAMPLE_SIZE): DistrictDots => {
+export const buildAbstractDots = (): DistrictDots => {
   const rand = seededRandom(SEED)
   const neighborhoods: [number, number, number][] = [
     [30, 30, 9],
@@ -308,7 +311,7 @@ export const buildAbstractDots = (sampleSize = SAMPLE_SIZE): DistrictDots => {
   }
   const center = { x: 50, y: 46 }
   return {
-    dots: assignRoles(positions, rand, center, sampleSize),
+    dots: assignRoles(positions, rand, center),
     outline: toPath(ABSTRACT_OUTLINE.map(([x, y]) => ({ x, y }))),
     camera: null,
     abstract: true,
