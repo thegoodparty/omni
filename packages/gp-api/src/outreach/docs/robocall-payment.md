@@ -62,7 +62,9 @@ This RESERVES REAL MONEY. Invariants, in order:
   single placer; count 0 means a concurrent placer won or the draft already
   advanced → return the current state (`authorized` echoes the frozen amount,
   else `noop`), no hold. The Stripe hold uses idempotency key
-  `robocall-hold-<outreachId>-<attempt>` (attempt = `payAttempt + 1`), and the
+  `robocall-hold-<customerId>-<outreachId>-<attempt>` (attempt = `payAttempt + 1`;
+  the Stripe customer keeps it unique across PR previews, which share one Stripe
+  test account but each restart outreach ids at 1), and the
   Stripe calls run OUTSIDE any DB transaction. A second conditional `updateMany`
   (`hold_pending → authorized`) commits the intent id / frozen
   `authorizedAmountInCents` / `captureBefore` / `paymentMethodId` /
@@ -566,7 +568,7 @@ step, reached only for the rare lapsed-hold run. Invariants:
   draft→authorize gap. Mirrors the capture slice.
 - **Single-owner + never-twice.** A conditional `updateMany` (`uncollectable →
 charging`, guarded on `chargeIntentId IS NULL`) elects one charger; the stable
-  idempotency key `robocall-fresh-charge-<id>` makes a retry replay the same PI
+  idempotency key `robocall-fresh-charge-<customerId>-<id>` makes a retry replay the same PI
   instead of charging twice. Success commits `charging → charged` + `chargeIntentId`
   - `capturedAmountInCents` + a `Receipt` once.
 - **Decline vs infra.** A declined card commits back to `uncollectable` WITH the

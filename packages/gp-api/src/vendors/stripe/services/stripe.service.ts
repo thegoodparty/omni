@@ -282,7 +282,14 @@ export class StripeService {
           off_session: true,
           metadata,
         },
-        { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
+        // The key has to be unique across every database on one Stripe
+        // account. PR previews each have their own database on one test
+        // account, so outreach ids repeat between them: two previews both
+        // sent robocall-hold-6-1 and Stripe refused the second (2026-10-20).
+        // The customer separates them and is the same on every retry.
+        {
+          idempotencyKey: `robocall-hold-${customerId}-${robocallId}-${attempt}`,
+        },
       )
     } catch (err) {
       // An off-session confirm that the card refuses raises StripeCardError
@@ -362,7 +369,8 @@ export class StripeService {
           // carries the same outreachId, so kind is what distinguishes them.
           metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
         },
-        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+        // The customer is in the key for the same reason as the hold's.
+        { idempotencyKey: `robocall-fresh-charge-${customerId}-${robocallId}` },
       )
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {

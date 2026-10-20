@@ -331,7 +331,7 @@ describe('StripeService.createOffSessionCharge', () => {
       metadata: { outreachId: '42', kind: 'robocall_fresh_charge' },
     })
     // Stable per outreach so a retry replays instead of double-charging.
-    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-cus_1-42' })
   })
 
   it('maps a card decline to StripeChargeDeclinedError carrying the PI id', async () => {
@@ -458,7 +458,7 @@ describe('StripeService.createManualCaptureHold', () => {
     // The account is not enrolled in extended authorization, so the hold must
     // never request it — an ineligible account rejects the whole intent.
     expect(body).not.toHaveProperty('payment_method_options')
-    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-42-0' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-cus_1-42-0' })
   })
 
   it('falls back to now+7d when Stripe omits capture_before', async () => {
