@@ -4,6 +4,7 @@ import {
   ServeSmsDraftRequestSchema,
 } from './ServeSms.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 describe('ServeSmsDraftRequestSchema', () => {
   it('takes the serve purpose vocabulary', () => {
@@ -78,5 +79,18 @@ describe('ServeSmsCreateRequestSchema', () => {
     expect(ServeSmsCreateRequestSchema.safeParse(withoutList).success).toBe(
       false,
     )
+  })
+
+  it('takes a round 2 size no bigger than one draw', () => {
+    expect(
+      ServeSmsCreateRequestSchema.parse({ ...valid, roundTwoSize: 400 })
+        .roundTwoSize,
+    ).toBe(400)
+    expect(
+      ServeSmsCreateRequestSchema.safeParse({
+        ...valid,
+        roundTwoSize: MAX_LIST_SAMPLE_SIZE + 1,
+      }).success,
+    ).toBe(false)
   })
 })

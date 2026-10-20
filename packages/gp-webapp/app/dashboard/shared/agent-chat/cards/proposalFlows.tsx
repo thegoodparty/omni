@@ -535,6 +535,9 @@ export const ProposalFlowsProvider = ({
             initialPurpose: REPORT_BACK_PURPOSE,
             reportBackForOutreachId: proposal.reportBackForOutreachId,
           })}
+          {...(proposal.roundTwoSize !== undefined && {
+            roundTwoSize: proposal.roundTwoSize,
+          })}
           {...(proposal.event && { initialEvent: proposal.event })}
           {...(listId !== undefined && { preselectedListId: listId })}
           {...(proposedAudience && { proposedAudience })}

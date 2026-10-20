@@ -5,10 +5,11 @@ import {
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, isWeekend } from 'date-fns'
+import { addBusinessDays, addDays, format, isWeekend } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -30,6 +31,7 @@ import {
 } from '@/priorities/util/proposalLink.util'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
+import { roundTwoExclusions } from '@/priorities/util/roundTwoExclusions.util'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
 import {
   ElectedOffice,
@@ -171,6 +173,16 @@ export function assertServeSmsSendDateAllowed(
     throw new BadRequestException('Cannot schedule on the weekend')
   }
 }
+
+// The latest send date whose round 2 is due to be drawn today: the last day
+// a new send for that date would still be accepted above
+// (ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS is MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+// so staff get the same lead as on any other Serve text.
+export const roundTwoDrawCutoff = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS),
+    'yyyy-MM-dd',
+  )
 
 // The lines the composer locks, checked again on the way in, so a composer
 // bug can never reach a send: honoring STOP follows the message, and a
@@ -316,15 +328,25 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       )
     }
 
+    const roundTwo =
+      input.roundTwoSize === undefined
+        ? null
+        : await this.resolveRoundTwo(organization, filter, input, link)
     const {
       recipientCount,
       excludedOptedOutCount,
       excludedDuplicatePhoneCount,
-    } = await this.resolveListAudienceCount(
-      organization,
-      filterInput,
-      organizationSlug,
-    )
+    } = roundTwo
+      ? {
+          recipientCount: roundTwo.recipientCount,
+          excludedOptedOutCount: 0,
+          excludedDuplicatePhoneCount: 0,
+        }
+      : await this.resolveListAudienceCount(
+          organization,
+          filterInput,
+          organizationSlug,
+        )
 
     if (recipientCount < MIN_SERVE_SMS_RECIPIENTS) {
       throw new BadRequestException(
@@ -363,19 +385,42 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       textCount: recipientCount,
       ...link,
     } satisfies Prisma.OutreachUncheckedCreateInput
+    // A round 2 send goes out on a copy of the list holding a sample still
+    // to be drawn, which is what marks it as round 2 and keeps it from
+    // reaching anyone before the draw. The copy is written in the same
+    // transaction as the row, so a create that fails leaves no list behind.
+    const insert = async (tx: Prisma.TransactionClient) =>
+      tx.outreach.create({
+        data: roundTwo
+          ? {
+              ...data,
+              voterFileFilterId: (
+                await this.voterFileFilterService.createUndrawnSampleOf(
+                  tx,
+                  filter,
+                  recipientCount,
+                  `${filter.name ?? input.name}, round 2`,
+                )
+              ).id,
+            }
+          : data,
+        select: { id: true },
+      })
     const outreach =
-      link.proposalKey === undefined
-        ? await this.model.create({ data, select: { id: true } })
-        : await createUnderProposalKey(
+      link.proposalKey !== undefined
+        ? await createUnderProposalKey(
             this.client,
             {
               proposalKey: link.proposalKey,
               organizationSlug,
               outreachType: OutreachType.text,
             },
-            (tx) => tx.outreach.create({ data, select: { id: true } }),
+            insert,
             async (id) => ({ id }),
           )
+        : roundTwo
+          ? await this.client.$transaction(insert)
+          : await this.model.create({ data, select: { id: true } })
 
     // One payable report back per send: a new draft supersedes the unpaid
     // ones before it, so a stale draft left open in another tab can no
@@ -418,6 +463,47 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       excludedOptedOutCount,
       excludedDuplicateCount: excludedDuplicatePhoneCount,
     }
+  }
+
+  // A priority's round 2: paid for now at `roundTwoSize`, or the pool if it
+  // holds fewer, and drawn from the list on the last day staff can take it.
+  // The pool is the list's cell phones less everyone the priority's other
+  // sends reached and everyone opted out, as the draw will count it.
+  private async resolveRoundTwo(
+    organization: Organization,
+    filter: ContactsFilterResolutionInput,
+    input: ServeSmsCreateRequest,
+    link: ProposalOutreachLink,
+  ): Promise<{ recipientCount: number }> {
+    if (link.priorityId === undefined) {
+      throw new BadRequestException('A round 2 text belongs to a priority')
+    }
+    if (input.reportBackForOutreachId !== undefined) {
+      throw new BadRequestException("A report back can't be a round 2 text")
+    }
+    if (filter.sampleSize != null) {
+      throw new BadRequestException(
+        'A round 2 text is drawn from a whole list, not a sample of one',
+      )
+    }
+    if (input.scheduledLocalDate <= roundTwoDrawCutoff(new Date())) {
+      throw new BadRequestException(
+        `A round 2 text needs a send date more than ` +
+          `${ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS} business days from today`,
+      )
+    }
+    const exclude = await roundTwoExclusions(
+      this.client,
+      organization.slug,
+      link.priorityId,
+      [...(await this.resolveOptOutScrub(organization.slug))],
+    )
+    const pool = await this.contactsService.countWithin(
+      organization,
+      { ...filter, hasCellPhone: true },
+      exclude,
+    )
+    return { recipientCount: Math.min(input.roundTwoSize ?? 0, pool) }
   }
 
   /**

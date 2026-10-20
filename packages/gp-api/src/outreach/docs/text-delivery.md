@@ -19,7 +19,8 @@ poll is. `QueueConsumerModule` imports `OutreachModule` to reach the service.
 
 **What the consumer acks and what it redelivers.** Acked, because no
 redelivery can change the outcome: the outreach does not exist; the row has
-no saved list / message / send date; and `requestSend` returning
+no saved list / message / send date; its list is a round 2 sample not drawn
+yet (only the draw enqueues one); and `requestSend` returning
 `audienceResolved: false` with `recipientCount: 0`, which is the spine
 refusing the send (canceled, unpaid, already sent). Redelivered: anything
 that throws — S3, Slack, the database — because the send is idempotent under

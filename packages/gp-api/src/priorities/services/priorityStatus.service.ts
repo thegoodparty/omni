@@ -29,6 +29,7 @@ import {
   type SegmentTrackEventProperties,
 } from 'src/vendors/segment/segment.types'
 import { trackForOffice } from '../util/priorityAnalytics.util'
+import { isUndrawnSample } from '../util/roundTwo.util'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
 import {
   RecordCheckReminderInputSchema,
@@ -520,8 +521,12 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
         priorityStepId: true,
         priorityCheckSide: true,
         outreachType: true,
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
       },
     })
+    // A round 2 text is paid for long before it goes: its check is out once
+    // its draw hands it off, which is when its list stops being undrawn.
+    if (isUndrawnSample(outreach?.voterFileFilter ?? null)) return
     const stepId = PriorityStepIdSchema.safeParse(outreach?.priorityStepId)
     const side = PriorityCheckSideSchema.safeParse(outreach?.priorityCheckSide)
     if (

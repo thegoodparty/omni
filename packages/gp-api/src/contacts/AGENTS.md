@@ -997,8 +997,8 @@ priority read's labels: `tooEarly` under 30 members; with `D` the largest
 priority read's rule (at least 5 points), null once representative. The
 official never sees a share, weight or target.
 
-**Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, not wired
-yet). Leans a priority's round 2 text, drawn on its scheduled date, toward
+**Round 2 targeting** (`utils/civicPanelAllocation.util.ts`, called by
+`priorities/services/priorityRoundTwoDraw.service.ts`). Leans a priority's round 2 text, drawn on its scheduled date, toward
 the groups a model of the round 1 answers is least sure about, rather than toward census gaps:
 `batchTargets` ranks groups under `MIN_VOICES_PER_GROUP` (3) first, then by
 share times range width; `batchWeights` turns that into the same

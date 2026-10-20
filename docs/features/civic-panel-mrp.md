@@ -4,10 +4,11 @@ How a priority's answers become a read of the district, and who the next
 text goes to. Pure math lives in
 `packages/gp-api/src/priorities/util/mrp.util.ts` (the model) and
 `packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts` (who the
-round 2 text leans toward). The model is the priority results page's read
-(`mrpReadStatus.util.ts`, behind `serve-citizen-panels`); round 2 is not
-wired to a job or a send yet. This page says what they are for and what has
-to land before round 2 is.
+round 2 text leans toward). The model is the priority results page's
+read (`mrpReadStatus.util.ts`, behind `serve-citizen-panels`) and drives
+the round 2 draw (`priorities/services/priorityRoundTwoDraw.service.ts`).
+This page says what they are for and what has to land before the rest is
+live.
 
 ## Why
 
@@ -45,6 +46,36 @@ that date: the model is fit to round 1's answers, the groups are ranked
 `SampleWeights` the census steering passes to `drawListSample`), and 15% of
 the send is drawn unsteered (`splitBatch`) so drift outside the lean still
 shows up. There is no round 3.
+
+**How round 2 is built.** The Serve SMS create takes `roundTwoSize` beside
+a priority link and the list to draw from (the pool). It prices
+`min(roundTwoSize, pool)`, where the pool is the list's cell phones less
+everyone the priority's other sends texted, called, knocked or drew and
+everyone opted out (`roundTwoExclusions`), and saves the send on a copy of
+the list with `sampleSize` set and nothing drawn. That state is the round 2
+marker: no other path saves a sample undrawn, and such a list resolves to
+nobody. Payment claims the send and enqueues nothing. The
+`priorityRoundTwoDraw` job (`41 7 * * *` ET, `CronLockService` daily slot)
+draws each one on the last day a Serve text for its date could still be
+booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
+staff get the usual two clear days. The send date has to be later than that
+at create, and the Serve text calendar opens a day later for it. The draw
+fits the model to the priority's coded answers so far (`PriorityAnswer`:
+yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
+with `batchWeights` and the unsteered rest, then in one transaction claims
+the list (stamping `sampledAt`, a CAS on it being null) and writes the
+members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. Only
+then is the priority's check out. A failed enqueue puts the list back to
+undrawn for the next run; a send drawn but never enqueued (a crash between
+the two) is handed off by a later run; a draw that finds nobody cancels
+the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
+gender once published, tract, and race when `raceNameable` holds for the
+answerers): the census publishes no joint counts. If the census, the
+answerers or the district cannot be read, or the fit throws, the whole send
+is drawn unsteered. Staff review is the same as any Serve text: the CSV
+handoff at enqueue. On dev and previews, `POST
+/v1/priorities/round-two/:outreachId/draw` draws one of the office's round 2
+texts now (404 on prod).
 
 **Sizing round 1.** Replaces `answersNeeded` and `panelGoalMembers` for
 this flow (Samuel, 2026-10-19, superseding the 2026-10-15 sizing). A major
@@ -125,11 +156,9 @@ model feeds the shapes the page already reads, through
 ## Before it is live
 
 1. **Round 1 sizing** by coverage, above.
-2. **Round 2 scheduling.** A send created and paid for at setup with no
-   list, and a job on its date that fits, ranks, draws and hands it off.
-   Today a Serve send freezes its list at checkout and goes to staff review
-   on payment; round 2 needs the review to cover the message at setup and
-   the list drawn later.
+2. **The chat proposing round 2.** The priority flow's card carries
+   `roundTwoSize` (contracts `OutreachProposalSchema`) and the Serve text
+   flow forwards it, but no prompt proposes it yet.
 
 Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
 1"): with one scheduled send there is no reply loop to speed up.
