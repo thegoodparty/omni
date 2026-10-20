@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_MIN_HOURS_PER_WEEK,
+  splitPriorityText,
   type GeoJsonPolygon,
   type WalkableAreaBox,
 } from '@goodparty_org/contracts'
@@ -224,6 +225,9 @@ export const buildSizeRoundOneTool = (deps: {
       dimensions,
       pools: { doorArea, phone, text },
     })
+    // One purchase in two rounds: half now at random, the rest held for a
+    // follow-up drawn toward the groups heard from least.
+    const split = splitPriorityText(size.texts)
     const cards = [
       ...(walkableArea && doors > 0
         ? [
@@ -252,7 +256,8 @@ export const buildSizeRoundOneTool = (deps: {
               channel: 'text' as const,
               audienceFilters: { ...ROUND_ONE_AUDIENCES.text },
               count: sizeOf(text),
-              sampleSize: size.texts,
+              sampleSize: split.now,
+              ...(split.followUp > 0 && { roundTwoSize: split.followUp }),
               targetResponses: Math.max(
                 1,
                 Math.floor(size.texts * TEXT_ANSWER_RATE),

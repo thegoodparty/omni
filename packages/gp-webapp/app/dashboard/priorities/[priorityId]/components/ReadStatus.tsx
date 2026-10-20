@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { format, parseISO } from 'date-fns'
 import type { PriorityReadStatus } from '@goodparty_org/contracts'
 import { Button, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
@@ -30,6 +31,16 @@ const GoodReadMark = ({ size }: { size: 'small' | 'medium' }) => (
     />
   </span>
 )
+
+const FollowUpLine = ({ readStatus }: { readStatus: PriorityReadStatus }) =>
+  readStatus.followUp ? (
+    <span className="text-sm text-muted-foreground">
+      {READ_STATUS_COPY.followUp(
+        readStatus.followUp.texts,
+        format(parseISO(readStatus.followUp.scheduledLocalDate), 'MMM d'),
+      )}
+    </span>
+  ) : null
 
 const StatusDot = ({ readStatus }: { readStatus: PriorityReadStatus }) => (
   <span
@@ -83,56 +94,63 @@ export const ReadStatusStrip = ({
   onGetAnswers,
   getAnswersDisabled = false,
 }: ReadStatusProps): React.JSX.Element => (
-  <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
-    {readStatus.good ? (
-      <>
-        <Link
-          href={resultsHref(priorityId)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-foreground no-underline"
-        >
-          <GoodReadMark size="small" />
-          <span className="truncate text-sm font-semibold">
-            {READ_STATUS_COPY.goodLine(readStatus)}
-          </span>
-        </Link>
-        <Button asChild size="small" className="shrink-0 rounded-full">
-          <Link href={resultsHref(priorityId)}>
-            {READ_STATUS_COPY.seeWhatWeHeard}
-          </Link>
-        </Button>
-      </>
-    ) : (
-      <>
-        <Link
-          href={resultsHref(priorityId)}
-          className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
-        >
-          {readStatus.status === 'tooEarly' ? (
-            <>
-              <span className="truncate text-sm font-semibold">
-                {READ_STATUS_COPY.moreAnswers(
-                  readStatus.needed - readStatus.answers,
-                )}
-              </span>
-              <ReadProgress readStatus={readStatus} className="h-1.5" />
-            </>
-          ) : (
-            <span className="flex min-w-0 items-center gap-2">
-              <StatusDot readStatus={readStatus} />
-              <span className="truncate text-sm font-semibold">
-                {READ_STATUS_COPY.stripLine(readStatus)}
-              </span>
+  <>
+    <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
+      {readStatus.good ? (
+        <>
+          <Link
+            href={resultsHref(priorityId)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-foreground no-underline"
+          >
+            <GoodReadMark size="small" />
+            <span className="truncate text-sm font-semibold">
+              {READ_STATUS_COPY.goodLine(readStatus)}
             </span>
-          )}
-        </Link>
-        <GetAnswers
-          onGetAnswers={onGetAnswers}
-          disabled={getAnswersDisabled}
-          className="shrink-0 rounded-full"
-        />
-      </>
-    )}
-  </div>
+          </Link>
+          <Button asChild size="small" className="shrink-0 rounded-full">
+            <Link href={resultsHref(priorityId)}>
+              {READ_STATUS_COPY.seeWhatWeHeard}
+            </Link>
+          </Button>
+        </>
+      ) : (
+        <>
+          <Link
+            href={resultsHref(priorityId)}
+            className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
+          >
+            {readStatus.status === 'tooEarly' ? (
+              <>
+                <span className="truncate text-sm font-semibold">
+                  {READ_STATUS_COPY.moreAnswers(
+                    readStatus.needed - readStatus.answers,
+                  )}
+                </span>
+                <ReadProgress readStatus={readStatus} className="h-1.5" />
+              </>
+            ) : (
+              <span className="flex min-w-0 items-center gap-2">
+                <StatusDot readStatus={readStatus} />
+                <span className="truncate text-sm font-semibold">
+                  {READ_STATUS_COPY.stripLine(readStatus)}
+                </span>
+              </span>
+            )}
+          </Link>
+          <GetAnswers
+            onGetAnswers={onGetAnswers}
+            disabled={getAnswersDisabled}
+            className="shrink-0 rounded-full"
+          />
+        </>
+      )}
+    </div>
+    {readStatus.followUp ? (
+      <div className="px-4 pb-2.5">
+        <FollowUpLine readStatus={readStatus} />
+      </div>
+    ) : null}
+  </>
 )
 
 // Desktop: the top of the right rail, above "Where this stands".
@@ -195,6 +213,7 @@ export const ReadStatusRailBlock = ({
         />
       </>
     )}
+    <FollowUpLine readStatus={readStatus} />
     <Link
       href={resultsHref(priorityId)}
       className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
