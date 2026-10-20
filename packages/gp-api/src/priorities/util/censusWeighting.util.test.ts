@@ -8,7 +8,6 @@ import {
 import {
   raceNameable,
   unreachedTracts,
-  weighToCensus,
   weightingTargets,
 } from './censusWeighting.util'
 
@@ -159,75 +158,5 @@ describe('unreachedTracts', () => {
       '53017950100',
       '53017950200',
     ])
-  })
-})
-
-describe('weighToCensus', () => {
-  it('weighs race to the census, a folded group counting as other', () => {
-    const result = weighToCensus(
-      [
-        cell({ count: 70, race: 'white' }),
-        cell({ count: 10, race: 'black' }),
-        cell({ count: 10, race: 'hispanic' }),
-        cell({ count: 5, race: 'other' }),
-        cell({ count: 5, race: 'asian' }),
-        cell({ count: 5, race: null }),
-      ],
-      {
-        district: { ...DISTRICT, ...RACE, populationAsianNh: 20 },
-        tractAdults: TRACTS,
-      },
-    )
-    const race = result.gaps.filter((gap) => gap.dimension === 'race')
-    expect(race.map((gap) => gap.value).sort()).toEqual([
-      'black',
-      'hispanic',
-      'other',
-      'white',
-    ])
-    const other = race.find((gap) => gap.value === 'other')
-    expect(other?.unweightedShare).toBeCloseTo(0.1)
-    const black = race.find((gap) => gap.value === 'black')
-    expect(black?.share).toBeGreaterThan(black?.unweightedShare ?? 1)
-  })
-
-  it('brings a sample that skews old and owner to the census mix', () => {
-    const result = weighToCensus(
-      [
-        cell({ count: 40, ageBand: '65plus' }),
-        cell({ count: 30, tract: '53017950200' }),
-        cell({ count: 20, tenure: 'renter' }),
-        cell({ count: 10, tenure: 'renter', tract: '53017950200' }),
-      ],
-      { district: DISTRICT, tractAdults: TRACTS },
-    )
-    expect(result.largestGap).toBeLessThan(0.01)
-    expect(result.effectiveSampleSize).toBeLessThan(100)
-    const old = result.gaps.find((gap) => gap.value === '65plus')
-    expect(old?.unweightedShare).toBeCloseTo(0.4)
-    expect(old?.share).toBeCloseTo(0.2, 1)
-  })
-
-  it('pools tracts with too few answers and leaves unreached areas as a gap', () => {
-    const result = weighToCensus(
-      [cell({ count: 50 }), cell({ count: 2, tract: '53017950200' })],
-      {
-        district: DISTRICT,
-        tractAdults: new Map([...TRACTS, ['53017950300', 1_000]]),
-      },
-    )
-    const pooled = result.gaps.find(
-      (gap) => gap.dimension === 'tract' && gap.value === 'other',
-    )
-    expect(pooled?.censusShare).toBeCloseTo(0.7)
-    expect(result.largestGap).toBeGreaterThan(0.1)
-  })
-
-  it('lets a respondent outside every known tract sit out neighborhood', () => {
-    const result = weighToCensus(
-      [cell({ count: 20, tract: '99999999999' }), cell({ count: 20 })],
-      { district: DISTRICT, tractAdults: TRACTS },
-    )
-    expect(result.weights).toHaveLength(2)
   })
 })

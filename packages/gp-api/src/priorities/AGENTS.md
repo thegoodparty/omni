@@ -10,8 +10,8 @@ the results page's read of who answered the outreach sent on one
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI
 classifier codes each respondent's answer to the send's question as `yes`,
 `no`, `mixed` or `not_an_answer`, one `PriorityAnswer` row each (staff spot
-check them; nothing reads the codes yet). Storing codes is invisible, so it
-is not flag-gated.
+check them). The read status models them (below). Storing codes is
+invisible, so it is not flag-gated.
 
 - **Which sends.** The ones `PriorityResultsService` counts: a priority
   linked, `campaignId` null, gone out, and a text, a phone list or a walk.
@@ -41,3 +41,15 @@ is not flag-gated.
   `CronLockService` ten-minute slot), over priority sends created in the last
   30 days. It reads before it claims. No deploy allowlist: it calls the model
   only for replies on its own database.
+
+## The read
+
+`PriorityResultsService` decides a priority's good read from an MRP model
+of its coded answers (`util/mrp.util.ts`), mapped to the page's existing
+`PriorityReadStatus` by `util/mrpReadStatus.util.ts`. The rule, the major
+groups and `needed` are in the webapp's priority AGENTS.md ("A good read")
+and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
+from `CensusCompositionSource.mrpInputs` (bound in
+`CensusCompositionModule`; route tests stub it). `codedAnswers` reads
+`PriorityAnswer` over the same sends the page counts, one value per person.
+The representation bars compare who answered with the district, unweighted.
