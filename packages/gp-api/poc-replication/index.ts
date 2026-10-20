@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises'
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 
@@ -17,6 +18,7 @@ export = () => {
   const walDiskAlarmBytes =
     config.getNumber('walDiskAlarmBytes') ?? 5 * 1024 ** 3
   const alarmEmail = config.get('alarmEmail')
+  const enableFederation = config.getBoolean('enableFederation') ?? false
 
   const name = 'gp-poc-replication'
   const parameterGroupFamily = 'aurora-postgresql17'
@@ -170,7 +172,125 @@ export = () => {
       }),
   )
 
+  const federation = enableFederation
+    ? (() => {
+        const region = aws.getRegionOutput().name
+        const databricksPrincipal =
+          config.get('databricksPrivateConnectivityRoleArn') ??
+          pulumi.interpolate`arn:aws:iam::565502421330:role/private-connectivity-role-${region}`
+
+        const nlbSecurityGroup = new aws.ec2.SecurityGroup(`${name}-fed-nlb`, {
+          name: `${name}-fed-nlb`,
+          description: 'Federation NLB in front of the POC Aurora cluster',
+          vpcId: vpc.id,
+        })
+
+        new aws.vpc.SecurityGroupEgressRule(`${name}-fed-nlb-to-db`, {
+          securityGroupId: nlbSecurityGroup.id,
+          description: 'NLB to the POC Aurora cluster',
+          ipProtocol: 'tcp',
+          fromPort: 5432,
+          toPort: 5432,
+          referencedSecurityGroupId: securityGroup.id,
+        })
+
+        new aws.vpc.SecurityGroupIngressRule(`${name}-db-federation-nlb`, {
+          securityGroupId: securityGroup.id,
+          description: 'databricks serverless via privatelink nlb',
+          ipProtocol: 'tcp',
+          fromPort: 5432,
+          toPort: 5432,
+          referencedSecurityGroupId: nlbSecurityGroup.id,
+        })
+
+        // NLB targets must be IPs. Resolved once per `pulumi up`; if Aurora
+        // moves the instance to a new IP the target goes unhealthy until the
+        // next `pulumi up` (README path A, "Aurora IP drift").
+        const targetIp = pulumi
+          .all([cluster.readerEndpoint, writer.endpoint])
+          .apply(async ([readerEndpoint]) => {
+            const { address } = await lookup(readerEndpoint, { family: 4 })
+            return address
+          })
+
+        const nlb = new aws.lb.LoadBalancer(`${name}-fed`, {
+          name: 'gp-poc-repl-federation',
+          internal: true,
+          loadBalancerType: 'network',
+          subnets: subnets.ids,
+          securityGroups: [nlbSecurityGroup.id],
+          enforceSecurityGroupInboundRulesOnPrivateLinkTraffic: 'off',
+          enableCrossZoneLoadBalancing: true,
+        })
+
+        const targetGroup = new aws.lb.TargetGroup(`${name}-fed`, {
+          name: 'gp-poc-repl-federation',
+          port: 5432,
+          protocol: 'TCP',
+          targetType: 'ip',
+          vpcId: vpc.id,
+          deregistrationDelay: 30,
+          healthCheck: { protocol: 'TCP', interval: 10, healthyThreshold: 2 },
+        })
+
+        new aws.lb.TargetGroupAttachment(`${name}-fed-aurora`, {
+          targetGroupArn: targetGroup.arn,
+          targetId: targetIp,
+          port: 5432,
+        })
+
+        new aws.lb.Listener(`${name}-fed`, {
+          loadBalancerArn: nlb.arn,
+          port: 5432,
+          protocol: 'TCP',
+          defaultActions: [
+            { type: 'forward', targetGroupArn: targetGroup.arn },
+          ],
+        })
+
+        const endpointService = new aws.ec2.VpcEndpointService(`${name}-fed`, {
+          acceptanceRequired: true,
+          networkLoadBalancerArns: [nlb.arn],
+          allowedPrincipals: [databricksPrincipal],
+          tags: { Name: `${name}-federation` },
+        })
+
+        const healthAlarm = new aws.cloudwatch.MetricAlarm(
+          `${name}-fed-HealthyHostCount`,
+          {
+            name: `${name}-fed-HealthyHostCount`,
+            alarmDescription:
+              'Federation NLB has no healthy Aurora target; federated reads fail',
+            namespace: 'AWS/NetworkELB',
+            metricName: 'HealthyHostCount',
+            dimensions: {
+              LoadBalancer: nlb.arnSuffix,
+              TargetGroup: targetGroup.arnSuffix,
+            },
+            statistic: 'Minimum',
+            period: 60,
+            evaluationPeriods: 2,
+            threshold: 1,
+            comparisonOperator: 'LessThanThreshold',
+            treatMissingData: 'breaching',
+            alarmActions: [alarmTopic.arn],
+            okActions: [alarmTopic.arn],
+          },
+        )
+
+        return {
+          federationEndpointServiceName: endpointService.serviceName,
+          federationEndpointServiceId: endpointService.id,
+          federationDomainName: cluster.readerEndpoint,
+          federationNlbTargetIp: targetIp,
+          federationAllowedPrincipal: databricksPrincipal,
+          federationHealthAlarmName: healthAlarm.name,
+        }
+      })()
+    : {}
+
   return {
+    ...federation,
     vpcCidr: vpc.cidrBlock,
     subnetIds: subnets.ids,
     securityGroupId: securityGroup.id,
