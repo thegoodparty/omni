@@ -43,6 +43,7 @@ import {
   type CensusCompositionSource,
 } from './censusComposition'
 import { estimateMrp } from '../util/mrp.util'
+import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
   holdingBackTracts,
   mrpReadStatus,
@@ -63,11 +64,7 @@ const roundCoordinate = (value: number): number =>
 
 const MRP_READ_CACHE_MINUTES = 15
 
-const UNSENT_STATUSES: OutreachStatus[] = [
-  OutreachStatus.pending_payment,
-  OutreachStatus.draft,
-  OutreachStatus.canceled,
-]
+const UNSENT_STATUSES = PRIORITY_UNSENT_STATUSES
 
 // A mixed answer is half a yes; an answer that is no answer sits out.
 const YES_SHARE: Record<PriorityAnswerCode, number | null> = {
@@ -75,6 +72,11 @@ const YES_SHARE: Record<PriorityAnswerCode, number | null> = {
   [PriorityAnswerCode.no]: 0,
   [PriorityAnswerCode.mixed]: 0.5,
   [PriorityAnswerCode.not_an_answer]: null,
+}
+
+interface FollowUpState {
+  next?: { scheduledLocalDate: string; texts: number }
+  sent: boolean
 }
 
 interface SendRespondents {
@@ -174,7 +176,15 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
 
     return {
       priorityId,
-      readStatus: mrpReadStatus({ answers: ids.length, read }),
+      readStatus: {
+        ...mrpReadStatus({ answers: ids.length, read }),
+        ...this.outreachState(
+          perSend.map(({ send }) => send),
+          (await this.followUpsFor(organizationSlug, [priorityId])).get(
+            priorityId,
+          ),
+        ),
+      },
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
       themes,
@@ -226,12 +236,14 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
             id,
             coded.get(id) ?? NO_CODED_ANSWERS,
           )
-          const followUp = followUps.get(id)
           return [
             id,
             {
               ...mrpReadStatus({ answers: people.length, read }),
-              ...(followUp && { followUp }),
+              ...this.outreachState(
+                (sends.get(id) ?? []).map(({ send }) => send),
+                followUps.get(id),
+              ),
             },
           ]
         }),
@@ -239,40 +251,69 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     )
   }
 
-  // Each priority's next follow-up text: paid for (held `pending` until its
-  // draw hands it off) and not sent yet.
+  // What has gone out on a priority: whether a check is out with residents
+  // on any channel, and the state of its follow-up text.
+  private outreachState(
+    sends: PriorityResultsSend[],
+    followUp: FollowUpState | undefined,
+  ): Pick<PriorityReadStatus, 'checkOut' | 'followUp' | 'followUpSent'> {
+    return {
+      ...(sends.some((send) => send.channel !== 'social') && {
+        checkOut: true,
+      }),
+      ...(followUp?.next && { followUp: followUp.next }),
+      ...(followUp?.sent && { followUpSent: true }),
+    }
+  }
+
+  // Each priority's follow-up text: the next one paid for (held `pending`
+  // until its draw hands it off) and not sent yet, and whether one has gone
+  // out.
   private async followUpsFor(
     organizationSlug: string,
     priorityIds: string[],
-  ): Promise<Map<string, { scheduledLocalDate: string; texts: number }>> {
+  ): Promise<Map<string, FollowUpState>> {
     const rows = await this.client.outreach.findMany({
       where: {
         organizationSlug,
         campaignId: null,
         priorityId: { in: priorityIds },
         roundOneOutreachId: { not: null },
-        status: OutreachStatus.pending,
+        status: { notIn: UNSENT_STATUSES },
       },
       orderBy: { scheduledLocalDate: Prisma.SortOrder.asc },
-      select: { priorityId: true, scheduledLocalDate: true, textCount: true },
+      select: {
+        priorityId: true,
+        scheduledLocalDate: true,
+        textCount: true,
+        status: true,
+      },
     })
-    const byPriority = new Map<
-      string,
-      { scheduledLocalDate: string; texts: number }
-    >()
+    const byPriority = new Map<string, FollowUpState>()
     for (const row of rows) {
+      if (row.priorityId === null) continue
+      const state = byPriority.get(row.priorityId) ?? { sent: false }
+      // A denied or failed follow-up never reached anyone but is closed: the
+      // check gets no third text.
       if (
-        row.priorityId === null ||
-        row.scheduledLocalDate === null ||
-        !row.textCount ||
-        byPriority.has(row.priorityId)
+        row.status === OutreachStatus.in_progress ||
+        row.status === OutreachStatus.completed ||
+        row.status === OutreachStatus.denied ||
+        row.status === OutreachStatus.failed
       ) {
-        continue
+        state.sent = true
+      } else if (
+        row.status === OutreachStatus.pending &&
+        state.next === undefined &&
+        row.scheduledLocalDate !== null &&
+        row.textCount
+      ) {
+        state.next = {
+          scheduledLocalDate: row.scheduledLocalDate,
+          texts: row.textCount,
+        }
       }
-      byPriority.set(row.priorityId, {
-        scheduledLocalDate: row.scheduledLocalDate,
-        texts: row.textCount,
-      })
+      byPriority.set(row.priorityId, state)
     }
     return byPriority
   }

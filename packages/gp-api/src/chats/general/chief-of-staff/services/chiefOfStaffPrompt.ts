@@ -336,7 +336,11 @@ const civicPanelBuildBlock = (
       ? [
           '- Their first invite is out and they have no priorities on file. Finish the reply with one line asking which priorities they want to work on, and offer to record what they tell you. Say it once, after the card, and never hold the plan back for it.',
         ]
-      : []
+      : [
+          hasPriorities
+            ? "- They already have priorities on file. Never ask them to record priorities in this reply: end on the plan's next step, and you may add one line tying the panel to their first priority by name."
+            : "- Do not ask about priorities in this reply, even though none are on file: no invite has gone out yet. End on the plan's next step.",
+        ]
   return [
     `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
     `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,

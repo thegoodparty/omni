@@ -61,6 +61,7 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import {
   buildPriorityOutreachProposalTool,
+  checkFollowUpPart,
   checkPanelPart,
   checkProposalRefusal,
   proposalResult,
@@ -485,6 +486,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           }
           const panelPart = checkPanelPart(input)
           if (panelPart !== null) return { error: panelPart }
+          const followUpPart = checkFollowUpPart(input, ctx.readStatus)
+          if (followUpPart !== null) return { error: followUpPart }
           if (input.walkableArea !== undefined) {
             const area = walkableAreaRefusal(
               { ...input, walkableArea: input.walkableArea },

@@ -812,15 +812,21 @@ The outreach page's own invite has no district mix at hand and uses
 
 **Reporting back is a card too.** The same read runs
 `DashboardCardsService.syncReportBackCards`: one `report_back` card per
-priority text whose replies are in (`OutreachReportBackService.repliesInWhere`
-in `src/outreach/`), `sourceExternalId` the send's id, due
-`REPORT_BACK_DUE_DAYS` (14) after the read that made it, opening
-`/dashboard/priorities/<id>?reportBack=<outreachId>`. Its words follow the
-current copy in every state, rewritten on read like the build card's. It is
-done once a text
-with `reportBackForOutreachId` set to that send is past checkout, and takes the
-same Mark done, Show in 3 days, Not for me and Bring it back. Flag off, no
-`report_back` card is made or listed.
+priority with a text whose replies are in
+(`OutreachReportBackService.repliesInWhere` in `src/outreach/`) and at least
+one answer, `sourceExternalId` the priority's id and `sourceItemId` its read
+status, due `REPORT_BACK_DUE_DAYS` (14) after the read that made it, opening
+`/dashboard/priorities/<id>?reportBack=<outreachId>` on the priority's latest
+such text. A new card is made each time the read status changes, and the open
+card of another status is deleted, so only one is open. Its words say where
+the read stands and what to do, rewritten on read like the build card's. It is
+done once a text with `reportBackForOutreachId` on one of the priority's
+texts is past checkout after the card was made
+(`OutreachReportBackService.sentReportBack`), and takes the same Mark done,
+Show in 3 days, Not for me and Bring it back. The report back goes to
+everyone who answered the priority on any channel, each once
+(`priorities/util/priorityRespondents.util.ts`, `answeredPersonIds`). Flag
+off, no `report_back` card is made or listed.
 
 **The rest window.** `voter_file_filter.not_contacted_recently` (both
 products) leaves out anyone the org reached on any channel in the last
@@ -1067,7 +1073,8 @@ phone reaches does not size it. That text is one purchase in two rounds
 (`splitPriorityText` in contracts): its card's `sampleSize` is the half
 sent at random on the chosen date, and `roundTwoSize` the half held for a
 follow-up two weeks later, drawn toward the groups heard from least
-(Samuel, 2026-10-20). A text too small for two halves of 25 goes out
+(Samuel, 2026-10-20), sized at checkout to at most 90% of the people left
+after the first half. A text too small for two halves of 25 goes out
 whole. The tool says whether every major group
 reaches 3 (`coversEveryGroup`).
 

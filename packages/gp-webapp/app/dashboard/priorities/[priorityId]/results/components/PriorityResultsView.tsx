@@ -157,11 +157,13 @@ export const PriorityResultsView = ({
               </ul>
             </div>
           ) : null}
-          <Button asChild size="small" className="self-start rounded-full">
-            <Link href={getAnswersHref(priorityId)}>
-              {READ_STATUS_COPY.getAnswers}
-            </Link>
-          </Button>
+          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+            <Button asChild size="small" className="self-start rounded-full">
+              <Link href={getAnswersHref(priorityId)}>
+                {READ_STATUS_COPY.getAnswers}
+              </Link>
+            </Button>
+          ) : null}
         </section>
       )}
     </div>

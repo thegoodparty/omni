@@ -123,15 +123,17 @@ export const ReadStatusStrip = ({
                 {READ_STATUS_COPY.statusLine(readStatus)}
               </span>
             </span>
-            {readStatus.groupsTotal > 0 ? (
+            {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
               <ReadProgress readStatus={readStatus} className="h-1.5" />
             ) : null}
           </Link>
-          <GetAnswers
-            onGetAnswers={onGetAnswers}
-            disabled={getAnswersDisabled}
-            className="shrink-0 rounded-full"
-          />
+          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+            <GetAnswers
+              onGetAnswers={onGetAnswers}
+              disabled={getAnswersDisabled}
+              className="shrink-0 rounded-full"
+            />
+          ) : null}
         </>
       )}
     </div>
@@ -173,12 +175,12 @@ export const ReadStatusRailBlock = ({
             {READ_STATUS_COPY.label(readStatus)}
           </span>
         </div>
-        {readStatus.underrepresented.length > 0 ? (
+        {readStatus.checkOut && readStatus.underrepresented.length > 0 ? (
           <span className="text-sm text-foreground">
             {READ_STATUS_COPY.statusLine(readStatus)}
           </span>
         ) : null}
-        {readStatus.groupsTotal > 0 ? (
+        {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
           <>
             <span className="text-sm text-muted-foreground">
               {READ_STATUS_COPY.progress(readStatus)}
@@ -186,11 +188,13 @@ export const ReadStatusRailBlock = ({
             <ReadProgress readStatus={readStatus} className="h-2" />
           </>
         ) : null}
-        <GetAnswers
-          onGetAnswers={onGetAnswers}
-          disabled={getAnswersDisabled}
-          className="mt-1 self-start rounded-full"
-        />
+        {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+          <GetAnswers
+            onGetAnswers={onGetAnswers}
+            disabled={getAnswersDisabled}
+            className="mt-1 self-start rounded-full"
+          />
+        ) : null}
       </>
     )}
     <FollowUpLine readStatus={readStatus} />

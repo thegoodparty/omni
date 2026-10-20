@@ -116,16 +116,18 @@ export const buildChiefOfStaffNextSteps = ({
 
 /**
  * The step under the answer to What's a civic panel?, matching how the reply
- * ends. The question comes from the build card, which is only up while no
- * invite has gone out, so only an office with no members gets a step: build
- * one in this chat. No card until the summary loads.
+ * ends: build one in this chat with no members, grow it with some, so the
+ * explainer never dead-ends. No card until the summary loads.
  */
 export const civicPanelExplainNextStep = (
   panelMembers: number | undefined,
 ): ChatSuggestion | undefined =>
-  panelMembers === 0
-    ? { label: 'Build my panel', kickoff: BUILD_CITIZENS_PANEL_MESSAGE }
-    : undefined
+  panelMembers === undefined
+    ? undefined
+    : {
+        label: panelMembers === 0 ? 'Build my panel' : 'Grow your civic panel',
+        kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
+      }
 
 /**
  * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means

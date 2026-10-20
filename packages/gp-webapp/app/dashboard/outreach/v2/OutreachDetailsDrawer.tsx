@@ -73,7 +73,12 @@ import {
 } from 'app/dashboard/door-knocking/native/campaignLifecycle'
 import { MarkDoneDialog } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
-import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  followUpDrewNobody,
+  followUpPickedAt,
+  getHistoryStatusLabel,
+  type HistoryRow,
+} from './historyStatus.util'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -205,7 +210,11 @@ interface OutreachDetailsDrawerProps {
 interface DetailRow extends HistoryRow {
   // The list endpoint joins the whole VoterFileFilter row, so the saved list's
   // name rides along with its criteria flags.
-  voterFileFilter?: VoterFileFilters & { name?: string | null }
+  voterFileFilter?: VoterFileFilters & {
+    name?: string | null
+    sampleSize?: number | null
+    sampledAt?: Date | string | null
+  }
 }
 
 export const OutreachDetailsDrawer = ({
@@ -840,6 +849,19 @@ export const OutreachDetailsDrawer = ({
                   </span>
                 )}
               </div>
+              {isServe && followUpDrewNobody(row) && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Nobody left to text, so this was canceled. We&apos;ll refund
+                  it.
+                </p>
+              )}
+              {isServe && followUpPickedAt(row) !== null && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Recipients picked{' '}
+                  {shortOutreachDate(followUpPickedAt(row) as string | Date)},
+                  from the groups you&apos;ve heard least from.
+                </p>
+              )}
             </div>
           )
         }

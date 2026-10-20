@@ -7,7 +7,10 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
-import { PrioritiesToolPort } from './services/prioritiesPort'
+import {
+  PrioritiesToolPort,
+  type PriorityRecord,
+} from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { LlmTool } from '@/llm/services/llm.service'
@@ -705,9 +708,12 @@ describe('ChiefOfStaffHandler', () => {
       )
     }
 
-    const promptFor = async () => {
+    const promptFor = async (
+      override: { priorities?: PriorityRecord[] } = {},
+    ) => {
       const { handler } = buildPanelHandler({ panels: true })
-      return handler.buildSystemPrompt(await handler.loadContext('c1', USER_ID))
+      const ctx = await handler.loadContext('c1', USER_ID)
+      return handler.buildSystemPrompt({ ...ctx, ...override })
     }
 
     const PLAN_TOOLS = [
@@ -811,6 +817,26 @@ describe('ChiefOfStaffHandler', () => {
       withPanel({ members: 0, inviteSent: false })
       const prompt = await promptFor()
       expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain('Do not ask about priorities in this reply')
+    })
+
+    it('ends on the plan, not on priorities, when some are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor({
+        priorities: [
+          {
+            id: 'pri-1',
+            title: 'Rents',
+            description: 'Keep renters near transit.',
+            archivedAt: null,
+            flow: { currentStep: 'evidence', nextAction: null, checks: [] },
+          },
+        ],
+      })
+      expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain(
+        'They already have priorities on file. Never ask them to record priorities',
+      )
     })
 
     it('offers to keep a panel at its goal fresh, through the same question', async () => {

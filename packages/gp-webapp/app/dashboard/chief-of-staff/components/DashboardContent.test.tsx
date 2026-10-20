@@ -219,12 +219,23 @@ describe("DashboardContent: What's a civic panel? ends on its next step", () => 
     expect(completedACard()).toBe(false)
   })
 
-  it('offers no next step once the panel has members', async () => {
+  it('offers Grow your civic panel once the panel has members, sending the same build turn', async () => {
     panelSummary.members = 12
-    await explain()
+    const user = await explain()
 
     expect(screen.queryByRole('button', { name: 'Build my panel' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Ask your panel/ })).toBeNull()
+    await user.click(
+      await screen.findByRole('button', { name: 'Grow your civic panel' }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-panel',
+          content: BUILD_CITIZENS_PANEL_MESSAGE,
+        }),
+      ),
+    )
   })
 })
 
