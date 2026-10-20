@@ -119,6 +119,26 @@ describe('roundTwoFrame', () => {
     )
     expect(older?.count).toBeCloseTo(0.2 * 0.4)
   })
+
+  it('multiplies gender in once the census has adults by sex', () => {
+    const frame = roundTwoFrame(
+      {
+        ...CENSUS,
+        district: {
+          ...CENSUS.district,
+          populationMale18Plus: 480,
+          populationFemale18Plus: 520,
+        },
+      },
+      roundTwoDimensions(false),
+    )
+    expect(frame).toHaveLength(6 * 2 * 2)
+    expect(frame.reduce((sum, c) => sum + c.count, 0)).toBeCloseTo(1)
+    const women = frame
+      .filter((c) => c.values.gender === 'female')
+      .reduce((sum, c) => sum + c.count, 0)
+    expect(women).toBeCloseTo(0.52)
+  })
 })
 
 describe('roundTwoAnswers', () => {
