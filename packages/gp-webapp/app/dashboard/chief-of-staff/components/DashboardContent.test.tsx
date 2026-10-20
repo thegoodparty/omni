@@ -265,24 +265,22 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       expect(screen.getByText(line)).toBeInTheDocument()
     }
     for (const label of [
-      'Get ready for your next meeting',
-      'See what residents are raising',
-      'Move a priority forward',
+      'See what matters in your community',
       'Build your civic panel',
-      'Draft an ordinance',
-      'Reach your constituents',
+      'Get ready for your next meeting',
     ]) {
       expect(
         screen.getByRole('button', { name: new RegExp(label) }),
       ).toBeInTheDocument()
     }
+    expect(
+      screen.queryByRole('button', { name: /Draft an ordinance/ }),
+    ).toBeNull()
   })
 
   it.each([
+    ['See what matters in your community', NEXT_STEP_MESSAGES.priorities],
     ['Get ready for your next meeting', NEXT_STEP_MESSAGES.meeting],
-    ['See what residents are raising', NEXT_STEP_MESSAGES.issues],
-    ['Move a priority forward', NEXT_STEP_MESSAGES.priority],
-    ['Reach your constituents', NEXT_STEP_MESSAGES.outreach],
   ])(
     '%s sends its question as the official’s own message',
     async (label, sent) => {
@@ -346,13 +344,21 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     expect(clientRequestMock).not.toHaveBeenCalled()
   })
 
-  it('Draft an ordinance opens the ordinance flow', async () => {
-    vi.mocked(router.push!).mockReset()
+  it('offers outreach in the panel slot with serve-citizen-panels off', async () => {
+    panelsFlag.enabled = false
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', NEXT_STEP_MESSAGES.outreach),
+      message('a1', 'assistant', REPLY),
+    ])
     const user = await meet()
-    await user.click(screen.getByRole('button', { name: /Draft an ordinance/ }))
+    await user.click(
+      screen.getByRole('button', { name: /Hear from your constituents/ }),
+    )
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances/new')
-    expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(completedACard()).toBe(false)
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: NEXT_STEP_MESSAGES.outreach }),
+      ),
+    )
   })
 })
