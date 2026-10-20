@@ -50,6 +50,11 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
+vi.mock('./PocPersonActions', () => ({
+  PocPersonActions: () => null,
+  PocRemovedPerson: () => null,
+}))
+
 // StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
 // the two dropdowns, the opt-in pill, mutations, and analytics. Here it would
 // otherwise call the real useOrganization() hook — this file only asserts
