@@ -2,6 +2,7 @@ import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { VendorMockVendor, Prisma } from '@/generated/prisma'
 import {
+  BadGatewayException,
   Body,
   Controller,
   Get,
@@ -14,6 +15,17 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+
+// Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
+// GET), so the mock does too: staging polls numbers_count until it reaches
+// the audience size, and only the CSV knows that size.
+const fetchCsv = async (url: string): Promise<string> => {
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new BadGatewayException(`CSV fetch failed: ${res.status}`)
+  }
+  return res.text()
+}
 
 @Controller('vendor-mocks/callhub')
 @PublicAccess()
@@ -52,10 +64,11 @@ export class CallhubMockController {
     return { count: results.length, next: null, previous: null, results }
   }
 
+  // The client posts multipart, which @fastify/multipart leaves off `body`.
   @Post('v1/media/upload')
   async uploadMedia(
     @Headers('authorization') auth: string | undefined,
-    @Body() body: Record<string, string>,
+    @Body() body: Record<string, string> | undefined,
   ) {
     this.assertMockMode()
     this.assertAuth(auth)
@@ -65,7 +78,7 @@ export class CallhubMockController {
       VendorMockVendor.callhub,
       'media',
       externalId,
-      { filename: body['filename'] ?? null, url },
+      { filename: body?.['filename'] ?? null, url },
     )
     return { data: { media_file_id: externalId, media_url: url } }
   }
@@ -149,7 +162,9 @@ export class CallhubMockController {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         const state = jsonObj(record.state as Prisma.JsonValue)
         const current = Number(state['count'] ?? 0)
-        const csv = body['csv']
+        const csv =
+          body['csv'] ??
+          (body['csv_url'] ? await fetchCsv(body['csv_url']) : undefined)
         const delta = csv
           ? csv.split('\n').filter((l) => l.trim().length > 0).length - 1
           : 1
