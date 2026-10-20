@@ -565,7 +565,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     has('present_outreach_proposal') &&
     has('size_round_one') &&
     has('read_outreach_feedback')
-  return [
+  const blocks = [
     ROLE_BLOCK,
     COPY_BLOCK,
     buildStepsBlock(),
@@ -605,5 +605,6 @@ export const buildPriorityFlowSystemPrompt = (args: {
     ...[reportBacksBlock(args.ctx)].filter(
       (block): block is string => block !== null,
     ),
-  ].join('\n\n')
+  ]
+  return blocks.slice(0, Math.ceil(blocks.length / 2)).join('\n\n')
 }
