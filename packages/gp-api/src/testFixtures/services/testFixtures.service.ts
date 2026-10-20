@@ -38,6 +38,7 @@ import {
   differenceInMilliseconds,
   formatISO,
   subHours,
+  subMinutes,
 } from 'date-fns'
 import { User } from '@/generated/prisma'
 import {
@@ -338,22 +339,27 @@ export class TestFixturesService {
     let poolFreedAt = outreach.robocall?.poolFreedAt ?? null
 
     if (body.action === 'robocall.send_due_now') {
-      const now = new Date()
+      const sendDue = subMinutes(new Date(), 1)
       await this.campaigns.client.outreach.update({
         where: { id: outreach.id },
-        data: { date: now },
+        data: { date: sendDue },
       })
-      date = now
+      date = sendDue
     } else if (body.action === 'robocall.dialed_48h_ago') {
       if (!outreach.robocall)
         throw new NotFoundException('No robocall record for this outreach')
       const backdated = subHours(new Date(), 49)
       await this.campaigns.client.outreachRobocall.update({
         where: { outreachId: outreach.id },
-        data: { dialedAt: backdated, poolFreedAt: backdated },
+        data: {
+          dialedAt: backdated,
+          ...(outreach.robocall.poolFreedAt !== null
+            ? { poolFreedAt: backdated }
+            : {}),
+        },
       })
       dialedAt = backdated
-      poolFreedAt = backdated
+      poolFreedAt = outreach.robocall.poolFreedAt !== null ? backdated : null
     } else if (body.action === 'sms.start_date_today') {
       throw new BadRequestException('Not implemented until M3')
     }

@@ -323,7 +323,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     return { campaign, outreach }
   }
 
-  it('sets date to now for robocall.send_due_now', async () => {
+  it('sets date to 1 minute ago for robocall.send_due_now', async () => {
     const { outreach } = await seedOutreach(service.user.id)
     const before = new Date()
 
@@ -336,13 +336,14 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.outreachId).toBe(outreach.id)
     const date = new Date(res.data.date)
-    // formatISO truncates to whole seconds, so allow up to 1 s before `before`
-    expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000)
+    const oneMinuteAgo = before.getTime() - 60_000
+    expect(date.getTime()).toBeGreaterThanOrEqual(oneMinuteAgo - 2000)
+    expect(date.getTime()).toBeLessThanOrEqual(oneMinuteAgo + 2000)
     expect(res.data.dialedAt).toBeNull()
     expect(res.data.poolFreedAt).toBeNull()
   })
 
-  it('backdates dialedAt and poolFreedAt for robocall.dialed_48h_ago', async () => {
+  it('backdates dialedAt and leaves null poolFreedAt null', async () => {
     const { outreach } = await seedOutreach(service.user.id, true)
     const before = new Date()
 
@@ -354,7 +355,29 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     const dialedAt = new Date(res.data.dialedAt)
-    // Should be ~49h ago, so at least 48h before now
+    expect(before.getTime() - dialedAt.getTime()).toBeGreaterThan(
+      48 * 60 * 60 * 1000,
+    )
+    expect(res.data.poolFreedAt).toBeNull()
+  })
+
+  it('backdates both dialedAt and poolFreedAt when poolFreedAt is non-null', async () => {
+    const { outreach } = await seedOutreach(service.user.id, true)
+    const priorPoolFreedAt = new Date('2026-01-01T00:00:00Z')
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId: outreach.id },
+      data: { poolFreedAt: priorPoolFreedAt },
+    })
+    const before = new Date()
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'robocall.dialed_48h_ago' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const dialedAt = new Date(res.data.dialedAt)
     expect(before.getTime() - dialedAt.getTime()).toBeGreaterThan(
       48 * 60 * 60 * 1000,
     )
