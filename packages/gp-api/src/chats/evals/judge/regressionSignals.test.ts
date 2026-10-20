@@ -93,7 +93,50 @@ describe('signTestTail', () => {
   })
 })
 
+const attemptsOf = (
+  caseId: string,
+  classes: readonly HandlingClass[],
+): CaseHandling[] =>
+  classes.map((cls, i) => ({
+    caseId,
+    attempt: i + 1,
+    base: { primary: 'yes' },
+    candidate: { primary: 'no' },
+    class: cls,
+    ordersJudged: 1,
+  }))
+
 describe('handlingSignal', () => {
+  it('counts each case once, however many attempts regressed', () => {
+    const signal = handlingSignal(
+      {
+        cases: [
+          ...attemptsOf('a', ['regression', 'regression', 'regression']),
+          ...attemptsOf('b', ['regression', 'regression', 'regression']),
+        ],
+        notGraded: 0,
+      },
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(signal).toMatchObject({ regressions: 2, improvements: 0 })
+    expect(signal.says).toBeNull()
+  })
+
+  it('lets a case vote by its net change across attempts', () => {
+    const signal = handlingSignal(
+      {
+        cases: [
+          ...attemptsOf('a', ['regression', 'improvement', 'bothHandled']),
+          ...attemptsOf('b', ['regression', 'regression', 'improvement']),
+          ...attemptsOf('c', ['improvement', 'unsettled', 'bothHandled']),
+        ],
+        notGraded: 0,
+      },
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(signal).toMatchObject({ regressions: 1, improvements: 1 })
+  })
+
   it('says WORSE on the half-prompt probe: 5 regressions, 0 improvements', () => {
     const signal = handlingSignal(
       handlingOf({
