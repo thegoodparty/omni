@@ -128,7 +128,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(blob).toContain('P2P Campaign Canceled (by candidate)')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
-      `outreach-cancel-${row.id}`,
+      'outreach-cancel-pi_test_1',
     )
     const persisted = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: row.id },
@@ -297,7 +297,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
-      `outreach-cancel-${row.id}`,
+      'outreach-cancel-pi_test_1',
     )
     const persisted = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: row.id },
