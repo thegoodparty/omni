@@ -120,7 +120,12 @@ generation services, the spine scoping — are in
   `SERVE_TEXT` checkout. A paid poll is then held for review, and its row reads
   "In review". The Polls page (`/dashboard/polls`) merges these rows
   (`GET /v1/outreach/serve`, `outreachType: poll`) into its list and opens the
-  same flow from Create Poll when the flag is on.
+  same flow from Create Poll when the flag is on. `?compose=poll` opens the
+  flow directly once the flag resolves (a community issue's "Run a poll on
+  this issue" links here that way when the flag is on, and to the old
+  `/dashboard/polls/create` when it is off); with the flag off it opens
+  nothing. The poll results page highlights Outreach and its back link
+  returns here.
 
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the

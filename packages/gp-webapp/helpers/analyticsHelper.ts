@@ -214,7 +214,6 @@ export const EVENTS = {
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
-      ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
