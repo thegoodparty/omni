@@ -50,18 +50,17 @@ export const personViewSql = (args: {
         `max_by(value, created_at) FILTER (WHERE kind = 'set' AND field = '${f}') AS ${f}`,
     )
     .join(',\n    ')
-  const vendorScope = scopeCols.map((c) => `b.${c} AS ${c}`).join(', ')
-  const orgScope = [
-    'p.person_id AS id',
-    `${lit(state)} AS State`,
-    ...(districtType && districtName
-      ? [`${lit(districtName)} AS ${districtType}`]
-      : []),
-  ].join(', ')
-  const vendorFields = ORG_LAYER_FIELDS.map(
+  const districtCol =
+    districtType && districtName
+      ? `, ${lit(districtName)} AS ${districtType}`
+      : ''
+  const districtWhere =
+    districtType && districtName
+      ? ` AND ${districtType} = ${lit(districtName)}`
+      : ''
+  const fields = ORG_LAYER_FIELDS.map(
     (f) => `COALESCE(p.${f}, b.${f}) AS ${f}`,
   ).join(', ')
-  const orgFields = ORG_LAYER_FIELDS.map((f) => `p.${f} AS ${f}`).join(', ')
   return `(WITH p AS (
   SELECT person_id,
     ${pivots},
@@ -69,12 +68,9 @@ export const personViewSql = (args: {
     coalesce(max_by(kind, created_at) FILTER (WHERE kind IN ('remove', 'restore')) = 'remove', false) AS removed
   FROM ${ORG_LAYER_LOG_TABLE} WHERE org_slug = ${lit(orgSlug)} GROUP BY person_id
 )
-SELECT b.* EXCEPT (${exceptCols}), ${vendorScope}, ${vendorFields}, p.email AS poc_email,
-  IF(p.person_id IS NULL, 'vendor', 'vendor+org') AS poc_origin
-FROM ${baseTable} b LEFT JOIN p ON p.person_id = b.id
-WHERE NOT coalesce(p.removed, false)
-UNION ALL
-SELECT b.* EXCEPT (${exceptCols}), ${orgScope}, ${orgFields}, p.email AS poc_email, 'org' AS poc_origin
-FROM p LEFT JOIN ${baseTable} b ON 1 = 0
-WHERE p.is_new AND NOT p.removed)`
+SELECT b.* EXCEPT (${exceptCols}), coalesce(b.id, p.person_id) AS id, ${lit(state)} AS State${districtCol}, ${fields}, p.email AS poc_email,
+  CASE WHEN b.id IS NULL THEN 'org' WHEN p.person_id IS NULL THEN 'vendor' ELSE 'vendor+org' END AS poc_origin
+FROM (SELECT * FROM ${baseTable} WHERE State = ${lit(state)}${districtWhere}) b
+FULL OUTER JOIN p ON p.person_id = b.id
+WHERE (b.id IS NOT NULL OR p.is_new) AND NOT coalesce(p.removed, false))`
 }
