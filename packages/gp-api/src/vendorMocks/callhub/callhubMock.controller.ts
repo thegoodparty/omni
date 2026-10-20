@@ -20,6 +20,10 @@ import { VendorMockRecordService } from '../vendorMockRecord.service'
 // GET), so the mock does too: staging polls numbers_count until it reaches
 // the audience size, and only the CSV knows that size.
 const fetchCsv = async (url: string): Promise<string> => {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'https:') {
+    throw new BadGatewayException('csv_url must be HTTPS')
+  }
   const res = await fetch(url)
   if (!res.ok) {
     throw new BadGatewayException(`CSV fetch failed: ${res.status}`)
