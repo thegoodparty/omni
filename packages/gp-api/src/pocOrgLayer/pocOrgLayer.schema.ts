@@ -16,7 +16,15 @@ const pocImportRowSchema = z.object({
 export type PocImportRow = z.infer<typeof pocImportRowSchema>
 
 export class PocImportDTO extends createZodDto(
-  z.object({ rows: z.array(pocImportRowSchema).min(1).max(5000) }),
+  z.object({
+    rows: z.array(pocImportRowSchema).min(1).max(5000),
+    seedFromDistrict: z
+      .object({
+        byName: z.number().int().min(0).max(100),
+        byPhone: z.number().int().min(0).max(100),
+      })
+      .optional(),
+  }),
 ) {}
 
 export class PocImportParamsDTO extends createZodDto(

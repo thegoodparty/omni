@@ -20,10 +20,10 @@ export class PocOrgLayerController {
 
   @Post('import')
   importContacts(
-    @Body() { rows }: PocImportDTO,
+    @Body() { rows, seedFromDistrict }: PocImportDTO,
     @ReqOrganization() organization: Organization,
   ) {
-    return this.pocOrgLayer.importRows(organization, rows)
+    return this.pocOrgLayer.importRows(organization, rows, seedFromDistrict)
   }
 
   @Post('import/:importId/commit')

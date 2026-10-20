@@ -86,18 +86,26 @@ export class PocOrgLayerService {
     return this.tablesReady
   }
 
-  async importRows(org: Organization, rows: PocImportRow[]) {
+  async importRows(
+    org: Organization,
+    rows: PocImportRow[],
+    seedFromDistrict?: { byName: number; byPhone: number },
+  ) {
     const timingsMs: Record<string, number> = {}
     const importId = randomUUID()
     const startedAt = Date.now()
 
     await this.timed(timingsMs, 'ensureTables', () => this.ensureTables())
 
-    const district = await this.timed(timingsMs, 'resolveDistrict', async () => {
-      const { districtId, dataset } =
-        await this.contacts.resolveEligibleDistrict(org)
-      return this.voters.resolveDistrict(districtId, dataset)
-    })
+    const district = await this.timed(
+      timingsMs,
+      'resolveDistrict',
+      async () => {
+        const { districtId, dataset } =
+          await this.contacts.resolveEligibleDistrict(org)
+        return this.voters.resolveDistrict(districtId, dataset)
+      },
+    )
 
     await this.timed(timingsMs, 'stageRows', () => {
       const batches: PocImportRow[][] = []
@@ -153,6 +161,50 @@ export class PocOrgLayerService {
         ` \`${district.districtType}\` = ${bag.bind(district.districtName)}`
     const digits10 = (expr: string): string =>
       `right(regexp_replace(${expr}, '[^0-9]', ''), 10)`
+
+    if (seedFromDistrict) {
+      // Test-only: copies a few real people's match keys into staging inside
+      // Databricks so a match can be exercised without the keys ever
+      // leaving the warehouse.
+      const seedBag = createBag()
+      const seedImport = seedBag.bind(importId)
+      const seedOrg = seedBag.bind(org.slug)
+      const seedScope = district.useVoterOnlyPath
+        ? `State = ${seedBag.bind(district.state)}`
+        : `State = ${seedBag.bind(district.state)} AND` +
+          ` \`${district.districtType}\` = ${seedBag.bind(district.districtName)}`
+      const byName = Math.trunc(seedFromDistrict.byName)
+      const byPhone = Math.trunc(seedFromDistrict.byPhone)
+      const offset = seedBag.bind(rows.length, 'INT')
+      await this.timed(timingsMs, 'seedMatchRows', () =>
+        this.client.query({
+          sql:
+            `INSERT INTO ${ORG_LAYER_IMPORT_ROW_TABLE} (import_id, org_slug,` +
+            ' row_index, first_name, last_name, address, city, zip, phone,' +
+            ' email, created_at)' +
+            ` WITH by_name AS (SELECT * FROM ${district.table}` +
+            ` WHERE ${seedScope} AND FirstName IS NOT NULL` +
+            ' AND LastName IS NOT NULL AND Residence_Addresses_Zip IS NOT NULL' +
+            ` ORDER BY xxhash64(id, 7) LIMIT ${byName}),` +
+            ` by_phone AS (SELECT * FROM ${district.table}` +
+            ` WHERE ${seedScope}` +
+            ' AND VoterTelephones_CellPhoneFormatted IS NOT NULL' +
+            ` ORDER BY xxhash64(id, 11) LIMIT ${byPhone}),` +
+            ' seeds AS (' +
+            ' SELECT 0 AS kind, substr(FirstName, 1, 1) AS first_name,' +
+            ' LastName AS last_name, Residence_Addresses_Zip AS zip,' +
+            ' CAST(NULL AS STRING) AS phone FROM by_name UNION ALL' +
+            " SELECT 1, 'Phony', 'Phonematch', CAST(NULL AS STRING)," +
+            ' VoterTelephones_CellPhoneFormatted FROM by_phone)' +
+            ` SELECT ${seedImport}, ${seedOrg},` +
+            ` CAST(${offset} + row_number() OVER (ORDER BY kind, zip) - 1 AS INT)` +
+            ' AS row_index, first_name, last_name, NULL, NULL, zip, phone,' +
+            " concat('seed', row_number() OVER (ORDER BY kind, zip)," +
+            " '@example.com'), current_timestamp() FROM seeds",
+          params: seedBag.params,
+        }),
+      )
+    }
 
     await this.timed(timingsMs, 'match', () =>
       this.client.query({
@@ -301,7 +353,13 @@ export class PocOrgLayerService {
     })
     timingsMs.total = Date.now() - startedAt
     this.logger.info(
-      { op: 'poc-import-commit', orgSlug: org.slug, importId, counts, timingsMs },
+      {
+        op: 'poc-import-commit',
+        orgSlug: org.slug,
+        importId,
+        counts,
+        timingsMs,
+      },
       'poc org layer write',
     )
     return { importId, counts, timingsMs }
@@ -337,7 +395,8 @@ export class PocOrgLayerService {
         sql:
           `INSERT INTO ${ORG_LAYER_LOG_TABLE} (event_id, org_slug, person_id,` +
           ' kind, field, value, source, import_id, actor_user_id, created_at)' +
-          ` VALUES (uuid(), ${bag.bind(org.slug)}, ${bag.bind(personId)},` +
+          ` VALUES (${bag.bind(randomUUID())}, ${bag.bind(org.slug)},` +
+          ` ${bag.bind(personId)},` +
           ` ${bag.bind(kind)}, ${bag.bind(field)}, ${bag.bind(value)},` +
           ` 'manual', NULL, ${bag.bind(actorId, 'INT')}, current_timestamp())`,
         params: bag.params,
