@@ -1757,6 +1757,14 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  DeliverStripeEventRequestSchema,
+  type DeliverStripeEventRequest,
+  DeliverStripeEventResponseSchema,
+  type DeliverStripeEventResponse,
+  AdminOutreachActionRequestSchema,
+  type AdminOutreachActionRequest,
+  AdminOutreachActionResponseSchema,
+  type AdminOutreachActionResponse,
 } from './testFixtures/vendorMocks'
 
 export {

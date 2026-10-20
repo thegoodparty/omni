@@ -573,7 +573,9 @@ export class StripeService {
     return refunds.data
   }
 
-  async retrieveCheckoutSession(sessionId: string) {
+  async retrieveCheckoutSession(
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session> {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
 
