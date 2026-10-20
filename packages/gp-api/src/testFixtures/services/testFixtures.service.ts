@@ -320,7 +320,7 @@ export class TestFixturesService {
     } else if (action === 'callhub.campaign.complete') {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
     } else if (action === 'peerly.balance.empty') {
-      // Scaffold — Story 2 arms the Peerly empty-balance fixture here.
+      await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
@@ -397,6 +397,8 @@ export class TestFixturesService {
       'robocall.send': () => this.robocallSend.runSend(),
       'robocall.completion': () => this.robocallCompletion.runCompletion(),
       'robocall.capture': () => this.robocallCapture.runCapture(),
+      'p2p.phoneListFinish': () =>
+        this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),
     }
     const job = jobs[name]

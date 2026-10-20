@@ -3,6 +3,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, VendorMockVendor } from '@/generated/prisma'
+import { subSeconds } from 'date-fns'
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
@@ -164,6 +165,28 @@ export class VendorMockRecordService extends createPrismaBase(
     return this.model.update({
       where: { vendor_kind_externalId: { vendor, kind, externalId } },
       data: { state: nextState },
+    })
+  }
+
+  // Sets balance to 0 for the Peerly mock by creating a sentinel record.
+  // The GET /accounts/:acct/balance endpoint reads this record.
+  async emptyPeerlyBalance(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.peerly,
+      'balance',
+      'mock-balance',
+      { balance: 0 },
+      campaignId,
+    )
+  }
+
+  // Backdates all peerly phone_list records so checkstatus returns ACTIVE.
+  // Called by the p2p.phoneListFinish runJob in E2E specs.
+  async finishPeerlyPhoneLists() {
+    this.assertNonProdDeploy()
+    await this.model.updateMany({
+      where: { vendor: VendorMockVendor.peerly, kind: 'phone_list' },
+      data: { createdAt: subSeconds(new Date(), 15) },
     })
   }
 
