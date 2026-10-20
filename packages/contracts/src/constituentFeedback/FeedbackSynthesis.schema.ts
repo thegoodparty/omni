@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import {
   ConstituentFeedbackChannelSchema,
+  ConstituentFeedbackExtractionStatusSchema,
   IssueTagSourceSchema,
   IssueTagStatusSchema,
   SynthesisRunStatusSchema,
@@ -133,8 +134,12 @@ export const FeedbackReportMemoSchema = z.object({
   transcript: z.string().nullable(),
   issues: z.array(ConstituentFeedbackIssueSchema),
   actorName: z.string().nullable(),
-  // Null means waiting for review: listed, never counted.
+  // Null means not confirmed: listed, never counted.
   confirmedAt: zCoerceDate().nullable(),
+  // With no transcript, `pending` is a recording still being transcribed
+  // and `failed` one that could not be read. Null on a text reply, which
+  // nothing extracts.
+  extractionStatus: ConstituentFeedbackExtractionStatusSchema.nullable(),
 })
 export type FeedbackReportMemo = z.infer<typeof FeedbackReportMemoSchema>
 

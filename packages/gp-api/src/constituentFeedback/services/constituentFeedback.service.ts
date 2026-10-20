@@ -15,14 +15,13 @@ import {
   ConfirmConstituentFeedback,
   ConstituentFeedbackIssue,
   ConstituentFeedbackRecord,
-  PendingFeedback,
-  PendingFeedbackReference,
   RecordConstituentFeedback,
   RecordConstituentFeedbackResponse,
 } from '@goodparty_org/contracts'
 import {
   ConstituentFeedbackCaptureMethod,
   ConstituentFeedbackChannel,
+  ConstituentFeedbackConfirmation,
   ConstituentFeedbackExtractionStatus,
   ConstituentFeedbackStance,
   IssueTagStatus,
@@ -149,6 +148,65 @@ const replaceIssues = async (
     select: ISSUE_SELECT.select,
   })
   return created.sort((a, b) => a.position - b.position)
+}
+
+type ProposedFields = Pick<
+  IssueRow,
+  'proposedIssueLabel' | 'proposedStance' | 'proposedDesiredOutcome'
+>
+
+// The model's own words for each issue it proposed, in order. An issue a
+// person wrote has no proposal, so it is left out.
+const replaceUnreviewedProposal = async (
+  tx: Prisma.TransactionClient,
+  feedbackId: string,
+  issues: ProposedFields[],
+): Promise<void> => {
+  await tx.constituentFeedbackUnreviewedIssue.deleteMany({
+    where: { feedbackId },
+  })
+  const proposal = issues.flatMap((issue) =>
+    issue.proposedIssueLabel === null
+      ? []
+      : [
+          {
+            issueLabel: issue.proposedIssueLabel,
+            stance: issue.proposedStance,
+            desiredOutcome: issue.proposedDesiredOutcome,
+          },
+        ],
+  )
+  if (proposal.length === 0) return
+  await tx.constituentFeedbackUnreviewedIssue.createMany({
+    data: proposal.map((issue, position) => ({
+      ...issue,
+      position,
+      feedbackId,
+    })),
+  })
+}
+
+// Confirming without review leaves a memo no issues, so nothing that reads
+// them can count a guess nobody checked. The model's proposal moves to the
+// unreviewed proposal, kept only to measure extraction. A memo with nothing
+// proposed keeps whatever proposal it already has.
+const setAsideProposal = async (
+  tx: Prisma.TransactionClient,
+  feedbackId: string,
+): Promise<void> => {
+  const proposed = await tx.constituentFeedbackIssue.findMany({
+    where: { feedbackId, proposedIssueLabel: { not: null } },
+    orderBy: { position: Prisma.SortOrder.asc },
+    select: {
+      proposedIssueLabel: true,
+      proposedStance: true,
+      proposedDesiredOutcome: true,
+    },
+  })
+  if (proposed.length > 0) {
+    await replaceUnreviewedProposal(tx, feedbackId, proposed)
+  }
+  await tx.constituentFeedbackIssue.deleteMany({ where: { feedbackId } })
 }
 
 // What a person's record reads with each memo. Accepted tags only: a
@@ -316,9 +374,11 @@ export class ConstituentFeedbackService extends createPrismaBase(
           effortQuestion: target.effortQuestion,
           outreachId: target.outreachId,
           confirmedAt: null,
+          confirmation: null,
           ...this.extractionFields(extracted),
         },
       })
+      await replaceUnreviewedProposal(tx, saved.id, [])
       return {
         row: saved,
         issues: await replaceIssues(tx, saved.id, proposedIssues(extracted)),
@@ -337,9 +397,8 @@ export class ConstituentFeedbackService extends createPrismaBase(
   // The offline path. The phone recorded with no signal and has since put
   // the audio at `audioKey`, so there are no words yet: the row is saved
   // pending, a Transcribe job starts, and the pending-transcription cron
-  // writes the transcript and runs extraction when the job finishes. Nobody
-  // is at the door any more, so the issues wait in the "Notes to review"
-  // list instead of a confirm card.
+  // writes the transcript, runs extraction and confirms the memo when the
+  // job finishes. Nobody is at the door any more to check the issues.
   private async captureRecording(input: {
     organizationSlug: string
     actorUserId: number
@@ -362,6 +421,8 @@ export class ConstituentFeedbackService extends createPrismaBase(
       effortQuestion: target.effortQuestion,
       outreachId: target.outreachId,
       confirmedAt: null,
+      confirmation: null,
+      transcriptionAttempts: 0,
       ...EMPTY_EXTRACTION,
       extractionStatus: ConstituentFeedbackExtractionStatus.pending,
     }
@@ -390,6 +451,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         update: pending,
       })
       await replaceIssues(tx, saved.id, [])
+      await replaceUnreviewedProposal(tx, saved.id, [])
       return saved
     })
 
@@ -435,26 +497,66 @@ export class ConstituentFeedbackService extends createPrismaBase(
         }
   }
 
-  // Starts the job and records its name for the cron to poll. A failure to
-  // start never fails the caller: the row stays pending with no job name,
-  // and the cron's next pass starts it.
+  // Starts a job and records its name for the cron to poll. A start that
+  // fails counts as an attempt too and never fails the caller: the row stays
+  // pending with no job name, and the cron's next pass tries again while
+  // attempts remain.
   async startTranscription(id: string, audioKey: string): Promise<void> {
+    let jobName: string | null = null
     try {
-      const { jobName } = await this.transcribeFile.transcribeFile(audioKey)
-      await this.model.updateMany({
-        where: { id, transcript: null, transcriptionJobName: null },
-        data: { transcriptionJobName: jobName },
-      })
+      ;({ jobName } = await this.transcribeFile.transcribeFile(audioKey))
     } catch (err) {
       this.logger.error({ err, id }, 'Could not start memo transcription')
     }
+    await this.model.updateMany({
+      where: { id, transcript: null, transcriptionJobName: null },
+      data: {
+        transcriptionJobName: jobName,
+        transcriptionAttempts: { increment: 1 },
+      },
+    })
   }
 
-  // The job's words, then extraction exactly as a live capture runs it. The
-  // job name scopes both writes, so a memo re-recorded or retried while this
-  // one ran is left to its own job, and a memo confirmed while it ran keeps
-  // the issues its confirmer gave. `confirmedAt` stays null: the person
-  // who was there confirms it from the review list.
+  // Another job for a recording whose last one failed or never answered.
+  // Scoped by the old job's name, so a memo re-recorded or confirmed
+  // meanwhile is left as it is.
+  async restartTranscription(input: {
+    id: string
+    jobName: string
+    audioKey: string
+    reason: string
+  }): Promise<void> {
+    const { count } = await this.model.updateMany({
+      where: {
+        id: input.id,
+        transcriptionJobName: input.jobName,
+        transcript: null,
+        extractionStatus: ConstituentFeedbackExtractionStatus.pending,
+        confirmedAt: null,
+      },
+      data: { transcriptionJobName: null },
+    })
+    if (count === 0) {
+      this.logger.info(
+        { id: input.id, jobName: input.jobName, reason: input.reason },
+        'Memo changed while its transcription ran; left as it is',
+      )
+      return
+    }
+    this.logger.warn(
+      { id: input.id, jobName: input.jobName, reason: input.reason },
+      'Memo transcription failed; starting another job',
+    )
+    await this.startTranscription(input.id, input.audioKey)
+  }
+
+  // The job's words, then extraction exactly as a live capture runs it, and
+  // the memo is confirmed then and there: nobody who was at the door will
+  // see it again, and its words are all synthesis needs, extraction or no
+  // extraction. What the model proposed goes to the unreviewed proposal,
+  // never onto the memo's issues. The job name scopes the write, so a memo
+  // re-recorded or restarted while this one ran is left to its own job, and
+  // a memo confirmed while it ran keeps the issues its confirmer gave.
   async completeTranscription(input: {
     id: string
     jobName: string
@@ -464,13 +566,15 @@ export class ConstituentFeedbackService extends createPrismaBase(
       id: input.id,
       transcriptionJobName: input.jobName,
       transcript: null,
+      extractionStatus: ConstituentFeedbackExtractionStatus.pending,
       confirmedAt: null,
     }
     const transcript = clamp(
       input.transcript.trim(),
       CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
     )
-    // Silence transcribes to nothing, and nothing has no issue in it.
+    // Silence transcribes to nothing, and another job would hear the same
+    // nothing.
     if (!transcript) {
       await this.failTranscription({ ...input, reason: 'empty_transcript' })
       return
@@ -495,14 +599,20 @@ export class ConstituentFeedbackService extends createPrismaBase(
     await this.client.$transaction(async (tx) => {
       const { count } = await tx.constituentFeedback.updateMany({
         where,
-        data: { transcript, ...this.extractionFields(extracted) },
+        data: {
+          transcript,
+          ...this.extractionFields(extracted),
+          confirmedAt: new Date(),
+          confirmation: ConstituentFeedbackConfirmation.automatic,
+        },
       })
       if (count === 0) return
-      await replaceIssues(tx, input.id, proposedIssues(extracted))
+      await replaceUnreviewedProposal(tx, input.id, proposedIssues(extracted))
     })
   }
 
-  // The recording survives, so the review list offers to try again. A memo
+  // No words, and no more tries: the memo stays unconfirmed with no
+  // transcript, which the report shows as a note it could not read. A memo
   // confirmed while its job ran stays as its confirmer left it.
   async failTranscription(input: {
     id: string
@@ -532,206 +642,38 @@ export class ConstituentFeedbackService extends createPrismaBase(
     )
   }
 
-  // An effort's unconfirmed memos, newest first: the "Notes to review" list.
-  // A volunteer sees the ones they recorded, which they can only have done on
-  // an effort they were assigned; an owner or manager sees everyone's.
-  async listPending(input: {
-    organizationSlug: string
-    outreachId: number
-    actorUserId: number
-    role: OrganizationRole | undefined
-  }): Promise<PendingFeedback[]> {
-    const rows = await this.findMany({
-      where: {
-        organizationSlug: input.organizationSlug,
-        outreachId: input.outreachId,
-        confirmedAt: null,
-        ...(input.role === OrganizationRole.volunteer
-          ? { actorUserId: input.actorUserId }
-          : {}),
-      },
-      orderBy: { occurredAt: Prisma.SortOrder.desc },
-      include: {
-        ...RECORD_INCLUDE,
-        doorKnockInteraction: { select: { sourceId: true } },
-        phoneBankingInteraction: { select: { phoneBankingListId: true } },
-      },
-    })
-    const references = await this.referencesFor(input.outreachId, rows)
-    return rows.map((row) => ({
-      ...this.toRecord(row),
-      clientKey: row.clientKey,
-      reference: references.get(row.id) ?? null,
-    }))
-  }
-
-  // What a capture would post for each memo. Neither row keeps the stop
-  // target or the list entry it was recorded against, so they are found
-  // again: the person's stop target on this effort's turf, and their entry
-  // on the call's list. Two queries for the whole list, not one per memo.
-  private async referencesFor(
-    outreachId: number,
-    rows: Array<{
-      id: string
-      personId: string
-      doorKnockInteraction: { sourceId: string | null } | null
-      phoneBankingInteraction: { phoneBankingListId: number | null } | null
-    }>,
-  ): Promise<Map<string, PendingFeedbackReference>> {
-    const knockPersonIds = rows
-      .filter((row) => row.doorKnockInteraction !== null)
-      .map((row) => row.personId)
-    const listIds = [
-      ...new Set(
-        rows.flatMap((row) => {
-          const listId = row.phoneBankingInteraction?.phoneBankingListId
-          return listId === null || listId === undefined ? [] : [listId]
-        }),
-      ),
-    ]
-    const [stopTargets, entryPeople] = await Promise.all([
-      knockPersonIds.length === 0
-        ? []
-        : this.client.doorKnockingStopTarget.findMany({
-            where: {
-              personId: { in: knockPersonIds },
-              stop: { turf: { outreach: { id: outreachId } } },
-            },
-            select: { id: true, personId: true },
-          }),
-      listIds.length === 0
-        ? []
-        : this.client.phoneBankingListEntryPerson.findMany({
-            where: {
-              personId: { in: rows.map((row) => row.personId) },
-              entry: { phoneBankingListId: { in: listIds } },
-            },
-            select: {
-              personId: true,
-              phoneBankingListEntryId: true,
-              entry: { select: { phoneBankingListId: true } },
-            },
-          }),
-    ])
-    const stopTargetByPerson = new Map(
-      stopTargets.map((target) => [target.personId, target.id]),
-    )
-    const entryByListAndPerson = new Map(
-      entryPeople.map((person) => [
-        `${person.entry.phoneBankingListId}:${person.personId}`,
-        person.phoneBankingListEntryId,
-      ]),
-    )
-
-    const references = new Map<string, PendingFeedbackReference>()
-    for (const row of rows) {
-      const knockClientKey = row.doorKnockInteraction?.sourceId
-      const stopTargetId = stopTargetByPerson.get(row.personId)
-      if (knockClientKey && stopTargetId !== undefined) {
-        references.set(row.id, {
-          channel: ConstituentFeedbackChannel.door_knock,
-          knockClientKey,
-          stopTargetId,
-        })
-      }
-      const listId = row.phoneBankingInteraction?.phoneBankingListId
-      const entryId = entryByListAndPerson.get(`${listId}:${row.personId}`)
-      if (listId !== undefined && listId !== null && entryId !== undefined) {
-        references.set(row.id, {
-          channel: ConstituentFeedbackChannel.phone_bank,
-          entryId,
-          personId: row.personId,
-        })
-      }
-    }
-    return references
-  }
-
-  // The review list's "Try again", which is also the recovery for a memo
-  // whose transcription or extraction failed online. A recording with no
-  // words yet is transcribed again; words with no issues are extracted
-  // again. A volunteer retries only their own memo, on an effort they are
-  // still assigned to.
-  async retry(input: {
-    organizationSlug: string
+  // A live memo whose confirm step never finished: the app closed on the
+  // card. Confirmed the way a skip is, so its words reach synthesis, but
+  // only if nothing has touched it since the sweep read it, so a confirm
+  // that lands first keeps what its confirmer gave.
+  async confirmAbandoned(input: {
     id: string
-    actorUserId: number
-    role: OrganizationRole | undefined
-  }): Promise<ConstituentFeedbackRecord> {
-    const row = await this.findFirst({
-      where: {
-        id: input.id,
-        organizationSlug: input.organizationSlug,
-        confirmedAt: null,
-      },
-      select: {
-        outreachId: true,
-        channel: true,
-        actorUserId: true,
-        transcript: true,
-        audioKey: true,
-        effortQuestion: true,
-      },
-    })
-    if (row === null) throw new NotFoundException()
-    if (
-      input.role === OrganizationRole.volunteer &&
-      row.actorUserId !== input.actorUserId
-    ) {
-      throw new NotFoundException()
-    }
-    await this.assertVolunteerOnEffort(
-      input.role,
-      row.outreachId,
-      input.actorUserId,
-      row.channel,
-    )
-
-    if (row.transcript !== null) {
-      const extracted = await this.extraction.extract({
-        transcript: row.transcript,
-        effortQuestion: row.effortQuestion,
-        userId: input.actorUserId,
-      })
-      // Scoped to unconfirmed: the canvasser can confirm from the review
-      // list while the model is still answering, and a proposal must never
-      // replace what they confirmed.
-      await this.client.$transaction(async (tx) => {
-        const { count } = await tx.constituentFeedback.updateMany({
-          where: { id: input.id, confirmedAt: null },
-          data: this.extractionFields(extracted),
-        })
-        if (count === 0) return
-        await replaceIssues(tx, input.id, proposedIssues(extracted))
-      })
-    } else if (row.audioKey !== null) {
-      await this.model.update({
-        where: { id: input.id },
+    updatedAt: Date
+  }): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      const { count } = await tx.constituentFeedback.updateMany({
+        where: {
+          id: input.id,
+          confirmedAt: null,
+          updatedAt: input.updatedAt,
+        },
         data: {
-          extractionStatus: ConstituentFeedbackExtractionStatus.pending,
-          transcriptionJobName: null,
+          confirmedAt: new Date(),
+          confirmation: ConstituentFeedbackConfirmation.automatic,
         },
       })
-      await this.startTranscription(input.id, row.audioKey)
-    } else {
-      throw new UnprocessableEntityException('This memo has nothing to retry')
-    }
-
-    return this.toRecord(
-      await this.model.findUniqueOrThrow({
-        where: { id: input.id },
-        include: RECORD_INCLUDE,
-      }),
-    )
+      if (count === 0) return
+      await setAsideProposal(tx, input.id)
+    })
   }
 
   // The confirmed issues replace whatever the model proposed, in the order
   // sent: one left out is removed, and an empty list confirms a memo that
   // named none. An issue sent with `fromIssueId` keeps that row, so the
   // model's proposal stays beside the answer and a repeated confirm lands on
-  // the same rows. `confirmedAt` is what later reporting reads to tell a
-  // first-hand answer apart from an unreviewed guess, so it is only ever set
-  // here.
+  // the same rows. A skip confirms the memo with no issues and sets the
+  // proposal aside. Either way the issues a memo keeps are ones a person
+  // reviewed, which is what later reporting relies on.
   async confirm(input: {
     organizationSlug: string
     id: string
@@ -745,7 +687,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     })
     if (existing === null) throw new NotFoundException()
     // A confirmation is the word of whoever had the conversation, so a
-    // volunteer confirms only their own memo, as with retry.
+    // volunteer confirms only their own memo.
     if (
       input.role === OrganizationRole.volunteer &&
       existing.actorUserId !== input.actorUserId
@@ -758,6 +700,27 @@ export class ConstituentFeedbackService extends createPrismaBase(
       input.actorUserId,
       existing.channel,
     )
+
+    // A skip only ever confirms a memo nobody has: the drawer's dismiss is a
+    // skip, and one racing a "Looks right" can land after it. Claimed with a
+    // conditional write so the check cannot race either.
+    if (input.body.skipped === true) {
+      const skipped = await this.client.$transaction(async (tx) => {
+        const { count } = await tx.constituentFeedback.updateMany({
+          where: { id: input.id, confirmedAt: null },
+          data: {
+            confirmedAt: new Date(),
+            confirmation: ConstituentFeedbackConfirmation.skipped,
+          },
+        })
+        if (count > 0) await setAsideProposal(tx, input.id)
+        return tx.constituentFeedback.findUniqueOrThrow({
+          where: { id: input.id },
+          include: RECORD_INCLUDE,
+        })
+      })
+      return this.toRecord(skipped)
+    }
 
     const row = await this.client.$transaction(async (tx) => {
       const held = await tx.constituentFeedbackIssue.findMany({
@@ -809,7 +772,10 @@ export class ConstituentFeedbackService extends createPrismaBase(
 
       return tx.constituentFeedback.update({
         where: { id: input.id },
-        data: { confirmedAt: new Date() },
+        data: {
+          confirmedAt: new Date(),
+          confirmation: ConstituentFeedbackConfirmation.reviewed,
+        },
         include: RECORD_INCLUDE,
       })
     })

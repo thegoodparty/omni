@@ -1,7 +1,9 @@
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import type { FeedbackThemeSummary } from '@goodparty_org/contracts'
-import { Button, Card, ChevronRightIcon } from '@styleguide'
+import { Avatar, Button, Card, CardContent } from '@styleguide'
 import { whatWeHeardCopy } from '../../copy'
+import { RETURN_PARAM, safeReturnPath, withReturnPath } from '../../returnPath'
 import StanceSplit from './StanceSplit'
 
 interface ThemeCardProps {
@@ -20,49 +22,60 @@ const ThemeCard = ({
   isServe,
 }: ThemeCardProps) => {
   const copy = whatWeHeardCopy(isServe)
+  const from = safeReturnPath(useSearchParams()?.get(RETURN_PARAM) ?? null)
 
   return (
-    <Card className="p-4 md:p-6">
-      <div className="flex h-full flex-col justify-between gap-6">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center">
-            {/* The badge is a picture of the rank; the heading says it, so a
+    <Card>
+      <CardContent>
+        <div className="flex h-full flex-col justify-between gap-6">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              {/* The badge is a picture of the rank; the heading says it, so a
                 screen reader hears "Rank 1: Street flooding" once. */}
-            <div
-              aria-hidden="true"
-              className="mr-4 flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary-light text-sm font-semibold text-secondary-dark"
-            >
-              #{position}
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-foreground">
-                <span className="sr-only">{copy.rank(position)}:</span>{' '}
-                {theme.title}
-              </h3>
-              {/* A note can touch two themes, so this is conversations that
+              <Avatar size="large" aria-hidden="true">
+                {/* The secondary family's tint, with no ring: Avatar has no colour
+                  variant, so its fallback takes the theme token here. */}
+                <Avatar.Fallback className="border-0 bg-secondary-light text-secondary-dark">
+                  #{position}
+                </Avatar.Fallback>
+              </Avatar>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-foreground">
+                  <span className="sr-only">{copy.rank(position)}:</span>{' '}
+                  {theme.title}
+                </h3>
+                {/* A note can touch two themes, so this is conversations that
                   touched this one, never a share of the effort. */}
-              <p className="text-sm text-muted-foreground">
-                {copy.conversations(theme.conversationCount)}
-              </p>
+                <p className="text-sm text-muted-foreground">
+                  {copy.conversations(theme.conversationCount)}
+                </p>
+              </div>
             </div>
-          </div>
-          <p className="text-sm text-foreground">{theme.summary}</p>
-          {/* Null when every member is a text reply, which carries no
+            <p className="text-sm text-foreground">{theme.summary}</p>
+            {/* Null when every member is a text reply, which carries no
               stance: four zeros would read as a finding. */}
-          {theme.stanceCounts !== null && (
-            <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
-          )}
-        </div>
-        <Button asChild variant="outline" className="w-full">
-          <Link
-            href={`/dashboard/issue-capture/${outreachId}/theme/${theme.id}`}
-            aria-label={copy.seeDetailsFor(theme.title)}
+            {theme.stanceCounts !== null && (
+              <StanceSplit counts={theme.stanceCounts} isServe={isServe} />
+            )}
+          </div>
+          <Button
+            asChild
+            variant="outline"
+            size="small"
+            className="w-full sm:w-auto sm:self-start"
           >
-            {copy.seeDetails}
-            <ChevronRightIcon />
-          </Link>
-        </Button>
-      </div>
+            <Link
+              href={withReturnPath(
+                `/dashboard/issue-capture/${outreachId}/theme/${theme.id}`,
+                from,
+              )}
+              aria-label={copy.seeDetailsFor(theme.title)}
+            >
+              {copy.seeDetails}
+            </Link>
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   )
 }
