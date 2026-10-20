@@ -40,8 +40,10 @@ unticked for the plan.
 **Reading the result.** The verdict is in the run's summary: open **Actions →
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
-for the one at the time you posted. The PR thread says the sweep started but
-not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+for the one at the time you posted. When a live sweep ends, its report is
+posted on the PR as a new comment, and the run summary has the same text. The
+per-case rulings quote agent output, so they stay in the private bucket and
+never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
 **CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list
 has fewer than the 20 cases a verdict needs to count as evidence. Under that it's CAN'T SAY, with the
 measured difference still shown beside it. The summary also lists what was
