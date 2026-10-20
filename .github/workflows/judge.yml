@@ -2481,14 +2481,36 @@ jobs:
                   '',
                   `**The sweep ended without a verdict** (sweep job: ${process.env.SWEEP_RESULT}). Why is in [the run](${runUrl}).`,
                 ].join('\n')
+            // One verdict comment per PR, rewritten by each sweep, matched on
+            // author then marker for the reason the plan comment is.
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            const mine = existing.find(
+              (c) =>
+                c.user?.login === 'github-actions[bot]' &&
+                c.body?.includes('<!-- universal-judge-verdict -->'),
+            )
+            // Only a locked conversation (403) is tolerated, as for the plan
+            // comment; anything else stays fatal so a failed post is visible.
             try {
-              await github.rest.issues.createComment({
-                ...context.repo,
-                issue_number,
-                body,
-              })
+              if (mine) {
+                await github.rest.issues.updateComment({
+                  ...context.repo,
+                  comment_id: mine.id,
+                  body,
+                })
+              } else {
+                await github.rest.issues.createComment({
+                  ...context.repo,
+                  issue_number,
+                  body,
+                })
+              }
             } catch (err) {
-              // A locked or deleted PR cannot take a comment; the verdict is
-              // still in the run summary.
-              core.warning(`Could not post the verdict on #${issue_number}: ${err.message}`)
+              if (err.status !== 403) throw err
+              core.warning(
+                `Could not post the verdict on #${issue_number} (HTTP 403, most likely a locked conversation). It is in the run summary.`,
+              )
             }

@@ -41,7 +41,7 @@ unticked for the plan.
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
 for the one at the time you posted. When a live sweep ends, its report is
-posted on the PR as a new comment, and the run summary has the same text. The
+posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
 per-case rulings quote agent output, so they stay in the private bucket and
 never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
 **CAN'T SAY**. Most are CAN'T SAY today, and that's expected: every list

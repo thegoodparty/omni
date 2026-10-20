@@ -2285,6 +2285,15 @@ describe('judge.yml posts the verdict on the PR', () => {
     expect(verdictJob).toContain('issues.createComment')
   })
 
+  it('rewrites its own comment rather than adding one per sweep', () => {
+    expect(verdictJob).toContain('issues.updateComment')
+    expect(verdictJob).toContain("c.user?.login === 'github-actions[bot]'")
+  })
+
+  it('tolerates only a locked conversation when posting', () => {
+    expect(verdictJob).toContain('if (err.status !== 403) throw err')
+  })
+
   it('warns when a failed sweep left a partial report', () => {
     expect(verdictJob).toContain("process.env.SWEEP_RESULT === 'success'")
     expect(verdictJob).toContain('so this report may be incomplete')
