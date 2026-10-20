@@ -268,6 +268,40 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Merge queue
+
+`main` can use GitHub's merge queue. The queue tests each batch of pull
+requests merged together with the current `main`, so two PRs that pass alone
+but break together, or a PR whose checks ran against an old `main`, can't land.
+
+Every required check must report on the queue's combined commit:
+
+- **Validate.** Each package workflow also runs on `merge_group`, so its checks
+  and unit tests run on the combined commit. `dependency-review.yml` does not:
+  it only works on pull requests and has already passed there. gp-ai skips its
+  image builds in the queue, because its AWS roles trust only pull requests and
+  `main` pushes, and the PR already built the images.
+- **E2E.** Not rerun. gp-webapp's E2E jobs run on `pull_request` only, and a job
+  skipped by its `if` counts as passing. Running E2E in the queue would need a
+  preview deployment per batch and would roughly double queue time.
+- **pr-reviewer.** `merge-queue.yml` marks it passed on the combined commit. A
+  PR can only enter the queue after it passed on the PR.
+
+The release train does not change: it still runs on each push to `main`. The
+queue lands PRs in batches, so `main` gets fewer pushes.
+
+Ruleset settings, sized for up to about 55 merges a day and 15 in the busiest
+hour. gp-api's Validate takes about 23 minutes, so it sets the queue's pace:
+
+| Setting | Value | Why |
+|---|---|---|
+| Merge method | Squash | The most common method on `main` today |
+| Build concurrency | 3 | Each build runs every package's checks; 3 at once stay well under the org's 60-runner limit |
+| Maximum group size | 5 | 3 builds x 5 PRs is about 39 PRs an hour |
+| Minimum group size | 1 | A quiet hour doesn't wait to fill a batch |
+| Status check timeout | 60 minutes | Above gp-api's slowest Validate run (about 26 minutes) |
+| Only merge non-failing pull requests | On | A failing PR leaves the queue without blocking the rest |
+
 ### Base images
 
 Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
