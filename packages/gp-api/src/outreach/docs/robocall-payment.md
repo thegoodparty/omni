@@ -528,8 +528,9 @@ Invariants:
   `completedCallCount == 0` void path is DEFENSIVE-ONLY: completion sets the count
   to `billableCount`, which `assertReachableCount` guarantees is > 0 at draft, so
   a real settling run always captures the full estimate and never voids on a zero
-  count. The capture idempotency key is stable (`robocall-capture-<outreachId>`,
-  the amount being deterministic per run) so a lost response replays instead of
+  count. The capture idempotency key is stable (`robocall-capture-<holdIntentId>`,
+  the amount being deterministic per run; the hold, not the outreach id, since PR
+  previews share one Stripe account and repeat outreach ids) so a lost response replays instead of
   double-charging.
 - **Receipt + terminal.** The commit CAS (`capturing → captured`) stamps
   `capturedAmountInCents`, best-effort advances the spine `Outreach.status →
