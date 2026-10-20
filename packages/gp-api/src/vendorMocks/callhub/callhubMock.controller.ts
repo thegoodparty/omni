@@ -307,11 +307,14 @@ export class CallhubMockController {
 
   // In mock mode the real client always sends CALLHUB_MOCK_API_KEY, even
   // where CALLHUB_API_KEY is also set (PR previews share it with dev).
+  // The fallback to any non-empty auth when CALLHUB_API_KEY is unset is
+  // intentionally absent: mock routes are internet-facing on previews and
+  // must not accept arbitrary tokens.
   private assertAuth(auth: string | undefined) {
     const expectedKey = process.env.CALLHUB_API_KEY
     const accepted =
       auth === `Token ${CALLHUB_MOCK_API_KEY}` ||
-      (!!auth && (!expectedKey || auth === `Token ${expectedKey}`))
+      (!!expectedKey && auth === `Token ${expectedKey}`)
     if (!accepted) throw new UnauthorizedException()
   }
 }
