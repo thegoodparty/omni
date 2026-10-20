@@ -372,11 +372,11 @@ const SERVE_AREAS: ProductArea[] = [
     ],
   },
   {
-    navId: 'polls-dashboard',
+    navId: null,
     name: 'Polls',
     path: '/dashboard/polls',
     modes: ['serve'],
-    does: 'Commission a poll of the district and read the results.',
+    does: 'Commission a poll of the district and read the results. It is no longer in the left rail. New polls are created and opened from Outreach; past polls open from a constituent’s record.',
     inside: [
       'Each poll in the list opens its own results page. Until a poll goes out it shows its message and send date; after that it shows how many were texted, how many responded, the response rate and the opt-out rate, and refreshes by itself',
       'Under 20 responses it says Not enough responses yet and shows no themes. From 20 up it shows up to 5 top themes with their mentions and an "N new" tag for responses since the last read, plus an Other responses card for replies that fit no theme. Poll confidence, high or low, is worked out by GoodParty.org',
