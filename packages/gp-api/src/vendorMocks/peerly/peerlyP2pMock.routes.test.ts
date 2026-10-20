@@ -177,6 +177,49 @@ describe('Phone list upload and status', () => {
     expect(status.data.Data.list_state).toBe('ACTIVE')
     expect(typeof status.data.Data.list_id).toBe('number')
   })
+
+  it('returns all phoneListDetailsResponseSchema fields for GET /:id', async () => {
+    const csv = 'first_name,last_name,lead_phone\nAlice,Smith,5551234567\n'
+    const form = new FormData()
+    form.append('file', new Blob([csv], { type: 'text/csv' }), 'voters.csv')
+    form.append('list_name', 'detail-list')
+    const upload = await service.client.post(`${BASE}/phonelists`, form)
+    const token = upload.data.Data.token as string
+
+    // Backdate so list becomes ACTIVE
+    await service.prisma.vendorMockRecord.updateMany({
+      where: { vendor: VendorMockVendor.peerly, kind: 'phone_list' },
+      data: { createdAt: new Date(Date.now() - 15_000) },
+    })
+
+    const statusRes = await service.client.get(
+      `${BASE}/phonelists/${token}/checkstatus`,
+    )
+    const listId = statusRes.data.Data.list_id as number
+
+    const details = await service.client.get(`${BASE}/phonelists/${listId}`)
+    expect(details.status).toBe(HttpStatus.OK)
+    const d = details.data
+    expect(d.list_id).toBe(listId)
+    expect(d.list_name).toBe('detail-list')
+    expect(d.list_state).toBe('ACTIVE')
+    expect(typeof d.leads_loaded).toBe('number')
+    expect(typeof d.leads_supplied).toBe('number')
+    expect(typeof d.leads_duplicate).toBe('number')
+    expect(typeof d.leads_master_dnc).toBe('number')
+    expect(typeof d.leads_cell_dnc).toBe('number')
+    expect(typeof d.leads_malformed).toBe('number')
+    expect(typeof d.use_nat_dnc).toBe('number')
+    expect(typeof d.suppress_cell_phones).toBe('number')
+    expect(typeof d.account_id).toBe('string')
+    expect(typeof d.leads_acct_dnc).toBe('number')
+    expect(typeof d.leads_cell_suppressed).toBe('number')
+    expect(typeof d.leads_invalid).toBe('number')
+    expect(typeof d.leads_nat_dnc).toBe('number')
+    expect(typeof d.upload_by).toBe('string')
+    expect(typeof d.shared).toBe('number')
+    expect(typeof d.upload_date).toBe('string')
+  })
 })
 
 describe('GET /v1/vendor-mocks/peerly/accounts/:acct/balance', () => {

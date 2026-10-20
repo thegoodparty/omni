@@ -321,17 +321,45 @@ export class PeerlyP2pMockController {
   @Get('phonelists/:id')
   async getPhoneList(@Param('id') id: string) {
     this.assertMockMode()
+    // Real client calls GET /phonelists/{listId} (numeric) not by token.
+    const numericId = Number(id)
     const records = await this.vendorMockRecord.findMany({
       where: {
         vendor: VendorMockVendor.peerly,
         kind: 'phone_list',
-        externalId: id,
       },
     })
-    const record = records[0]
+    const record = records.find((r) => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      const s = jsonObj(r.state as Prisma.JsonValue)
+      return Number(s['listId'] ?? -1) === numericId
+    })
     if (!record) throw new NotFoundException()
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    return jsonObj(record.state as Prisma.JsonValue)
+    const state = jsonObj(record.state as Prisma.JsonValue)
+    const listState = this.resolveListState(state, record.createdAt)
+    const count = Number(state['count'] ?? 0)
+    return {
+      leads_duplicate: 0,
+      leads_master_dnc: 0,
+      leads_cell_dnc: 0,
+      leads_malformed: 0,
+      leads_loaded: count,
+      use_nat_dnc: 0,
+      suppress_cell_phones: 0,
+      account_id: 'mock-peerly',
+      leads_acct_dnc: 0,
+      list_name: String(state['listName'] ?? 'mock-list'),
+      list_state: listState,
+      list_id: numericId,
+      leads_cell_suppressed: 0,
+      leads_supplied: count,
+      leads_invalid: 0,
+      leads_nat_dnc: 0,
+      upload_by: 'mock',
+      shared: 0,
+      upload_date: new Date().toISOString(),
+    }
   }
 
   @Post('phonelists/:id/addcontact')
