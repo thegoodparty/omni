@@ -520,7 +520,10 @@ import { dirname, join, relative } from 'node:path'
 // runs), the favorite and read marks, and the Gather more feedback flow; the
 // theme list, theme detail, comment list and CRM panel carry no directive and
 // inherit it, and the server page above it only validates the route.
-const BASELINE = 595
+// 2026-10-20: 595 -> 597 on the import contacts POC branch only (never
+// merges): ImportContactsPocPage (file upload, preview, commit) and
+// PocPersonActions (edit, remove, restore) hold form state and mutations.
+const BASELINE = 597
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
