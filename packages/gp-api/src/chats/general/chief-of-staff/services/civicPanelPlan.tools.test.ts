@@ -10,7 +10,14 @@ const organization = { slug: 'eo-1' } as Organization
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  progress: {
+    members: 4,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 2,
+    groupsCovered: 0,
+    groupsTotal: 12,
+  },
   balance: null,
 }
 
@@ -32,8 +39,15 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     line: 'Invite residents to your civic panel by text',
     href: '/dashboard/contacts/citizens-panel?step=step-1',
   },
-  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
-  balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+  progress: {
+    members: 62,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 25,
+    groupsCovered: 9,
+    groupsTotal: 12,
+  },
+  balance: { status: 'missingGroups', inviteMore: 'age65plus' },
 })
 
 const buildPlans = (overrides: Partial<CivicPanelBuildPlanService> = {}) =>
@@ -74,13 +88,13 @@ describe('the civic panel plan tools', () => {
     expect(plans.updateHours).not.toHaveBeenCalled()
     expect(result).toEqual({
       saved: 'created',
-      members: 4,
-      goal: 240,
-      answersNeeded: 96,
-      expectedAnswers: 2,
+      members: 62,
+      groupsCovered: 9,
+      groupsTotal: 12,
+      standing: '62 members so far, from 9 of 12 groups in your district.',
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
-      panelStatus: 'Not yet representative',
+      panelStatus: 'Missing some groups',
       inviteMoreNext: 'people 65 and over',
     })
     // Answered once, it is never asked again in the same turn.
@@ -197,13 +211,13 @@ describe('the civic panel plan tools', () => {
       await toolsFor(plans, true).present_panel_next_step.execute({}),
     ).toEqual({
       shown: true,
-      members: 4,
-      goal: 240,
-      answersNeeded: 96,
-      expectedAnswers: 2,
+      members: 62,
+      groupsCovered: 9,
+      groupsTotal: 12,
+      standing: '62 members so far, from 9 of 12 groups in your district.',
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
-      panelStatus: 'Not yet representative',
+      panelStatus: 'Missing some groups',
       inviteMoreNext: 'people 65 and over',
     })
   })
