@@ -591,11 +591,13 @@ describe('the grouped route alerts', () => {
     }
 
     // The fan-out moved with the read. Two rules now cover every watched route
-    // between them, so the bound that matters is the whole route map rather
-    // than any one controller's slice of it.
-    expect(Object.values(ROUTE_MAP).flat().length).toBeLessThan(
-      MAX_QUERY_SERIES,
-    )
+    // between them, so the bound that matters is the combined count of watched
+    // routes. Controllers in CONTROLLERS_WITHOUT_ROUTE_ALERTS are excluded from
+    // the alert rules and generate no Loki series, so they are excluded here too.
+    const watchedRouteCount = CONTROLLER_NAMES.filter(
+      (c) => !CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(c),
+    ).flatMap((c) => ROUTE_MAP[c])
+    expect(watchedRouteCount.length).toBeLessThan(MAX_QUERY_SERIES)
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the

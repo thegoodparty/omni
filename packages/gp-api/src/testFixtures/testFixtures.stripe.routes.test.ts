@@ -14,6 +14,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // correct response shape — rather than re-testing payment-handler business
 // logic, which paymentEvents.cancellation.routes.test.ts already covers.
 
+const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return envNonProd.value
+    },
+  }
+})
+
 const service = useTestService()
 
 const FIXTURE_ROUTE = '/v1/test-fixtures/vendor-mocks/stripe/events'
@@ -38,6 +50,8 @@ describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
   let handleEvent: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    envNonProd.value = true
+
     vi.spyOn(
       service.app.get(StripeService),
       'retrieveCheckoutSession',
@@ -93,18 +107,13 @@ describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
   })
 
   it('returns 404 outside non-prod deploys', async () => {
-    const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
-    try {
-      const res = await service.client.post(
-        FIXTURE_ROUTE,
-        { type: 'checkout.session.completed', sessionId: FAKE_SESSION_ID },
-        { validateStatus: () => true },
-      )
-      expect(res.status).toBe(404)
-    } finally {
-      process.env.OTEL_SERVICE_ENVIRONMENT = original
-    }
+    envNonProd.value = false
+    const res = await service.client.post(
+      FIXTURE_ROUTE,
+      { type: 'checkout.session.completed', sessionId: FAKE_SESSION_ID },
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(404)
   })
 
   it('returns 403 for a non-test user', async () => {
