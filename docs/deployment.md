@@ -194,7 +194,11 @@ The stages:
    lock.
 2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
    push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
-   Vercel and alias `dev.goodparty.org`).
+   Vercel and alias `dev.goodparty.org`). The Pulumi and Vercel deploy
+   actions retry once when the failure is a network or throttling error.
+   They never retry a plan, validation or lock error, or an ECS rollout that
+   did not become stable, because a rerun after an unfinished rollout exits 0
+   without the service having rolled over.
 3. **E2E stage.** Confirms `gp-api-dev` is serving the SHA (the serialized deploy
    just put it there and nothing else can move dev mid-run), then runs the
    Playwright suite sharded 4 ways against `dev.goodparty.org`. There is no

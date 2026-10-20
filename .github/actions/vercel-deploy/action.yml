@@ -120,7 +120,23 @@ runs:
         fi
 
         vercel build "${BUILD_ARGS[@]}"
-        DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
+        # The upload is the one step here that talks to Vercel for minutes, so
+        # it gets one retry on a network error. A retry makes a new deployment;
+        # only the URL it prints is aliased below.
+        DEPLOY_ERR="$RUNNER_TEMP/vercel-deploy.err"
+        deploy() {
+          vercel deploy "${DEPLOY_ARGS[@]}" 2> "$DEPLOY_ERR" | awk 'NF { line=$0 } END { print line }'
+        }
+        if ! DEPLOY_URL="$(deploy)"; then
+          cat "$DEPLOY_ERR" >&2
+          if ! grep -qE 'ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network|50[234]' "$DEPLOY_ERR"; then
+            exit 1
+          fi
+          echo "::warning::vercel deploy hit a network error. Retrying once in 15 seconds."
+          sleep 15
+          DEPLOY_URL="$(deploy)" || { cat "$DEPLOY_ERR" >&2; exit 1; }
+        fi
+        cat "$DEPLOY_ERR" >&2
         case "$DEPLOY_URL" in
           http*) ;;
           *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
