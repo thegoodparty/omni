@@ -8,18 +8,20 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, then lands on the
 // post-payment dashboard PIN state (ENG-10475).
 //
-// @dev-only: the `isPro` flip and the compliance-agent dispatch are driven by
-// the live Stripe `checkout.session.completed` webhook in `paymentEventsService`
-// — not synchronously by the confirm call — which an ephemeral per-PR preview
-// can't deliver. The webhook can run past 90s, so the `isPro` poll widens
-// retries and the test budgets 15 minutes. Tagged on the test title so CI greps
-// it out on `pull_request` and includes it on the post-merge `develop` run.
-// See e2e-tests/CLAUDE.md ("@dev-only").
+// The @dev-only tag was removed (M3-5): the Stripe `checkout.session.completed`
+// event is now delivered in-process via deliverStripeEvent, which calls
+// POST /v1/test-fixtures/vendor-mocks/stripe/events and fires
+// paymentEventsService synchronously — no inbound webhook from Stripe is
+// needed, so PR previews can run this test. The session ID is extracted from
+// the checkout-session response's `clientSecret` field (Pro subscription
+// returns only clientSecret, not a session id), using Stripe's format:
+// `cs_<test|live>_<id>_secret_<random>` → `split('_secret_')[0]`.
 //
 // Side effects (no automated teardown for either):
 //   - Creates a real test-mode Stripe subscription. There is no candidate-facing
@@ -48,12 +50,12 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
+test('filed candidate upgrades to Pro and reaches the post-payment PIN state', async ({
   page,
 }) => {
-  // The `isPro` poll below can sleep up to ~240s on the Stripe webhook, so the
-  // budget must exceed the default 10 minutes.
-  test.setTimeout(15 * 60 * 1000)
+  // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
+  // near-instant; the budget can be much tighter than the old 15-minute window.
+  test.setTimeout(8 * 60 * 1000)
 
   // Isolated: this mutates account-level state (campaign → Pro), so it must
   // never reuse the per-worker cached user. Default race (Cheyenne City Council
@@ -195,6 +197,25 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // 8. Payment — embedded Stripe Payment Element.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/payment/)
 
+  // Capture the session ID from the checkout-session response. gp-api returns
+  // only `clientSecret` for Pro subscriptions (no `id` field), so derive the
+  // session ID from the Stripe client secret format:
+  // `cs_test_<id>_secret_<random>` → `split('_secret_')[0]` gives `cs_test_<id>`.
+  let proSessionId: string | null = null
+  await page.route(
+    /\/api\/v1\/payments\/purchase\/checkout-session$/,
+    async (route) => {
+      const response = await route.fetch()
+      if (response.ok()) {
+        const body = (await response.json()) as { clientSecret?: string }
+        if (body.clientSecret) {
+          proSessionId = body.clientSecret.split('_secret_')[0] ?? null
+        }
+      }
+      await route.fulfill({ response })
+    },
+  )
+
   const stripeFrame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
     .first()
@@ -236,9 +257,8 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   }
   await page.waitForTimeout(1_000)
 
-  // The Pro subscription confirms client-side via Stripe (no sessionId, no
-  // complete-checkout-session POST like the one-time polls purchase); on
-  // confirm the step navigates to /success, so the URL change is the signal.
+  // The Pro subscription confirms client-side via Stripe; on confirm the step
+  // navigates to /success, so the URL change is the signal.
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
   await completeButton.click()
@@ -248,17 +268,25 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     timeout: 60_000,
   })
   await expect(page.getByText('Welcome to Pro!')).toBeVisible()
+
+  // Deliver the Stripe checkout.session.completed event in-process. This fires
+  // paymentEventsService synchronously, flipping `isPro` without waiting for a
+  // real Stripe webhook. proSessionId was captured from the checkout-session
+  // response above; it must be non-null before we reach this point.
+  expect(proSessionId).toBeTruthy()
+  await deliverStripeEvent(client, proSessionId!)
+
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // The webhook flips `isPro` server-side (never client-side); prove it via the
-  // authed client before asserting the dependent dashboard UI. Widen retries to
-  // ~240s because the Stripe webhook can run past the default ~90s window.
+  // authed client before asserting the dependent dashboard UI. In-process
+  // delivery is near-instant, so a short poll is sufficient.
   await eventually(
     {
-      that: 'the campaign isPro flips server-side via the Stripe webhook',
-      minTimeout: 1_000,
-      maxTimeout: 15_000,
-      retries: 20,
+      that: 'the campaign isPro flips server-side via deliverStripeEvent',
+      minTimeout: 500,
+      maxTimeout: 2_000,
+      retries: 5,
     },
     async () => {
       const res = await client.get<CampaignProState>('/v1/campaigns/mine')
