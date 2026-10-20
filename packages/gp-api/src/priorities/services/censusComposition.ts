@@ -24,7 +24,6 @@ import {
 import {
   POOLED_VALUE,
   raceNameable,
-  unreachedTracts,
   weightingTargets,
   type WeightingCensus,
 } from '../util/censusWeighting.util'
@@ -94,14 +93,13 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     answers: PersonAnswer[]
   }): Promise<MrpInputs | null>
-  // The parts of the district these people have barely reached, as a
-  // boundary a list can carry. Null when every part has been heard from.
-  // Throws when the warehouse cannot be read: a list must not be saved as
-  // though the area were known.
-  unreachedArea(input: {
+  // These tracts as a boundary a list can carry. Null when no one lives in
+  // them. Throws when the warehouse cannot be read: a list must not be saved
+  // as though the area were known.
+  areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null>
   // These people counted by age band, gender, tenure and tract, beside the
   // district's census, unweighted: what the civic panel steers its invites
@@ -248,19 +246,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
-  async unreachedArea(input: {
+  async areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null> {
-    const { cells, tractAdults } = await this.stats.findWeightingInputs(
-      input.districtId,
-      input.dataset,
-      input.personIds,
-    )
-    const tracts = unreachedTracts(cells, tractAdults)
-    if (tracts.length === 0) return null
-    return this.shapeOfTracts(input, tracts)
+    if (input.tracts.length === 0) return null
+    return this.shapeOfTracts(input, input.tracts)
   }
 
   // Squares of the results grid wherever the tracts' people live, standing

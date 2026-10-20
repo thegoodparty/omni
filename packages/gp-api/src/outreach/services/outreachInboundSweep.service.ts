@@ -2,15 +2,22 @@ import { GatewayTimeoutException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
   addDays,
+  addMinutes,
+  compareAsc,
   compareDesc,
+  differenceInMilliseconds,
   format,
   getHours,
+  isAfter,
   isBefore,
   isValid,
   parse,
   startOfDay,
   subDays,
+  subHours,
 } from 'date-fns'
+import ms from 'ms'
+import pMap from 'p-map'
 import { CronLockService } from 'src/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
@@ -38,15 +45,40 @@ const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
 
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
-// Peerly builds that report while we wait (~2 minutes for a big job,
-// whatever the window), far too slow for the hourly pass, so it is read on
-// this sparser schedule as a backstop to the reply-text matching.
-const OUTREACH_OPT_OUT_RECONCILE_CRON = '45 */6 * * *'
+// Peerly builds that report while we wait (up to ~3 minutes for a big job,
+// whatever the window), far too slow to read for every job every hour, so
+// each job's report is read at most every OPT_OUT_RECONCILE_INTERVAL_HOURS
+// as a backstop to the reply-text matching. The pass runs hourly so each
+// one stays short: a single pass over every job ran past three hours and
+// was cut off by deploys before it finished (2026-10-20).
+const OUTREACH_OPT_OUT_RECONCILE_CRON = '45 * * * *'
 const OUTREACH_OPT_OUT_RECONCILE_JOB = 'outreachOptOutReconcile'
 
-// Above the ~120s a big job's report takes to build. A retry would ask
+export const OPT_OUT_RECONCILE_INTERVAL_HOURS = 6
+
+// Passes start a few milliseconds apart from hour to hour, so an exact
+// six-hour cutoff would push about half the reads to the seventh pass.
+const OPT_OUT_RECONCILE_INTERVAL_SLACK_MINUTES = 30
+
+// Peerly flags an opt-out on a reply, and replies land soon after the text:
+// on 12 jobs sent 10-14 days earlier, 252 of the 258 opt-outs only Peerly
+// flagged had their last reply within 3 days of the person's first text
+// (2026-10-20). A job sends on one day (outreachCompletion.service.ts), so
+// that is also 3 days from the send.
+export const OPT_OUT_RECONCILE_WINDOW_DAYS = 3
+
+// No report starts after this. With the last ones still building
+// (OPT_OUT_REPORT_TIMEOUT_MS), a pass ends long before the next hour's
+// starts, and nothing else stops two passes reading the same job at once.
+export const OPT_OUT_RECONCILE_BUDGET_MS = ms('20m')
+
+// Peerly builds two reports at once as fast as one: two big jobs took 63s
+// and 87s requested together, 71s and 96s one at a time (2026-10-20).
+export const OPT_OUT_RECONCILE_CONCURRENCY = 2
+
+// Above the ~170s a big job's report has taken to build. A retry would ask
 // Peerly to build the same report again from scratch, so one attempt only.
-const OPT_OUT_REPORT_TIMEOUT_MS = 180000
+const OPT_OUT_REPORT_TIMEOUT_MS = ms('5m')
 
 // dev and prod only, never every PR-preview stack against one shared
 // Peerly budget (docs/scheduled-jobs.md). Fail-closed: an absent or
@@ -104,11 +136,17 @@ interface InboundEvent {
   eventTimestamp?: Date
 }
 
-// Report timestamps read 'YYYY-MM-DD HH:MM:SS' (or date-only) with no
+// The CDR's timestamps read 'YYYY-MM-DD HH:MM:SS' (or date-only) with no
 // offset, and the timezone is unverified (ENG-10727) — parse as
-// server-local time as the best available approximation. Anything
-// unparseable falls back to the sweep's wall-clock at the call site.
-const REPORT_TIMESTAMP_FORMATS = ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd']
+// server-local time as the best available approximation. The
+// question-responses report appends the offset ('... -0400'), which is
+// exact. Anything unparseable falls back to the sweep's wall-clock at the
+// call site.
+const REPORT_TIMESTAMP_FORMATS = [
+  'yyyy-MM-dd HH:mm:ss xx',
+  'yyyy-MM-dd HH:mm:ss',
+  'yyyy-MM-dd',
+]
 
 const parseReportTimestamp = (value: string): Date | undefined => {
   for (const timestampFormat of REPORT_TIMESTAMP_FORMATS) {
@@ -248,8 +286,11 @@ export class OutreachInboundSweepService extends createPrismaBase(
     }
   }
 
-  private async findCandidates(now: Date): Promise<SweepableOutreach[]> {
-    const windowStart = subDays(now, INBOUND_SWEEP_WINDOW_DAYS)
+  private async findCandidates(
+    now: Date,
+    windowDays: number,
+  ): Promise<SweepableOutreach[]> {
+    const windowStart = subDays(now, windowDays)
     const candidates = await this.model.findMany({
       where: {
         projectId: { not: null },
@@ -270,7 +311,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
   }
 
   private async runInboundSweep(now: Date): Promise<void> {
-    const candidates = await this.findCandidates(now)
+    const candidates = await this.findCandidates(now, INBOUND_SWEEP_WINDOW_DAYS)
     const counters = emptySweepCounters()
     let agedJobsPolled = 0
     const currentHour = getHours(now)
@@ -340,70 +381,116 @@ export class OutreachInboundSweepService extends createPrismaBase(
     }
   }
 
-  // Newest send first: a pass that runs long spends its time on the jobs
-  // whose recipients are most likely to be texted again.
+  // Never-read jobs first (a new send, or one a cut-short pass didn't
+  // reach), then the longest-waiting, newest send breaking ties, so a pass
+  // that runs out of time leaves behind only the jobs read most recently.
   private async runOptOutReconcile(now: Date): Promise<void> {
-    const candidates = (await this.findCandidates(now)).sort((a, b) =>
-      compareDesc(sendAnchorOf(a), sendAnchorOf(b)),
+    const candidates = await this.findCandidates(
+      now,
+      OPT_OUT_RECONCILE_WINDOW_DAYS,
+    )
+    const attempts = await this.client.outreachOptOutReconcile.findMany({
+      where: { outreachId: { in: candidates.map(({ id }) => id) } },
+    })
+    const attemptedAtById = new Map(
+      attempts.map(({ outreachId, attemptedAt }) => [outreachId, attemptedAt]),
+    )
+    const readRecentlyAfter = addMinutes(
+      subHours(now, OPT_OUT_RECONCILE_INTERVAL_HOURS),
+      OPT_OUT_RECONCILE_INTERVAL_SLACK_MINUTES,
     )
     const counters = emptySweepCounters()
+    let jobsSkippedRecent = 0
     let jobsTimedOut = 0
+    let jobsDeferred = 0
 
-    for (const outreach of candidates) {
-      const jobId = outreach.projectId!
+    const due = candidates.filter((outreach) => {
       if (!isBefore(sendAnchorOf(outreach), now)) {
         counters.jobsSkippedFuture += 1
-        continue
+        return false
       }
-      try {
-        const phoneToPersonIds = await this.loadPhoneToPersonIds(outreach)
-        if (!phoneToPersonIds) {
-          counters.jobsWithoutCapture += 1
-          continue
-        }
-        const rows = await this.peerlyJobResults.fetchQuestionResponseRows(
-          jobId,
-          buildReportWindow(outreach, now),
-          { timeoutMs: OPT_OUT_REPORT_TIMEOUT_MS, retry: false },
-        )
-        const events = this.collectOptOutEvents(
-          jobId,
-          rows,
-          phoneToPersonIds,
-          counters,
-        )
-        await this.applyEvents(outreach, events, now, counters)
-        counters.jobsPolled += 1
-      } catch (err) {
-        const timedOut = err instanceof GatewayTimeoutException
-        if (timedOut) {
-          jobsTimedOut += 1
-        } else {
-          counters.jobsFailed += 1
-        }
-        // Message only: a raw axios error carries the request's auth
-        // headers.
-        this.logger.warn(
-          {
-            message: err instanceof Error ? err.message : String(err),
-            outreachId: outreach.id,
-            jobId,
-          },
-          timedOut
-            ? '[Outreach Opt-out Reconcile] report timed out; will retry ' +
-                'next pass'
-            : '[Outreach Opt-out Reconcile] job failed; will retry next pass',
-        )
+      const attemptedAt = attemptedAtById.get(outreach.id)
+      if (attemptedAt && isAfter(attemptedAt, readRecentlyAfter)) {
+        jobsSkippedRecent += 1
+        return false
       }
-    }
+      return true
+    })
+    due.sort((a, b) => {
+      const aAttemptedAt = attemptedAtById.get(a.id)
+      const bAttemptedAt = attemptedAtById.get(b.id)
+      const byAttempt =
+        aAttemptedAt && bAttemptedAt
+          ? compareAsc(aAttemptedAt, bAttemptedAt)
+          : Number(Boolean(aAttemptedAt)) - Number(Boolean(bAttemptedAt))
+      return byAttempt || compareDesc(sendAnchorOf(a), sendAnchorOf(b))
+    })
+
+    await pMap(
+      due,
+      async (outreach) => {
+        if (
+          differenceInMilliseconds(new Date(), now) >=
+          OPT_OUT_RECONCILE_BUDGET_MS
+        ) {
+          jobsDeferred += 1
+          return
+        }
+        try {
+          const polled = await this.reconcileOutreachOptOuts(
+            outreach,
+            now,
+            counters,
+          )
+          if (polled) {
+            counters.jobsPolled += 1
+          } else {
+            counters.jobsWithoutCapture += 1
+          }
+        } catch (err) {
+          const timedOut = err instanceof GatewayTimeoutException
+          if (timedOut) {
+            jobsTimedOut += 1
+          } else {
+            counters.jobsFailed += 1
+          }
+          // Message only: a raw axios error carries the request's auth
+          // headers.
+          this.logger.warn(
+            {
+              message: err instanceof Error ? err.message : String(err),
+              outreachId: outreach.id,
+              jobId: outreach.projectId,
+            },
+            timedOut
+              ? '[Outreach Opt-out Reconcile] report timed out; will retry ' +
+                  'once the interval passes'
+              : '[Outreach Opt-out Reconcile] job failed; will retry once ' +
+                  'the interval passes',
+          )
+        }
+        // Stamped whatever the outcome: a slow report retried every hour
+        // would cost Peerly six builds for the one answer.
+        await this.client.outreachOptOutReconcile.upsert({
+          where: { outreachId: outreach.id },
+          create: { outreachId: outreach.id, attemptedAt: now },
+          update: { attemptedAt: now },
+        })
+      },
+      { concurrency: OPT_OUT_RECONCILE_CONCURRENCY },
+    )
 
     this.logger.info(
       {
+        jobsDue: due.length,
         jobsPolled: counters.jobsPolled,
         jobsFailed: counters.jobsFailed,
         jobsTimedOut,
+        jobsDeferred,
         jobsWithoutCapture: counters.jobsWithoutCapture,
         jobsSkippedFuture: counters.jobsSkippedFuture,
+        jobsSkippedRecent,
+        durationMs: differenceInMilliseconds(new Date(), now),
         optOutsApplied: counters.optOutsApplied,
         skippedDuplicate: counters.skippedDuplicate,
         skippedAlreadyApplied: counters.skippedAlreadyApplied,
@@ -412,6 +499,43 @@ export class OutreachInboundSweepService extends createPrismaBase(
       },
       '[Outreach Opt-out Reconcile] summary',
     )
+    // Expected while no job in the window has been read yet (the table
+    // starts empty). Hour after hour, it means reads are falling behind the
+    // interval.
+    if (jobsDeferred > 0) {
+      this.logger.warn(
+        { jobsDeferred, jobsDue: due.length },
+        '[Outreach Opt-out Reconcile] budget spent; due jobs left for the ' +
+          'next pass',
+      )
+    }
+  }
+
+  // Returns false when the outreach has no captured phone list, the same
+  // case sweepOutreach skips.
+  private async reconcileOutreachOptOuts(
+    outreach: SweepableOutreach,
+    now: Date,
+    counters: SweepCounters,
+  ): Promise<boolean> {
+    const jobId = outreach.projectId
+    if (!jobId) return false
+    const phoneToPersonIds = await this.loadPhoneToPersonIds(outreach)
+    if (!phoneToPersonIds) return false
+
+    const rows = await this.peerlyJobResults.fetchQuestionResponseRows(
+      jobId,
+      buildReportWindow(outreach, now),
+      { timeoutMs: OPT_OUT_REPORT_TIMEOUT_MS, retry: false },
+    )
+    const events = this.collectOptOutEvents(
+      jobId,
+      rows,
+      phoneToPersonIds,
+      counters,
+    )
+    await this.applyEvents(outreach, events, now, counters)
+    return true
   }
 
   // Returns false when the outreach has no captured phone list (built

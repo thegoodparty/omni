@@ -1013,8 +1013,8 @@ export const buildTrace = (
   // A provider-run tool (native web search) has no execute hook, so it leaves
   // no outcome; an outcome with no frame is the opposite and would mean a tool
   // ran without the route announcing it. Append those rather than drop them —
-  // a tool error that never reached the trace is the failure isComparable
-  // exists to catch.
+  // a tool error that never reached the trace would go uncounted beside the
+  // verdict.
   for (const queue of pending.values()) {
     for (const outcome of queue) {
       steps.push({

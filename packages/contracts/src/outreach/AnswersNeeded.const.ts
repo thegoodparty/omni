@@ -1,7 +1,9 @@
 /**
- * How many answers give a good read on a district: enough that every major
- * group is expected to answer at least MIN_VOICES_PER_GROUP times
- * (Samuel, 2026-10-20, docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md).
+ * The answers a read of a district needs at the least: enough that every
+ * major group is expected to answer at least MIN_VOICES_PER_GROUP times
+ * (docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md).
+ * A floor, not a promise: the read also needs the model sure of each group.
+ * Sizing only; nothing shows it to an official.
  */
 
 /** Answers each major group is expected to give. */

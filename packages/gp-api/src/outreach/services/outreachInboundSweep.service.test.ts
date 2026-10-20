@@ -1,5 +1,13 @@
 import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
-import { addDays, set, subDays, subHours } from 'date-fns'
+import {
+  addDays,
+  addHours,
+  addMilliseconds,
+  set,
+  subDays,
+  subHours,
+  subSeconds,
+} from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -18,6 +26,10 @@ import { Campaign, OutreachType } from '../../generated/prisma'
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
+  OPT_OUT_RECONCILE_BUDGET_MS,
+  OPT_OUT_RECONCILE_CONCURRENCY,
+  OPT_OUT_RECONCILE_INTERVAL_HOURS,
+  OPT_OUT_RECONCILE_WINDOW_DAYS,
   OutreachInboundSweepService,
 } from './outreachInboundSweep.service'
 
@@ -200,6 +212,12 @@ const loggerInfoSpy = () =>
 const setOutreachDate = (outreachId: number, date: Date) =>
   service.prisma.$executeRaw`
     UPDATE outreach SET date = ${date} WHERE id = ${outreachId}
+  `
+
+// Raw so Prisma's @updatedAt doesn't overwrite the value being set.
+const setOutreachUpdatedAt = (outreachId: number, updatedAt: Date) =>
+  service.prisma.$executeRaw`
+    UPDATE outreach SET "updatedAt" = ${updatedAt} WHERE id = ${outreachId}
   `
 
 beforeEach(async () => {
@@ -702,7 +720,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
       expect.objectContaining({
         startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       }),
-      { timeoutMs: 180000, retry: false },
+      { timeoutMs: 300000, retry: false },
     )
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
 
@@ -755,7 +773,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
     expect(person2.optedOutAt).toEqual(new Date('2026-07-17T09:05:00'))
   })
 
-  it('moves on to the next job when one job times out, newest send first', async () => {
+  it('moves on to the next job when one job times out', async () => {
     const SEND = new Date('2026-07-01T12:00:00.000Z')
     const older = await createSweepableOutreach({
       projectId: 'job-old',
@@ -781,7 +799,7 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
     await expect(sweepService.reconcileOptOutFlags()).resolves.toBeUndefined()
 
     expect(
-      fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId),
+      fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId).sort(),
     ).toEqual(['job-new', 'job-old'])
     const person1 = await findInteraction(older.id, 'person-1')
     expect(person1.optedOutAt).not.toBeNull()
@@ -794,5 +812,256 @@ describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
       }),
       expect.any(String),
     )
+  })
+
+  it('records the exact instant from a report timestamp that carries an offset', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchQuestionResponseRows.mockResolvedValue([
+      { ...optOutRow('3035550102'), date: '2026-07-17 10:25:00 -0400' },
+    ])
+
+    await sweepService.reconcileOptOutFlags()
+
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-17T14:25:00.000Z'))
+  })
+
+  it('stamps every attempt, a timed-out one included, without moving outreach.updatedAt', async () => {
+    const answered = await createSweepableOutreach({
+      projectId: 'job-answered',
+      peerlyListId: 1111,
+      recipients: [PERSON_1],
+    })
+    const slow = await createSweepableOutreach({
+      projectId: 'job-slow',
+      peerlyListId: 2222,
+      recipients: [PERSON_2],
+    })
+    const updatedAtBefore = await service.prisma.outreach.findMany({
+      where: { id: { in: [answered.id, slow.id] } },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    })
+    fetchQuestionResponseRows.mockImplementation((jobId) =>
+      jobId === 'job-slow'
+        ? Promise.reject(
+            new GatewayTimeoutException('Timed out fetching Peerly report'),
+          )
+        : Promise.resolve([]),
+    )
+
+    await sweepService.reconcileOptOutFlags()
+
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
+      orderBy: { outreachId: 'asc' },
+    })
+    expect(stamps.map(({ outreachId }) => outreachId)).toEqual([
+      answered.id,
+      slow.id,
+    ])
+    const updatedAtAfter = await service.prisma.outreach.findMany({
+      where: { id: { in: [answered.id, slow.id] } },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    })
+    expect(updatedAtAfter).toEqual(updatedAtBefore)
+  })
+})
+
+describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window and budget', () => {
+  const NOW = new Date('2026-07-10T13:45:00.000Z')
+
+  beforeEach(() => {
+    // Only Date is faked so p-map, Prisma and vi.waitFor keep real timers.
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const createJob = async (projectId: string, peerlyListId: number) =>
+    createSweepableOutreach({
+      projectId,
+      peerlyListId,
+      recipients: [PERSON_1],
+    })
+
+  const calledJobIds = () =>
+    fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId)
+
+  it('reads a job again only once the interval has passed', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, subHours(NOW, 1))
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+
+    vi.setSystemTime(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS - 1))
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 0, jobsSkippedRecent: 1 }),
+      expect.any(String),
+    )
+
+    // The sixth pass after, starting a moment earlier in its hour than the
+    // pass that stamped the job.
+    vi.setSystemTime(
+      subSeconds(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS), 1),
+    )
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
+  })
+
+  it('stamps a failed job and one with no captured list, so neither is retried before the interval', async () => {
+    const failing = await createJob('job-failing', 1111)
+    await setOutreachDate(failing.id, subHours(NOW, 1))
+    const uncaptured = await createSweepableOutreach({
+      projectId: 'job-uncaptured',
+      peerlyListId: 2222,
+      captureList: false,
+    })
+    await setOutreachDate(uncaptured.id, subHours(NOW, 1))
+    fetchQuestionResponseRows.mockRejectedValue(
+      new BadGatewayException('Failed to fetch Peerly report link'),
+    )
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-failing'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsFailed: 1, jobsWithoutCapture: 1 }),
+      expect.any(String),
+    )
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
+      orderBy: { outreachId: 'asc' },
+    })
+    expect(stamps).toEqual([
+      { outreachId: failing.id, attemptedAt: NOW },
+      { outreachId: uncaptured.id, attemptedAt: NOW },
+    ])
+
+    vi.setSystemTime(addHours(NOW, 1))
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads only sends inside the window, counting a recent update as inside', async () => {
+    const outsideWindow = subDays(NOW, OPT_OUT_RECONCILE_WINDOW_DAYS + 1)
+    const stale = await createJob('job-stale', 1111)
+    await setOutreachDate(stale.id, outsideWindow)
+    await setOutreachUpdatedAt(stale.id, outsideWindow)
+    // A long send marked complete yesterday: its date is old, but people
+    // were still being texted until it finished.
+    const finishedLate = await createJob('job-finished-late', 2222)
+    await setOutreachDate(finishedLate.id, outsideWindow)
+    await setOutreachUpdatedAt(finishedLate.id, subDays(NOW, 1))
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-finished-late'])
+  })
+
+  it('starts no report once the budget is spent, and the next pass begins with the jobs it left', async () => {
+    const newest = await createJob('job-newest', 1111)
+    await setOutreachDate(newest.id, subHours(NOW, 1))
+    const middle = await createJob('job-middle', 2222)
+    await setOutreachDate(middle.id, subHours(NOW, 2))
+    const oldest = await createJob('job-oldest', 3333)
+    await setOutreachDate(oldest.id, subHours(NOW, 3))
+    // Each report takes the whole budget: the two that start together both
+    // run, and nothing starts after them.
+    fetchQuestionResponseRows.mockImplementation(async () => {
+      vi.setSystemTime(addMilliseconds(new Date(), OPT_OUT_RECONCILE_BUDGET_MS))
+      return []
+    })
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds().sort()).toEqual(['job-middle', 'job-newest'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 3, jobsPolled: 2, jobsDeferred: 1 }),
+      expect.any(String),
+    )
+    expect(
+      await service.prisma.outreachOptOutReconcile.findUnique({
+        where: { outreachId: oldest.id },
+      }),
+    ).toBeNull()
+
+    fetchQuestionResponseRows.mockClear()
+    vi.setSystemTime(addHours(NOW, 1))
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-oldest'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsPolled: 1, jobsSkippedRecent: 2 }),
+      expect.any(String),
+    )
+  })
+
+  it('reads a job no pass has reached before the one read longest ago', async () => {
+    const neverRead = await createJob('job-never-read', 1111)
+    await setOutreachDate(neverRead.id, subDays(NOW, 2))
+    const readLongestAgo = await createJob('job-read-longest-ago', 2222)
+    await setOutreachDate(readLongestAgo.id, subHours(NOW, 1))
+    const readLater = await createJob('job-read-later', 3333)
+    await setOutreachDate(readLater.id, subHours(NOW, 1))
+    await service.prisma.outreachOptOutReconcile.createMany({
+      data: [
+        { outreachId: readLongestAgo.id, attemptedAt: subHours(NOW, 9) },
+        { outreachId: readLater.id, attemptedAt: subHours(NOW, 7) },
+      ],
+    })
+    fetchQuestionResponseRows.mockImplementation(async () => {
+      vi.setSystemTime(addMilliseconds(new Date(), OPT_OUT_RECONCILE_BUDGET_MS))
+      return []
+    })
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds().sort()).toEqual([
+      'job-never-read',
+      'job-read-longest-ago',
+    ])
+  })
+
+  it(`never has more than ${OPT_OUT_RECONCILE_CONCURRENCY} reports building at once`, async () => {
+    for (const [index, projectId] of ['job-a', 'job-b', 'job-c'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    const pending: (() => void)[] = []
+    fetchQuestionResponseRows.mockImplementation(
+      () =>
+        new Promise<PeerlyQuestionResponsesCsvRow[]>((resolve) => {
+          pending.push(() => resolve([]))
+        }),
+    )
+
+    const pass = sweepService.reconcileOptOutFlags()
+    await vi.waitFor(
+      () =>
+        expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(
+          OPT_OUT_RECONCILE_CONCURRENCY,
+        ),
+      { timeout: 5000 },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(
+      OPT_OUT_RECONCILE_CONCURRENCY,
+    )
+
+    pending.shift()?.()
+    await vi.waitFor(
+      () => expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(3),
+      { timeout: 5000 },
+    )
+    while (pending.length > 0) pending.shift()?.()
+    await pass
   })
 })

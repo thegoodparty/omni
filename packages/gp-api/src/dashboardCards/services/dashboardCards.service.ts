@@ -18,6 +18,7 @@ import {
   CIVIC_PANEL_PAGE_HREF,
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
+  civicPanelStandingLine,
   civicPanelStepCardSourceId,
   type CivicPanelBuildChannel,
   type CivicPanelBuildPlanResponse,
@@ -136,10 +137,7 @@ export const civicPanelBuildCardContent = (
         : KEEP_GOING_LABELS[next.channel]
   return {
     title: next.line,
-    summary:
-      progress.expectedAnswers >= progress.answersNeeded
-        ? `Your panel can give the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`
-        : `Your panel can give about ${progress.expectedAnswers.toLocaleString('en-US')} of the ${progress.answersNeeded.toLocaleString('en-US')} answers you need.`,
+    summary: civicPanelStandingLine(progress),
     ctaLabel,
     ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
   }
