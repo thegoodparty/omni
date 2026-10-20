@@ -112,7 +112,7 @@ export const DistrictStoryStep = ({
     if (ready) return
     if (!(pointsSettled && statsSettled) && !timedOut) return
     const known = stats.data?.districtPopulation ?? null
-    const sampleSize = answersNeeded(known)
+    const sampleSize = answersNeeded()
     setPopulation(known)
     setModel(
       (points && buildDistrictDots(points, sampleSize)) ??
@@ -395,7 +395,7 @@ const StoryText = ({
 
   if (step === 'story-sample') {
     const copy = SERVE_STORY_COPY.sample
-    const answers = answersNeeded(population)
+    const answers = answersNeeded()
     return (
       <>
         <Title title={copy.title(answers)} accentClass="text-primary" long />

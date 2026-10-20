@@ -13,16 +13,17 @@ to land before the rest is live.
 
 ## Why
 
-The current read sizes every question for 10 points either way at 95%
-confidence (`answersNeeded`, 96 answers). That margin assumes the people who
-answer were drawn at random. Nobody who answers a text from their council
-member was: they chose to. The figure looks rigorous and holds nothing.
+The read used to size every question for 10 points either way at 95%
+confidence (96 answers). That margin assumes the people who answer were
+drawn at random. Nobody who answers a text from their council member was:
+they chose to. The figure looked rigorous and held nothing. `answersNeeded`
+now sizes for coverage, and the civic panel's goal follows it.
 
 The replacement asks two different questions:
 
 1. **Has every major group been heard?** At least three voices from every
    group holding 3% or more of the district, on each dimension the panel
-   steers on (age band, tract, race, gender once published).
+   steers on (age band, gender, tract, race).
 2. **What does each group likely think, and how sure are we?** A model of
    opinion by group, reweighted to who lives in the district, with a range
    that says how sure it is.
@@ -70,7 +71,7 @@ then is the priority's check out. A failed enqueue puts the list back to
 undrawn for the next run; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
-gender once published, tract, and race when `raceNameable` holds for the
+gender, tract, and race when `raceNameable` holds for the
 answerers): the census publishes no joint counts. If the census, the
 answerers or the district cannot be read, or the fit throws, the whole send
 is drawn unsteered. Staff review is the same as any Serve text: the CSV

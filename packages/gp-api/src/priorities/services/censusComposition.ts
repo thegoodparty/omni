@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { addMinutes, isAfter } from 'date-fns'
 import {
+  answersNeeded,
   DISTRICT_GRID_CELL_DEGREES,
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type GeoJsonShape,
@@ -16,6 +17,10 @@ import type {
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  smallestMajorShare,
+  type TargetedDimension,
+} from '@/contacts/utils/civicPanelAllocation.util'
 import {
   POOLED_VALUE,
   raceNameable,
@@ -106,9 +111,10 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
-  // The district's census population, or null when it has no row or the
-  // warehouse could not be read.
-  population(input: {
+  // The answers a good read of the district needs: answersNeeded of its
+  // smallest major group, from the cells the model reads. Null when the
+  // district or its people could not be read.
+  districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null>
@@ -122,10 +128,6 @@ export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 // zeros.
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
-  // A district's census figure does not change between reads, and the
-  // priority page and every priority turn ask for it. Only a figure is kept:
-  // a missing row may land later, and a failure is retried.
-  private readonly populations = new Map<string, number>()
   private readonly districtCells = new Map<
     string,
     { cells: Promise<DistrictCells>; expiresAt: Date }
@@ -277,24 +279,26 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     return gridAreaShape(squares, DISTRICT_GRID_CELL_DEGREES)
   }
 
-  async population(input: {
+  async districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null> {
-    const key = `${input.dataset}:${input.districtId}`
-    const cached = this.populations.get(key)
-    if (cached !== undefined) return cached
     try {
-      const value = await this.stats.findDistrictPopulation(
-        input.districtId,
-        input.dataset,
-      )
-      if (value !== null) this.populations.set(key, value)
-      return value
+      const { district, cells } = await this.districtCellsOf(input)
+      if (!district || cells.length === 0) return null
+      const races = weightingTargets({ district, tractAdults: new Map() }).race
+      const frame = cells.map((cell) => ({
+        count: cell.count,
+        values: knownValues(modelValues(cell, races)),
+      }))
+      const dimensions: TargetedDimension[] = raceNameable(cells)
+        ? ['age', 'gender', 'tract', 'race']
+        : ['age', 'gender', 'tract']
+      return answersNeeded(smallestMajorShare(frame, dimensions))
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'district population read failed; using the uncorrected answers needed',
+        'district cells read failed; sizing for the smallest major group',
       )
       return null
     }

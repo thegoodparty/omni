@@ -265,10 +265,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const panelHoursPerWeek = outreachFeedbackEnabled
       ? await this.contextService.panelHoursPerWeek(ctx.electedOfficeId)
       : undefined
-    const population =
-      outreachFeedbackEnabled && this.priorityResults
-        ? await this.priorityResults.districtPopulation(ctx.organization)
-        : null
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -280,11 +276,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const readStatus =
       outreachFeedbackEnabled && this.priorityResults
         ? (
-            await this.priorityResults.readStatuses(
-              ctx.organizationSlug,
-              [ctx.priorityId],
-              population,
-            )
+            await this.priorityResults.readStatuses(ctx.organizationSlug, [
+              ctx.priorityId,
+            ])
           ).get(ctx.priorityId)
         : undefined
     if (!resolved) {

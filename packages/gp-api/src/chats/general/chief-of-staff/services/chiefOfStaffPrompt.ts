@@ -303,7 +303,7 @@ const civicPanelBuildBlock = (
       ]
     : panel.hasPlan
       ? [
-          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "Your panel can give about 12 of the 96 answers you need." from expectedAnswers and answersNeeded The card shows the step and opens it, so never restate it.`,
+          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "Your panel can give about 12 of the 100 answers you need." from expectedAnswers and answersNeeded The card shows the step and opens it, so never restate it.`,
         ]
       : atGoal
         ? [

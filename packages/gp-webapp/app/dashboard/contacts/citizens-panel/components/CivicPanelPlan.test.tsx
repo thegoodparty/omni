@@ -322,7 +322,7 @@ describe('the plan', () => {
           channel: 'phone_banking',
           targetSize: 40,
           landlineFirst: false,
-          steeredToward: 'age18to64',
+          steeredToward: 'age18to24',
         }),
         step({
           id: 'step-calls-3',
@@ -507,7 +507,7 @@ describe('the plan', () => {
     ).toBeInTheDocument()
     expect(
       within(top).getByText(
-        'About 4 in 10 members answer each question, so 240 members gets you the 96 answers you need.',
+        '240 members gets you about 96 answers per question, enough to hear from every group in your district.',
       ),
     ).toBeInTheDocument()
     expect(filledShare(top)).toBe('25')

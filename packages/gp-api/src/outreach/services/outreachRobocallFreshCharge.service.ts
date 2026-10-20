@@ -247,7 +247,10 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
     // does not rely on Stripe's 24h idempotency-key window — which a recovery
     // delayed by a crash + investigation can outlast — so a recovery days later
     // never double-charges. On the first (non-recovery) settle this returns null.
-    const existing = await this.stripe.findSucceededChargeByOutreach(outreachId)
+    const existing = await this.stripe.findSucceededChargeByOutreach(
+      outreachId,
+      stripeCustomerId,
+    )
     if (existing) {
       this.logger.info(
         { outreachId, chargeIntentId: existing.paymentIntentId },

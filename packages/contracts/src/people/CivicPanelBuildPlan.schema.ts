@@ -133,10 +133,10 @@ export type MarkCivicPanelBuildStepInput = z.infer<
 >
 
 // How the panel compares with the district's census, unweighted, on age
-// and tract (gender once the census publishes it). The official sees the
-// status, in the priority read's labels, and the one group to invite more
-// of, never a share, a weight or a target. Below this many members it is
-// too early to tell.
+// band, gender and tract (and race when enough members have one). The
+// official sees the status, in the priority read's labels, and the one group
+// to invite more of, never a share, a weight or a target. Below this many
+// members it is too early to tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
 export const CivicPanelBalanceSchema = z.object({
@@ -206,7 +206,7 @@ export const CivicPanelBuildPlanSchema = z.object({
 export type CivicPanelBuildPlan = z.infer<typeof CivicPanelBuildPlanSchema>
 
 // Where the panel stands, in answers to one question. `answersNeeded` is
-// the district's (answersNeeded in PanelAnswers), `expectedAnswers` what the
+// the district's (answersNeeded of its smallest major group), `expectedAnswers` what the
 // members are expected to give it, and `goal` the members it takes to give
 // all of them.
 export const CivicPanelBuildProgressSchema = z.object({

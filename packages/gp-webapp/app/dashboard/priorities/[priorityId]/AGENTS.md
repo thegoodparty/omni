@@ -281,9 +281,8 @@ dimension furthest short), so "N more answers" counts what is missing.
 the one or two groups holding the read back: short of voices, or with a
 range still too wide; every tract reads as `unreachedAreas`
 (`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the district cannot be
-read, `needed` is `answersNeeded(population)` from contracts for the census
-row's population (`CensusCompositionSource.population`, memoized per
-district; an unknown one uses the uncorrected 96), enough answers are a good
+read, `needed` is `answersNeeded()` from contracts (100, enough for the
+smallest major group any district can have), enough answers are a good
 read labeled "Enough answers", never "Representative", and fewer are too
 early. A read is kept in process for 15 minutes per priority and its coded
 answers (`PriorityResultsService`), so a new or recoded answer reads again
@@ -364,8 +363,8 @@ behind one line and a Get answers button. After, it shows everything below.
 - **The census figures are ACS 2024 5-year estimates** that gp-api reads
   from `mart_gp_api` (`CENSUS_COMPOSITION_SOURCE`, shared with the civic
   panel page). Age is shares of adults (18 to 64, 65 and over), since
-  everyone who answers is an adult. There is no gender row: the census
-  marts carry none. When the district's figures cannot be read, the
+  everyone who answers is an adult. There is no gender row: gender is
+  weighted (above) but not drawn as a bar. When the district's figures cannot be read, the
   comparison arrives with no `groups`, and `RepresentationBars` says the
   figures are not available instead of drawing bars.
 - **Themes are pooled across every send.** "Top themes" reads the

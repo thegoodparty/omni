@@ -78,9 +78,15 @@ export const ARM_BUDGET_MS = 70 * 60 * 1000
 // An agent nobody has timed is planned at the slowest measured class, not
 // the cheapest. priority_flow runs up to 30 tool steps a turn, and guessing
 // low is the failure this exists to stop; refusing by name costs one agent.
+//
+// priority_flow from run 38762654603: 48 turns averaging 13.2s, the slowest
+// 45s. Planned at about 2.3x rather than 1.5x, because that sweep ran in
+// process with no district, and a deployed arm with one adds warehouse
+// queries to every turn that sizes an audience.
 export const CHAT_TURN_MS: Readonly<Partial<Record<string, number>>> = {
   chief_of_staff: 20_000,
   ordinance_flow: 120_000,
+  priority_flow: 30_000,
 }
 export const UNMEASURED_CHAT_TURN_MS = 120_000
 
@@ -785,15 +791,15 @@ export const withRuntimeRefusals = (
     } catch {
       continue
     }
-    // `realModel` rather than the arm's actual model directive: an HTTP arm
-    // always spends, because parseArmEnv refuses `http` with the spend
-    // switch off, and the in-process runtime refuses nothing so the value
-    // cannot change its answer. The three refusals the directive can earn
-    // are arm-wide and already made there.
+    // Whether the arm spends, which is the arm's actual model directive: a
+    // spending arm drives the real model and a dry one a canned script. An
+    // HTTP arm always spends, because parseArmEnv refuses `http` with the
+    // spend switch off. The in-process runtime's one refusal, priority_flow
+    // without a district, applies only to a spending arm.
     const why = runtimeRefusal(runtime, {
       agentId,
       scope,
-      realModel: true,
+      ...(env.spends && { realModel: true }),
       ...(env.dataVersion !== undefined && { dataVersion: env.dataVersion }),
       cases: cases.cases.filter(isChatCase).map((one) => ({
         caseId: one.caseId,

@@ -31,18 +31,6 @@ export class StatsService {
     })
   }
 
-  async findDistrictPopulation(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<number | null> {
-    return this.readLog.measure({
-      op: 'district-population',
-      districtId,
-      dataset,
-      read: () => this.databricks.findDistrictPopulation(districtId, dataset),
-    })
-  }
-
   async findCensusComposition(
     districtId: string,
     dataset: PeopleDataset,

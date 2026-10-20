@@ -799,10 +799,10 @@ advisory lock per office serializes the sync, because
 the build card's null `sourceItemId` leaves the unique key unable to stop a
 second insert. The Chief of Staff's single invite text is
 `panelSeedSampleSize(goalMembers)`: `ceil(goalMembers /
-PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,000 at 240
+PANEL_SEED_ASSUMED_JOIN_RATE)` under `MAX_LIST_SAMPLE_SIZE` (8,334 at 250
 members and 3%), with the district's goal (see "Sized in answers" below).
-The outreach page's own invite has no population at hand and uses
-`PANEL_SEED_SAMPLE_SIZE`, the same for the uncorrected 240.
+The outreach page's own invite has no district mix at hand and uses
+`PANEL_SEED_SAMPLE_SIZE`, the same for the largest goal, 250.
 
 **Reporting back is a card too.** The same read runs
 `DashboardCardsService.syncReportBackCards`: one `report_back` card per
@@ -864,25 +864,27 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 question, the steps, Next and the answers the panel can give.
 
 **Sized in answers.** Every panel size targets answers to one question, not
-members (Bryan, 2026-10-15). Contracts' `answersNeeded(population)`
-(`outreach/AnswersNeeded.const.ts`, the same figure Serve onboarding shows)
-is the
-finite-population-corrected sample for 10 points either way at 95%
-confidence near an even split, `n0 = 1.96² × 0.25 / 0.1²` (96.04), `n = n0 /
-(1 + (n0 - 1) / N)`, rounded: 96 for Asheville (105,154), 92 for a town of
-2,000. Without a census population (no row, no district, or a failed read)
-it is the uncorrected 96. The panel's own math is in
-`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(population)` is
-`ceil(answersNeeded / PANEL_ASSUMED_REPLY_RATE)`, 240 or 230.
-`ContactsService.getDistrictPopulation` reads the population
-(`StatsService.findDistrictPopulation`, the census mart's
-`district_population` on its own, without the voter scan) and folds any
-failure into null. The Chief of Staff chat reads it instead through
-`PriorityResultsService.districtPopulation` (the memoized
-`CensusCompositionSource.population`), once per turn, and hands the figure
-to both its panel sizing and `readStatuses`; the priority flow reads it the
-same way for `readStatuses` alone. A priority's checks are not sized in
-answers: see "Round 1 sizing" below.
+members (Bryan, 2026-10-15), and the answers are sized for coverage
+(Samuel, 2026-10-20,
+`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+Contracts' `answersNeeded(smallestMajorShare)`
+(`outreach/AnswersNeeded.const.ts`) is `ceil(MIN_VOICES_PER_GROUP /
+share)`: enough answers for the district's smallest major group (one
+holding `MAJOR_GROUP_SHARE`, 3%, or more on age band, gender, tract, or race
+when `raceNameable` holds for the district) to be expected to answer 3
+times. 100 where that group is 3% of the district, 15 where it is 20%.
+`CensusCompositionSource.districtAnswersNeeded` reads it from the
+district's cells (`smallestMajorShare` in
+`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
+reads, cached 15 minutes per district); without them (no district row, no
+district, or a failed read) it is `answersNeeded()`, 100, the most any
+district needs. The panel's own math is in
+`contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
+`ceil(answers / PANEL_ASSUMED_REPLY_RATE)`, 250 at most. The plan service
+reads it itself; the Chief of Staff chat reads it once a turn through
+`PriorityResultsService.districtAnswersNeeded`. A very small district with
+fewer people to reach than its goal ends `exhausted`, not stuck. A
+priority's checks are not sized here: see "Round 1 sizing" below.
 
 **The model.** `CivicPanelBuildPlan` is one per office while `active`, held
 by the partial unique index `civic_panel_build_plan_one_active_per_office`
@@ -954,9 +956,9 @@ draft does.
 
 **Steering by census** (`utils/civicPanelSteering.util.ts`, Bryan,
 2026-10-18). Each draw leans toward the groups the panel trails, so the
-panel drifts toward the district's census mix. Dimensions are age (18 to
-64, 65+), tract and race, plus gender once the marts publish sex by age
-(wired through `WeightingCensus.genderShares`, inactive until then). Tenure
+panel drifts toward the district's census mix. Dimensions are age (the
+census's six adult bands, 18 to 24 through 65+), gender (census sex against
+the voter file's `M`/`F`), tract and race, all from `weightingTargets`. Tenure
 is out until a statistician rules on its household target. Race (Bryan and
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`) is L2's
 modeled `EthnicGroups_EthnicGroup1Desc` folded into white, Black, Hispanic,
@@ -970,7 +972,7 @@ person or a filter: the Serve ethnicity gate below is unchanged.
 `CensusCompositionSource.weightingInputs` reads the members' cells and the
 census (`findWeightingInputs`), cached 15 minutes per office and member set
 in the plan service; a failed read leans nowhere. Gaps are census share
-(`weightingTargets`: ACS adults for age, adults per tract over the block
+(`weightingTargets`: ACS adults by sex and age band, adults per tract over the block
 groups the district's people live in) against the members' unweighted share
 among those with a known value, values under
 `MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.
@@ -1005,8 +1007,8 @@ A priority check's first round, which the priority chat proposes as a door,
 a call and a text card at once (`size_round_one`,
 `chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
 `MAJOR_GROUP_SHARE` (3%) or more of the district on a steered dimension:
-age band, tract, race only when `raceNameable` holds for the door pool,
-gender once the census publishes it, never `other`. District shares are
+age band, gender, tract, and race only when `raceNameable` holds for the
+door pool, never `other`. District shares are
 `weightingTargets` of the census (`PriorityResultsService.districtCensus`),
 or the door pool's own mix when the census cannot be read. Each channel's
 pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,

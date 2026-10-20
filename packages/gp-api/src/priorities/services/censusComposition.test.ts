@@ -31,49 +31,6 @@ const build = (
 }
 
 describe('DistrictCensusComposition', () => {
-  describe('population', () => {
-    const district = { districtId: 'd-1', dataset: 'voters' as const }
-    const withPopulation = (
-      findDistrictPopulation: StatsService['findDistrictPopulation'],
-    ) => {
-      const warn = vi.fn()
-      const source = new DistrictCensusComposition(
-        { findDistrictPopulation } as StatsService,
-        { setContext: vi.fn(), warn } as never,
-      )
-      return { source, warn }
-    }
-
-    it('reads a district once it has a figure', async () => {
-      const read = vi.fn().mockResolvedValue(2_000)
-      const { source } = withPopulation(read)
-
-      expect(await source.population(district)).toBe(2_000)
-      expect(await source.population(district)).toBe(2_000)
-      expect(read).toHaveBeenCalledTimes(1)
-    })
-
-    it('asks again for a district with no census row yet', async () => {
-      const read = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(900)
-      const { source } = withPopulation(read)
-
-      expect(await source.population(district)).toBeNull()
-      expect(await source.population(district)).toBe(900)
-    })
-
-    it('reads a warehouse failure as unknown, and retries it', async () => {
-      const read = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('warehouse down'))
-        .mockResolvedValue(900)
-      const { source, warn } = withPopulation(read)
-
-      expect(await source.population(district)).toBeNull()
-      expect(warn).toHaveBeenCalled()
-      expect(await source.population(district)).toBe(900)
-    })
-  })
-
   it('passes the district row and placed people through', async () => {
     const district = counts(100)
     const placed = [counts(5), counts(5)]
@@ -258,6 +215,81 @@ describe('DistrictCensusComposition.mrpInputs', () => {
     ])
     expect(await source.mrpInputs(MODEL_INPUT)).not.toBeNull()
     expect(district).toHaveBeenCalledTimes(2)
+  })
+
+  describe('districtAnswersNeeded', () => {
+    const cell = (
+      ageBand: string,
+      gender: string,
+      tract: string,
+      race: string | null,
+      count: number,
+    ) => ({ ageBand, gender, tract, race, count })
+    const sizeFor = (cells: ReturnType<typeof cell>[]) =>
+      withCells(
+        vi.fn().mockResolvedValue({ district: DISTRICT, cells }),
+        vi.fn(),
+      ).source.districtAnswersNeeded(MODEL_INPUT)
+
+    it('sizes for the smallest group holding 3% or more', async () => {
+      expect(
+        await sizeFor([
+          cell('18to64', 'female', 'a', null, 760),
+          cell('65plus', 'male', 'a', null, 200),
+          cell('18to64', 'male', 'b', null, 40),
+        ]),
+      ).toBe(75)
+    })
+
+    it('leaves a group under 3% out of the sizing', async () => {
+      expect(
+        await sizeFor([
+          cell('18to64', 'female', 'a', null, 760),
+          cell('65plus', 'male', 'a', null, 200),
+          cell('18to64', 'male', 'b', null, 20),
+        ]),
+      ).toBe(15)
+    })
+
+    it('sizes for race only when it may be named', async () => {
+      const cells = [
+        cell('18to64', 'female', 'a', 'white', 650),
+        cell('65plus', 'male', 'a', 'black', 300),
+        cell('18to64', 'male', 'a', 'hispanic', 50),
+      ]
+      expect(await sizeFor(cells)).toBe(60)
+      expect(
+        await sizeFor([...cells, cell('18to64', 'female', 'a', null, 1_000)]),
+      ).toBe(20)
+    })
+
+    it('sizes a group by its share of the whole district, unknowns included', async () => {
+      // Hispanic residents are 3% of everyone but 4% of those with a known
+      // race; it is the 3% that sets how many answers reach them.
+      expect(
+        await sizeFor([
+          cell('18to64', 'female', 'a', 'white', 450),
+          cell('65plus', 'male', 'a', 'black', 270),
+          cell('18to64', 'male', 'a', 'hispanic', 30),
+          cell('65plus', 'female', 'a', null, 250),
+        ]),
+      ).toBe(100)
+    })
+
+    it('reads no census row, or a failure, as unknown', async () => {
+      expect(
+        await withCells(
+          vi.fn().mockResolvedValue({ district: null, cells: [] }),
+          vi.fn(),
+        ).source.districtAnswersNeeded(MODEL_INPUT),
+      ).toBeNull()
+      const { source, warn } = withCells(
+        vi.fn().mockRejectedValue(new Error('warehouse down')),
+        vi.fn(),
+      )
+      expect(await source.districtAnswersNeeded(MODEL_INPUT)).toBeNull()
+      expect(warn).toHaveBeenCalledOnce()
+    })
   })
 })
 

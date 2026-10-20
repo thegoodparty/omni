@@ -116,6 +116,12 @@ Auth state is enforced globally via three guards registered in order. Most route
   `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
   emits the span — the SDK uses undici, which our OTel setup does not
   instrument, so a call made without that wrapper is invisible in Tempo.
+  Session tokens and M2M JWTs verify locally against `CLERK_JWT_KEY`, the
+  instance's PEM public key, set per environment in `deploy/index.ts`; opaque
+  `mt_` M2M tokens still call Clerk. Without the key the SDK refetches
+  Clerk's JWKS every 5 minutes on the request path, and a fetch slower than
+  2s rejects the request (about 0.06% of gp-marketing's M2M calls on
+  2026-10-19).
 - **gp-api owns the user's first and last name; Clerk holds a copy.** The
   name enters through Clerk at sign-up and `findOrProvisionByClerk` copies it
   once. After that the only writers are `PUT /v1/users/me` (the webapp's

@@ -121,8 +121,10 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
     // stale window vastly exceeds Stripe's sub-minute index lag, so this is a
     // residual, not an expected, outcome; the 2a orphan-hold reconcile is its
     // durable backstop.
-    const liveHoldIds =
-      await this.stripe.findLiveManualHoldsByOutreach(outreachId)
+    const liveHoldIds = await this.stripe.findLiveManualHoldsByOutreach(
+      outreachId,
+      draft.stripeCustomerId,
+    )
     for (const paymentIntentId of liveHoldIds) {
       await this.stripe.cancelHold(paymentIntentId)
     }
@@ -136,9 +138,9 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
 
     // Revert to pending_payment so the normal placement path re-picks it. Bump
     // payAttempt so a re-authorize derives a FRESH idempotency key
-    // (robocall-hold-<id>-<attempt+1>) — reusing the old key would replay the PI
-    // we just voided and read back `canceled`, which the hold create treats as a
-    // decline. Clear the authorization fields (already null on an uncommitted
+    // (robocall-hold-<customer>-<id>-<attempt+1>) — reusing the old key would
+    // replay the PI we just voided and read back `canceled`, which the hold
+    // create treats as a decline. Clear the authorization fields (already null on an uncommitted
     // row; defensive) so no stale intent id survives into pending_payment.
     await this.model.updateMany({
       where: { outreachId, settleState: RobocallSettleState.hold_pending },
