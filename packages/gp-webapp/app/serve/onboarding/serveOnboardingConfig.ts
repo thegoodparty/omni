@@ -426,10 +426,10 @@ export const SERVE_STORY_COPY = {
       tail: 'tell you where your community stands',
     } satisfies ServeStoryTitle,
     description:
-      'We help you reach every group in your community, so you know what each one thinks.',
+      'We pick people at random from every part of your district, so you hear what everyone thinks.',
     howWeGotIt: 'How we aim for this',
     explanation:
-      'We aim for at least three answers from every group that makes up 3% or more of your district, by age, neighborhood, race and gender.',
+      'We aim to hear from every age group, neighborhood, race and gender in your district.',
   },
   grow: {
     title: "We'll help you build and grow the list of people you hear from",

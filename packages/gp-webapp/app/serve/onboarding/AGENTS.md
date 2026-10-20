@@ -74,9 +74,10 @@ behind, so the save never holds the motion.
   each part of a 4 by 4 grid over the district, so it spreads across the map;
   half of it fills in on the grow step. No count is shown, on the map or in
   the copy: the sample step's headline is "A few voices from every group tell
-  you where your community stands", and its info box says the aim (at least
-  three answers from every group that makes up 3% or more of the district, by
-  age, neighborhood, race and gender).
+  you where your community stands", its line is "We pick people at random from
+  every part of your district, so you hear what everyone thinks.", and its
+  info box says the aim ("We aim to hear from every age group, neighborhood,
+  race and gender in your district.").
 - **Motion** (`DISTRICT_MOTION`): intro sweeps in by neighborhood over ~1.2s
   with a 1s count-up, once a session; dim 400ms with a one-time pop on the
   loud cluster (`animate-pop-in`); sample 600ms with a 5ms stagger; grow turns

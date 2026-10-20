@@ -351,7 +351,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     expect(
       await screen.findByText(
-        'We aim for at least three answers from every group that makes up 3% or more of your district, by age, neighborhood, race and gender.',
+        'We aim to hear from every age group, neighborhood, race and gender in your district.',
       ),
     ).toBeInTheDocument()
   })
