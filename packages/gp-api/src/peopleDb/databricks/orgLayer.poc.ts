@@ -23,7 +23,7 @@ export type OrgLayerField = (typeof ORG_LAYER_FIELDS)[number] | 'email'
 export const orgLayerStorage = new AsyncLocalStorage<{ orgSlug: string }>()
 
 export const isOrgLayerPocEnabled = (): boolean =>
-  process.env.POC_ORG_LAYER_ENABLED !== 'false'
+  process.env.POC_ORG_LAYER_ENABLED === 'true'
 
 const ORG_SLUG = /^[a-z0-9-]+$/
 const IDENT = /^[A-Za-z0-9_]+$/
