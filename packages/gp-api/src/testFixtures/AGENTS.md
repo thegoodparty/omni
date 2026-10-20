@@ -108,6 +108,13 @@ one organization and keeps a caller from naming one. Setup is idempotent by
 tearing the same slug down first — the seeder creates rather than upserts, and
 the in-process arm wants that collision.
 
+Unless `accountState.district` is `false`, setup also checks that the seeded
+position resolves to a district on this deployment
+(`DistrictResolverService.resolveByOrgSlug`) and returns it as `district`. When
+it does not resolve, setup removes the fixture and answers 503, because the
+constituent tools would quietly not register and the case would record a
+district the agent never had.
+
 `sweepId` is in the slug — `judge-<sweepId>-<agentId>-<caseId>-<digest>` —
 because two sweeps against one database (dev, which every PR's base arm
 targets) otherwise stage the identical organization and the second's
