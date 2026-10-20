@@ -3,7 +3,7 @@ title: A priority's round 2 text is marked by its list being an undrawn sample, 
 status: active
 decided_by: [agent]
 date: 2026-10-19
-code: ['#2978']
+code: ['#2980']
 scope:
   - packages/gp-api/src/priorities/services/priorityRoundTwoDraw.service.ts
   - packages/gp-api/src/priorities/util/roundTwo.util.ts
