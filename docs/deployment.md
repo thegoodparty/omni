@@ -166,6 +166,11 @@ prod. It is the whole post-merge deploy path — per-service workflows on `main`
 run only their checks and image builds; the train owns the shared-env deploys,
 the E2E, and the promotion.
 
+A push that only changes `docs/**` or root-level `*.md` files starts no
+release, because it deploys nothing. The next push that changes code releases
+everything since the last release. Markdown under `packages/` is not skipped:
+runbooks and prompts there are read at runtime.
+
 Serialization is the point. The `release-train` concurrency group runs one train
 at a time (`cancel-in-progress: false`) and GitHub keeps only the latest queued
 run, so a burst of merges queues to a single waiting run and the train always

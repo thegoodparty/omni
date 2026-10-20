@@ -46,6 +46,9 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   weeklyQuestion: 'How much time can you give each week?',
   weeklyCaption:
     'Your own calls and door knocking reach the residents a text misses.',
+  keepFreshTitle: 'Keep your panel fresh',
+  keepFreshCaption:
+    'Keep adding new members, leaning toward the groups with the fewest.',
   hoursPerWeek: (hours: number) =>
     hours === 1 ? '1 hour a week' : `${hours} hours a week`,
   moreHoursPerWeek: '4 or more hours a week',

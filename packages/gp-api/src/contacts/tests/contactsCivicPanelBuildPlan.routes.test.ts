@@ -398,6 +398,37 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ])
   })
 
+  it('makes a keep-fresh plan once the panel is past its goal, and keeps it active', async () => {
+    stubPools(TEXT_ONLY)
+    stubAnswersNeeded(1)
+    const slug = await seedOffice()
+    for (let i = 0; i < 3; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const created = await createPlan(slug, 1)
+
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(created.data.plan).toMatchObject({
+      status: 'active',
+      keepFresh: true,
+      goalMembers: 53,
+    })
+    expect(created.data.progress).toMatchObject({ members: 3, goal: 3 })
+
+    const read = await readPlan(slug)
+    expect(read.data.plan).toMatchObject({ status: 'active', keepFresh: true })
+  })
+
+  it('makes an ordinary plan, not keep-fresh, while the panel is under its goal', async () => {
+    stubPools(TEXT_ONLY)
+    const slug = await seedOffice()
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.plan).toMatchObject({ keepFresh: false, goalMembers: 240 })
+  })
+
   it('keeps one active plan per office', async () => {
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)

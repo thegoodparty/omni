@@ -9,7 +9,7 @@ describe('DownloadNotesLink', () => {
       <DownloadNotesLink outreachId={41} hasNotes={true} isServe={false} />,
     )
 
-    const link = screen.getByRole('link', { name: 'Download notes' })
+    const link = screen.getByRole('link', { name: 'Download' })
     expect(link).toHaveAttribute(
       'href',
       '/api/v1/constituent-feedback/efforts/41/export',
@@ -25,13 +25,11 @@ describe('DownloadNotesLink', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  // "Download notes" names no product noun, so it needs no Serve variant —
+  // "Download" names no product noun, so it needs no Serve variant —
   // docs/product-vocabulary.md's mode-keyed pattern only forks copy that does.
   it('reads the same on Serve', () => {
     render(<DownloadNotesLink outreachId={41} hasNotes={true} isServe={true} />)
 
-    expect(
-      screen.getByRole('link', { name: 'Download notes' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download' })).toBeInTheDocument()
   })
 })

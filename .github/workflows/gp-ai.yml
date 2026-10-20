@@ -93,11 +93,6 @@ jobs:
               - 'packages/gp-ai/shared/**'
               - 'packages/gp-ai/pyproject.toml'
               - 'packages/gp-ai/uv.lock'
-            engineer-agent:
-              - 'packages/gp-ai/engineer_agent/**'
-              - 'packages/gp-ai/shared/**'
-              - 'packages/gp-ai/pyproject.toml'
-              - 'packages/gp-ai/uv.lock'
             autopilot-agent:
               - 'packages/gp-ai/autopilot/**'
               - 'packages/gp-ai/shared/**'
@@ -112,7 +107,7 @@ jobs:
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
-      # EVERY main push builds all seven images and deploys, whether or not this
+      # EVERY main push builds all six images and deploys, whether or not this
       # commit touched packages/gp-ai. The invariant is "the deployed artifact
       # corresponds to the commit on main" — with no exceptions to reason about.
       #
@@ -132,13 +127,13 @@ jobs:
           ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
-          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent","autopilot-agent","autopilot-agent-playwright"]'
+          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","autopilot-agent","autopilot-agent-playwright"]'
           if [ "$ALL" = "true" ]; then
             list="$all"
             echo "main push: building all services so every one has an image at this SHA"
           else
             list='[]'
-            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
+            for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
               if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
                 list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
               fi
@@ -153,7 +148,7 @@ jobs:
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit
     # touching nothing under packages/gp-ai skips lint/test but still builds and
-    # deploys all seven services — carrying along any broken Python an earlier
+    # deploys all six services — carrying along any broken Python an earlier
     # commit left in the tree. Deployed code must have been validated at the
     # commit it is deployed from.
     if: >-
@@ -245,7 +240,6 @@ jobs:
             pmf-engine)                 echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
             serve-analyze)              echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
             ddhq-matcher)               echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
-            engineer-agent)             echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
             autopilot-agent)            echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
             autopilot-agent-playwright) echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
           esac >> "$GITHUB_OUTPUT"
@@ -473,9 +467,6 @@ jobs:
       - name: plan dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ github.sha }}
-      - name: plan dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ github.sha }}
       - name: plan dev/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane

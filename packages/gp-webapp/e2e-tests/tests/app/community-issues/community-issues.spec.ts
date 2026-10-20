@@ -92,7 +92,10 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   test.setTimeout(180_000)
 
   // Adding a priority opens its conversation only where Priorities is on.
-  await setFlagOverrides(page, { 'serve-priorities': 'on' })
+  await setFlagOverrides(page, {
+    'serve-priorities': 'on',
+    'serve-self-serve-polls': 'on',
+  })
   const { client } = await setupElectedOfficeUser(page)
 
   const { data: seeded } = await client.post<{
@@ -269,7 +272,10 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
 
   const pollLink = page.getByRole('link', { name: 'Run a poll on this issue' })
   // The ?issue= param was intentionally dropped — assert the bare path.
-  await expect(pollLink).toHaveAttribute('href', '/dashboard/polls/create')
+  await expect(pollLink).toHaveAttribute(
+    'href',
+    '/dashboard/constituent-outreach?compose=poll',
+  )
   const briefingLink = page.getByRole('link', {
     name: 'Review the related meeting briefing',
   })
@@ -279,7 +285,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   )
 
   await pollLink.click()
-  await page.waitForURL('**/dashboard/polls/create')
+  await page.waitForURL('**/dashboard/constituent-outreach**')
 
   await page.goto(`/dashboard/community-issues/${housingId}`, {
     waitUntil: 'domcontentloaded',

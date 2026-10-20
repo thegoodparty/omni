@@ -49,16 +49,15 @@ export const NEXT_STEP_MESSAGES = {
   meeting: 'Help me get ready for my next meeting.',
   issues: 'What are residents raising right now?',
   priority: 'Help me move one of my priorities forward.',
-  askPanel: 'Help me ask my civic panel about a priority.',
   outreach: 'Help me reach constituents about something in my district.',
 } as const
 
 /**
  * The cards under the Chief of Staff's intro, one per thing it can start from
  * this chat. The civic panel card is there only with serve-citizen-panels on:
- * an office with members asks its panel, any other builds one here, on the
- * same plan as the panel page. `panelMembers` is undefined until the panel
- * summary loads.
+ * an office with no members builds its panel here, one with members grows it,
+ * both on the same plan as the panel page. `panelMembers` is undefined until
+ * the panel summary loads.
  */
 export const buildChiefOfStaffNextSteps = ({
   panelsEnabled,
@@ -88,9 +87,10 @@ export const buildChiefOfStaffNextSteps = ({
     ? [
         panelMembers !== undefined && panelMembers > 0
           ? {
-              label: 'Ask your civic panel',
-              description: 'Hear what residents think before you decide.',
-              message: NEXT_STEP_MESSAGES.askPanel,
+              label: 'Grow your civic panel',
+              description:
+                'Reach more residents, so you hear from more of them.',
+              kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
             }
           : {
               label: 'Build your civic panel',
@@ -117,20 +117,15 @@ export const buildChiefOfStaffNextSteps = ({
 /**
  * The step under the answer to What's a civic panel?, matching how the reply
  * ends. The question comes from the build card, which is only up while no
- * invite has gone out, so the panel's members decide it: none builds one in
- * this chat, some asks it. No card until the summary loads.
+ * invite has gone out, so only an office with no members gets a step: build
+ * one in this chat. No card until the summary loads.
  */
 export const civicPanelExplainNextStep = (
   panelMembers: number | undefined,
-): ChatSuggestion | undefined => {
-  if (panelMembers === undefined) return undefined
-  return panelMembers > 0
-    ? {
-        label: 'Ask your panel about a priority',
-        message: NEXT_STEP_MESSAGES.askPanel,
-      }
-    : { label: 'Build my panel', kickoff: BUILD_CITIZENS_PANEL_MESSAGE }
-}
+): ChatSuggestion | undefined =>
+  panelMembers === 0
+    ? { label: 'Build my panel', kickoff: BUILD_CITIZENS_PANEL_MESSAGE }
+    : undefined
 
 /**
  * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means

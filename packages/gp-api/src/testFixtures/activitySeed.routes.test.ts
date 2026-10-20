@@ -25,6 +25,7 @@ import {
   createWinOrg,
 } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { LlmService } from '@/llm/services/llm.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { useTestService } from '@/test-service'
@@ -93,6 +94,10 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const sample = vi
       .spyOn(contacts, 'sampleContacts')
       .mockResolvedValue(PEOPLE)
+    // A completed run asks the model to match its issues to themes.
+    const llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
     // What the panel plan sizes its first wave from.
     const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
     const stats = service.app.get(StatsService)
@@ -102,6 +107,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     onTestFinished(() => {
       engine.mockRestore()
       sample.mockRestore()
+      llm.mockRestore()
       pools.mockRestore()
       weighting.mockRestore()
     })

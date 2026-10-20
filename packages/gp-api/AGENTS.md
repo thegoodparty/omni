@@ -45,10 +45,11 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 2 shards
-(`--shard=N/2`, no coverage), one runner each, so the whole suite finishes in
-about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
-branch-protection-required `Validate` check is green only when all of them pass.
+against a shadow DB; a `Test` job fans the vitest suite across 6 shards
+(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+are saturated by its own workers plus Postgres; and an empty `Validate` gate
+`needs` both so the branch-protection-required `Validate` check is green only
+when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 `lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over

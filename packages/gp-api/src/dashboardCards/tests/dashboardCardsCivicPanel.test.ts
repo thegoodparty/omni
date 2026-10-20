@@ -357,7 +357,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     expect(cards[0]).toMatchObject({
       type: 'civic_panel',
       sourceExternalId: `build:${eo.id}`,
-      title: 'Invite residents to your civic panel by text',
+      title: 'Hear from more than the loudest voices',
       summary: '0 members so far.',
       ctaLabel: 'Start the text',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${text?.id}`,
@@ -380,7 +380,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     const [card] = await listCards(orgSlug)
 
     expect(card).toMatchObject({
-      title: 'Call residents to invite them to your civic panel',
+      title: 'Hear from more than the loudest voices',
       ctaLabel: 'Start the calls',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
     })
@@ -406,7 +406,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     const [card] = await listCards(orgSlug)
 
     expect(card).toMatchObject({
-      title: 'Finish your civic panel calls',
+      title: 'Hear from more than the loudest voices',
       ctaLabel: 'Keep calling',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
     })
@@ -450,7 +450,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     expect(await listCards(orgSlug)).toHaveLength(0)
     const [after] = await panelRows(eo.id)
     expect(after).toMatchObject({
-      title: 'Invite residents to your civic panel by text',
+      title: 'Hear from more than the loudest voices',
       dismissedAt,
       completedAt: null,
     })
@@ -514,7 +514,7 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(cards[0]).toMatchObject({
       type: 'civic_panel',
       sourceExternalId: `panel-step:${calls.id}`,
-      title: 'Call residents to invite them to your civic panel',
+      title: 'Hear from more than the loudest voices',
       summary: '0 members so far.',
       ctaLabel: 'Start the calls',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${calls.id}`,
@@ -543,7 +543,7 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(await stepRows(eo.id)).toHaveLength(1)
     expect(cards[0]).toMatchObject({
       sourceExternalId: `panel-step:${calls.id}`,
-      title: 'Finish your civic panel calls',
+      title: 'Hear from more than the loudest voices',
       ctaLabel: 'Keep calling',
     })
   })
@@ -566,7 +566,7 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({
       sourceExternalId: `panel-step:${doors.id}`,
-      title: 'Knock on doors to invite residents to your civic panel',
+      title: 'Hear from more than the loudest voices',
       ctaLabel: 'Start door knocking',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${doors.id}`,
     })
