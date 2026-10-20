@@ -33,7 +33,7 @@ with no passing verdict, 400 on a failed verdict, and a success stamping
 `services/robocallTranscription.service.test.ts` covers the batch Transcribe
 poll (completion, FAILED → 502, unsupported type) mocking the Transcribe client;
 `outreachRobocallHold.test.ts` covers the pay-time hold: happy-path off-session
-placement (idempotency key `robocall-hold-<id>-1`, satellite persisted,
+placement (idempotency key `robocall-hold-<customer>-<id>-1`, satellite persisted,
 `authorized`, `HoldPlaced` once), the 5-day defer, the INV-2 ceiling → 409 +
 revert (and a large run under the ceiling still placing the hold), a decline →
 `hold_failed` + `HoldFailed` (not a 502), a payment method
