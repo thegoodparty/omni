@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { z } from 'zod'
 import {
   PANEL_MAX_HOURS_PER_WEEK,
@@ -163,7 +163,12 @@ export const buildSizeRoundOneTool = (deps: {
         count('text'),
       ])
     } catch (error) {
-      if (error instanceof BadRequestException) return { error: error.message }
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
+        return { error: error.message }
+      }
       throw error
     }
     const [door, phone, text] = pools
@@ -183,8 +188,10 @@ export const buildSizeRoundOneTool = (deps: {
           )
     const outline = areaAround(households)
     const walkableArea = outline ? boxOf(outline) : null
-    const doorArea = walkableArea
-      ? await deps.contacts.countByGroupWithin(
+    let doorArea: DistrictCell[] = []
+    if (walkableArea) {
+      try {
+        doorArea = await deps.contacts.countByGroupWithin(
           deps.organization,
           { ...ROUND_ONE_AUDIENCES.doorKnocking },
           await deps.contacts.resolveGeoMemberIds(
@@ -192,7 +199,16 @@ export const buildSizeRoundOneTool = (deps: {
             walkableAreaPolygon(walkableArea),
           ),
         )
-      : []
+      } catch (error) {
+        if (
+          error instanceof BadRequestException ||
+          error instanceof ForbiddenException
+        ) {
+          return { error: error.message }
+        }
+        throw error
+      }
+    }
     const doors = sizeOf(doorArea) === 0 ? 0 : households.length
     const census = await deps.priorityResults.districtCensus(deps.organization)
     const dimensions: TargetedDimension[] = [

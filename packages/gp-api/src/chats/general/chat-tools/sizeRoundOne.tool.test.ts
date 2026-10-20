@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { WalkableAreaBox } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
@@ -267,6 +267,14 @@ describe('size_round_one', () => {
     expect(await tool.execute({})).toEqual({
       error: 'No district for this organization',
     })
+  })
+
+  it('relays a refused door area as a tool error', async () => {
+    const { tool, resolveGeoMemberIds } = build()
+    resolveGeoMemberIds.mockRejectedValueOnce(
+      new ForbiddenException('Pro access required'),
+    )
+    expect(await tool.execute({})).toEqual({ error: 'Pro access required' })
   })
 })
 
