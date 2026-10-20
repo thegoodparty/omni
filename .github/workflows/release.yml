@@ -129,11 +129,11 @@ jobs:
           }
 
           # A red check on a commit that main has already moved past is not
-          # worth a red train and a #bot-urgent alert when the newer commit
-          # fixed it. Such a run cancels itself, which the failure alert
-          # already treats as batching. The rule is per failed workflow: wait
-          # until the newer commit's run of it finishes, cancel only if every
-          # one passed there, and fail if any failed there too. Deciding
+          # worth a red train when the newer commit fixed it. Such a run
+          # cancels itself, which reads as batching rather than a failure.
+          # The rule is per failed workflow: wait until the newer commit's run
+          # of it finishes, cancel only if every one passed there, and fail if
+          # any failed there too. Deciding
           # earlier would rely on the newer commit getting its own train to
           # report a failure, which a path-filtered or superseded push would
           # not. Only push runs qualify: a dispatch names its SHA on purpose.
