@@ -226,6 +226,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ELECTION_DATABASE_URL: { tier: 'degradable', feature: 'election-data' },
 
   // --- Optional: everything else ---------------------------------------
+  CLERK_JWT_KEY: { tier: 'optional' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },

@@ -16,10 +16,21 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
     ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
   ) as AcsCounts
 
+// 1,000 adults: 160 in each band under 65 (80 men, 80 women) and 200 at 65
+// and over.
 const DISTRICT = acs({
-  totalPopulation: 1_250,
-  populationUnder18: 250,
-  population65Plus: 200,
+  populationMale18To24: 80,
+  populationFemale18To24: 80,
+  populationMale25To34: 80,
+  populationFemale25To34: 80,
+  populationMale35To44: 80,
+  populationFemale35To44: 80,
+  populationMale45To54: 80,
+  populationFemale45To54: 80,
+  populationMale55To64: 80,
+  populationFemale55To64: 80,
+  populationMale65Plus: 100,
+  populationFemale65Plus: 100,
   households: 400,
   ownerOccupiedHouseholds: 240,
 })
@@ -32,7 +43,7 @@ const TRACTS = new Map([
 const cell = (
   overrides: Partial<RespondentCell> & { count: number },
 ): RespondentCell => ({
-  ageBand: '18to64',
+  ageBand: '35to44',
   gender: null,
   tenure: 'owner',
   tract: '53017950100',
@@ -56,7 +67,8 @@ describe('weightingTargets', () => {
       tractAdults: TRACTS,
     })
     expect(targets.age?.['65plus']).toBeCloseTo(0.2)
-    expect(targets.age?.['18to64']).toBeCloseTo(0.8)
+    expect(targets.age?.['18to24']).toBeCloseTo(0.16)
+    expect(Object.keys(targets.age ?? {})).toHaveLength(6)
     expect(targets.tenure?.owner).toBeCloseTo(0.6)
     expect(targets.tract?.['53017950200']).toBeCloseTo(0.4)
     expect(targets.gender).toBeUndefined()
@@ -70,13 +82,29 @@ describe('weightingTargets', () => {
     expect(Object.keys(targets)).toEqual(['age'])
   })
 
-  it('takes gender once the marts publish it', () => {
+  it('reads gender from the adult census sex totals', () => {
     const targets = weightingTargets({
-      district: DISTRICT,
+      district: {
+        ...DISTRICT,
+        populationMale18Plus: 480,
+        populationFemale18Plus: 520,
+      },
       tractAdults: TRACTS,
-      genderShares: { male: 0.48, female: 0.52 },
     })
+    expect(targets.gender?.male).toBeCloseTo(0.48)
     expect(targets.gender?.female).toBeCloseTo(0.52)
+  })
+
+  it('leaves gender out when the census suppressed either sex', () => {
+    const targets = weightingTargets({
+      district: {
+        ...DISTRICT,
+        populationMale18Plus: null,
+        populationFemale18Plus: 520,
+      },
+      tractAdults: TRACTS,
+    })
+    expect(targets.gender).toBeUndefined()
   })
 })
 

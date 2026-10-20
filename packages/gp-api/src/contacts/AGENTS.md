@@ -956,9 +956,9 @@ draft does.
 
 **Steering by census** (`utils/civicPanelSteering.util.ts`, Bryan,
 2026-10-18). Each draw leans toward the groups the panel trails, so the
-panel drifts toward the district's census mix. Dimensions are age (18 to
-64, 65+), tract and race, plus gender once the marts publish sex by age
-(wired through `WeightingCensus.genderShares`, inactive until then). Tenure
+panel drifts toward the district's census mix. Dimensions are age (the
+census's six adult bands, 18 to 24 through 65+), gender (census sex against
+the voter file's `M`/`F`), tract and race, all from `weightingTargets`. Tenure
 is out until a statistician rules on its household target. Race (Bryan and
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`) is L2's
 modeled `EthnicGroups_EthnicGroup1Desc` folded into white, Black, Hispanic,
@@ -972,7 +972,7 @@ person or a filter: the Serve ethnicity gate below is unchanged.
 `CensusCompositionSource.weightingInputs` reads the members' cells and the
 census (`findWeightingInputs`), cached 15 minutes per office and member set
 in the plan service; a failed read leans nowhere. Gaps are census share
-(`weightingTargets`: ACS adults for age, adults per tract over the block
+(`weightingTargets`: ACS adults by sex and age band, adults per tract over the block
 groups the district's people live in) against the members' unweighted share
 among those with a known value, values under
 `MIN_ANSWERS_PER_WEIGHTING_GROUP` (5) members pooled into `other`.
@@ -1007,8 +1007,8 @@ A priority check's first round, which the priority chat proposes as a door,
 a call and a text card at once (`size_round_one`,
 `chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
 `MAJOR_GROUP_SHARE` (3%) or more of the district on a steered dimension:
-age band, tract, race only when `raceNameable` holds for the door pool,
-gender once the census publishes it, never `other`. District shares are
+age band, gender, tract, and race only when `raceNameable` holds for the
+door pool, never `other`. District shares are
 `weightingTargets` of the census (`PriorityResultsService.districtCensus`),
 or the door pool's own mix when the census cannot be read. Each channel's
 pool is counted by group in the warehouse (`ContactsService.countByGroupWithin`,

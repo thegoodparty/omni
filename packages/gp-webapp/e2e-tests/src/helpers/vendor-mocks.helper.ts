@@ -68,3 +68,13 @@ export const callhubAction = (
   campaignId: number,
   action: MockAction['action'],
 ) => mockAction(client, campaignId, action)
+
+/**
+ * Fires a Peerly-specific vendor-mock action for a campaign.
+ * Thin wrapper over mockAction scoped to the Peerly action space.
+ */
+export const peerlyAction = (
+  client: AxiosInstance,
+  campaignId: number,
+  action: MockAction['action'],
+) => mockAction(client, campaignId, action)

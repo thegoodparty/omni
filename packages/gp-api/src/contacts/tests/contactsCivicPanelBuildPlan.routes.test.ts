@@ -267,11 +267,21 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
     ACS_COUNT_KEYS.map((key) => [key, overrides[key] ?? 0]),
   ) as AcsCounts
 
-// 1,000 adults, 20% of them 65 and over, in tracts of 50%, 40% and 10%.
+// 1,000 adults: 16% in each age band under 65 and 20% at 65 and over, in
+// tracts of 50%, 40% and 10%.
 const DISTRICT_ACS = acs({
-  totalPopulation: 1_250,
-  populationUnder18: 250,
-  population65Plus: 200,
+  populationMale18To24: 80,
+  populationFemale18To24: 80,
+  populationMale25To34: 80,
+  populationFemale25To34: 80,
+  populationMale35To44: 80,
+  populationFemale35To44: 80,
+  populationMale45To54: 80,
+  populationFemale45To54: 80,
+  populationMale55To64: 80,
+  populationFemale55To64: 80,
+  populationMale65Plus: 100,
+  populationFemale65Plus: 100,
 })
 const TRACT_A = '53017950100'
 const TRACT_B = '53017950200'
@@ -286,7 +296,7 @@ const members = (
   count: number,
   overrides: Partial<RespondentCell> = {},
 ): RespondentCell => ({
-  ageBand: '18to64',
+  ageBand: '35to44',
   gender: null,
   tenure: null,
   tract: TRACT_A,
@@ -791,7 +801,14 @@ describe('steering the plan by census', () => {
     expect(res.status).toBe(HttpStatus.OK)
     const weights = draw.mock.calls[0]?.[0].weights
     expect(weights).toMatchObject({
-      age: { '18to64': 0.8, '65plus': 2 },
+      age: {
+        '18to24': 2,
+        '25to34': 2,
+        '35to44': 0.5,
+        '45to54': 2,
+        '55to64': 2,
+        '65plus': 2,
+      },
       minWeight: 0.5,
       maxWeight: 2,
     })
@@ -806,7 +823,7 @@ describe('steering the plan by census', () => {
     stubPools(LARGE)
     stubMix([
       members(20, { ageBand: '65plus', tract: TRACT_A }),
-      members(16, { tract: TRACT_B }),
+      members(16, { tract: TRACT_A }),
       members(4, { tract: TRACT_C }),
     ])
     await joinPanel(slug, 40)
@@ -819,10 +836,11 @@ describe('steering the plan by census', () => {
     const callDraw = draw.mock.calls[0]?.[0]
     expect(filterKeys(callDraw as FilterArg)).not.toContain('hasLandline')
     expect(filterKeys(callDraw as FilterArg)).toContain('hasAnyPhone')
-    expect(callDraw?.weights?.age['18to64']).toBeGreaterThan(1)
+    // Half the panel is 65 and over against a fifth of adults.
+    expect(callDraw?.weights?.age['65plus']).toBe(0.5)
     const read = stepOf(await readPlan(slug), 'phone_banking')
     expect(read.landlineFirst).toBe(false)
-    expect(read.steeredToward).toBe('age18to64')
+    expect(read.steeredToward).toBe('unreachedAreas')
   })
 
   it('records a call step that dropped landline-first with nobody to lean toward', async () => {

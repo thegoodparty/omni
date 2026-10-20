@@ -543,6 +543,38 @@ export = async () => {
       OTEL_SERVICE_ENVIRONMENT: environment,
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      // Clerk instance public key, so tokens verify without fetching Clerk's
+      // JWKS on the request path. Public, so it lives here and not in the
+      // secret. Previews use the dev Clerk instance.
+      CLERK_JWT_KEY: select({
+        preview: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        dev: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        prod: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7mX9LgkMjP5eeqaufE/
+gKslsuuKY8rRVlYfLiIGHFo6UbB8Nm3ZY4VDHNGCP8ewE0CrEuY5LaRbYaIuDeB5
+9dWfgTIbieUBHPr2lmA1crMyRKVQEkYNHFGyvoR6wF3m8FUbiT03gEsnTsmKdeFl
+rmbyjAacxbn75BLOwZZm1abvRxPXj6/MwbahCKVSvtrBdsjhQBxxOv5+9UFhQ14p
+WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
+4RFIVMAkgqfj2C8dnFR2sQS2NkR9DqQabf6aY4Yme2/RRT5489atX1kUFh1Tt167
+jwIDAQAB
+-----END PUBLIC KEY-----`,
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',

@@ -42,10 +42,13 @@ const acs = (overrides: Partial<Record<AcsCountKey, number>>): AcsCounts =>
   ) as AcsCounts
 
 // 1,000 adults, 20% of them 65 and over, in tracts of 60% and 40%.
+// Adults sit in two of the census's six age bands, 35 to 44 and 65 and
+// over; the 18+ sex totals are left out, so gender sits out of these tests.
 const DISTRICT_ACS = acs({
-  totalPopulation: 1_250,
-  populationUnder18: 250,
-  population65Plus: 200,
+  populationMale35To44: 400,
+  populationFemale35To44: 400,
+  populationMale65Plus: 100,
+  populationFemale65Plus: 100,
 })
 const TRACT_ADULTS = new Map([
   [TRACT_A, 600],
@@ -226,7 +229,7 @@ describe('a priority round 2 text', () => {
       .mockImplementation(async (_districtId, _dataset, personIds) => ({
         district: DISTRICT_ACS,
         cells: personIds.map((personId) => ({
-          ageBand: '18to64' as const,
+          ageBand: '35to44' as const,
           gender: null,
           tenure: null,
           tract: TRACT_A,
@@ -310,7 +313,7 @@ describe('a priority round 2 text', () => {
     const [steered, unsteered] = samplePeople.mock.calls.map(([dto]) => dto)
     expect(steered).toMatchObject({ size: 255, weights: expect.any(Object) })
     expect(steered?.weights?.age?.['65plus']).toBeGreaterThan(
-      steered?.weights?.age?.['18to64'] ?? Infinity,
+      steered?.weights?.age?.['35to44'] ?? Infinity,
     )
     expect(unsteered).toMatchObject({ size: 45 })
     expect(unsteered?.weights).toBeUndefined()
