@@ -180,9 +180,3 @@ export const tractShortfalls = (
     )
     .sort((a, b) => a.tract.localeCompare(b.tract))
 }
-
-export const unreachedTracts = (
-  respondents: RespondentCell[],
-  tractAdults: Map<string, number>,
-): string[] =>
-  tractShortfalls(respondents, tractAdults).map(({ tract }) => tract)

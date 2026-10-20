@@ -7,6 +7,8 @@ import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
 const READ: PriorityReadStatus = {
   answers: 12,
   needed: 40,
+  groupsHeard: 9,
+  groupsTotal: 12,
   good: false,
   status: 'notYetRepresentative',
   underrepresented: ['age65plus'],

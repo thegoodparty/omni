@@ -266,6 +266,8 @@ describe('GET /v1/priorities/:id/results', () => {
     expect(res.data.readStatus).toEqual({
       answers: 12,
       needed: 18,
+      groupsHeard: 0,
+      groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age35to44', 'age65plus'],
@@ -456,6 +458,8 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 8,
       needed: 11,
+      groupsHeard: 1,
+      groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       // Eight answers still leave the model unsure of the younger band.
@@ -471,6 +475,8 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 10,
       needed: 11,
+      groupsHeard: 1,
+      groupsTotal: 2,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['age65plus', 'age35to44'],
@@ -498,6 +504,8 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 160,
       needed: 160,
+      groupsHeard: 2,
+      groupsTotal: 2,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -591,6 +599,8 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 100,
       needed: 100,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
@@ -606,6 +616,8 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 12,
       needed: 100,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good: false,
       status: 'tooEarly',
       underrepresented: [],
@@ -654,36 +666,33 @@ describe('GET /v1/priorities/:id/read-status', () => {
 describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', () => {
   const REACHED = '37021000100'
   const UNREACHED = '37021000200'
+  const TRACT_FRAME: MrpInputs['frame'] = [
+    { count: 500, values: { tract: REACHED } },
+    { count: 500, values: { tract: UNREACHED } },
+  ]
+  const reachedCell = (input: {
+    answers: PersonAnswer[]
+  }): MrpInputs['answers'][number] => ({
+    yes: input.answers.reduce((sum, answer) => sum + answer.yes, 0),
+    answers: input.answers.length,
+    values: { tract: REACHED },
+  })
   const inside = [uuidv7(), uuidv7()]
 
   const createFilter = (body: Record<string, unknown>) =>
     service.client.post('/v1/voters/voter-file/filter', body, headers())
 
-  let weightingInputs: MockInstance<StatsService['findWeightingInputs']>
   let gridCells: MockInstance<StatsService['findTractGridCells']>
   let geoMembers: MockInstance<ContactsService['resolveGeoMemberIds']>
 
   beforeEach(() => {
-    // Everyone who answered lives in one of the district's two tracts.
-    weightingInputs = vi
-      .spyOn(service.app.get(StatsService), 'findWeightingInputs')
-      .mockImplementation(async (_d, _ds, personIds) => ({
-        district: blockGroup,
-        cells: [
-          {
-            ageBand: null,
-            gender: null,
-            tenure: null,
-            tract: REACHED,
-            race: null,
-            count: personIds.length,
-          },
-        ],
-        tractAdults: new Map([
-          [REACHED, 500],
-          [UNREACHED, 500],
-        ]),
-      }))
+    // The model reads the district's two tracts: REACHED has voices,
+    // UNREACHED has none.
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      frame: TRACT_FRAME,
+      answers: answers.length === 0 ? [] : [reachedCell({ answers })],
+      raceNameable: false,
+    }))
     gridCells = vi
       .spyOn(service.app.get(StatsService), 'findTractGridCells')
       .mockResolvedValue([
@@ -696,7 +705,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('saves the area as the list boundary, with its people frozen', async () => {
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
 
     const res = await createFilter({
       name: 'Parts we have not heard from',
@@ -721,7 +730,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('draws a sample only from the people inside the area', async () => {
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
     const draw = vi
       .spyOn(service.app.get(ContactsService), 'drawListSample')
       .mockResolvedValue([inside[0]!])
@@ -740,21 +749,12 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('refuses when every part of the district has answered', async () => {
-    weightingInputs.mockImplementation(async (_d, _ds, personIds) => ({
-      district: blockGroup,
-      cells: [
-        {
-          ageBand: null,
-          gender: null,
-          tenure: null,
-          tract: REACHED,
-          race: null,
-          count: personIds.length,
-        },
-      ],
-      tractAdults: new Map([[REACHED, 500]]),
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      frame: [{ count: 500, values: { tract: REACHED } }],
+      answers: [reachedCell({ answers })],
+      raceNameable: false,
     }))
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
 
     const res = await createFilter({
       name: 'Nowhere left',

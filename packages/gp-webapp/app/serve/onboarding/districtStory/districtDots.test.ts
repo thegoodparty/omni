@@ -6,6 +6,7 @@ import {
   fromMercator,
   toMercator,
   residentsPerDot,
+  SAMPLE_PER_CELL,
   TARGET_DOTS,
   VIEW_HEIGHT,
   VIEW_WIDTH,
@@ -76,12 +77,14 @@ describe('buildDistrictDots', () => {
     )
   })
 
-  it('picks a sample of the asked size, 12 loud dots and 38 that join', () => {
-    const { dots } = buildDistrictDots(grid(2_000), 92)!
-    expect(dots.filter((dot) => dot.sample)).toHaveLength(92)
+  it('picks a few sample dots per part, 12 loud dots and half of the sample that join', () => {
+    const { dots } = buildDistrictDots(grid(2_000))!
+    const sample = dots.filter((dot) => dot.sample)
+    expect(sample.length).toBeGreaterThan(0)
+    expect(sample.length).toBeLessThanOrEqual(16 * SAMPLE_PER_CELL)
     expect(dots.filter((dot) => dot.loud)).toHaveLength(12)
     const joined = dots.filter((dot) => dot.joinedOrder >= 0)
-    expect(joined).toHaveLength(38)
+    expect(joined).toHaveLength(Math.ceil(sample.length / 2))
     expect(joined.every((dot) => dot.sample)).toBe(true)
   })
 
@@ -104,7 +107,7 @@ describe('buildAbstractDots', () => {
     expect(model.camera).toBeNull()
     expect(model.outline).toMatch(/^M/)
     expect(model.dots).toHaveLength(TARGET_DOTS)
-    expect(model.dots.filter((dot) => dot.sample)).toHaveLength(100)
+    expect(model.dots.filter((dot) => dot.sample).length).toBeGreaterThan(0)
   })
 })
 
