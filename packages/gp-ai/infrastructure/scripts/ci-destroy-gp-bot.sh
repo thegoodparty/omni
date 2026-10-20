@@ -103,6 +103,15 @@ else
   # clickup-bot reads engineer-agent-fargate's state outputs, so each goes
   # before the thing it depends on.
   destroy "$here/environments/prod/shared-infra" "${shared_infra_targets[@]/#/-target=}"
+  # Terraform drops a data source that left the config on the next apply, and
+  # it never shows as a delete. Removed here anyway because prod shared-infra
+  # is not planned on PRs, so nothing would show it before the train.
+  if [ "$mode" = apply ]; then
+    cd "$here/environments/prod/shared-infra"
+    if grep -qxF data.terraform_remote_state.clickup_bot <<<"$(terraform state list)"; then
+      terraform state rm -lock-timeout=10m data.terraform_remote_state.clickup_bot
+    fi
+  fi
   destroy "$here/retiring/prod/clickup-bot"
   destroy "$here/retiring/prod/engineer-agent-fargate"
 fi
