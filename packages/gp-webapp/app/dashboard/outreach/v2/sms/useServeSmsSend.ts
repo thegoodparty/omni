@@ -123,8 +123,8 @@ export interface UseServeSmsSendInput {
   purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
-  // A priority's round 2: how many texts the card proposed. The list is the
-  // pool they are drawn from later, so the count is the server's to settle.
+  // A priority text's follow-up: how many more texts the card holds for
+  // later, from the same criteria. The server settles the count and date.
   roundTwoSize?: number
   launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
@@ -136,6 +136,7 @@ export interface UseServeSmsSendInput {
   // screen). Serve fills it from the create response instead of from a
   // Peerly phone-list poll, which is what lets those lines stay untouched.
   setRecipientCounts: (counts: PhoneListStatusResponse) => void
+  setFollowUp: (followUp: ServeSmsCreateResponse['followUp'] | null) => void
   isDraftCreatingRef: MutableRefObject<boolean>
   draftGenerationRef: MutableRefObject<number>
 }
@@ -171,6 +172,7 @@ export const useServeSmsSend = ({
   setDraftOutreachId,
   setDraftCreateError,
   setRecipientCounts,
+  setFollowUp,
   isDraftCreatingRef,
   draftGenerationRef,
 }: UseServeSmsSendInput): ServeSmsSend => {
@@ -259,10 +261,13 @@ export const useServeSmsSend = ({
           // Never read on this path: the only reader is the flow's Win create
           // effect, which returns at its own guard before it gets here.
           phoneListId: 0,
-          leadsLoaded: result.recipientCount,
+          // Both rounds of one purchase: what review prices and quotes.
+          leadsLoaded:
+            result.recipientCount + (result.followUp?.recipientCount ?? 0),
           excludedOptedOutCount: result.excludedOptedOutCount,
           excludedDuplicatePhoneCount: result.excludedDuplicateCount,
         })
+        setFollowUp(result.followUp ?? null)
         setDraftOutreachId(result.outreachId)
         // Serve's own create, the sibling of the Win draft effect in
         // SmsFlow. Always the Serve name: this path is only ever reached

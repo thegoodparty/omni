@@ -172,6 +172,7 @@ export class OutreachServeSmsPurchaseHandlerService
         reportBackForOutreachId: true,
         outreachType: true,
         voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+        roundTwo: { select: { id: true, textCount: true, status: true } },
       },
     })
 
@@ -215,7 +216,14 @@ export class OutreachServeSmsPurchaseHandlerService
           claimData,
           sessionId,
         )
-      : await this.model.updateMany({ where: claimWhere, data: claimData })
+      : row.roundTwo?.status === OutreachStatus.pending_payment
+        ? await this.claimWithFollowUp(
+            claimWhere,
+            claimData,
+            row.roundTwo,
+            sessionId,
+          )
+        : await this.model.updateMany({ where: claimWhere, data: claimData })
 
     const isPoll = row.outreachType === OutreachType.poll
 
@@ -605,6 +613,38 @@ export class OutreachServeSmsPurchaseHandlerService
     )
   }
 
+  // A priority text's follow-up is paid for in its first send's checkout,
+  // so both are claimed in one write: a paid first send never leaves its
+  // follow-up unpaid, and the follow-up then waits on its draw like any
+  // round 2. Each records what it billed.
+  private claimWithFollowUp(
+    claimWhere: Prisma.OutreachWhereInput,
+    claimData: Prisma.OutreachUpdateManyMutationInput,
+    followUp: { id: number; textCount: number | null },
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    return this.client.$transaction(async (tx) => {
+      const claimed = await tx.outreach.updateMany({
+        where: claimWhere,
+        data: claimData,
+      })
+      if (claimed.count === 0) return claimed
+      await tx.outreach.updateMany({
+        where: { id: followUp.id, status: OutreachStatus.pending_payment },
+        data: {
+          status: OutreachStatus.pending,
+          ...(followUp.textCount === null
+            ? {}
+            : { billableTextCount: followUp.textCount }),
+          ...(sessionId.startsWith('cs_')
+            ? { stripeCheckoutSessionId: sessionId }
+            : {}),
+        },
+      })
+      return claimed
+    })
+  }
+
   // The same refund a cancel-before-send issues, keyed on the row so a
   // redelivered completion can never refund twice. A failed refund leaves
   // the row canceled holding its session, which the console lists for staff.
@@ -667,6 +707,7 @@ export class OutreachServeSmsPurchaseHandlerService
         status: true,
         textCount: true,
         reportBackForOutreachId: true,
+        roundTwo: { select: { status: true, textCount: true } },
       },
     })
 
@@ -711,7 +752,13 @@ export class OutreachServeSmsPurchaseHandlerService
       )
     }
 
-    return { textCount: draft.textCount }
+    // A priority text's follow-up is bought with it: one checkout, both
+    // counts.
+    const followUp =
+      draft.roundTwo?.status === OutreachStatus.pending_payment
+        ? (draft.roundTwo.textCount ?? 0)
+        : 0
+    return { textCount: draft.textCount + followUp }
   }
 
   /**

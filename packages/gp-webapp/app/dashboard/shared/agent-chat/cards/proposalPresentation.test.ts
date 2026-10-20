@@ -89,6 +89,17 @@ describe('proposalSampleLine', () => {
     ).toBe('Text 4,000 of 58,520, picked at random')
   })
 
+  it('gives the total of a two-round text, then how it splits', () => {
+    expect(
+      proposalSampleLine({
+        channel: 'text',
+        count: 58_520,
+        sampleSize: 1_000,
+        roundTwoSize: 1_000,
+      }),
+    ).toBe('Text 2,000 of 58,520: 1,000 now, 1,000 two weeks later')
+  })
+
   it('says a widen reaches people not asked yet, never at random', () => {
     expect(
       proposalSampleLine({

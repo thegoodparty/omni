@@ -12,7 +12,11 @@ import {
   PrioritySource,
 } from '@/generated/prisma'
 import { OutreachServeSmsPurchaseHandlerService } from '@/outreach/services/outreachServeSmsPurchase.service'
-import { roundTwoDrawCutoff } from '@/outreach/services/outreachServeSmsCreate.service'
+import {
+  OutreachServeSmsCreateService,
+  roundTwoDrawCutoff,
+} from '@/outreach/services/outreachServeSmsCreate.service'
+import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import {
   ACS_COUNT_KEYS,
   type AcsCountKey,
@@ -63,7 +67,9 @@ const notInIds = (dto: FilterArg) =>
     ? dto.filters.filterOperators.id.values
     : []
 
-const POOL = 500
+// Round 1 goes to ROUND_ONE of the pool; the follow-up draws from the rest.
+const POOL = 1_000
+const ROUND_ONE = 300
 
 const page = (totalResults: number) => ({
   people: [],
@@ -77,7 +83,7 @@ const page = (totalResults: number) => ({
   },
 })
 
-describe('a priority round 2 text', () => {
+describe("a priority text's follow-up", () => {
   let slug: string
   let priorityId: string
   let poolId: number
@@ -85,6 +91,9 @@ describe('a priority round 2 text', () => {
   let reached: string[]
   // Who each answerer is, as the warehouse would place them.
   let profiles: Map<string, Partial<RespondentCell>>
+  // The first send of the purchase under test, whose own enqueue is not
+  // what these tests are about.
+  let firstSend: number | undefined
 
   const headers = () => ({ headers: { 'x-organization-slug': slug } })
 
@@ -95,11 +104,16 @@ describe('a priority round 2 text', () => {
     'yyyy-MM-dd',
   )
 
+  const followUpDate = format(
+    addBusinessDays(parseISO(sendDate), 10),
+    'yyyy-MM-dd',
+  )
+
   const create = (body: Record<string, unknown> = {}) =>
     service.client.post(
       '/v1/outreach/serve/sms',
       {
-        name: 'Maple flooding, round 2',
+        name: 'Maple flooding',
         message:
           'this is Bryan, your City Council Member. Is it the drains?\n\nReply STOP to opt out.',
         imageUrl: 'https://assets.test/header.png',
@@ -111,6 +125,15 @@ describe('a priority round 2 text', () => {
       },
       { ...headers(), validateStatus: () => true },
     )
+
+  // One purchase: the first send and its follow-up.
+  const createRounds = async (body: Record<string, unknown> = {}) => {
+    const { data } = (await create(body)) as {
+      data: { outreachId: number; followUp: { outreachId: number } }
+    }
+    firstSend = data.outreachId
+    return { roundOne: data.outreachId, roundTwo: data.followUp.outreachId }
+  }
 
   const pay = (outreachId: number) =>
     service.app
@@ -154,6 +177,16 @@ describe('a priority round 2 text', () => {
   beforeEach(async () => {
     slug = `eo-round-two-${randomUUID()}`
     profiles = new Map()
+    firstSend = undefined
+    // Who the first send reaches; the warehouse is not here to count it.
+    vi.spyOn(
+      service.app.get(OutreachServeSmsCreateService),
+      'resolveListAudienceCount',
+    ).mockResolvedValue({
+      recipientCount: ROUND_ONE,
+      excludedOptedOutCount: 0,
+      excludedDuplicatePhoneCount: 0,
+    })
     await service.prisma.organization.create({
       data: {
         slug,
@@ -247,10 +280,15 @@ describe('a priority round 2 text', () => {
     })
 
   const sendsEnqueued = () =>
-    sendMessage.mock.calls.filter(
-      ([message]) =>
-        (message as { type: QueueType }).type === QueueType.OUTREACH_TEXT_SEND,
-    )
+    sendMessage.mock.calls.filter(([message]) => {
+      const { type, data } = message as {
+        type: QueueType
+        data: { outreachId: number }
+      }
+      return (
+        type === QueueType.OUTREACH_TEXT_SEND && data.outreachId !== firstSend
+      )
+    })
 
   it('is paid for at its size, held at payment, and drawn once', async () => {
     // Younger residents of one tract answered; older ones and the other
@@ -266,22 +304,39 @@ describe('a priority round 2 text', () => {
 
     const created = await create()
     expect(created.status).toBe(HttpStatus.CREATED)
-    expect(created.data.recipientCount).toBe(300)
-    const { outreachId } = created.data as { outreachId: number }
+    expect(created.data).toMatchObject({
+      recipientCount: ROUND_ONE,
+      followUp: { recipientCount: 300, scheduledLocalDate: followUpDate },
+    })
+    const roundOne = created.data.outreachId as number
+    firstSend = roundOne
+    const outreachId = created.data.followUp.outreachId as number
 
     const draft = await roundTwoRow(outreachId)
     expect(draft).toMatchObject({
       textCount: 300,
       priorityId,
+      roundOneOutreachId: roundOne,
+      scheduledLocalDate: followUpDate,
+      proposalKey: null,
       status: OutreachStatus.pending_payment,
     })
+    // One checkout prices both rounds.
+    expect(
+      await service.app
+        .get(OutreachServeSmsPurchaseHandlerService)
+        .calculateAmount({
+          outreachId: String(roundOne),
+          organizationSlug: slug,
+        }),
+    ).toBe(calcTextAmountInCents(ROUND_ONE + 300))
     // The send holds a copy of the pool, waiting to be drawn; the pool the
     // official saved is unchanged.
     expect(draft.voterFileFilterId).not.toBe(poolId)
     expect(draft.voterFileFilter).toMatchObject({
       sampleSize: 300,
       sampledAt: null,
-      name: 'Everyone with a cell, round 2',
+      name: 'Everyone with a cell, follow-up',
     })
     expect(
       await service.prisma.voterFileFilter.findUniqueOrThrow({
@@ -289,14 +344,19 @@ describe('a priority round 2 text', () => {
       }),
     ).toMatchObject({ sampleSize: null, sampledAt: null })
 
-    await pay(outreachId)
+    await pay(roundOne)
     expect(await roundTwoRow(outreachId)).toMatchObject({
       status: OutreachStatus.pending,
       billableTextCount: 300,
+      stripeCheckoutSessionId: 'cs_test_round_two',
+    })
+    expect(await roundTwoRow(roundOne)).toMatchObject({
+      status: OutreachStatus.pending,
+      billableTextCount: ROUND_ONE,
     })
     expect(sendsEnqueued()).toHaveLength(0)
     // A redelivered webhook does not enqueue it either.
-    await pay(outreachId)
+    await pay(roundOne)
     expect(sendsEnqueued()).toHaveLength(0)
 
     const drawn = await draw(outreachId)
@@ -351,15 +411,16 @@ describe('a priority round 2 text', () => {
 
   it('is drawn by the job once its send date is close, unsteered when the census is unreadable', async () => {
     weightingInputs.mockRejectedValue(new Error('warehouse down'))
-    const { outreachId } = (await create()).data as { outreachId: number }
-    await pay(outreachId)
+    const { roundOne } = await createRounds()
+    await pay(roundOne)
     const job = service.app.get(PriorityRoundTwoDrawService)
 
-    // Today it is not due.
+    // Not while round 1's replies are still coming in.
     await job.drawDue(new Date())
+    await job.drawDue(addBusinessDays(new Date(), 4))
     expect(samplePeople).not.toHaveBeenCalled()
 
-    const later = addBusinessDays(new Date(), 4)
+    const later = addBusinessDays(new Date(), 14)
     await job.drawDue(later)
     expect(samplePeople).toHaveBeenCalledTimes(1)
     expect(samplePeople.mock.calls[0]?.[0]).toMatchObject({ size: 300 })
@@ -372,8 +433,8 @@ describe('a priority round 2 text', () => {
   })
 
   it('goes back to undrawn when the handoff fails, and draws on the next try', async () => {
-    const { outreachId } = (await create()).data as { outreachId: number }
-    await pay(outreachId)
+    const { roundOne, roundTwo: outreachId } = await createRounds()
+    await pay(roundOne)
     sendMessage.mockRejectedValueOnce(new Error('sqs down'))
 
     expect((await draw(outreachId)).status).toBe(
@@ -390,29 +451,35 @@ describe('a priority round 2 text', () => {
     })
   })
 
-  it('is no bigger than the pool it draws from', async () => {
+  it('is no bigger than what the pool holds past the first send', async () => {
     vi.spyOn(
       service.app.get(VoterQueryService),
       'findPeople',
-    ).mockResolvedValue(page(120) as never)
+    ).mockResolvedValue(page(ROUND_ONE + 120) as never)
     const created = await create()
     expect(created.status).toBe(HttpStatus.CREATED)
-    expect(created.data.recipientCount).toBe(120)
+    expect(created.data.followUp.recipientCount).toBe(120)
   })
 
-  it('needs a priority, a whole list and room before its draw', async () => {
+  it('is left out when too few are left for a text of its own', async () => {
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockResolvedValue(page(ROUND_ONE + 10) as never)
+    const created = await create()
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(created.data.followUp).toBeUndefined()
+    expect(
+      await service.prisma.outreach.count({
+        where: { roundOneOutreachId: created.data.outreachId },
+      }),
+    ).toBe(0)
+  })
+
+  it('needs a priority', async () => {
     expect((await create({ priorityId: undefined })).status).toBe(
       HttpStatus.BAD_REQUEST,
     )
-    expect(
-      (await create({ scheduledLocalDate: roundTwoDrawCutoff(new Date()) }))
-        .status,
-    ).toBe(HttpStatus.BAD_REQUEST)
-    await service.prisma.voterFileFilter.update({
-      where: { id: poolId },
-      data: { sampleSize: 50, sampledAt: new Date() },
-    })
-    expect((await create()).status).toBe(HttpStatus.BAD_REQUEST)
     expect(
       await service.prisma.outreach.count({
         where: { organizationSlug: slug, id: { not: roundOneId } },
@@ -458,25 +525,29 @@ describe('a priority round 2 text', () => {
 
   const linked = { proposalKey: PROPOSAL_KEY, stepId: 'define', side: 'main' }
 
-  it('puts its check out when the draw hands it off, not at payment', async () => {
+  it('puts its check out with the first send, and the follow-up keeps it out', async () => {
     await askCheck()
-    const { outreachId } = (await create(linked)).data as { outreachId: number }
-    await pay(outreachId)
-    // A redelivered webhook loses the claim and must not record it either.
-    await pay(outreachId)
-    expect(await defineCheck()).toMatchObject({ state: 'asked' })
+    const { roundOne, roundTwo } = await createRounds(linked)
+    expect(await roundTwoRow(roundOne)).toMatchObject({
+      proposalKey: PROPOSAL_KEY,
+    })
+    await pay(roundOne)
+    expect(await defineCheck()).toMatchObject({
+      state: 'out',
+      sentProposalKey: PROPOSAL_KEY,
+    })
 
-    await draw(outreachId)
+    await draw(roundTwo)
     expect(await defineCheck()).toMatchObject({
       state: 'out',
       sentProposalKey: PROPOSAL_KEY,
     })
   })
 
-  it('is canceled unsent, with its check still asked, when it draws nobody', async () => {
+  it('is canceled unsent when it draws nobody', async () => {
     await askCheck()
-    const { outreachId } = (await create(linked)).data as { outreachId: number }
-    await pay(outreachId)
+    const { roundOne, roundTwo: outreachId } = await createRounds(linked)
+    await pay(roundOne)
     samplePeople.mockResolvedValue([])
 
     expect((await draw(outreachId)).data).toEqual({
@@ -489,14 +560,13 @@ describe('a priority round 2 text', () => {
       voterFileFilter: { sampledAt: null, sampleMembers: [] },
     })
     expect(sendsEnqueued()).toHaveLength(0)
-    expect(await defineCheck()).toMatchObject({ state: 'asked' })
   })
 
   // The draw's commit and its enqueue are two steps; a process that dies
   // between them leaves a drawn send nobody handed off.
   it('hands off a send drawn but never enqueued, and nothing else', async () => {
-    const { outreachId } = (await create()).data as { outreachId: number }
-    await pay(outreachId)
+    const { roundOne, roundTwo: outreachId } = await createRounds()
+    await pay(roundOne)
     const { voterFileFilterId } = await roundTwoRow(outreachId)
     const drawnAt = subHours(new Date(), 2)
     await service.prisma.voterFileFilter.update({

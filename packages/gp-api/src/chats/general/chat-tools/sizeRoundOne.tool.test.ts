@@ -175,7 +175,9 @@ describe('size_round_one', () => {
           channel: 'text',
           audienceFilters: { notContactedRecently: true, hasCellPhone: true },
           count: 10_000,
-          sampleSize: 817,
+          // One purchase of 817: half now, the rest held for the follow-up.
+          sampleSize: 409,
+          roundTwoSize: 408,
           targetResponses: 24,
           assumedReplyRate: 0.03,
           civicPanelAsk: true,
@@ -190,7 +192,11 @@ describe('size_round_one', () => {
     const { tool } = build({ area: [cell('18to64', 't1', 'white', 100)] })
     expect(await tool.execute({})).toMatchObject({
       cards: expect.arrayContaining([
-        expect.objectContaining({ channel: 'text', sampleSize: 950 }),
+        expect.objectContaining({
+          channel: 'text',
+          sampleSize: 475,
+          roundTwoSize: 475,
+        }),
       ]),
     })
   })
@@ -231,7 +237,11 @@ describe('size_round_one', () => {
     const { tool } = build({ census: null })
     expect(await tool.execute({})).toMatchObject({
       cards: expect.arrayContaining([
-        expect.objectContaining({ channel: 'text', sampleSize: 817 }),
+        expect.objectContaining({
+          channel: 'text',
+          sampleSize: 409,
+          roundTwoSize: 408,
+        }),
       ]),
     })
   })
