@@ -422,7 +422,7 @@ export const SERVE_STORY_COPY = {
       tail: 'tell you where your community stands',
     } satisfies ServeStoryTitle,
     description:
-      'We pick people at random from every part of your district, so you hear what everyone thinks.',
+      'We reach people in every part of your district, so you hear what everyone thinks.',
     howWeGotIt: 'How we aim for this',
     explanation:
       'We aim to hear from every age group, neighborhood, race and gender in your district.',

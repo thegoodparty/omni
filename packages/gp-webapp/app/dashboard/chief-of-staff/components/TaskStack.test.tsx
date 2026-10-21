@@ -292,6 +292,29 @@ describe('<TaskStack>', () => {
     expect(onDiscussCard).toHaveBeenCalledWith(BUILD_CITIZENS_PANEL_MESSAGE)
   })
 
+  // Once a plan is active gp-api gives the build card the plan's button, and
+  // it opens that plan instead of starting a second build.
+  it('opens the existing plan from the build card once there is one', async () => {
+    const user = userEvent.setup()
+    const onDiscussCard = vi.fn()
+    withCards([{ ...buildCard, ctaLabel: 'See your plan' }])
+    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+    const link = screen.getByRole('link', { name: 'See your plan' })
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_home',
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Build your panel' }),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: "What's a civic panel?" }),
+    ).toBeNull()
+    await user.click(link)
+    expect(onDiscussCard).not.toHaveBeenCalled()
+  })
+
   it('links a card that only reads Build your panel but is not the build card', () => {
     withCards([
       card({

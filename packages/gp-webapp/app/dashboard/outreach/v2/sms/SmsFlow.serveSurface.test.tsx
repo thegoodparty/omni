@@ -268,6 +268,47 @@ describe('SmsFlow (Serve surface)', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps the name in step with the send date, even after an edit', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/drafted body/)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const nameField = await screen.findByLabelText('Campaign name')
+    expect(nameField).toHaveValue('Northside residents')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    expect(nameField).toHaveValue('Northside residents, Sep 4')
+
+    await userEvent.clear(nameField)
+    await userEvent.type(nameField, 'Northside budget, Sep 4')
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
+    )
+    expect(nameField).toHaveValue('Northside budget, Sep 7')
+
+    // The calendar sits flush left under the name field, not centered.
+    const calendarColumn = screen.getByRole('grid').closest('.items-start')
+    expect(calendarColumn).not.toBeNull()
+    expect(calendarColumn).not.toHaveClass('items-center')
+  })
+
   it('keeps the opt-out footer and appends no paid-for-by line', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,

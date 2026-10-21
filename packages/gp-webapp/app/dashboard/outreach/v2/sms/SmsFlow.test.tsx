@@ -2143,7 +2143,7 @@ describe('SmsFlow', () => {
       campaignId: 9,
       outreachType: 'p2p',
       projectId: null,
-      name: 'Likely voters — SMS',
+      name: 'Likely voters',
       status: 'draft',
       error: null,
       audienceRequest: null,
@@ -2208,7 +2208,7 @@ describe('SmsFlow', () => {
       await buildToName()
 
       expect(screen.getByLabelText('Campaign name')).toHaveValue(
-        'Likely voters — SMS',
+        'Likely voters',
       )
       expect(screen.queryByText('Send date')).not.toBeInTheDocument()
       expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
@@ -2259,9 +2259,9 @@ describe('SmsFlow', () => {
       // The saved-lists mock never returns the row the create just made, so
       // the auto-name falls back to the channel; the field being filled is
       // what matters here.
-      expect(
-        (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
-      ).toMatch(/ — SMS$/)
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Text campaign',
+      )
     })
 
     // The banner's gate opens the wizard on its first step, whose Back is the
@@ -2325,7 +2325,7 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
         expect.objectContaining({
           outreachType: 'p2p',
-          name: 'Likely voters — SMS',
+          name: 'Likely voters',
           voterFileFilterId: 41,
           script: expect.stringContaining('Paid for by Friends of Jane.'),
         }),

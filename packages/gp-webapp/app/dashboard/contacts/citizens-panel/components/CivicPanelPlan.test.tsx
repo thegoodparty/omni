@@ -187,7 +187,7 @@ describe('the weekly time question', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'How much time can you give each week?',
+        name: 'How much time can you spend each week to connect with constituents by phone or in person?',
       }),
     ).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '1 hour a week' })).toBeChecked()
@@ -215,7 +215,9 @@ describe('the weekly time question', () => {
       screen.getByRole('heading', { name: 'Keep your panel fresh' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/How much time can you give each week\?/),
+      screen.getByText(
+        /How much time can you spend each week to connect with constituents by phone or in person\?/,
+      ),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Make my plan' }))
 
@@ -600,7 +602,7 @@ describe('the plan', () => {
     expect(
       top.compareDocumentPosition(
         screen.getByRole('heading', {
-          name: 'How much time can you give each week?',
+          name: 'How much time can you spend each week to connect with constituents by phone or in person?',
         }),
       ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()

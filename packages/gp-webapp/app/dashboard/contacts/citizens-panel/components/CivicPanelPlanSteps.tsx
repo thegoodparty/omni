@@ -253,8 +253,8 @@ export const CivicPanelPlanSteps = ({
     focusedStepId === step.id && 'rounded-lg ring-2 ring-primary ring-inset'
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-2xl border border-border bg-background">
-      <div className="flex flex-col gap-0.5 px-4 pt-4 pb-1 sm:px-6 sm:pt-5 sm:pb-3">
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-background">
+      <div className="flex flex-col gap-1 px-5 pt-5 pb-4 sm:px-6 sm:pt-5 sm:pb-3">
         <h2 className="text-[17px] font-bold text-foreground sm:text-lg">
           {COPY.planTitle}
         </h2>
@@ -267,20 +267,20 @@ export const CivicPanelPlanSteps = ({
           <li
             {...rowProps(featured)}
             className={cn(
-              'flex flex-col gap-2 px-4 py-5 sm:gap-2.5 sm:p-6',
+              'flex flex-col gap-3 px-5 py-6 sm:gap-2.5 sm:p-6',
               ring(featured),
             )}
           >
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:gap-x-3.5 sm:gap-y-2.5">
               {checkbox(featured, 'h-7')}
-              <h3 className="text-xl leading-7 font-bold text-foreground sm:text-[22px]">
+              <h3 className="text-xl leading-7 font-bold break-words text-foreground sm:text-[22px]">
                 {stepTitle(featured)}
               </h3>
               <p className="col-start-2 text-sm text-muted-foreground sm:text-base">
                 {stepDetail(featured)}
               </p>
             </div>
-            <div className="mt-2 flex items-center gap-3 sm:mt-2.5 sm:ml-9 sm:gap-5">
+            <div className="mt-1 flex flex-wrap items-center gap-3 sm:mt-2.5 sm:ml-9 sm:gap-5">
               {actionFor(featured, true)}
               {featured.status === 'not_started' ? (
                 <Button
@@ -304,14 +304,14 @@ export const CivicPanelPlanSteps = ({
               key={step.id}
               {...rowProps(step)}
               className={cn(
-                'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
+                'flex flex-col gap-2 px-5 py-4 sm:px-6 sm:py-4',
                 ring(step),
               )}
             >
               <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-3.5">
                 {checkbox(step, 'h-6')}
-                <div className="flex flex-col gap-0.5">
-                  <p className="text-base leading-6 font-semibold text-foreground">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className="text-base leading-6 font-semibold break-words text-foreground">
                     {stepTitle(step)}
                   </p>
                   <p className="text-sm text-muted-foreground">
@@ -333,7 +333,7 @@ export const CivicPanelPlanSteps = ({
             key={step.id}
             {...rowProps(step)}
             className={cn(
-              'flex flex-col gap-2 px-4 py-3.5 sm:px-6 sm:py-4',
+              'flex flex-col gap-2 px-5 py-4 sm:px-6 sm:py-4',
               ring(step),
             )}
           >

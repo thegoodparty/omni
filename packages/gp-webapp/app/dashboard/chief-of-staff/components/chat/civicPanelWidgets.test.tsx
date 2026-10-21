@@ -152,7 +152,9 @@ describe('CivicPanelNextStepCard', () => {
     const card = await screen.findByTestId('civic-panel-next-step')
     expect(within(card).getByText('Text 3,150 residents')).toBeInTheDocument()
     expect(
-      within(card).getByText('Residents with a cell phone, picked at random.'),
+      within(card).getByText(
+        'Residents with a cell phone, from every part of your district.',
+      ),
     ).toBeInTheDocument()
     expect(
       within(card).getByRole('button', { name: 'Start the text' }),

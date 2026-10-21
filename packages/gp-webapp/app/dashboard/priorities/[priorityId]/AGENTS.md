@@ -444,8 +444,8 @@ a prompt.
   cards persisted before them still parse. A `sampleSize` no smaller than
   `count` means the whole audience everywhere: the card, the tool result
   (`wholeAudience`), and the server's draw.
-- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520,
-  picked at random" in place of the channel and count. The list saved from
+- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520"
+  in place of the channel and count, never "at random". The list saved from
   the proposal is drawn as `proposalListSample` (keyed on the proposal, so
   saving it twice draws the same people; see "Random samples" in
   `gp-api/src/peopleDb/AGENTS.md` and `VoterFileFilterSampleMember` in

@@ -185,9 +185,9 @@ const widens = (proposal: { widensOutreachIds?: number[] }): boolean =>
   (proposal.widensOutreachIds?.length ?? 0) > 0
 
 /**
- * "Text 4,000 of 58,520, picked at random", or null for the whole list. A
- * widen is never called random: once everyone not yet asked fits in it, the
- * list holds all of them, so it says who it reaches instead.
+ * "Text 4,000 of 58,520", or null for the whole list. A widen says who it
+ * reaches instead: once everyone not yet asked fits in it, the list holds all
+ * of them.
  */
 export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
@@ -209,7 +209,7 @@ export const proposalSampleLine = (proposal: {
       : `${verb} everyone of the ${of} not asked yet`
   }
   return isSampled(proposal)
-    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}, picked at random`
+    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}`
     : null
 }
 

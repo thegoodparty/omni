@@ -1247,17 +1247,31 @@ export const SmsFlow = ({
     draftGenerationRef,
   })
 
-  // Auto-name from list + date until the user edits the name.
+  // Auto-name from list + date until the user edits the name. An edited
+  // name that still ends with the date we added keeps following the picker,
+  // so the name never names a different day than the one picked.
   const lastAutoName = useRef('')
+  const lastDatePart = useRef('')
   useEffect(() => {
-    if (nameEdited) return
     // Purpose-independent on Win (the surface ignores the argument and
     // returns the same fallback), purpose-keyed on Serve.
     const listPart = selectedList?.name ?? surface.nameSuggestion(purpose ?? '')
     const datePart = date
       ? `, ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
       : ''
-    const auto = `${listPart} — SMS${datePart}`
+    const previousDatePart = lastDatePart.current
+    lastDatePart.current = datePart
+    if (nameEdited) {
+      if (
+        datePart !== previousDatePart &&
+        previousDatePart !== '' &&
+        name.endsWith(previousDatePart)
+      ) {
+        setName(`${name.slice(0, -previousDatePart.length)}${datePart}`)
+      }
+      return
+    }
+    const auto = `${listPart}${datePart}`
     if (name === '' || name === lastAutoName.current) {
       setName(auto)
       lastAutoName.current = auto
@@ -2389,7 +2403,7 @@ export const SmsFlow = ({
             name={name}
             onNameChange={(value) => {
               setName(value)
-              setNameEdited(true)
+              setNameEdited(value !== lastAutoName.current)
             }}
             date={date}
             onDateChange={setDate}
@@ -2400,7 +2414,7 @@ export const SmsFlow = ({
               name={name}
               onNameChange={(value) => {
                 setName(value)
-                setNameEdited(true)
+                setNameEdited(value !== lastAutoName.current)
               }}
               nameOnly={buildMode}
               date={date}

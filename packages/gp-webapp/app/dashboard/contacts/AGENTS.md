@@ -45,7 +45,7 @@ Staff's home and chat cards say the same step in the same words.
   join or leave are server truth and fire from gp-api (contacts AGENTS.md).
 
 - **No active plan and under the goal: one question**
-  (`CivicPanelPlanStart`). "How much time can you give each week?", as
+  (`CivicPanelPlanStart`). "How much time can you spend each week to connect with constituents by phone or in person?", as
   choice cards (`WeeklyTimeField`: 1, 2, 3, or 4 or more hours a week with
   a number field), an hour preselected. There is no 0: the official's own
   calls and doors are part of every plan. Make my plan is never disabled;

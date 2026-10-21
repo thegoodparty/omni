@@ -133,7 +133,10 @@ export const ServeSmsScheduleStep = ({
 
       <div className="space-y-2">
         <Label>{SERVE_SMS_SCHEDULE_COPY.dateLabel}</Label>
+        {/* Flush left under the name field: centered, the calendar floats
+          off the field's edge on a phone. */}
         <DateInputCalendar
+          className="items-start"
           value={date}
           onChange={(picked) =>
             onDateChange(picked ? serveSmsScheduledAt(picked) : undefined)
