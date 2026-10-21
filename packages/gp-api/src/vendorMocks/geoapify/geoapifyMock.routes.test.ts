@@ -1,8 +1,9 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 import { VendorMockVendor } from '@/generated/prisma'
+import { GEOAPIFY_MOCK_API_KEY } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 
 // VENDOR_MODE and IS_NON_PROD_DEPLOY are module-level constants evaluated at
 // import time. Use getters so they stay mutable per-test.
@@ -25,7 +26,7 @@ const service = useTestService()
 
 const ROUTEPLANNER_PATH = '/v1/vendor-mocks/geoapify/v1/routeplanner'
 const ROUTING_PATH = '/v1/vendor-mocks/geoapify/v1/routing'
-const API_KEY = 'test-api-key'
+const API_KEY = GEOAPIFY_MOCK_API_KEY
 
 const scopedPath = (slug: string, api: 'routeplanner' | 'routing') =>
   `/v1/vendor-mocks/geoapify/org/${slug}/v1/${api}`
@@ -93,6 +94,27 @@ describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
   it('returns 400 when apiKey is missing', async () => {
     const res = await service.client.post(ROUTEPLANNER_PATH, twoJobBody)
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('returns 400 when apiKey is a wrong value', async () => {
+    const res = await service.client.post(
+      `${ROUTEPLANNER_PATH}?apiKey=wrong-key`,
+      twoJobBody,
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  describe('with GEOAPIFY_API_KEY unset', () => {
+    afterEach(() => vi.unstubAllEnvs())
+
+    it('accepts the mock key and succeeds', async () => {
+      vi.stubEnv('GEOAPIFY_API_KEY', '')
+      const res = await service.client.post(
+        `${ROUTEPLANNER_PATH}?apiKey=${GEOAPIFY_MOCK_API_KEY}`,
+        twoJobBody,
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+    })
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {

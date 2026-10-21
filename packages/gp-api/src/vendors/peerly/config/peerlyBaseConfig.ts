@@ -1,6 +1,10 @@
 import { BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { resolveEnvVar } from '../../../shared/env/env'
+import {
+  VENDOR_MODE,
+  vendorBaseUrl,
+} from '../../../shared/util/appEnvironment.util'
 
 const {
   PEERLY_HTTP_TIMEOUT = '60000', // 60 seconds default
@@ -30,10 +34,21 @@ const resolvePeerlyConfig = (): PeerlyConfig | null => {
     !password.configured ||
     !accountNumber.configured
   ) {
+    // In mock mode the client authenticates against the local mock (which
+    // ignores the credentials), so real creds are not needed. Return a mock
+    // config so services boot and all mock routes work credential-free.
+    if (VENDOR_MODE === 'mock') {
+      return {
+        baseUrl: vendorBaseUrl('peerly', ''),
+        email: 'mock@peerly.mock',
+        password: 'mock-password',
+        accountNumber: 'mock-account',
+      }
+    }
     return null
   }
   return {
-    baseUrl: baseUrl.value,
+    baseUrl: vendorBaseUrl('peerly', baseUrl.value),
     email: email.value,
     password: password.value,
     accountNumber: accountNumber.value,
