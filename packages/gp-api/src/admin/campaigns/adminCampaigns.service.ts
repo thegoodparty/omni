@@ -1,14 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import { AdminCreateCampaignSchema } from './schemas/adminCreateCampaign.schema'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
 import { Prisma } from '../../generated/prisma'
-import { EmailService } from 'src/email/email.service'
-import { UsersService } from 'src/users/services/users.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { CampaignCreatedBy, OnboardingStep } from '@goodparty_org/contracts'
-import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { AuthenticationService } from 'src/authentication/authentication.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PinoLogger } from 'nestjs-pino'
@@ -18,92 +12,14 @@ import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 @Injectable()
 export class AdminCampaignsService {
   constructor(
-    private readonly email: EmailService,
-    private readonly users: UsersService,
     private readonly campaigns: CampaignsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
-    private readonly crm: CrmCampaignsService,
-    private readonly auth: AuthenticationService,
     private readonly analytics: AnalyticsService,
     private readonly organizations: OrganizationsService,
     private readonly stripe: StripeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminCampaignsService.name)
-  }
-
-  async create(body: AdminCreateCampaignSchema) {
-    const {
-      firstName,
-      lastName,
-      email,
-      zip,
-      phone,
-      party,
-      otherParty,
-      adminUserEmail,
-    } = body
-
-    // create new user
-    const user = await this.users.createUser({
-      firstName,
-      lastName,
-      email,
-      zip,
-      phone,
-    })
-
-    const resetToken = this.auth.generatePasswordResetToken()
-    const updatedUser = await this.users.setResetToken(user.id, resetToken)
-    this.email.sendSetPasswordEmail(updatedUser)
-    this.analytics.track(user.id, EVENTS.Onboarding.UserCreated)
-
-    // find slug
-    const slug = await this.campaigns.findSlug(user)
-    const data = {
-      slug,
-      currentStep: OnboardingStep.complete,
-      party,
-      otherParty,
-      createdBy: CampaignCreatedBy.ADMIN,
-      adminUserEmail,
-    }
-
-    // create new campaign
-    const newCampaign = await this.campaigns.client.$transaction(async (tx) => {
-      const [{ nextval: id }] = await tx.$queryRaw<[{ nextval: bigint }]>`
-        SELECT nextval('campaign_id_seq')`
-
-      const campaignId = Number(id)
-      const orgSlug = OrganizationsService.campaignOrgSlug(campaignId)
-      await tx.organization.create({
-        data: {
-          slug: orgSlug,
-          ownerId: user.id,
-        },
-      })
-      const campaign = await tx.campaign.create({
-        data: {
-          id: campaignId,
-          slug,
-          organizationSlug: orgSlug,
-          data,
-          isActive: true,
-          userId: user.id,
-          details: {
-            zip: user.zip,
-            knowRun: 'yes',
-            pledged: true,
-          },
-        },
-      })
-
-      return campaign
-    })
-
-    await this.crm.trackCampaign(newCampaign.id)
-
-    return newCampaign
   }
 
   async update(id: number, body: AdminUpdateCampaignSchema) {
@@ -141,11 +57,11 @@ export class AdminCampaignsService {
     // A comped Pro upgrade has to be the same transition as a paid one.
     // Writing `isPro` straight to the row skipped `setIsPro`, so it never
     // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
-    // granted the free-texts offer and never announced in Slack; the CRM sync
-    // then published the campaign as Pro with no upgrade date, permanently.
-    // The other attributes ride the same commit, so there is no window where
-    // the flip has landed and isVerified/didWin/tier have not. Either branch
-    // identifies and syncs the CRM itself.
+    // granted the free-texts offer (ENG-11344) and never announced in Slack;
+    // the CRM sync then published the campaign as Pro with no upgrade date,
+    // permanently. The other attributes ride the same commit, so there is no
+    // window where the flip has landed and isVerified/didWin/tier have not.
+    // Either branch identifies and syncs the CRM itself.
     const updatedCampaign =
       typeof isPro === 'undefined'
         ? await this.campaigns.update({ where: { id }, data: attributes })

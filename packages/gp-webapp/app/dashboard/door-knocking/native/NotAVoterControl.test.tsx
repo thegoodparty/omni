@@ -80,7 +80,7 @@ describe('NotAVoterControl follow-up', () => {
     expect(onChanged).toHaveBeenCalledWith('person-1', 'moved')
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.NotAVoterReasonSet,
-      { reason: 'moved' },
+      { product: 'win', reason: 'moved' },
     )
   })
 
@@ -122,7 +122,7 @@ describe('NotAVoterControl follow-up', () => {
     )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.NotAVoterReasonSet,
-      { reason: 'deceased' },
+      { product: 'win', reason: 'deceased' },
     )
   })
 
@@ -224,6 +224,7 @@ describe('NotAVoterControl marker', () => {
     expect(onChanged).toHaveBeenCalledWith('person-1', undefined)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.NotAVoterReasonCleared,
+      { product: 'win' },
     )
   })
 

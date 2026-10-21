@@ -34,6 +34,7 @@ export const SmsPurposeStep = ({
           key={purpose.id}
           role="button"
           tabIndex={0}
+          aria-pressed={purpose.id === selected}
           onClick={() => onSelect(purpose.id)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {

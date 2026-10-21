@@ -954,16 +954,30 @@ export const CampaignPlanPdfDocument = ({
 
         <Text style={styles.h3}>Projected Votes Needed to Win</Text>
         <Text style={styles.para}>
-          Our modeling projects voter turnout of{' '}
-          <Text style={styles.paraBold}>
-            {plan.projectedTurnout.toLocaleString('en-US')} voters
-          </Text>
-          , putting the threshold for a win at{' '}
+          {plan.votesCast !== null ? (
+            <>
+              Our modeling projects{' '}
+              <Text style={styles.paraBold}>
+                {plan.votesCast.toLocaleString('en-US')} votes
+              </Text>{' '}
+              will be cast for {plan.race} candidates in the election,
+            </>
+          ) : (
+            <>
+              Our modeling projects voter turnout of{' '}
+              <Text style={styles.paraBold}>
+                {plan.projectedTurnout.toLocaleString('en-US')} voters
+              </Text>
+              ,
+            </>
+          )}{' '}
+          putting the threshold for victory at{' '}
           <Text style={styles.paraBold}>
             {plan.winNumber.toLocaleString('en-US')} votes
-          </Text>{' '}
-          — a simple majority (50% + 1) of voters who cast a ballot. Hitting
-          that target requires{' '}
+          </Text>
+          . This is the lowest amount of votes we project {plan.winNumberGoal};
+          our campaign plan below will guide you toward surpassing that number.
+          Hitting that target requires{' '}
           <Text style={styles.paraBold}>
             {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
           </Text>{' '}
@@ -1214,7 +1228,11 @@ export const CampaignPlanPdfDocument = ({
         title={`${numberFor('voterContact')}. Voter Contact Plan`}
         plan={plan}
         onSectionPage={onSectionPage}
-        intro="The contact cadence below is designed so that every likely voter receives at least 1 introductory contact, 1 persuasion contact, 1 early-vote reminder, and 1 Election Day push. Texts are the primary workhorse; robocalls layer on top to catch landline-only voters."
+        intro={`The contact cadence below is designed so that every likely voter receives at least 1 introductory contact, 1 persuasion contact, 1 early-vote reminder, and 1 Election Day push.${
+          plan.smsClosed
+            ? ''
+            : ' Texts are the primary workhorse; robocalls layer on top to catch landline-only voters.'
+        }`}
         transition="This plan puts you in front of every likely voter at the right moment. But repeated exposure only converts to votes if the message is specific and credible. Once you share your issues and your story in Campaign Manager, we'll help you build the actual message."
       >
         <PlanTable
@@ -1232,8 +1250,11 @@ export const CampaignPlanPdfDocument = ({
 
         <Text style={styles.h3}>Expected Outcome</Text>
         <Text style={styles.para}>
-          Across <Text style={styles.paraBold}>7 voter contact campaigns</Text>,
-          this plan produces over{' '}
+          Across{' '}
+          <Text style={styles.paraBold}>
+            {plan.contactSchedule.length} voter contact campaigns
+          </Text>
+          , this plan produces over{' '}
           <Text style={styles.paraBold}>
             {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
           </Text>{' '}
@@ -1275,7 +1296,9 @@ export const CampaignPlanPdfDocument = ({
         <Bullets
           items={[
             'If your likely votes are tracking toward your projected votes needed to win, stay the course.',
-            'If you are falling behind, prioritize scheduling your next text or robocall campaign and look for additional outreach opportunities.',
+            `If you are falling behind, prioritize scheduling your next ${
+              plan.smsClosed ? 'robocall' : 'text or robocall'
+            } campaign and look for additional outreach opportunities.`,
             'Check in at least once a week — small gaps caught early are easy to close; the same gap caught in the final week is not.',
           ]}
         />

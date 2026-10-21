@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
+import { useSearchParams } from 'next/navigation'
 import type {
   ServePhoneBankingCreate,
   ServePhoneBankingScriptDraftRequest,
@@ -13,8 +15,29 @@ import type {
   SocialAsset,
   SocialAssetPlatform,
 } from '@goodparty_org/contracts'
+import { CIVIC_PANEL_JOIN_LINE } from '@goodparty_org/contracts'
 import ConstituentOutreachPage from './ConstituentOutreachPage'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+
+// The draft field is a TokenField: its text lives in the editor TipTap hangs
+// on the textbox, not in a `value`.
+const draftEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Draft message' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const draftText = () => draftEditor().getText({ blockSeparator: '\n' })
+
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 
 // Desktop history table, scoped so its content isn't confused with the
 // mobile card list (also in the DOM, hidden via CSS).
@@ -61,22 +84,26 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
 }))
 
-// Door knocking's card only exists on the flag; the rest of this suite is
-// about the hub with all three channels on it.
-const doorKnockingFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
-  useNativeDoorKnockingFlag: () => doorKnockingFlag,
-}))
-
 // `serve-sms-outreach`. Mutable so one file can drive all three states the
 // page has to handle — resolved on, resolved off, and still resolving —
 // because the difference between the last two is the flash the feature-flags
 // doc calls the top anti-pattern. Defaults to OFF so every pre-SMS
 // expectation in this file keeps asserting the pre-SMS page.
 const serveSmsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/utils/s3Upload', () => ({
+  uploadFileToS3: vi.fn().mockResolvedValue('https://assets.test/header.png'),
+}))
+
 vi.mock('@shared/experiments/serveSmsFlag', () => ({
   SERVE_SMS_FLAG_KEY: 'serve-sms-outreach',
   useServeSmsFlag: () => serveSmsFlag,
+}))
+
+// `serve-citizen-panels`, off unless a test turns it on.
+const panelsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
+  SERVE_CITIZEN_PANELS_FLAG_KEY: 'serve-citizen-panels',
+  useServeCitizenPanelsFlag: () => panelsFlag,
 }))
 
 // The phone banking flow's audience step calls these on mount/interaction
@@ -180,10 +207,6 @@ const savedDetail = {
 const user = userEvent.setup()
 
 describe('ConstituentOutreachPage — Serve outreach history', () => {
-  beforeEach(() => {
-    doorKnockingFlag.enabled = true
-  })
-
   it('renders seeded outreach rows (channel, name, status, date)', () => {
     const outreaches: HistoryRow[] = [
       {
@@ -272,6 +295,37 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(table.getByText('SMS')).toBeInTheDocument()
   })
 
+  // Polls were left off the clickable list, so a paid poll sat in history as
+  // plain content with nowhere to read what it asked. Flag off on purpose, for
+  // the same reason as SMS above.
+  it('opens a poll row into a drawer that shows the question', async () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 41,
+        date: '2026-08-20',
+        outreachType: 'poll',
+        name: 'Budget poll',
+        status: 'pending',
+        message: 'Hi there, this is Dana. Should we fund the pool? Reply STOP',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const row = within(desktopTable()).getByText('Budget poll').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+
+    await user.click(row as HTMLElement)
+
+    const drawer = await screen.findByRole('dialog')
+    expect(
+      within(drawer).getByText(/Should we fund the pool\?/),
+    ).toBeInTheDocument()
+    expect(
+      within(drawer).queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders a clean empty state with no rows', () => {
     render(<ConstituentOutreachPage outreaches={[]} />)
 
@@ -280,7 +334,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     // appears twice.
     expect(
       screen.getAllByText(
-        'No campaigns yet. Pick a channel above to create your first.',
+        'No outreach yet. Pick a channel above to send your first.',
       ),
     ).toHaveLength(2)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -310,24 +364,11 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await user.click(screen.getByText('Door knocking'))
 
     expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
+      '/dashboard/door-knocking?create=1&source=outreach_page',
     )
     expect(
       screen.queryByText('Explain a recent decision'),
     ).not.toBeInTheDocument()
-  })
-
-  // Serve has no eCanvasser control arm behind the flag, so the card's only
-  // destination is a Win-only legacy dashboard about an integration an
-  // elected official cannot connect.
-  it('omits the Door knocking card when the native flag is off', () => {
-    doorKnockingFlag.enabled = false
-    render(<ConstituentOutreachPage outreaches={[]} />)
-
-    expect(
-      screen.queryByRole('button', { name: /Door knocking/ }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
   })
 
   it('opens the phone banking flow (serve surface) when the Phone banking card is clicked', async () => {
@@ -359,7 +400,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     await user.click(screen.getByText('Social media'))
     await user.click(await screen.findByText('Introduce myself'))
     await waitFor(() =>
-      expect(screen.getByLabelText('Draft message')).toHaveValue(
+      expect(draftText()).toBe(
         draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
@@ -479,9 +520,8 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
       await screen.findByRole('button', { name: /Continue \(10\)/ }),
     )
     await screen.findAllByText('Write your call script')
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
+    await waitFor(() => expect(scriptText()).not.toBe(''))
+    await user.type(screen.getByLabelText('Campaign name'), 'Maple calls')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
@@ -634,5 +674,277 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
     ).toBeInTheDocument()
     // A serve-only purpose card, from SERVE_SMS_PURPOSES.
     expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
+  })
+})
+
+// The Chief of Staff's "Build your civic panel" card links here.
+describe("ConstituentOutreachPage — the civic panel card's link", () => {
+  const arriveWith = (params: string) => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
+    )
+  }
+
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+    panelsFlag.ready = true
+    panelsFlag.enabled = false
+    vi.useRealTimers()
+  })
+
+  it('runs the panel card through the sample, the locked JOIN ask, the date and the priced review', async () => {
+    mockPhoneBankingAudience()
+    // The district's cell phones, of which the panel text reaches a draw.
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 58520 },
+    })
+    serveSmsFlag.enabled = true
+    panelsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+    // Tuesday, so the first bookable send day is Friday the 4th.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-01T12:00:00Z'))
+    const created: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      created.push(body as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 501,
+          recipientCount: 8334,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    const saved: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      saved.push(body as Record<string, unknown>)
+      return { status: 200, data: { id: 88, name: 'Civic panel invite' } }
+    })
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'I want to hear from you before I decide.' },
+    })
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    const proceed = await screen.findByRole('button', {
+      name: 'Continue (8,334)',
+    })
+    expect(proceed).toBeEnabled()
+    expect(screen.queryByText('Explain a recent decision')).toBeNull()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
+      { scroll: false },
+    )
+    await user.click(proceed)
+    expect(
+      await screen.findByDisplayValue('Civic panel invite'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toMatchObject({
+      name: 'Civic panel invite',
+      hasCellPhone: true,
+      sample: { size: 8334 },
+      civicPanelInvite: true,
+    })
+    expect(
+      await screen.findByText(/Reply JOIN to join my civic panel/),
+    ).toBeInTheDocument()
+    const ask = screen.getByRole('checkbox', {
+      name: /join your civic panel/i,
+    })
+    expect(ask).toBeChecked()
+    expect(ask).toBeDisabled()
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The date comes after the message.
+    await user.click(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    // Review prices the draw. The live total is Stripe's, which jsdom
+    // cannot mount, so the per-text price and the count stand in for it.
+    expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
+      0,
+    )
+    expect(screen.getByText('8,334')).toBeInTheDocument()
+    expect(screen.getByText('$0.035')).toBeInTheDocument()
+    await waitFor(() => expect(created).toHaveLength(1))
+    expect(created[0]).toMatchObject({ voterFileFilterId: 88 })
+    expect(created[0]?.message).toContain(CIVIC_PANEL_JOIN_LINE)
+  })
+
+  // Back from the seeded draw goes to the purpose picker like any flow, and
+  // the draw is still there on the way forward again.
+  it('goes back to the purpose picker from the first step, keeping the draw', async () => {
+    mockPhoneBankingAudience()
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 58520 },
+    })
+    serveSmsFlag.enabled = true
+    panelsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await screen.findByRole('button', { name: 'Continue (8,334)' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('button', { name: /Build your civic panel/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('opens a plain text flow with serve-citizen-panels off', async () => {
+    mockPhoneBankingAudience()
+    serveSmsFlag.enabled = true
+    arriveWith('compose=text&purpose=build_citizens_panel')
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      await screen.findByText('Explain a recent decision'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Build your civic panel')).toBeNull()
+  })
+})
+
+// Door knocking leaves this page and comes back to it, and the row it wrote
+// while away has to be here. See `OutreachHubPage.test.tsx` for the Win half
+// of the same fix.
+describe('ConstituentOutreachPage — the mount refresh', () => {
+  it('asks the server once on mount, so a campaign made while away appears', async () => {
+    // The seeded snapshot predates the campaign: the refetch is the only
+    // thing that can put it on the table, because this route's RSC may not
+    // have re-run on the way back.
+    api.mock('GET /v1/outreach/serve', {
+      status: 200,
+      data: [
+        {
+          id: 1,
+          date: '2026-08-20',
+          outreachType: 'socialMedia',
+          name: 'Budget update post',
+          status: 'completed',
+        },
+        {
+          id: 2,
+          date: '2026-09-29',
+          outreachType: 'nativeDoorKnocking',
+          name: 'Introduction walk',
+          status: 'in_progress',
+        },
+      ],
+    })
+
+    render(
+      <ConstituentOutreachPage
+        outreaches={[
+          {
+            id: 1,
+            date: '2026-08-20',
+            outreachType: 'socialMedia',
+            name: 'Budget update post',
+            status: 'completed',
+          },
+        ]}
+      />,
+    )
+
+    expect(
+      await within(desktopTable()).findByText('Introduction walk'),
+    ).toBeInTheDocument()
+  })
+})
+
+// A chat card's sent proposal or past send links here to open its own row.
+describe('ConstituentOutreachPage — a chat card send', () => {
+  const arriveWith = (params: string, payload?: object) => {
+    if (payload) {
+      sessionStorage.setItem('cos-handoff-n1', JSON.stringify(payload))
+    }
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams(params) as ReturnType<typeof useSearchParams>,
+    )
+  }
+
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+    sessionStorage.clear()
+  })
+
+  it('opens a send on its own row when a card links to it', async () => {
+    api.mock('GET /v1/outreach/serve/:id', { status: 200, data: savedDetail })
+    arriveWith('outreachId=77')
+
+    render(
+      <ConstituentOutreachPage
+        outreaches={[
+          {
+            id: 77,
+            createdAt: '2026-08-30T00:00:00Z',
+            outreachType: 'socialMedia',
+            name: 'Introduction posts',
+            status: 'completed',
+          },
+        ]}
+      />,
+    )
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('consumes a later link to the same send again', async () => {
+    api.mock('GET /v1/outreach/serve/:id', { status: 200, data: savedDetail })
+    const rows: HistoryRow[] = [
+      {
+        id: 77,
+        createdAt: '2026-08-30T00:00:00Z',
+        outreachType: 'socialMedia',
+        name: 'Introduction posts',
+        status: 'completed',
+      },
+    ]
+    vi.mocked(router.replace!).mockClear()
+    arriveWith('outreachId=77')
+    const { rerender } = render(<ConstituentOutreachPage outreaches={rows} />)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    // router.replace strips the param, then the same chip is pressed again
+    // (the chat dock is mounted on this page too).
+    arriveWith('')
+    rerender(<ConstituentOutreachPage outreaches={rows} />)
+    arriveWith('outreachId=77')
+    rerender(<ConstituentOutreachPage outreaches={rows} />)
+
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(router.replace!)
+          .mock.calls.filter(
+            ([path]) => path === '/dashboard/constituent-outreach',
+          ),
+      ).toHaveLength(2),
+    )
   })
 })

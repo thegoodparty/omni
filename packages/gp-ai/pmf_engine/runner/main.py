@@ -18,6 +18,7 @@ from .config import BrokerUrlSchemeError, RunnerConfig, validate_broker_url_sche
 from .contract import ContractViolation, validate_artifact_contract
 from .harness.base import AgentHarness
 from .input_files import prefetch_input_files
+from .params import PARAMS_FILENAME
 from .pmf_runtime import publish
 from .pmf_runtime.config import init_config
 from .pmf_runtime.egress_guard import MESSAGE as EGRESS_MESSAGE
@@ -57,6 +58,7 @@ _RESERVED_WORKSPACE_FILES = frozenset(
         "contract_schema.json",
         "validate_output.py",
         "SANDBOX.md",
+        PARAMS_FILENAME,
     }
 )
 
@@ -216,8 +218,10 @@ def _send_failed_to_sqs_directly(
 def _accumulated_agent_cost() -> float | None:
     """Real cost the primary agent loop spent before it was killed, so a
     timed-out / cancelled run bills its actual spend instead of 0.0. Returns
-    None (report no cost, today's behavior) if the harness never ran or the
-    accumulator can't be read."""
+    None (report no cost, today's behavior) if the harness never ran, the
+    accumulator can't be read, or a turn ran on a model the harness has no
+    rate for — an understated total presented as the whole figure is the
+    same defect as reporting 0.0, so the accumulator withholds it."""
     try:
         from .harness.claude_sdk import get_accumulated_cost
 
@@ -413,6 +417,11 @@ def _collect_workspace_files(
             dirnames.remove("input")
         for filename in filenames:
             if _is_sensitive_file(filename):
+                continue
+            # The run's own params, which session.jsonl already carries through
+            # _redact_line. Uploading the file too would ship the same data
+            # unredacted — and at any depth, since the agent can copy it.
+            if filename == PARAMS_FILENAME:
                 continue
             if allowed_extensions is not None:
                 _, ext = os.path.splitext(filename)

@@ -61,8 +61,8 @@ account that moves a card through `approved tdd → in progress` or
 | Health | active |
 
 The signing secret lives in `AI_SECRETS_DEV` as `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`
-(module reads it via `try(local.ai_secrets["AUTOPILOT_CLICKUP_WEBHOOK_SECRET"], "")`
-— never printed or committed).
+(the Lambda reads it at runtime through `autopilot/lambda/ai_secrets.py` —
+never printed or committed).
 
 **Prod is not registered yet.** No ClickUp webhook points at
 `autopilot-bot-prod` — that happens after this dev thin-slice run is
@@ -82,7 +82,9 @@ curl -s "https://api.clickup.com/api/v2/team/90132012119/webhook" \
 
 Recreating a webhook mints a new signing secret (`.webhook.secret`, nested)
 — write it to `AUTOPILOT_CLICKUP_WEBHOOK_SECRET` in `AI_SECRETS_DEV`
-immediately, or every delivery 401s until someone notices.
+immediately, or every delivery 401s until someone notices. No apply is
+needed, but warm containers keep the old value until they recycle; any
+function update (a deploy or config change) forces fresh ones.
 
 ## Logs
 

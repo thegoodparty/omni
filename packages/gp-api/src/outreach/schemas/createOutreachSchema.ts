@@ -42,6 +42,9 @@ export class CreateOutreachSchema extends createZodDto(
       phoneListId: z.coerce.number().int().positive().optional(),
       draftOutreachId: z.coerce.number().int().positive().optional(),
       priorityId: z.string().min(1).optional(),
+      // The chat card this text was started from, derived by the card and
+      // never written by the model.
+      proposalKey: z.string().uuid().optional(),
       // P2P-specific fields
       didState: z
         .string()
@@ -63,6 +66,9 @@ export class CreateOutreachSchema extends createZodDto(
           'campaignPlanDueDate must be a valid calendar date',
         )
         .optional(),
+      // The campaign-plan task the flow was opened from. Stored on the row so
+      // the task list can mark that task done once the text is scheduled.
+      trackerTaskId: z.string().min(1).optional(),
       // Metadata for the CAS Slack message, persisted so a payment-webhook
       // finalize can rebuild the notification after the request is gone.
       textCount: z.coerce.number().int().nonnegative().optional(),
@@ -78,13 +84,14 @@ export class CreateOutreachSchema extends createZodDto(
     })
     .strict()
     .superRefine((data, ctx) => {
-      if (data.outreachType === OutreachType.p2p && !data.phoneListId) {
-        ctx.addIssue({
-          path: ['phoneListId'],
-          code: z.ZodIssueCode.custom,
-          message: 'Phone list ID is required for P2P outreach',
-        })
-      }
+      // Win SMS hold pay-before-build: under the managed flag
+      // (`win_sms_hold_billing`, per-user) a p2p draft may be created before
+      // its phone-list build finishes, so phoneListId is not required here —
+      // R1's build-ready edge stamps it later. The flag is per-user and this
+      // DTO has no request context to evaluate it against, so the schema
+      // never enforces this requirement; OutreachService.create (which has
+      // the user) is the single enforcement point and 400s the same way when
+      // the flag is off for this caller.
       if (data.outreachType === OutreachType.p2p && !data.script) {
         ctx.addIssue({
           path: ['script'],
@@ -112,6 +119,36 @@ export class CreateOutreachSchema extends createZodDto(
           path: ['draft'],
           code: z.ZodIssueCode.custom,
           message: 'Draft creation is only supported for P2P outreach',
+        })
+      }
+      // P2P is draft-first end to end: a row is written unpaid and only
+      // handed to Peerly once the purchase settles. A create that is
+      // neither a new draft nor a resume has no purchase behind it, so it
+      // is refused here rather than reaching the service.
+      if (
+        data.outreachType === OutreachType.p2p &&
+        data.draft !== true &&
+        !data.draftOutreachId
+      ) {
+        ctx.addIssue({
+          path: ['draft'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'P2P outreach must be created with draft: true, or resumed ' +
+            'with draftOutreachId',
+        })
+      }
+      // A resume converts a saved draft that was built without the card, so
+      // only a fresh text draft can be the card's send.
+      if (
+        data.proposalKey !== undefined &&
+        (data.outreachType !== OutreachType.p2p || data.draftOutreachId)
+      ) {
+        ctx.addIssue({
+          path: ['proposalKey'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'proposalKey is only accepted on a new P2P draft, not a resume',
         })
       }
       if (data.status === OutreachStatus.pending_payment) {

@@ -1,8 +1,8 @@
 """Project-root pytest config.
 
 The autouse fixture below blocks every test in the repo from emitting
-real Braintrust telemetry. Several test suites (campaign_plan_lambda,
-pmf_engine smoke tests, hubspot_ddhq_match) call into application code
+real Braintrust telemetry. Several test suites (pmf_engine smoke
+tests, hubspot_ddhq_match) call into application code
 that in turn calls `init_braintrust(...)` / `BraintrustClient.init(...)`
 without mocking. With `BRAINTRUST_API_KEY` present in the local `.env`,
 those tests would otherwise authenticate to Braintrust and pollute

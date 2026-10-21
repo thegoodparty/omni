@@ -24,6 +24,12 @@ export const PACK_HEARTBEAT_MS = 15_000
 // visible instead: `door-knocking-pack-build-failed` in deploy/components/
 // alerts.ts pages on it, and the message the client renders is deliberately
 // generic — the underlying error goes to the log, not to the browser.
+//
+// Because it pages, only a genuine build failure may reach it. Anything that
+// can be decided about the REQUEST rather than the build — eligibility, the
+// district resolve — is settled before this envelope opens (see
+// `DoorKnockingPackService.stream`), so it stays an ordinary 4xx and a caller
+// holding a request that was never answerable is told so.
 export const PACK_BUILD_FAILED_EVENT = 'DoorKnockingPackBuildFailed'
 
 const PACK_BUILD_FAILED_MESSAGE =
@@ -56,6 +62,9 @@ type StreamPackOptions = {
    * The `known_causes` registry entry for
    * `door-knocking-pack-build-failed` is written against this field and the
    * error code together, so that work can be done before anyone is notified.
+   *
+   * A near-zero `elapsedMs` therefore means the people-db call itself failed at
+   * once, not that the request was never eligible — that case cannot reach here.
    */
   onFailure: (error: Error, elapsedMs: number) => void
   heartbeatMs?: number

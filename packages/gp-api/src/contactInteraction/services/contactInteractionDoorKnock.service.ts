@@ -4,6 +4,7 @@ import {
   type VoterLikelihood,
 } from '@goodparty_org/contracts'
 import {
+  CivicPanelStatus,
   ContactInteractionDoorKnock,
   ContactStatusField,
   ContactStatusSource,
@@ -44,6 +45,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
     const row = await this.model.create({ data })
     await this.emitLikelihoodEvent(row)
     await this.emitFollowUpEvent(row)
+    await this.emitCivicPanelEvent(row)
     return row
   }
 
@@ -73,11 +75,15 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         supportAnswer: data.supportAnswer,
         willVote: data.willVote,
         followUp: data.followUp,
+        joinCivicPanel: data.joinCivicPanel,
+        stayOnCivicPanel: data.stayOnCivicPanel,
         note: data.note,
+        outreachId: data.outreachId,
       },
     })
     await this.emitLikelihoodEvent(row)
     await this.emitFollowUpEvent(row)
+    await this.emitCivicPanelEvent(row)
     return row
   }
 
@@ -158,6 +164,42 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
       // Nobody is born flagged, so a "no" against no prior flag is a no-op
       // rather than a logged transition that never happened.
       fallbackFromValue: FollowUpStatus.cleared,
+    })
+  }
+
+  // Serve-only, like follow-up. On the join question only a yes writes:
+  // declining at one door is not leaving the panel, so a "no" must never
+  // demote an existing member. The stay question is the one a no answers:
+  // it is only asked at a door on a turf of panel members (the interaction
+  // service drops it anywhere else), and a no there takes them off. A yes to
+  // staying writes nothing, so it never re-enrolls someone who left since.
+  private async emitCivicPanelEvent(row: ContactInteractionDoorKnock) {
+    if (!row.organizationSlug.startsWith('eo-')) {
+      return
+    }
+    const toValue =
+      row.joinCivicPanel === FollowUpAnswer.yes
+        ? CivicPanelStatus.member
+        : row.stayOnCivicPanel === FollowUpAnswer.no
+          ? CivicPanelStatus.left
+          : null
+    if (!toValue) {
+      return
+    }
+    await this.contactStatus.changeStatus({
+      organizationSlug: row.organizationSlug,
+      personId: row.personId,
+      field: ContactStatusField.civic_panel,
+      toValue,
+      source: ContactStatusSource.door_knock,
+      actorUserId: row.actorUserId,
+      // Stable per knock and answer, so a replayed offline sync no-ops even
+      // if the person has since joined or left the panel by another route.
+      sourceId:
+        toValue === CivicPanelStatus.member
+          ? `${row.sourceId ?? row.id}:${row.joinCivicPanel}`
+          : `${row.sourceId ?? row.id}:stay:${row.stayOnCivicPanel}`,
+      fallbackFromValue: CivicPanelStatus.left,
     })
   }
 }

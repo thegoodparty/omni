@@ -13,11 +13,18 @@ vi.mock('../../ContactsTableProvider', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
-const doorKnockingFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
-  useNativeDoorKnockingFlag: () => doorKnockingFlag,
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
 }))
-
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
 const DETAIL = {
   demographics: { people: 20081, avgAge: 53, avgIncome: 136384 },
   reachability: {
@@ -48,8 +55,11 @@ beforeEach(() => {
   testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
-  doorKnockingFlag.ready = true
-  doorKnockingFlag.enabled = true
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
   vi.mocked(useContactsTable).mockReturnValue({
     canUseProFeatures: true,
     isWinContext: true,
@@ -97,7 +107,7 @@ describe('ChannelPickerSheet', () => {
     )
     expect(rowNamed(/^Door knocking/)).toHaveAttribute(
       'href',
-      '/dashboard/door-knocking?create=1&listId=42',
+      '/dashboard/door-knocking?create=1&source=voter_data&listId=42',
     )
     expect(rowNamed(/^Social media/)).toHaveTextContent('Free')
     expect(rowNamed(/^Social media/)).toHaveAttribute(
@@ -149,11 +159,13 @@ describe('ChannelPickerSheet', () => {
     ])
   })
 
-  // The row links into `/dashboard/door-knocking?create=1`, a param only the
-  // native page reads. Off the flag that lands on the eCanvasser dashboard,
-  // which has no audience step to hand this list to.
-  it('omits the door-knocking row when the native flag is off', async () => {
-    doorKnockingFlag.enabled = false
+  it('disables SMS once texting is closed, moves it last and explains why on hover', async () => {
+    const user = userEvent.setup()
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
     api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
 
     render(
@@ -164,10 +176,28 @@ describe('ChannelPickerSheet', () => {
     )
 
     await screen.findByText('GOTV text list · 20,081 voters')
-    const names = screen
-      .getAllByRole('link')
-      .map((row) => within(row).getByRole('heading').textContent)
-    expect(names).toEqual(['Phone banking', 'SMS', 'Robocall', 'Social media'])
+    expect(
+      screen
+        .getAllByRole('link')
+        .map((row) => within(row).getByRole('heading').textContent),
+    ).toEqual(['Door knocking', 'Phone banking', 'Robocall', 'Social media'])
+
+    const sms = screen.getByRole('heading', { name: 'SMS' }).parentElement!
+      .parentElement!
+    expect(sms).toHaveAttribute('aria-disabled', 'true')
+    expect(sms.compareDocumentPosition(rowNamed(/^Social media/))).toBe(
+      Node.DOCUMENT_POSITION_PRECEDING,
+    )
+
+    await user.hover(sms)
+
+    expect(
+      (
+        await screen.findAllByText(
+          'The Oct. 15 deadline to get verified for texting has passed.',
+        )
+      ).length,
+    ).toBeGreaterThan(1)
   })
 
   it('uses the recommendation filter and count for an unsaved recommendation', async () => {

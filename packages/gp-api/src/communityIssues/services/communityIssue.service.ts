@@ -15,6 +15,7 @@ import {
   CommunityIssueUpsertService,
   CommunityIssueUpsertSummary,
 } from './communityIssueUpsert.service'
+import { shortTitle, teaser } from '../communityIssueEmailText'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -40,6 +41,9 @@ type EmailIssueFields = {
 // topIssue1Summary, topIssue1Priority, topIssue2Title, …) so a HubSpot email
 // workflow can read them — HubSpot can't index into an array. See the
 // instrument-analytics-event skill's emailable-events convention.
+// Title/Summary stay full-length (existing workflows read them); ShortTitle
+// (~60 chars) and Teaser (~120 chars) are bite-sized variants for subject
+// lines and body tokens.
 const flattenIssuesForEmail = (
   prefix: string,
   issues: EmailIssueFields[],
@@ -49,9 +53,24 @@ const flattenIssuesForEmail = (
     const n = i + 1
     out[`${prefix}${n}Title`] = issue.title
     out[`${prefix}${n}Summary`] = issue.summary
+    out[`${prefix}${n}ShortTitle`] = shortTitle(issue.title)
+    out[`${prefix}${n}Teaser`] = teaser(issue.summary)
     out[`${prefix}${n}Priority`] = issue.priority
   })
   return out
+}
+
+// Top-level props for the #1 issue of a list, so a subject line can use
+// {{leadIssueTitle}} without knowing the indexed prefix.
+const leadIssueForEmail = (
+  issues: EmailIssueFields[],
+): Record<string, string> => {
+  const lead = issues[0]
+  if (!lead) return {}
+  return {
+    leadIssueTitle: shortTitle(lead.title),
+    leadIssueTeaser: teaser(lead.summary),
+  }
 }
 
 @Injectable()
@@ -213,7 +232,11 @@ export class CommunityIssueService extends createPrismaBase(
           ? CommunityIssueList.trending
           : CommunityIssueList.top_community
       const otherListCount = await this.model.count({
-        where: { organizationSlug: run.organizationSlug, list: otherList },
+        where: {
+          organizationSlug: run.organizationSlug,
+          list: otherList,
+          lastRefreshedRunId: { not: null },
+        },
       })
       if (otherListCount > 0) {
         const [topIssues, trendingIssues] = await this.loadCurrentIssues(
@@ -224,6 +247,7 @@ export class CommunityIssueService extends createPrismaBase(
             .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
               topIssueCount: topIssues.length,
               trendingIssueCount: trendingIssues.length,
+              ...leadIssueForEmail(topIssues),
               ...flattenIssuesForEmail('topIssue', topIssues),
               ...flattenIssuesForEmail('trendingIssue', trendingIssues),
             })
@@ -245,6 +269,7 @@ export class CommunityIssueService extends createPrismaBase(
         .track(userId, EVENTS.CommunityIssues.TopIssuesRefreshed, {
           topIssueCount: topIssues.length,
           trendingIssueCount: trendingIssues.length,
+          ...leadIssueForEmail(topIssues),
           ...flattenIssuesForEmail('topIssue', topIssues),
         })
         .catch(() => undefined)
@@ -253,6 +278,7 @@ export class CommunityIssueService extends createPrismaBase(
         .track(userId, EVENTS.CommunityIssues.TrendingIssuesRefreshed, {
           topIssueCount: topIssues.length,
           trendingIssueCount: trendingIssues.length,
+          ...leadIssueForEmail(trendingIssues),
           ...flattenIssuesForEmail('trendingIssue', trendingIssues),
         })
         .catch(() => undefined)

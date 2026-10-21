@@ -148,7 +148,9 @@ Both stages call the same composite deploy action, only with different env input
   exists and skip the build/push if so — this is what makes re-running a deploy
   job possible after the image was pushed (same SHA, same source, same image).
 - Per-PR **preview stacks** are ephemeral; stale ones are cleaned up
-  (`gp-api-cleanup-preview.yml`).
+  (`gp-api-cleanup-preview.yml`). Stale means the PR is closed or has been idle
+  for `PREVIEW_IDLE_DAYS` days (repo variable, default 21); pushing a commit to
+  an open PR brings its preview back.
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.
@@ -164,6 +166,11 @@ prod. It is the whole post-merge deploy path — per-service workflows on `main`
 run only their checks and image builds; the train owns the shared-env deploys,
 the E2E, and the promotion.
 
+A push that only changes `docs/**` or root-level `*.md` files starts no
+release, because it deploys nothing. The next push that changes code releases
+everything since the last release. Markdown under `packages/` is not skipped:
+runbooks and prompts there are read at runtime.
+
 Serialization is the point. The `release-train` concurrency group runs one train
 at a time (`cancel-in-progress: false`) and GitHub keeps only the latest queued
 run, so a burst of merges queues to a single waiting run and the train always
@@ -173,25 +180,23 @@ one fixed SHA flows dev -> E2E -> prod. That is what removes the deploy/E2E/prom
 races the old per-push topology hit under load (a validated commit could be built
 and green on dev yet never promoted because it was no longer the tip).
 
-A failed run posts one alert to Slack `#bot-urgent`
-(`release-failure-alert.yml`, a `workflow_run` listener), naming the failed jobs
-and the phase that died. Read the phase line before triaging: a failed
-`Dev <service>` job **skips** the E2E shards, so the run's red gate job is named
-`E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
-a merge burst and do not alert.
-
-The first green run after a red one posts a recovery notice to the same channel.
-That half is edge-gated and the failure half is not: every red run alerts, so a
-multi-day outage stays visible, while a green run says nothing unless the run
-before it was red. Cancelled and skipped runs are transparent to that
-comparison rather than counting as green.
+Find the phase that died before triaging a red run: a failed `Dev <service>`
+job **skips** the E2E shards, so the run's red gate job is named `E2E` even when
+nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
+not failures.
 
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
    (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
-   for that SHA; a later merge forms the next train.
+   for that SHA; a later merge forms the next train. When `main` has already
+   moved past the SHA, the run first waits for the newer commit's runs of the
+   red checks. If they all pass there, the run cancels itself instead of
+   failing, because the newer commit fixed the problem and a merge burst
+   should not raise a false alert. If any fails there too, the run fails.
+   The cancel happens before any deploy starts, so it cannot strand a Pulumi
+   lock.
 2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
    push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
    Vercel and alias `dev.goodparty.org`).
@@ -262,6 +267,40 @@ workflow runs on every PR (no path filters, except the infra-diffs workflow).
 The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
+
+### Base images
+
+Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
+(`public.ecr.aws/docker/library/<image>:<tag>`), never Docker Hub. Anonymous
+pulls from either are limited per IP, and shared GitHub runners kept failing
+with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
+account, so every job that builds an image logs in to ECR Public first
+(`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
+in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
+deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
+can mint that login token (granted in `thegoodparty/ops`). Local builds need no
+login.
+
+### Analytics guard
+
+`.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
+PR, with no path filter, and posts or updates one PR comment naming the exact fix. The
+workflow's top-level `env:` sets `GOVERNANCE_GUARD_MODE` (`block` | `warn` | `off`),
+whether a blocking finding fails the check or only warns, and `GOVERNANCE_GUARD_ALERT`,
+who gets cc'd in the comment when the guard itself errors. Changing either is a one-line
+PR; that PR runs against its own edited workflow, so the guard never blocks the change
+that turns it down. The job never fails a
+PR for a mechanical reason: a failed uv setup or `uv sync` makes the guard report that it
+could not run and skips the runbooks suite with a warning, a comment-posting failure only
+warns, and `off` prints a warning and checks nothing. The full report (or the error)
+always goes to the job summary too, because the comment is capped at 60,000 characters.
+OKR legs come from the vendored sem copy at the PR's merge base, not the PR's own copy. A
+stacked PR whose base branch was deleted (because the PR under it merged) is compared
+against the base commit GitHub recorded on the PR, fetched by SHA, instead of erroring out
+unchecked. The
+runbooks suite (only when `packages/runbooks` changed) runs in the same job; its guard
+replay tests fail, rather than skip, when the Actions checkout is missing the history
+they replay against, since a skipped acceptance test would otherwise read as a pass.
 
 ### Dependency caching
 

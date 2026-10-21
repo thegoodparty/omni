@@ -24,19 +24,20 @@ import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
 // idle, so stage CLOSE to the send rather than days early. The window only has
 // to comfortably exceed the sweep interval plus the CallHub load time so a draft
-// authorized late (just inside the window) still stages before its send; 2h
-// gives that margin against a 10-minute sweep while keeping the number's idle
-// time small.
-const ROBOCALL_STAGING_LEAD_HOURS = 2
+// authorized late (just inside the window) still stages before its send. The
+// phonebook import polls for up to ~8 min on a large list, and a transiently
+// failed run must re-stage across several sweeps, so 6h gives that runway
+// against a 10-minute sweep while keeping the number's idle time small.
+const ROBOCALL_STAGING_LEAD_HOURS = 6
 
 // A `staging` row whose updatedAt is older than this is assumed abandoned (a
 // process that died after the claim but before commit/revert) and is reclaimed
 // by a later sweep. It MUST comfortably exceed the worst-case duration of a
 // healthy stageCampaign run (audio download + audience import — which itself
-// polls the phonebook load for up to ~2 min — + media upload + campaign create)
+// polls the phonebook load for up to ~8 min — + media upload + campaign create)
 // so a merely-SLOW run is never reclaimed and driven into a SECOND CallHub
-// campaign. 30 min is many times the observed healthy run and still recovers a
-// stranded hold long before its send.
+// campaign. 30 min comfortably exceeds even a large list's full load and still
+// recovers a stranded hold long before its send.
 const ROBOCALL_STAGING_STALE_MINUTES = 30
 
 // A small future cushion added when clamping the CallHub `scheduledStart`. A
@@ -117,7 +118,10 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   })
   async sweepRobocallStaging(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runStaging()
+  }
 
+  async runStaging(): Promise<void> {
     const now = new Date()
     const staleCutoff = subMinutes(now, ROBOCALL_STAGING_STALE_MINUTES)
     const candidates = await this.model.findMany({
@@ -339,6 +343,9 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         callhubCampaignPkStr: created.pk_str,
         callhubStartingDate: created.startingDate,
         callhubExpirationDate: created.expirationDate,
+        // Freeze the rate CallHub dials THIS campaign at, so the completion
+        // estimate never reads a later-raised live rate for a run staged slow.
+        stagedCallsPerMinute: created.callsPerMinute,
       },
     })
     if (commit.count === 0) {

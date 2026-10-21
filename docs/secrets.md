@@ -24,14 +24,39 @@ fixed shape.
 Each row is **one** AWS Secrets Manager secret holding a flat JSON object of
 string keys. There is no per-key secret and no SSM parameter for app secrets.
 
-| Secret                             | Consumed by                       | Environments      |
-| ---------------------------------- | --------------------------------- | ----------------- |
-| `GP_API_PROD` / `GP_API_DEV`       | gp-api ECS tasks                  | prod / dev + preview |
-| `ELECTION_API_PROD` / `_DEV`       | election-api ECS tasks            | prod / dev        |
-| `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev |
-| `broker-<env>`                     | PMF broker only                   | prod / dev        |
+| Secret                               | Consumed by                              | Environments         |
+| ------------------------------------ | ---------------------------------------- | -------------------- |
+| `GP_API_PROD` / `GP_API_DEV`         | gp-api ECS tasks                         | prod / dev + preview |
+| `ELECTION_API_PROD` / `_DEV`         | election-api ECS tasks                   | prod / dev           |
+| `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev           |
+| `broker-<env>`                       | PMF broker only                          | prod / dev           |
+| `LOCAL_DEV_ENV`                      | laptops, via `POST /v1/dev-env/bundle`   | dev only             |
 
 preview stacks share the `*_DEV` secrets — there is no preview secret.
+
+### `LOCAL_DEV_ENV`
+
+The one blob that leaves the account by design. `npm run setup`'s GitHub
+device-flow default (`docs/development.md`) calls the dev-only vending
+endpoint, `POST /v1/dev-env/bundle` (`packages/gp-api/src/devEnv/AGENTS.md`),
+which hands a verified `thegoodparty` GitHub org member the values for a
+fresh laptop checkout — dev-grade only, never a prod credential, with one
+read-only exception. It is keyed by package
+(`{ "gp-api": { … }, "gp-webapp": { … }, "mcp": { … } }`). `mcp` holds the
+Grafana MCP's Viewer token (`docs/mcp.md`), the one vended value that reads
+prod data: Grafana's logs cover every environment. It is read-only, and the
+vending audit line names who fetched it.
+
+It is vendable **by construction**, not by a filter that could get it wrong:
+the endpoint reads only this one secret, and `DECLARED_ENV_VARS` rejects any
+key the blob holds that isn't declared in that package's env contract
+(`ENV_VAR_CONTRACT` in `env.schema.ts`) — there is no code path that can leak
+a key nobody meant to vend. Adding a vendable key is a reviewed edit to both
+the secret and the receiving package's env contract, like any other secret
+change.
+
+**A key that lives in both `GP_API_DEV` and `LOCAL_DEV_ENV` rotates in both
+places** — accepted tech debt, deliberately traded for that guarantee.
 
 ## How a secret reaches running code
 
@@ -51,7 +76,7 @@ adding one needs a code change:
   `secrets` array, so a new one means a new `valueFrom` entry plus an
   `AI_SECRETS_<ENV>` resource in the task role's IAM policy.
 
-`SECRET_NAMES` is set from the same key list and drives log redaction
+`SECRETS_MANAGER_KEYS` lists the same container variable names and drives log redaction
 (`packages/nest-common/src/observability/log-redaction.ts`), so a key added to the
 blob is automatically scrubbed from logs. That only covers the Node services —
 gp-ai does its own redaction.
@@ -107,8 +132,15 @@ Writing the value. Post this in `#devs-only`, one message:
 > Where the value comes from: <vendor dashboard / who issued it>
 > Needs to land: before/after the PR merges
 
-Send the value itself through 1Password, not Slack. Admins who can do this write:
-Tomer, Dan, Swain, Jeff.
+Send the value itself through 1Password, not Slack. Tomer, Dan, Swain or Jeff
+writes it.
+
+Nobody holds standing AWS admin, including them. Whoever does the write first
+gets temporary admin: run `/breakglass` in Slack, give the PR link as the reason,
+and wait for a different approver to approve it in `#sensitive-access-requests`.
+Then sign in again and pick `AdministratorAccess` (the `gp-admin` profile from
+`packages/gp-api/scripts/aws-setup.sh`). Access ends on its own after 1 to 4
+hours. How it works: `docs/sheriff.md` in the `ops` repo.
 
 That handoff is a stopgap. The write-only path that removes it — an engineer
 encrypts a value against a public key committed to this repo, CI decrypts and
@@ -119,13 +151,13 @@ writes it, nobody gains read access — is planned in
 
 Every real reason for wanting one has a better answer:
 
-| You want the value because                     | Do this instead                                                                 |
-| ---------------------------------------------- | ------------------------------------------------------------------------------- |
-| A prod call is 401/403ing                      | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
-| You need to confirm a key is set               | `aws secretsmanager describe-secret` and the `SECRET_NAMES` env var both list key **names** without values; an admin can confirm presence in a sentence. |
-| You're testing an integration locally          | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one. |
-| You're reproducing a prod-only bug             | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code. |
-| A vendor call needs to run once, against prod  | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role. |
+| You want the value because                    | Do this instead                                                                                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A prod call is 401/403ing                     | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
+| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin (via `/breakglass`) can confirm presence in a sentence.                      |
+| You're testing an integration locally         | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one.                                                                                         |
+| You're reproducing a prod-only bug            | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code.                           |
+| A vendor call needs to run once, against prod | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role.                                                                                  |
 
 ## Local development
 

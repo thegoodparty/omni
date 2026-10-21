@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { useUser } from '@shared/hooks/useUser'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { ASSISTANT_PLACEHOLDER, getAssistantChat } from './assistantChat'
@@ -20,6 +21,7 @@ import ChiefOfStaffChatSurface from '../../../chief-of-staff/components/chat/Chi
 // already keeps flag-off pages byte-identical.
 export default function CrmAssistant(): React.JSX.Element | null {
   const { isWinContext, isWinContextReady } = useContactsTable()
+  const [user] = useUser()
   const [open, setOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   // The bar collects the first message before the surface is open, so it goes
@@ -35,6 +37,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
   // the same words twice still opens a fresh chat instead of being swallowed
   // by the body's sent-once latch. (The old drawer's `requestKey`.)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const submitCountRef = useRef(0)
 
   // The chat scope (and its history popover fetch) must not fire on the
@@ -42,14 +45,14 @@ export default function CrmAssistant(): React.JSX.Element | null {
   // which would bind a Win user to the chief_of_staff scope.
   if (!isWinContextReady) return null
 
-  const chat = getAssistantChat(isWinContext)
+  const chat = getAssistantChat(isWinContext, user?.firstName)
   const context = isWinContext ? 'win' : 'serve'
 
   // ENG-10767: chat opened + message sent (the instrument-analytics-event
   // skill's AI-chat exception to the UI-chrome skip list), so open-to-send
   // drop-off is visible. Only Opened is fired here; every message — the bar's
-  // first one and each composer follow-up — is counted once by the surface's
-  // onMessageSent, which fires on its own visible send path. Firing Sent here
+  // first one and each composer follow-up — is counted once as AI Chat -
+  // Message Sent by the chat body's own visible send path. Firing it here
   // too would double-count the first.
   const openWithMessage = (message: string): void => {
     trackEvent(EVENTS.Contacts.AssistantChatOpened, {
@@ -59,8 +62,27 @@ export default function CrmAssistant(): React.JSX.Element | null {
     submitCountRef.current += 1
     setConversationId(null)
     setPendingMessage(message)
+    setPendingFile(undefined)
     setOpenerKey(`bar-submit-${submitCountRef.current}`)
     setOpen(true)
+  }
+
+  const openFresh = (): void => {
+    trackEvent(EVENTS.Contacts.AssistantChatOpened, {
+      context,
+      source: 'toolbar',
+    })
+    submitCountRef.current += 1
+    setConversationId(null)
+    setPendingMessage(undefined)
+    setPendingFile(undefined)
+    setOpenerKey(`bar-open-${submitCountRef.current}`)
+    setOpen(true)
+  }
+
+  const openWithFile = (file: File): void => {
+    openFresh()
+    setPendingFile(file)
   }
 
   const openConversation = (id: string): void => {
@@ -70,6 +92,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
     })
     setConversationId(id)
     setPendingMessage(undefined)
+    setPendingFile(undefined)
     setOpenerKey(id)
     setOpen(true)
   }
@@ -80,6 +103,8 @@ export default function CrmAssistant(): React.JSX.Element | null {
         chat={chat}
         onSubmit={openWithMessage}
         onOpenConversation={openConversation}
+        onOpen={openFresh}
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={open}
@@ -87,20 +112,23 @@ export default function CrmAssistant(): React.JSX.Element | null {
           setOpen(next)
           // Drop the pending message on close so reopening from the bar's
           // clock popover doesn't re-send the last request.
-          if (!next) setPendingMessage(undefined)
+          if (!next) {
+            setPendingMessage(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={conversationId}
         openerKey={openerKey}
         pendingMessage={pendingMessage}
+        pendingFile={pendingFile}
         title={chat.agentName}
         subtitle={ASSISTANT_PLACEHOLDER}
         chatApi={chat.chatApi}
         analyticsLabel={chat.analyticsLabel}
         historyKey={chat.historyKey}
         scope={chat.scope}
-        onMessageSent={() =>
-          trackEvent(EVENTS.Contacts.AssistantMessageSent, { context })
-        }
+        defaultIntro={chat.defaultIntro}
+        analyticsSurface="contacts_assistant"
       />
     </>
   )

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
+import {
+  DATA_SOURCE_ROUTING_RULES,
+  dataSourceRoutingRules,
+} from './dataSourceRouting'
 import { SqlRejected } from './districtInsights.tool'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import {
@@ -546,7 +549,9 @@ describe('tool description — score semantics follows the scope', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
     // The whole constant, not fragments — partial pastes and drift between
     // the constant and the rendered description must fail.
-    expect(tool.description).toContain(hsScoreSemantics('constituent'))
+    expect(tool.description).toContain(
+      hsScoreSemantics('constituent', 'voters'),
+    )
     expect(tool.description).toMatch(/percentile rank/i)
     expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
@@ -558,7 +563,9 @@ describe('tool description — score semantics follows the scope', () => {
     expect(tool.description).toContain(
       "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
     )
-    expect(tool.description).not.toContain(hsScoreSemantics('constituent'))
+    expect(tool.description).not.toContain(
+      hsScoreSemantics('constituent', 'voters'),
+    )
     expect(tool.description).not.toMatch(/percentile rank/i)
   })
 
@@ -568,11 +575,33 @@ describe('tool description — score semantics follows the scope', () => {
   // The ban has to name the words it forbids, so this checks for the ban
   // statement and the old buggy phrasing's absence, not word absence.
   it('names the share denominator and bans survey language (QR-08)', () => {
-    expect(hsScoreSemantics('constituent')).toMatch(/scored/i)
-    expect(hsScoreSemantics('constituent')).toMatch(/survey language/i)
-    expect(hsScoreSemantics('constituent')).not.toContain(
+    expect(hsScoreSemantics('constituent', 'voters')).toMatch(/scored/i)
+    expect(hsScoreSemantics('constituent', 'voters')).toMatch(
+      /survey language/i,
+    )
+    expect(hsScoreSemantics('constituent', 'voters')).not.toContain(
       'state the coverage alongside',
     )
+  })
+
+  it('explains missing scores by non-registration on the constituents dataset', () => {
+    const tool = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...markedScope, peopleDataset: 'constituents' },
+    })
+    expect(tool.description).toContain(
+      hsScoreSemantics('constituent', 'constituents'),
+    )
+    expect(tool.description).toContain(
+      'residents who are not registered to vote are never scored',
+    )
+    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+  })
+
+  it('keeps the voter-file wording when the scope names no dataset', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
+    expect(tool.description).not.toContain('not registered to vote')
   })
 })
 
@@ -594,6 +623,39 @@ describe('tool description — partisan guidance follows the scope', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope: winScope })
     expect(tool.description).toContain('Parties_Description')
     expect(tool.description).not.toContain('hard legal line')
+  })
+
+  // Parties_Description is a registration only where the state reports one
+  // (peopleDb/partySource.ts); the scope carries L2's account otherwise.
+  it('calls party a registration only when the scope carries no party note', () => {
+    const winScope: ConstituentDataScope = {
+      ...scope,
+      forbiddenColumns: new Set(['email', 'voter_id']),
+      partisanQueriesAllowed: true,
+    }
+    const registered = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...winScope, partyNote: null },
+    })
+    expect(registered.description).toContain(
+      'Party registration (Parties_Description)',
+    )
+    expect(registered.description).not.toContain('not a registration here')
+
+    const note =
+      'Minnesota provides no party information in its voter file. L2 ' +
+      "models every voter's party from commercial data."
+    const modeled = buildQueryConstituentDataTool({
+      provider,
+      scope: { ...winScope, partyNote: note },
+    })
+    expect(modeled.description).toContain('  - Party (Parties_Description)')
+    expect(modeled.description).not.toContain('Party registration')
+    expect(modeled.description).toContain(
+      `  - Parties_Description is not a registration here. ${note} Report ` +
+        'party counts and shares as assigned or modeled, never as ' +
+        'registrations.',
+    )
   })
 })
 

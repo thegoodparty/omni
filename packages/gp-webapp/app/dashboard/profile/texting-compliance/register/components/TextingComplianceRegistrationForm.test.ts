@@ -41,6 +41,26 @@ describe('validateRegistrationForm', () => {
     })
   })
 
+  describe('campaignCommitteeName (ENG-11228)', () => {
+    it.each(['N/A', 'none', ' TBD ', 'self', '---'])(
+      'rejects the placeholder %j so it never reaches the Peerly brand',
+      (campaignCommitteeName) => {
+        const result = validateRegistrationForm(
+          baseValidFormData({ campaignCommitteeName }),
+        )
+        expect(result.validations.campaignCommitteeName).toBe(false)
+        expect(result.isValid).toBe(false)
+      },
+    )
+
+    it('accepts a real committee name', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ campaignCommitteeName: 'Sykora for Council' }),
+      )
+      expect(result.validations.campaignCommitteeName).toBe(true)
+    })
+  })
+
   describe('candidateName (ENG-10964)', () => {
     it('rejects an empty candidateName', () => {
       const result = validateRegistrationForm(
@@ -198,6 +218,51 @@ describe('validateRegistrationForm', () => {
       )
       expect(result.isValid).toBe(false)
       expect(result.validations.website).toBe(false)
+    })
+  })
+
+  describe('pasted whitespace', () => {
+    it('accepts a filing link pasted with a leading space', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({
+          electionFilingLink:
+            ' https://ocvote.gov/fileadmin/user_upload/data/candlog/GEN2026/candlog.pdf#page=157',
+        }),
+      )
+      expect(result.validations.electionFilingLink).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('accepts an email pasted with a trailing space', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ email: 'jane@example.com ' }),
+      )
+      expect(result.validations.email).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('accepts a phone pasted with a leading space', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ phone: ' 5555550123' }),
+      )
+      expect(result.validations.phone).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('accepts a website pasted with a trailing space', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ website: 'https://janeforcouncil.com ' }),
+      )
+      expect(result.validations.website).toBe(true)
+      expect(result.isValid).toBe(true)
+    })
+
+    it('accepts an EIN pasted with surrounding spaces', () => {
+      const result = validateRegistrationForm(
+        baseValidFormData({ ein: ' 12-3456780 ' }),
+      )
+      expect(result.validations.ein).toBe(true)
+      expect(result.isValid).toBe(true)
     })
   })
 })

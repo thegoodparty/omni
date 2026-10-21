@@ -47,9 +47,8 @@ changes no behavior, and it defuses the one failure this plan cannot otherwise
 catch.
 
 `@dev-only` Playwright specs are **grepped out of pull request runs entirely**
-and run only post-merge on the release train. `gpbot-dev-test-triage.yml` says
-it outright: "These never run on PRs, so nothing saw them before the merge."
-There is a prior incident, ENG-11106.
+and run only post-merge on the release train, so nothing sees them before the
+merge. There is a prior incident, ENG-11106.
 
 The poll e2e is `@dev-only`. So when the `aws s3 cp` line is removed from the
 poll Slack message, the spec throws and **no PR anywhere will fail.** It
@@ -293,7 +292,7 @@ Per-task smoke tests are in the task notes. Because nothing merges to main, the
 preview stack is the integration environment, and it has three properties worth
 planning around.
 
-- **Each preview has its own database**, freshly migrated and seeded. Good:
+- **Each preview has its own database**, freshly migrated. Good:
   the migration is proven per PR. Also means no shared state between previews.
 - **Previews share dev's S3 buckets** (`environment === 'preview' ? 'dev' :
   environment`). Mostly helpful, since the recipient CSV write is exercised for

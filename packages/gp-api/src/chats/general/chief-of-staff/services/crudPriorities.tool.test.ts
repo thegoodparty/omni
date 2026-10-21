@@ -6,7 +6,6 @@ const priority = (id: string): PriorityRecord => ({
   id,
   title: `title-${id}`,
   description: `desc-${id}`,
-  targetDate: null,
   archivedAt: null,
 })
 

@@ -13,14 +13,14 @@ discovery, no fetching, no `verify_quote`.
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/race_opponent_summary.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## CRITICAL RULES
 
-- **Work ONLY from the provided text. Do NOT browse, search, fetch, or query anything.** Everything you need is in `PARAMS_JSON` (`opponents[].sources[].text`, `candidate_platform`, `race_context`). There is NO `WebSearch`, NO `pmf_runtime.http`, NO `pmf_runtime.databricks`, and NO internet here. Do not write code or shell that reaches the network. If a fact is not in the provided text, it does not go in the output.
+- **Work ONLY from the provided text. Do NOT browse, search, fetch, or query anything.** Everything you need is in `PARAMS_FILE` (`opponents[].sources[].text`, `candidate_platform`, `race_context`). There is NO `WebSearch`, NO `pmf_runtime.http`, NO `pmf_runtime.databricks`, and NO internet here. Do not write code or shell that reaches the network. If a fact is not in the provided text, it does not go in the output.
 - **Add no facts not present in the input.** Every sentence in `overview`, `background`, and `issues_that_matter` must be supported by that opponent's own collected `text`. Do not infer positions from party, fill gaps from general knowledge, or carry a fact from one opponent onto another. Thin data means smaller output (`null` sections, fewer bullets), never fabrication.
 - **The candidate side comes ONLY from `candidate_platform`.** `field_analysis` is derived only by comparing `candidate_platform.bio`/`issues` against the whole collected opponent field. Never pull the candidate's stance from `CampaignStory` / `CampaignPosition` self-research — that path is deliberately avoided.
 - **Analyze the whole field at once so threat tiers are RELATIVE.** Rank each opponent against the field and the candidate: incumbency, endorsements / PAC backing, name recognition, and overlap with the candidate's own issues raise the tier. Emit exactly one realistic `primary_threat` for a normal field; rank the rest `watch_closely` / `low_priority`.
@@ -42,7 +42,7 @@ discovery, no fetching, no `verify_quote`.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`; pull `opponents[]` (with `sources[]`), `candidate_platform`, and `race_context` (Step 0).
+1. Read `PARAMS_FILE`; pull `opponents[]` (with `sources[]`), `candidate_platform`, and `race_context` (Step 0).
 2. Across the whole field, assign each opponent a relative `threat_tier` (Step 1).
 3. For each opponent, structure `overview` and `background` (Step 2).
 4. For each opponent, write `why_theyre_running` (Step 3).
@@ -51,7 +51,7 @@ discovery, no fetching, no `verify_quote`.
 7. Assemble one entry per input opponent in input order and write the artifact (Step 6).
 8. Validate (Step 7) and spot-check (Spot-check).
 
-## Inputs (the params in `PARAMS_JSON`)
+## Inputs (the params in `PARAMS_FILE`)
 
 - `opponents` (array, ≥1): each `{ opponent_name, sources: [{ source_type, source_url, text }] }`. The already-collected per-source text (Phase 0). `sources` may be empty.
 - `candidate_platform` (object, optional): `{ bio?, issues?: [{ title, description }] }`, the candidate's own platform from their site. Absent when the campaign has no website bio yet — then emit `field_analysis: null`.
@@ -61,12 +61,12 @@ discovery, no fetching, no `verify_quote`.
 
 ### Step 0 — Read params
 
-Read `PARAMS_JSON` once. Extract `opponents`, `candidate_platform`, `race_context`. `mkdir -p /workspace/scratch`. Note each opponent's allowed source URLs — the only URLs that may appear in that opponent's output `sources`.
+Read `PARAMS_FILE` once. Extract `opponents`, `candidate_platform`, `race_context`. `mkdir -p /workspace/scratch`. Note each opponent's allowed source URLs — the only URLs that may appear in that opponent's output `sources`.
 
 ```bash
 python3 - <<'EOF'
 import json, os
-p = json.loads(os.environ["PARAMS_JSON"])
+p = json.load(open(os.environ["PARAMS_FILE"]))
 cp = p.get("candidate_platform") or {}
 print("candidate issues:", [i.get("title") for i in (cp.get("issues") or [])])
 for o in p["opponents"]:
@@ -127,7 +127,7 @@ verbatim), plus the single top-level `field_analysis`, and write:
 
 ```python
 import json, os, datetime
-p = json.loads(os.environ["PARAMS_JSON"])
+p = json.load(open(os.environ["PARAMS_FILE"]))
 opponents_out = []  # one entry per p["opponents"], in order, per Steps 1-4
 artifact = {
     "generated_at": datetime.datetime.now(datetime.timezone.utc)

@@ -2,7 +2,9 @@ import type { CampaignManagerContext } from '../../campaignManagerPrompt'
 
 // A realistic candidate who has picked an office but has not filed: the state
 // the ballot-access guidance is written for. Cases override ballotStatus and the
-// filing dates to reach the other branches.
+// filing dates to reach the other branches. The clock is pinned so every count
+// the prompt renders (27 days to the filing deadline, 10 weeks to the
+// election) is the same on every run.
 export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   candidateFirstName: 'Renee',
   candidateName: 'Renee Diaz',
@@ -11,11 +13,21 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   district: 'Ward 3',
   officeLevel: 'city',
   location: 'Springfield, IL',
-  weeksToElection: 20,
+  state: 'IL',
+  now: new Date('2026-08-19T17:00:00.000Z'),
+  electionDate: '2026-11-03',
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
+  // Unavailable, not none: the fixture has a race and an election date, so
+  // "no race linked" would contradict the ballot tool the evals register. The
+  // one sentence this adds is the same for every case built on the fixture.
+  liveRace: { status: 'unavailable' },
   ballotStatus: 'qualified-not-filed',
   filingPeriodStart: '2026-09-01',
   filingPeriodEnd: '2026-09-15',
-  daysToFilingDeadline: 27,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -31,6 +43,9 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   isPro: null,
   story: null,
   plan: null,
+  // Not live: a fictional candidate has nothing published, and the evals
+  // built on this fixture never ask for the address.
+  publicProfile: { status: 'not-live' },
 }
 
 // BallotReady returning a full filing record for the race.

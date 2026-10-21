@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { IconButton } from '@styleguide'
 import {
   MicIcon,
@@ -21,8 +22,8 @@ interface Props {
   historyKey?: readonly unknown[]
   /** aria-label for the open button. Defaults to Chief of Staff. */
   openLabel?: string
-  /** Show the paperclip (attachments-enabled scopes only). Opens the chat. */
-  showAttachIcon?: boolean
+  /** Open the chat surface with this file attached (the paperclip). */
+  onAttachFile: (file: File) => void
 }
 
 /**
@@ -30,7 +31,8 @@ interface Props {
  * the dashboard sidebar (16rem) on lg+ — the breakpoint where the sidebar
  * rail appears (below lg it collapses to a mobile sheet, so the bar spans the
  * full width). Tapping the pill (or any of its buttons) opens the chat
- * surface.
+ * surface; the paperclip picks a file first and opens it attached. Its live height is published as `--chat-dock-height` on the root
+ * element, for anything sticky that has to sit above it.
  */
 export default function FooterChatBar({
   firstName,
@@ -39,14 +41,34 @@ export default function FooterChatBar({
   chatApi,
   historyKey,
   openLabel = 'Open Chief of Staff chat',
-  showAttachIcon = false,
+  onAttachFile,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
     : 'How can I help?'
 
+  const barRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+    const root = document.documentElement
+    const publish = () =>
+      root.style.setProperty('--chat-dock-height', `${bar.offsetHeight}px`)
+    publish()
+    const observer = new ResizeObserver(publish)
+    observer.observe(bar)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--chat-dock-height')
+    }
+  }, [])
+
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64">
+    <div
+      ref={barRef}
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80 lg:left-64"
+    >
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
         <div className="relative w-full rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
@@ -62,18 +84,30 @@ export default function FooterChatBar({
             >
               {placeholder}
             </button>
-            {showAttachIcon && (
-              <IconButton
-                type="button"
-                size="small"
-                variant="ghost"
-                aria-label="Attach a file"
-                className="size-10"
-                onClick={onOpen}
-              >
-                <PaperclipIcon className="size-5" aria-hidden />
-              </IconButton>
-            )}
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Attach a file"
+              className="size-10"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <PaperclipIcon className="size-5" aria-hidden />
+            </IconButton>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,image/jpeg,image/png"
+              className="hidden"
+              aria-hidden
+              tabIndex={-1}
+              data-testid="footer-chat-file-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onAttachFile(file)
+              }}
+            />
             <IconButton
               type="button"
               size="small"

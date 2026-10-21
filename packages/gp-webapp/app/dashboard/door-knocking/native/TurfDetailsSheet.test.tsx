@@ -50,6 +50,7 @@ const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
   loggedCount: 0,
   knockedDoorCount: 0,
   routeSeconds: 1_860,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
@@ -301,9 +302,10 @@ describe('TurfDetailsSheet overview', () => {
     expect(within(metric('People')).getByText('3')).toBeInTheDocument()
   })
 
-  // ADR 0007 drops do-not-knock residents, so a route whose every resident is
-  // flagged really does have 0 knockable people — and now that the frozen
-  // route is the only source, the zero is reported rather than papered over.
+  // Turf evaluation drops do-not-knock residents, so a route whose every
+  // resident is flagged really does have 0 knockable people — and now that the
+  // frozen route is the only source, the zero is reported rather than papered
+  // over.
   it('reports zero people for a route whose residents are all flagged', async () => {
     api.mock('GET /v1/door-knocking/turfs/:id/route', {
       status: 200,
@@ -792,7 +794,7 @@ describe('TurfDetailsSheet status breakdown', () => {
     })
   })
 
-  // ADR 0008's follow-up is optional, so the status lands at Save and the
+  // The not-a-voter follow-up is optional, so the status lands at Save and the
   // reason — the thing that actually drops the resident from every people
   // figure — may never be given. This bucket is therefore exactly the doors
   // where that outcome was logged and nobody has answered "what happened?", and
@@ -821,7 +823,7 @@ describe('TurfDetailsSheet status breakdown', () => {
 
   // Answering the follow-up removes the resident from the table altogether
   // rather than moving them between rows, because it is the reason and not the
-  // status that ADR 0008 counts as "nobody to talk to".
+  // status that counts as "nobody to talk to".
   it('drops a not-a-voter resident from the table once the reason is known', async () => {
     mockOutcomes([
       { knockStatus: 'not_a_voter', notAVoterReason: 'moved' },
@@ -990,6 +992,7 @@ describe('TurfDetailsSheet edit', () => {
     expect(sent.body).toEqual({ name: 'Oak Ave', color: '#16a34a' })
     expect(successSnackbar).toHaveBeenCalledWith('List updated')
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListEdited, {
+      product: 'win',
       turfId: 1,
       renamed: true,
       recolored: true,

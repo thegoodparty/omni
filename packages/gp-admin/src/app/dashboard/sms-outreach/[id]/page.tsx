@@ -25,6 +25,7 @@ import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
+import { PhoneMessagePreview } from '../components/PhoneMessagePreview'
 import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
@@ -55,6 +56,14 @@ export default async function Page({ params }: PageProps) {
     notFound()
   }
   const { item, stats } = detail
+  // Nothing is left to change once the send is over or ended.
+  const isClosed =
+    item.approvalStatus === 'canceled' || item.approvalStatus === 'sent'
+  const canvassersBooked =
+    item.approvalStatus === 'canvass_requested' ||
+    item.approvalStatus === 'peerly_approved' ||
+    item.job?.hasCanvassersScheduled === true ||
+    item.job?.peerlyApproved === true
 
   return (
     <Container size="3">
@@ -79,25 +88,15 @@ export default async function Page({ params }: PageProps) {
         <Box flexGrow="1" style={{ minWidth: 0 }}>
           <Card>
             <Heading size="3" mb="2">
-              Message as it will send
+              {item.approvalStatus === 'sent'
+                ? 'Message as it sent'
+                : 'Message as it will send'}
             </Heading>
-            {item.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.imageUrl}
-                alt="Campaign attachment"
-                style={{
-                  maxHeight: 240,
-                  borderRadius: 8,
-                  marginBottom: 12,
-                  maxWidth: '100%',
-                }}
-              />
-            )}
-            <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
-              {item.script ?? '—'}
-            </Text>
-            {canDecide && item.approvalStatus !== 'canceled' && (
+            <PhoneMessagePreview
+              imageUrl={item.imageUrl}
+              script={item.script}
+            />
+            {canDecide && !isClosed && (
               <Box mt="3">
                 <Flex gap="3">
                   {item.script && (
@@ -114,7 +113,7 @@ export default async function Page({ params }: PageProps) {
                 </Flex>
               </Box>
             )}
-            {canDecide && item.approvalStatus !== 'canceled' && (
+            {canDecide && !isClosed && (
               <Box mt="3">
                 <SendTestAction id={item.id} />
               </Box>
@@ -292,9 +291,13 @@ export default async function Page({ params }: PageProps) {
               <ApproveDenyActions id={item.id} />
             </Box>
           )}
-          {canDecide && item.approvalStatus !== 'canceled' && (
+          {canDecide && !isClosed && (
             <Box mt="4">
-              <CancelAction id={item.id} paid={item.paid} />
+              <CancelAction
+                id={item.id}
+                paid={item.paid}
+                canvassersBooked={canvassersBooked}
+              />
             </Box>
           )}
         </Box>

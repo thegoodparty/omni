@@ -111,4 +111,16 @@ describe('computeBudget', () => {
     expect(empty.literaturePacks).toBe(0)
     expect(empty.literatureCost).toBe(0)
   })
+
+  it('puts nothing toward texts once texting is closed', () => {
+    const open = computeBudget(500, 400, 100)
+    const closed = computeBudget(500, 400, 100, true)
+    expect(closed.textCount).toBe(0)
+    expect(closed.textCost).toBe(0)
+    expect(closed.robocallCost).toBe(open.robocallCost)
+    expect(closed.subtotal).toBe(open.subtotal - open.textCost)
+    expect(closed.totalBudget).toBe(
+      closed.subtotal + Math.round(closed.subtotal * CONTINGENCY_RATE),
+    )
+  })
 })

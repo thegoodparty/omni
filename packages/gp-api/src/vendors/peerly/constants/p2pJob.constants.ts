@@ -6,6 +6,14 @@ export const P2P_JOB_DEFAULTS = {
   TEMPLATE_TITLE: 'Default Template',
 } as const
 
+// Reading one job's state is a poll, not a write: the status sweep does it once
+// per open outreach in sequence, and the admin console does it per row of its
+// queue. Both want an answer or none, so the read gets a deadline of its own
+// rather than inheriting PEERLY_HTTP_TIMEOUT (60s per attempt, up to four
+// attempts, which is minutes of sweep time spent on one unresponsive job). 8s
+// is an order of magnitude above the ~0.2-0.7s Peerly normally takes.
+export const P2P_JOB_READ_TIMEOUT_MS = 8_000
+
 export const P2P_ERROR_MESSAGES = {
   IMAGE_REQUIRED: 'Image file is required for P2P job creation',
   SCRIPT_TOO_LONG:

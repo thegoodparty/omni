@@ -9,7 +9,9 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { Module } from '@nestjs/common'
+import { BriefingAnnotationHandler } from './briefingAnnotation.handler'
 import { BriefingChatsController } from './controllers/briefing-chats.controller'
 import {
   BRIEFING_CHATS_DATABRICKS_PROVIDER,
@@ -32,7 +34,13 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
 }
 
 @Module({
-  imports: [ChatsModule, AwsModule, OrganizationsModule, ElectionsModule],
+  imports: [
+    ChatsModule,
+    AwsModule,
+    OrganizationsModule,
+    ElectionsModule,
+    PeopleQueryModule,
+  ],
   controllers: [BriefingChatsController],
   providers: [
     BriefingChatsService,
@@ -45,7 +53,15 @@ const databricksProviderFactory = (): DatabricksProvider | null => {
       provide: BRIEFING_CHATS_DATABRICKS_PROVIDER,
       useFactory: databricksProviderFactory,
     },
+    {
+      // Republishes the instance BriefingChatsService already built from these
+      // same deps, so the scope registry and the live send path share one
+      // handler instead of two separately wired ones.
+      provide: BriefingAnnotationHandler,
+      useFactory: (chats: BriefingChatsService) => chats.handler,
+      inject: [BriefingChatsService],
+    },
   ],
-  exports: [BriefingChatsService],
+  exports: [BriefingChatsService, BriefingAnnotationHandler],
 })
 export class BriefingChatsModule {}

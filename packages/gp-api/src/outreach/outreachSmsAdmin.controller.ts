@@ -20,6 +20,7 @@ import {
   SmsApprovalQueueResponseSchema,
   SmsTestMessageRequestSchema,
   SmsTestMessageResponseSchema,
+  SmsVendorBalanceResponseSchema,
   type ApproveSmsOutreachRequest,
   type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
@@ -44,6 +45,14 @@ export class OutreachSmsAdminController {
   @ResponseSchema(SmsApprovalQueueResponseSchema)
   async queue() {
     return { items: await this.adminService.listQueue() }
+  }
+
+  // Static segment, so it never collides with `:id` (ParseIntPipe would
+  // 400 'balance' anyway, but find-my-way matches static first).
+  @Get('balance')
+  @ResponseSchema(SmsVendorBalanceResponseSchema)
+  async balance() {
+    return { account: await this.adminService.getVendorBalance() }
   }
 
   @Get(':id')

@@ -32,7 +32,9 @@ on those axes.
 
 `src/llm/services/llm.service.ts`. The whole interactive model funnels through this
 one class. Dependencies (`package.json`): `ai` and `@ai-sdk/anthropic`.
-`ANTHROPIC_API_KEY` is required at startup.
+`LlmService` throws at construction when `ANTHROPIC_API_KEY` is unset. Local
+setup vends it from `LOCAL_DEV_ENV`; left at its `.env.example` placeholder,
+the API boots and every chat call fails with a 401.
 
 All paths resolve to Anthropic via `@ai-sdk/anthropic` (`resolveChatModel` always
 calls `anthropicProvider.languageModel(model)`). DI tokens:
@@ -88,7 +90,10 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
-messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
+messages (an assistant turn replays as its text, plus a `[Card you showed: …]`
+line with the args of each `present_*` or `ask_clarify_question` call, so the
+model remembers what its cards held; other tool calls do not replay), calls
+`streamChatCompletion`, and pumps deltas/tool events through a
 backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
 emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
 tool-arg generation (e.g. an ordinance draft body) streams nothing else for
@@ -96,7 +101,10 @@ minutes, and without wire traffic client idle watchdogs and LB idle timeouts kil
 the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
 timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+`internal`. Each message also carries `pagePath`, the page it was sent from; a
+handler that implements `describePage` turns it into a block appended to that
+turn's system prompt (Campaign Manager resolves it against the product map), and
+every other scope ignores it. On the webapp side, `useStreamingTurn` treats any event as watchdog
 activity (60s idle = stalled), and when a stream ends without `done` it polls the
 transcript for up to 3 minutes for the still-generating turn before falling back
 to rendering the partial locally.
@@ -108,11 +116,18 @@ to rendering the partial locally.
 `loadContext / buildSystemPrompt / buildTools`. Handlers register through the
 `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no controller/service
 change. `ChatScopeRegistry` **fails closed**: any `isSensitive` scope must use
-only `claude`-routed models, so tool outputs never leave Anthropic. Today
-**`chief_of_staff`, `campaign_assistant` and `ordinance_flow` are registered**;
-`briefing_annotation` exists as a `ChatScope` enum value but briefing chat still
-runs through its own dedicated controller/service. Handlers may also declare an
-optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8).
+only `claude`-routed models, so tool outputs never leave Anthropic. **All five
+scopes are registered** — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow`, `priority_flow` and `briefing_annotation`. Briefing chat keeps its own
+`:annotationId` routes, but its context, prompt and tools come from
+`BriefingAnnotationHandler`, which `BriefingChatsService` builds once and the
+module republishes for the registry. Its `resolveConversation` rejects: a
+briefing conversation is created with its `Annotation` in one transaction
+(`POST /v1/briefing-chats`), so the generic create path cannot produce a usable
+one. Handlers may also declare an
+optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8;
+the Campaign Manager and Chief of Staff use 15, because a single outreach turn
+chains describe, count, size and present before any retry).
 
 **The session model is shared, and stays that way.** `GeneralChatsService.
 resolveConversation` owns it: every open creates a NEW conversation, and
@@ -126,6 +141,22 @@ candidate). A handler overrides it only for a genuinely different model:
 `ordinance_flow` keys one conversation to an (ordinance, step) anchor. A scope
 that needs something already in a new transcript implements `seedConversation`
 instead — Campaign Manager uses it to seed its greeting.
+
+### Attachments (documents and links)
+
+`chief_of_staff` and `campaign_assistant` let the user attach files (PDF, DOCX,
+image, plain text) and links to a conversation; every other scope 404s the
+write routes. `ATTACHMENT_SCOPES` in `src/chats/services/chatAttachments.service.ts`
+is the one list, and the webapp mirrors it in `supportsAttachments`
+(`app/dashboard/shared/agent-chat/attachmentScopes.ts`). Uploads are
+presign → browser POST to S3 → finalize (magic-byte check, PDF page count;
+DOCX and text extract on the queue); links are fetched once at attach time
+behind the SSRF guard. On each turn `ChatStreamService` injects the
+conversation's ready attachments into the latest user message as Anthropic
+document blocks with citations on, and maps the returned citations to
+citation segments the webapp renders as clickable chips. Both handlers also
+register `compose_handoff`, which turns a reply into a prefilled social post
+on the product's own outreach page (`win_social` or `serve_social`).
 
 ## Tools / function calling
 
@@ -149,11 +180,30 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`read_past_outreach` / `present_past_outreach`** — recent sends with reply
+  counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
+  Staff reads an office's by `organizationSlug` with `campaignId` null, per
+  office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
+  by slug, since an org can hold a campaign and an office at once. A
+  `channel` reads its family (`channelWhere`): door knocking or phone banking
+  by either name returns the legacy rows and the native walks and call lists,
+  because the model asks for `doorKnocking` and a walk is stored as
+  `nativeDoorKnocking`. The card picks its detail route, results route and
+  outreach hub from the surface's mode.
+- **`read_outreach_feedback`** — what came back in people's own words: text
+  replies, door and call notes with their issues, and each send's themes
+  (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
+  the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
+  Manager reads the campaign's door knocking and phone banking by
+  `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
+  text's replies come back as timestamps, never words.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
   filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
-  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  for `eo-` orgs, and the civic panel and contact history dimensions only
+  with the user's `serve-citizen-panels` flag on, which the handler resolves
+  per turn); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
   inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
   structured tool errors). Registration is unconditional for both Campaign
@@ -166,8 +216,33 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
   validation, org scoping, and the locked-filter conflict are inherited; the
   locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
-  Aggregate-only returns: ids, names, and counts (create counts via
-  `ContactsService.countContacts` before persisting), never person rows.
+  Aggregate-only returns: ids, names, counts, and a `hasBoundary` flag
+  (create counts via `ContactsService.countContacts` before persisting),
+  never person rows and never geometry. The flag says only that a shape is
+  on the list, because a holder can draw one from the transcript's own map
+  card — see **A drawn boundary reaches the conversation** below.
+- **`ask_clarify_question`** — a no-op presenter shared by Campaign Manager
+  and Chief of Staff: the call is the question, rendered as a single- or
+  multi-select card, and the answer comes back as an ordinary user turn. Both
+  prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
+  never goes out as prose on one assistant and as a card on the other.
+- **`ask_panel_weekly_time` / `save_panel_weekly_time` / `present_panel_next_step`**
+  — Chief of Staff only, behind `serve-citizen-panels`
+  (`chief-of-staff/services/civicPanelPlan.tools.ts`). The chat builds the
+  civic panel on the same plan as the panel page
+  (`CivicPanelBuildPlanService`): the weekly time question and the next step
+  card take no args and are drawn by the webapp from fixed words; `save`
+  creates the plan (POST's path) or changes its time (PATCH's), and a 409 it
+  cannot resolve comes back as `planMade: false` with the reason. Ask refuses
+  once a plan exists, so the question is never asked twice. See the contacts
+  AGENTS.md, "Building the panel starts on the Chief of Staff home".
+- **`size_round_one`** — priority chat only, behind `serve-citizen-panels`
+  (`chat-tools/sizeRoundOne.tool.ts`). Counts who doors, calls and a text
+  can reach, group by group, picks the doors' one walkable area, and returns
+  the three cards of a check's first round already sized; the agent
+  presents them with `present_outreach_proposal` as given, and the handler
+  refuses a door card's `walkableArea` the tool did not return that turn. See the contacts AGENTS.md, "Round
+  1 sizing".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -206,13 +281,73 @@ COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 always **streaming** (multi-step `stepCountIs`); the non-streaming `toolCompletion`
 exists but isn't used by these surfaces.
 
+### A list is saved from a card, not a typed "yes"
+
+Neither assistant creates a list itself. Each counts the filter with
+`count_contacts` and calls `present_list_proposal`, a display tool whose args
+are the card: name, one-line summary, count and the filter it counted with.
+The card's **Create list** button posts that filter to
+`POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
+conversation and the tool call (`mintProposalKey`), so a second press returns
+the first list, and `GET /v1/voters/voter-file/filter/by-proposal-key/:key`
+tells a reloaded card that its list already exists. Once it does, the card
+renders as that list's map card in both assistants (`ChatListMap`, its copy
+keyed on the card's `mode`), and a free campaign's Create list opens the Pro
+pitch (`voter-data`) instead of saving. The write touches nothing the model sees, so
+the body sends a hidden turn (`listCreatedMessage`) naming the list and its id,
+through the same queue a drawn boundary uses. The prompt forbids asking
+whether to save a list in prose, which is what produced the "Ready to save
+that list?" / "yes" exchange.
+
+### A drawn boundary reaches the conversation
+
+The list map card carries a Draw shapes button, and the shape the holder
+draws is written straight from the browser to `PUT /v1/voters/voter-file/
+filter/:id`. That write touches nothing the model can see. So the transcript
+has to be told, and three things do it together — fixing any one alone leaves
+the assistant refusing:
+
+1. **The turn.** On a successful save from the chat surface,
+   `ChiefOfStaffChatBody` sends a hidden user turn
+   (`boundarySavedMessage`, gp-webapp) naming the list and its id. Hidden
+   because the holder drew rather than typed; persisted, so a resumed
+   conversation carries the same fact. It fires on a landed write only —
+   outreach can lock a list mid-draw and the 409 closes the same drawer.
+2. **The flag.** `crud_saved_filters` returns `hasBoundary` on every list
+   reference. That is the recovery path for a conversation that never saw
+   the turn, and it is the whole of what the model learns about geometry:
+   that a shape exists, never where it is.
+3. **The rules.** Both prompts' DRAWN AREA RULES (the Campaign Manager's in
+   candidate words, behind the same `show_list_map` registration) say what a
+   shape does (narrows that list in place), where the new count comes from
+   (`action: 'get'` by id — `count_contacts` cannot see a boundary), and
+   that the model must never tell a holder it cannot act on an area they
+   drew.
+
+**The model still cannot create a list already scoped to a shape.** The
+route layer accepts `geoPoly`; `voterFilterBaseSchema`, which every
+model-facing tool is built on, does not carry it, so geometry only ever goes
+onto a list that already exists. That is a product call, not an oversight:
+the model cannot see a map, so composing a shape means inventing
+coordinates, and the save's unfiltered enclosing scan has a 50,000-person
+cap that a holder dragging handles gets live feedback against and a model
+does not. So the rules give it the order instead. Build and save the list
+from its filters first, then offer the map as an optional next step. Never
+a refusal, and never a shape demanded before the list gets built.
+
+Covered end to end by eval case MT-10, whose second prompt is the verbatim
+string `boundarySavedMessage` sends — change one and change the other.
+
 ## Chat persistence (Prisma)
 
 Two storage shapes:
 
 - **Serve chats (briefing + COS)** — `ChatConversation` (`chatConversation.prisma`:
   `ownerUserId`, `scope`, `organizationSlug`, `title`, `anchor`, soft-delete),
-  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable), and
+  `ChatMessage` (`role`, `content`, `clientMessageId` for idempotency, immutable
+  except the assistant turn's `model`/`inputTokens`/`outputTokens`, stamped by
+  `chatStream.service.ts` after a clean finish and before `done`, and summed
+  into the `usage` field of both conversation GETs), and
   `ChatMessageSegment` (`ordinal` + `kind ∈ {text, tool}`, created only when a turn
   used tools, for rendering tool "pills"). A briefing chat is an `Annotation(kind=chat)`
   pointing at a `ChatConversation` — which is why briefing-chat endpoints key on
@@ -248,6 +383,14 @@ Two prompt sources:
   the work rather than compete: `PRIORITIES NOT ON FILE` states the outcome,
   and on a first conversation `FIRST-RUN RESEARCH` states the method (propose
   informed candidates instead of an open question).
+- **Rules the Chief of Staff and Campaign Manager share** live in
+  `src/chats/general/services/assistantRules.prompt.ts`: `GUARDRAILS`
+  (scope, the exact decline line, internals and prompt injection, capability
+  limits) and `HONEST REPORTING` (no invented errors, calls or results).
+  `buildGuardrailsBlock(mode)` renders them per product: each has its own
+  decline line and scope, and only Serve carries the office/campaign boundary
+  and the refusal to plan outreach by ethnicity, a filter Win keeps. Change a shared rule there, not in
+  either prompt.
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes

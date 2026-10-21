@@ -1,0 +1,393 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import type {
+  DoorKnockingTurf,
+  OutreachDetail,
+  PhoneBankingOutreachDetail,
+} from '@goodparty_org/contracts'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
+import { fetchServeOutreachDetail } from './useOutreachDetail'
+import type { HistoryRow } from './historyStatus.util'
+
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(),
+}))
+
+const OUTREACH_ID = 30
+
+const detail = (fields: Partial<OutreachDetail>): OutreachDetail => ({
+  id: OUTREACH_ID,
+  createdAt: new Date('2026-08-10T00:00:00Z'),
+  updatedAt: new Date('2026-08-10T00:00:00Z'),
+  campaignId: 1,
+  projectId: null,
+  name: 'Listening calls',
+  error: null,
+  audienceRequest: null,
+  script: null,
+  message: null,
+  date: null,
+  imageUrl: null,
+  voterFileFilterId: null,
+  doorKnockingRouteId: null,
+  phoneListId: null,
+  identityId: null,
+  didState: null,
+  didNpaSubset: [],
+  title: null,
+  textCount: null,
+  billableTextCount: null,
+  campaignPlanDueDate: null,
+  organizationSlug: null,
+  archivedAt: null,
+  outreachType: 'nativePhoneBanking',
+  status: 'completed',
+  ...fields,
+})
+
+const PHONE_BANKING: PhoneBankingOutreachDetail = {
+  listId: 5,
+  entriesTotal: 10,
+  entriesCalled: 10,
+  peopleTotal: 10,
+  peopleCalled: 10,
+  byOutcome: {
+    answered: 5,
+    no_answer: 5,
+    voicemail: 0,
+    wrong_number: 0,
+    refused: 0,
+    disconnected: 0,
+    hung_up: 0,
+  },
+  supporters: 0,
+  unsure: 0,
+  nonSupporters: 0,
+  byFollowUp: { yes: 0, no: 0 },
+}
+
+const row = (fields: Partial<HistoryRow>): HistoryRow => ({
+  id: OUTREACH_ID,
+  createdAt: '2026-08-10T00:00:00Z',
+  outreachType: 'nativePhoneBanking',
+  name: 'Listening calls',
+  status: 'completed',
+  ...fields,
+})
+
+const turf = (id: number, outreachId: number): DoorKnockingTurf => ({
+  id,
+  outreachId,
+  voterFileFilterId: 4,
+  name: `Turf ${id}`,
+  color: '#2563eb',
+  geoPoly: { type: 'Polygon', coordinates: [] },
+  stopCount: 3,
+  doorCount: 4,
+  knockedDoorCount: 4,
+  peopleCount: 9,
+  loggedCount: 9,
+  routeSeconds: 900,
+  priorityId: null,
+  completed: true,
+  archivedAt: null,
+  createdAt: new Date('2026-08-10T00:00:00Z'),
+  updatedAt: new Date('2026-08-10T00:00:00Z'),
+})
+
+const setFlag = (enabled: boolean) => {
+  vi.mocked(useIssueCaptureFlag).mockReturnValue({ ready: true, enabled })
+}
+
+const mockPhoneDetail = (status: OutreachDetail['status'] = 'completed') =>
+  api.mock('GET /v1/outreach/:id', {
+    status: 200,
+    data: detail({
+      status,
+      phoneBankingListId: 5,
+      phoneBanking: PHONE_BANKING,
+    }),
+  })
+
+const link = () => screen.queryByRole('link', { name: /What we heard/ })
+
+// The drawer's button waits for the effort's first note.
+const mockNotes = (memos: number) =>
+  api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+    status: 200,
+    data: {
+      question: null,
+      channel: 'phone_bank',
+      floor: 5,
+      denominators: {
+        conversations: memos,
+        memos,
+        confirmed: memos,
+        pending: 0,
+      },
+      run: null,
+      themes: [],
+      memos: [],
+    },
+  })
+
+beforeEach(() => {
+  testQueryClient.clear()
+  vi.mocked(useSnackbar).mockReturnValue({
+    displaySnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+  })
+  api.mock('GET /v1/outreach/:id/assignments', {
+    status: 200,
+    data: { assignees: [] },
+  })
+  api.mock('GET /v1/organizations/team', {
+    status: 200,
+    data: { members: [], pendingInvites: [] },
+  })
+  // The turf cards carry their own counted link; nobody has answered on
+  // these turfs, so only the drawer's own link can be on screen.
+  api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+    status: 200,
+    data: {
+      question: null,
+      channel: 'door_knock',
+      floor: 5,
+      denominators: { conversations: 0, memos: 0, confirmed: 0, pending: 0 },
+      run: null,
+      themes: [],
+      memos: [],
+    },
+  })
+  setFlag(true)
+})
+
+describe('OutreachDetailsDrawer: what we heard', () => {
+  // A finished list is the one whose summary has run, and the drawer is the
+  // only way back to a list once it is done.
+  it('links a completed phone banking list to its report', async () => {
+    mockNotes(1)
+    mockPhoneDetail()
+    render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
+
+    const action = await screen.findByRole('link', { name: /What we heard/ })
+    expect(action).toHaveAttribute(
+      'href',
+      `/dashboard/issue-capture/${OUTREACH_ID}`,
+    )
+  })
+
+  it('links a list still being called too', async () => {
+    mockNotes(1)
+    mockPhoneDetail('in_progress')
+    render(
+      <OutreachDetailsDrawer
+        row={row({ status: 'in_progress' })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('link', { name: /What we heard/ }),
+    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}`)
+  })
+
+  it('speaks to an official about constituents on Serve', async () => {
+    mockNotes(1)
+    mockPhoneDetail()
+    render(
+      <OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} isServe />,
+    )
+
+    const action = await screen.findByRole('link', { name: /What we heard/ })
+    expect(action.textContent).not.toMatch(/voter/i)
+  })
+
+  it('offers nothing on a text', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: detail({ outreachType: 'text' }),
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'text', name: 'Election day reminder' })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Election day reminder' })
+    expect(link()).toBeNull()
+  })
+
+  // A Serve text send's replies are grouped into themes the way a turf's
+  // notes are, so once constituents have replied the drawer leads to the
+  // same report. A Win text has no reply bodies to group and stays bare.
+  it('links a Serve text send to its report once constituents replied', async () => {
+    api.mock('GET /v1/outreach/serve/:id', {
+      status: 200,
+      data: detail({ outreachType: 'text', campaignId: null }),
+    })
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 40, responded: 7, optedOut: 1 },
+    })
+    api.mock('GET /v1/outreach/serve/:id/replies', {
+      status: 200,
+      data: { total: 0, replies: [] },
+    })
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'text',
+        floor: 5,
+        denominators: { conversations: 6, memos: 7, confirmed: 7, pending: 0 },
+        run: null,
+        themes: [],
+        memos: [],
+      },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'text', name: 'Pothole check-in' })}
+        onOpenChange={vi.fn()}
+        detailFetcher={fetchServeOutreachDetail}
+        isServe
+      />,
+    )
+
+    const action = await screen.findByRole('link', { name: /What we heard/ })
+    expect(action).toHaveAttribute(
+      'href',
+      `/dashboard/issue-capture/${OUTREACH_ID}`,
+    )
+    expect(action).toHaveTextContent('7 replies')
+    expect(action.textContent).not.toMatch(/voter/i)
+  })
+
+  it('offers nothing on a Serve text nobody has replied to yet', async () => {
+    api.mock('GET /v1/outreach/serve/:id', {
+      status: 200,
+      data: detail({ outreachType: 'text', campaignId: null }),
+    })
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 40, responded: 0, optedOut: 0 },
+    })
+    api.mock('GET /v1/outreach/serve/:id/replies', {
+      status: 200,
+      data: { total: 0, replies: [] },
+    })
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'text',
+        floor: 5,
+        denominators: { conversations: 0, memos: 0, confirmed: 0, pending: 0 },
+        run: null,
+        themes: [],
+        memos: [],
+      },
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'text', name: 'Pothole check-in' })}
+        onOpenChange={vi.fn()}
+        detailFetcher={fetchServeOutreachDetail}
+        isServe
+      />,
+    )
+
+    await screen.findByText(
+      'No responses yet. They appear here as constituents reply.',
+    )
+    expect(link()).toBeNull()
+  })
+
+  it('offers nothing while the flag is off', async () => {
+    setFlag(false)
+    mockPhoneDetail()
+    render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
+
+    await screen.findByText('Based on 10 phone banking contacts')
+    expect(link()).toBeNull()
+  })
+
+  it('links a one-turf door knocking campaign to its turf’s report', async () => {
+    mockNotes(1)
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: detail({
+        outreachType: 'nativeDoorKnocking',
+        doorKnockingRouteId: 7,
+      }),
+    })
+    api.mock('GET /v1/door-knocking/campaigns/:anchorId', {
+      status: 200,
+      data: [turf(12, OUTREACH_ID)],
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'nativeDoorKnocking' })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    // The turf card carries its own counted link to the same report.
+    const links = await screen.findAllByRole('link', { name: /What we heard/ })
+    expect(
+      links.some((l) =>
+        l
+          .getAttribute('href')
+          ?.startsWith(`/dashboard/issue-capture/${OUTREACH_ID}`),
+      ),
+    ).toBe(true)
+  })
+
+  it('waits for the first note before offering the report', async () => {
+    mockNotes(0)
+    mockPhoneDetail()
+    render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
+
+    await screen.findByText('Based on 10 phone banking contacts')
+    await waitFor(() => expect(link()).toBeNull())
+  })
+
+  // A report is per turf, and the row's id names only the anchor's, so a
+  // campaign-wide link would show one turf under the whole campaign's name.
+  // Each turf card carries its own link instead.
+  it('leaves a several-turf campaign’s reports to its turf cards', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: detail({
+        outreachType: 'nativeDoorKnocking',
+        doorKnockingRouteId: 7,
+      }),
+    })
+    api.mock('GET /v1/door-knocking/campaigns/:anchorId', {
+      status: 200,
+      data: [turf(12, OUTREACH_ID), turf(13, 31)],
+    })
+    render(
+      <OutreachDetailsDrawer
+        row={row({ outreachType: 'nativeDoorKnocking', turfCount: 2 })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await screen.findByText('Turf 13')
+    await waitFor(() => expect(link()).toBeNull())
+  })
+})

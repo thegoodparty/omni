@@ -5,6 +5,26 @@ import userEvent from '@testing-library/user-event'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import CampaignManagerTasks from './CampaignManagerTasks'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+const mockTrackEvent = vi.mocked(trackEvent)
+
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
 
 const mockResult = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
@@ -63,7 +83,13 @@ const meetButton = () =>
 
 beforeEach(() => {
   window.localStorage.clear()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
   mockToggle.mockClear()
+  mockTrackEvent.mockClear()
 })
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
@@ -387,6 +413,86 @@ describe('CampaignManagerTasks', () => {
   })
 })
 
+describe('CTA tracking for the next-task-experience control arm', () => {
+  const renderTasks = (onMeetManager = vi.fn()) =>
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={onMeetManager}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+  it("fires the next-task card's action event when a task CTA is clicked", async () => {
+    const t = task({
+      title: 'Knock 50 doors',
+      week: 1,
+      cta: 'Knock doors',
+      link: '/dashboard/outreach/doors',
+      flowType: 'doorKnocking',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    renderTasks()
+
+    await user.click(screen.getByRole('link', { name: 'Knock doors' }))
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskActionTaken,
+      expect.objectContaining({
+        trackerTaskId: t.id,
+        action: 'start',
+        source: 'campaign_manager',
+        cta: 'Knock doors',
+      }),
+    )
+  })
+
+  it('fires the task completed event on Mark done', async () => {
+    const t = task({
+      title: 'Get Meta verified',
+      week: 1,
+      flowType: 'awareness',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    renderTasks()
+
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskCompleted,
+      expect.objectContaining({
+        trackerTaskId: t.id,
+        source: 'campaign_manager',
+      }),
+    )
+  })
+
+  it('fires the prompt card event when a prompt card CTA is clicked', async () => {
+    mockResult.mockReturnValue(settled([]))
+    const onMeetManager = vi.fn()
+    const user = userEvent.setup()
+    renderTasks(onMeetManager)
+
+    await user.click(
+      screen.getByRole('button', { name: /meet your campaign manager/i }),
+    )
+
+    expect(onMeetManager).toHaveBeenCalled()
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.CampaignManager.PromptCardActionTaken,
+      {
+        card: 'meet_manager',
+        action: 'start',
+        cta: 'Meet your Campaign Manager',
+      },
+    )
+  })
+})
+
 describe('text/robocall cards link into the outreach hub', () => {
   it('renders Start outreach as a link carrying the due date', () => {
     mockResult.mockReturnValue(
@@ -416,6 +522,37 @@ describe('text/robocall cards link into the outreach hub', () => {
     ).toHaveAttribute(
       'href',
       '/dashboard/outreach?compose=text&source=campaign_manager&due=2026-07-14',
+    )
+  })
+
+  it('carries the tracker task and its phase, so the arrival joins back to it', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          id: 'task-7',
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-07-14T00:00:00.000Z',
+          phase: 'launch',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: /start outreach/i }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?compose=text&source=campaign_manager&due=2026-07-14&trackerTaskId=task-7&phase=launch',
     )
   })
 
@@ -471,5 +608,104 @@ describe('text/robocall cards link into the outreach hub', () => {
 
     expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /start outreach/i })).toBeNull()
+  })
+})
+
+describe('text cards once texting is closed', () => {
+  beforeEach(() => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+  })
+
+  it('drops the way into the text flow and says why', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-10-20T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /start outreach/i }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /mark done/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the closed reason on hover', async () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-10-20T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    await userEvent.hover(
+      screen.getByRole('button', { name: /start outreach/i }).parentElement!,
+    )
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('still links robocall cards into the hub', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Record a robocall',
+          flowType: 'robocall',
+          link: null,
+          date: '2026-10-20T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: /start outreach/i }),
+    ).toHaveAttribute('href', expect.stringContaining('compose=robocall'))
   })
 })

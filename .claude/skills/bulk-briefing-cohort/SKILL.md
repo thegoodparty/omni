@@ -1,6 +1,6 @@
 ---
 name: bulk-briefing-cohort
-description: Use when manually triggering a bulk run of meeting briefings — dispatching a cohort of meeting_briefing agent jobs against prod via the imminence-gated endpoint, monitoring them to completion, and producing the outcome/cost/runtime analysis and CSV export. Irreversible prod spend (~$6 per dispatched briefing); requires gp-admin AWS access and this repo's packages/gp-api.
+description: Use when manually triggering a bulk run of meeting briefings — dispatching a cohort of meeting_briefing agent jobs against prod via the imminence-gated endpoint, monitoring them to completion, and producing the outcome/cost/runtime analysis and CSV export. Irreversible prod spend (~$6 per dispatched briefing); requires break-glass AWS admin (`/breakglass` in Slack) and this repo's packages/gp-api.
 ---
 
 # Runbook: dispatch a cohort of meeting_briefing jobs in prod and analyze them
@@ -22,7 +22,8 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 
 ## Prerequisites
 
-- AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
+- AWS admin via SSO profile `gp-admin` (`AdministratorAccess`), needed to read `GP_API_PROD`. Nobody holds it standing: the human runs `/breakglass` in Slack and waits for approval in `#sensitive-access-requests`. A grant lasts 1 to 4 hours, so ask for enough to cover dispatch and monitoring. Then confirm with `aws --profile gp-admin sts get-caller-identity`; if it fails, the human runs `aws sso login --profile gp-admin`. Each session lasts one hour, so expect to sign in again during a long run.
+- Only the `GP_API_PROD` reads need admin. Pull those values first, while the grant is live. S3 artifact reads work under `gp-engineer`.
 - This repo's `packages/gp-api` on `main` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
 - `psql` not required; everything goes through `npx tsx`.
 - **The daily meetings cron is ENABLED in prod as of 2026-07-15** (`MEETINGS_AUTOMATION_ENABLED=true`, `dispatchDailyBriefings` at `@Cron('0 7 * * *')` in `meetingBriefings.service.ts`). It writes `experimentType: meeting_briefing` rows to the same table your manual cohort does, so a bare `createdAt` time window can now pick up cron-dispatched runs too if your window overlaps 7am UTC. Prefer diffing against `records.push`'d `electedOfficeId`s from your own run's JSONL log over a pure time-window query, or run outside the cron's firing window.

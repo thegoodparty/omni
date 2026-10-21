@@ -5,7 +5,6 @@ import { AdminCampaignsService } from './adminCampaigns.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { Campaign } from '../../generated/prisma'
 
@@ -17,12 +16,8 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
 
   const buildService = () =>
     new AdminCampaignsService(
-      {} as never,
-      {} as never,
       { findMany } as unknown as CampaignsService,
       { canDownload } as unknown as VoterFileDownloadAccessService,
-      {} as never,
-      {} as never,
       {} as never,
       {
         getDistrictAndBallotLevelForOrgSlug,
@@ -103,22 +98,17 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
   const findUniqueOrThrow = vi.fn()
   const update = vi.fn()
   const setIsPro = vi.fn()
-  const trackCampaign = vi.fn()
   const cancelSubscription = vi.fn()
   const track = vi.fn()
   const logger = createMockLogger()
 
   const buildService = () =>
     new AdminCampaignsService(
-      {} as never,
-      {} as never,
       {
         findUniqueOrThrow,
         update,
         setIsPro,
       } as unknown as CampaignsService,
-      {} as never,
-      { trackCampaign } as unknown as CrmCampaignsService,
       {} as never,
       { track } as never,
       {} as never,
@@ -134,7 +124,6 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
       becamePro: false,
       campaign: { id: 42, userId: 7 },
     })
-    trackCampaign.mockResolvedValue(undefined)
     cancelSubscription.mockResolvedValue({ id: 'sub_test' })
     track.mockResolvedValue(undefined)
   })
@@ -183,7 +172,6 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     // divergence this ticket is closing.
     expect(setIsPro).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
-    expect(trackCampaign).not.toHaveBeenCalled()
   })
 
   it('does not read the campaign or touch Stripe when isPro is not being changed to false', async () => {
@@ -196,11 +184,14 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
   it('does not touch Stripe when isPro is being set to true', async () => {
     await buildService().update(42, { isPro: true })
 
+    expect(findUniqueOrThrow).not.toHaveBeenCalled()
     expect(cancelSubscription).not.toHaveBeenCalled()
   })
 
   // A raw `isPro: true` write skipped the stamp of details.isProUpdatedAt, so
   // HubSpot showed a comped campaign as Pro with no pro_upgrade_date, forever.
+  // The free-texts grant (ENG-11344) rides the same setIsPro call, and its
+  // guards are covered where it lives, in campaigns.update.integration.test.
   it('grants Pro through setIsPro, with the other fields in the same commit', async () => {
     const result = await buildService().update(42, {
       isPro: true,
@@ -214,7 +205,6 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     // setIsPro owns the identify and the CRM sync; a second update or sync
     // here would reopen the partial-write window and publish the row twice.
     expect(update).not.toHaveBeenCalled()
-    expect(trackCampaign).not.toHaveBeenCalled()
     expect(result).toEqual({ id: 42, userId: 7 })
     expect(track).toHaveBeenCalledWith(
       7,
@@ -231,7 +221,5 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
       where: { id: 42 },
       data: { didWin: true },
     })
-    // CampaignsService.update syncs the CRM itself.
-    expect(trackCampaign).not.toHaveBeenCalled()
   })
 })

@@ -74,6 +74,7 @@ export default function GetOnBallotCard({
 
   return (
     <ManagerPromptCard
+      card="get_on_ballot"
       title={copy.title}
       description={copy.description}
       ctaLabel={copy.ctaLabel}

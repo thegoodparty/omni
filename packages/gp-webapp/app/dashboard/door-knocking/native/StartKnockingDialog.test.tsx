@@ -28,6 +28,7 @@ const routed = {
   peopleCount: 9,
   loggedCount: 0,
   routeSeconds: 900,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   // Strings, not Dates: the mock serialises the response the way the API
@@ -159,7 +160,7 @@ describe('StartKnockingDialog', () => {
     // down.
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.RouteBuildFailed,
-      { mode: 'walk', loop: true, status: 502 },
+      { product: 'win', mode: 'walk', loop: true, status: 502 },
     )
   })
 

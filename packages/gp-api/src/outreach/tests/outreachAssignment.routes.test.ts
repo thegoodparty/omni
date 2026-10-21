@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   Campaign,
   DoorKnockingMode,
@@ -77,7 +76,6 @@ const createOutreach = (
     },
   })
 
-const stubFeatures = () => service.app.get(FeaturesService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
 
 beforeEach(async () => {
@@ -256,21 +254,6 @@ describe('POST /v1/outreach/:id/assignments', () => {
     )
 
     expect(result.status).toBe(HttpStatus.FORBIDDEN)
-  })
-
-  it('404s when the win-team-accounts flag is disabled', async () => {
-    const outreach = await createOutreach()
-    const member = await createMemberUser({ email: 'flag-off@example.com' })
-    await addMembership(member.id, OrganizationRole.volunteer)
-    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
-
-    const result = await service.client.post(
-      `/v1/outreach/${outreach.id}/assignments`,
-      { assigneeUserId: member.id },
-      orgHeaders(),
-    )
-
-    expect(result.status).toBe(HttpStatus.NOT_FOUND)
   })
 })
 

@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common'
-import { SubscribeEmailSchema } from './subscribeEmail.schema'
+import {
+  DEFAULT_SUBSCRIBE_FORM_ID,
+  SubscribeEmailSchema,
+} from './subscribeEmail.schema'
 import { CrmUsersService } from '../users/services/crmUsers.service'
+
+const CONTACT_OBJECT_TYPE_ID = '0-1'
 
 @Injectable()
 export class SubscribeService {
@@ -19,26 +24,34 @@ export class SubscribeService {
 
     let { phone } = body
 
-    const id = formId || '5d84452a-01df-422b-9734-580148677d2c'
+    const id = formId || DEFAULT_SUBSCRIBE_FORM_ID
 
     const crmFields = [
-      { name: 'email', value: email.toLowerCase(), objectTypeId: '0-1' },
+      {
+        name: 'email',
+        value: email.toLowerCase(),
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
+      },
     ]
     if (name) {
-      crmFields.push({ name: 'full_name', value: name, objectTypeId: '0-1' })
+      crmFields.push({
+        name: 'full_name',
+        value: name,
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
+      })
     }
     if (firstName) {
       crmFields.push({
         name: 'firstname',
         value: firstName,
-        objectTypeId: '0-1',
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
       })
     }
     if (lastName) {
       crmFields.push({
         name: 'lastName',
         value: lastName,
-        objectTypeId: '0-1',
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
       })
     }
     if (phone) {
@@ -52,21 +65,16 @@ export class SubscribeService {
       crmFields.push({
         name: 'phone',
         value: phone,
-        objectTypeId: '0-1',
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
       })
     }
 
-    if (additionalFields) {
-      // JSON.parse returns unknown — no way to infer parsed shape at compile time
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const fields = JSON.parse(additionalFields) as Array<{
-        name: string
-        value: string
-        objectTypeId: string
-      }>
-      for (const field of fields) {
-        crmFields.push(field)
-      }
+    for (const field of additionalFields ?? []) {
+      crmFields.push({
+        name: field.name,
+        value: field.value,
+        objectTypeId: CONTACT_OBJECT_TYPE_ID,
+      })
     }
     const page = pageName || 'homePage'
 

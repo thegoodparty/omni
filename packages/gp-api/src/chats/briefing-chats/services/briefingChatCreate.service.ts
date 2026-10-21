@@ -7,6 +7,7 @@ import {
   Annotation,
   AnnotationKind,
   AnnotationResourceType,
+  ChatScope,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -27,6 +28,12 @@ export interface FindOrCreateArgs {
 export interface FindOrCreateResult {
   annotationId: string
   conversationId: string
+}
+
+interface PairTarget {
+  userId: number
+  briefingId: string
+  organizationSlug: string
 }
 
 const isTopLevel = (anchor: BriefingChatAnchor): boolean =>
@@ -56,30 +63,37 @@ export class BriefingChatCreateService extends createPrismaBase(
         meetingDate: parseIsoDateAsUTC(meetingDate),
         electedOffice: { userId },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        electedOffice: { select: { organizationSlug: true } },
+      },
     })
     if (!briefing) {
       throw new NotFoundException('Briefing not found')
     }
-    const briefingId = briefing.id
-
-    if (!isTopLevel(anchor)) {
-      return this.createPair(userId, briefingId, anchor)
+    const target: PairTarget = {
+      userId,
+      briefingId: briefing.id,
+      organizationSlug: briefing.electedOffice.organizationSlug,
     }
 
-    const existing = await this.findTopLevel(userId, briefingId)
+    if (!isTopLevel(anchor)) {
+      return this.createPair(target, anchor)
+    }
+
+    const existing = await this.findTopLevel(userId, briefing.id)
     if (existing) return toResult(existing)
 
-    return this.createTopLevelOrRace(userId, briefingId, anchor)
+    return this.createTopLevelOrRace(target, anchor)
   }
 
   private async createTopLevelOrRace(
-    userId: number,
-    briefingId: string,
+    target: PairTarget,
     anchor: BriefingChatAnchor,
   ): Promise<FindOrCreateResult> {
+    const { userId, briefingId } = target
     try {
-      return await this.createPair(userId, briefingId, anchor)
+      return await this.createPair(target, anchor)
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err
       const winner = await this.findTopLevel(userId, briefingId)
@@ -104,13 +118,21 @@ export class BriefingChatCreateService extends createPrismaBase(
   }
 
   private async createPair(
-    userId: number,
-    briefingId: string,
+    { userId, briefingId, organizationSlug }: PairTarget,
     anchor: BriefingChatAnchor,
   ): Promise<FindOrCreateResult> {
     return this.client.$transaction(async (tx) => {
+      // scope and organizationSlug are written so the conversation is also
+      // reachable through the scope registry's routes, which check ownership
+      // by (owner, scope, organizationSlug). The /v1/briefing-chats routes key
+      // on the annotation and read neither, so rows created before this (slug
+      // NULL) keep working there.
       const conversation = await tx.chatConversation.create({
-        data: { ownerUserId: userId },
+        data: {
+          ownerUserId: userId,
+          scope: ChatScope.briefing_annotation,
+          organizationSlug,
+        },
       })
       const annotation = await tx.annotation.create({
         data: {

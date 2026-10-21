@@ -46,12 +46,11 @@ export const resolvePostAuthRedirectPath = (
   // stranded invitee is never routed anywhere else first.
   hasPendingTeamInvite = false,
   // The viewer's role in their ACTIVE org (mirrors the org-picker's own
-  // active-org resolution), true only when the caller has independently
-  // confirmed the win-team-accounts flag is on. A volunteer's active org
-  // never resolves a campaign server-side (gp-api's UseCampaignGuard fails
-  // closed on a volunteer membership), so campaignStatus reads `false` for
-  // them same as a brand-new lead — this branch has to win ahead of that
-  // fallthrough or a volunteer is misrouted into onboarding.
+  // active-org resolution). A volunteer's active org never resolves a
+  // campaign server-side (gp-api's UseCampaignGuard fails closed on a
+  // volunteer membership), so campaignStatus reads `false` for them same as
+  // a brand-new lead — this branch has to win ahead of that fallthrough or a
+  // volunteer is misrouted into onboarding.
   isActiveOrgVolunteer = false,
 ): string => {
   if (user?.roles?.includes('sales')) {

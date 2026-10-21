@@ -1,17 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { waitFor, screen } from '@testing-library/react'
+import { usePathname } from 'next/navigation'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import DashboardLayout from './DashboardLayout'
 import DashboardNavHeaderAction from './DashboardNavHeaderAction'
 
-const { mockUseCampaign, mockIsImpersonating, mockIsDismissed, mockWeeksTill } =
-  vi.hoisted(() => ({
-    mockUseCampaign: vi.fn(),
-    mockIsImpersonating: vi.fn(() => false),
-    mockIsDismissed: vi.fn(() => false),
-    mockWeeksTill: vi.fn(() => ({ weeks: -1 })),
-  }))
+const {
+  mockUseCampaign,
+  mockIsImpersonating,
+  mockIsDismissed,
+  mockWeeksTill,
+  mockWinVoterContext,
+} = vi.hoisted(() => ({
+  mockUseCampaign: vi.fn(),
+  mockIsImpersonating: vi.fn(() => false),
+  mockIsDismissed: vi.fn(() => false),
+  mockWeeksTill: vi.fn(() => ({ weeks: -1 })),
+  mockWinVoterContext: vi.fn(() => ({ isWin: true, isReady: true })),
+}))
+
+vi.mock('./useWinVoterContext', () => ({
+  useWinVoterContext: mockWinVoterContext,
+}))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => mockUseCampaign(),
@@ -28,9 +39,6 @@ vi.mock('helpers/dateHelper', () => ({
 
 vi.mock('@shared/hooks/useUser', () => ({ useUser: () => [null] }))
 vi.mock('@shared/organization-picker', () => ({ useOrganization: () => null }))
-vi.mock('@shared/hooks/EcanvasserProvider', () => ({
-  EcanvasserProvider: ({ children }: { children: React.ReactNode }) => children,
-}))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
@@ -58,7 +66,9 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   UsersRoundIcon: () => null,
   SwordsIcon: () => null,
   ScrollTextIcon: () => null,
+  HouseIcon: () => null,
   LayoutDashboardIcon: () => null,
+  ListChecksIcon: () => null,
   BookOpenIcon: () => null,
   CircleUserRoundIcon: () => null,
   MegaphoneIcon: () => null,
@@ -69,6 +79,7 @@ vi.mock('@styleguide', () => ({
   Sidebar: ({ children }: { children: React.ReactNode }) => children,
   SidebarInset: ({ children }: { children: React.ReactNode }) => children,
   SidebarProvider: ({ children }: { children: React.ReactNode }) => children,
+  Separator: () => null,
   useSidebar: () => ({ setOpenMobile: vi.fn(), openMobile: false }),
 }))
 
@@ -242,5 +253,30 @@ describe('DashboardLayout nav header CTA', () => {
     expect(
       screen.queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// The issue capture pages are reached from the outreach hub and lead back to
+// it, so on a phone the top bar carries the hub's own name, worded per rail.
+describe('DashboardLayout mobile title on issue capture', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCampaign.mockReturnValue([null])
+    vi.mocked(usePathname).mockReturnValue('/dashboard/issue-capture/7')
+  })
+
+  it('reads Voter Outreach for a candidate', () => {
+    mockWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+    renderLayout()
+
+    expect(screen.getByText('Voter Outreach')).toBeInTheDocument()
+  })
+
+  it('reads Outreach for an elected official', () => {
+    mockWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+    renderLayout()
+
+    expect(screen.getByText('Outreach')).toBeInTheDocument()
+    expect(screen.queryByText('Voter Outreach')).toBeNull()
   })
 })

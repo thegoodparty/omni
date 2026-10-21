@@ -6,9 +6,20 @@ from typing import Literal, Protocol, runtime_checkable
 
 @dataclass
 class HarnessResult:
+    """What a harness run produced, including what it could not measure.
+
+    `cost_usd` is `None` when the cost is UNKNOWN, and that is the default on
+    purpose. A default of `0.0` makes an unmeasured run indistinguishable from
+    a free one, and the whole chain below here reports it as a real figure: the
+    broker forwards it as-is and gp-api stores it. The broker already treats a
+    missing cost as withheld rather than zero (see `run_status.py`), so the
+    only thing that prevented that working was this carrier having a number to
+    hand over.
+    """
+
     artifact_bytes: bytes
     content_type: str
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     num_turns: int = 0
     session_id: str | None = None
 
@@ -51,7 +62,8 @@ class EvaluatorResult:
     """
 
     fragments: list[dict] = field(default_factory=list)
-    cost_usd: float = 0.0
+    # None when the cost is unknown, never 0.0 — see HarnessResult above.
+    cost_usd: float | None = None
     duration_ms: int = 0
     num_turns: int = 0
     session_id: str | None = None

@@ -1,6 +1,11 @@
 ---
 name: create-tdd
-description: Write a GoodParty Technical Design Doc (TDD) for a big-rock feature: a human-reviewable design of the system changes, posted to the ClickUp TDD folder, with deeper detail split into an Implementation Notes subpage. Use when the user wants to design a feature, write a tech design / design doc / TDD, or turn a scoped problem into a reviewable technical design. Not for small features or bugs.
+description: >-
+  Write a GoodParty Technical Design Doc (TDD) for a big-rock feature: a
+  human-reviewable design of the system changes, posted to the ClickUp TDD folder,
+  with deeper detail split into an Implementation Notes subpage. Use when the user
+  wants to design a feature, write a tech design / design doc / TDD, or turn a
+  scoped problem into a reviewable technical design. Not for small features or bugs.
 ---
 
 # Write a GoodParty Technical Design Doc

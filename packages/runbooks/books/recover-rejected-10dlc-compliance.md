@@ -10,7 +10,7 @@ does nothing except cost money. This is how to actually clear it.
 ## Prerequisites
 
 **Tools**: read/write access to the gp-api production Postgres (VPN + `gp-admin` AWS
-profile for the DB secret), gp-admin access with the `write_agent_runs` permission (or
+profile for the DB secret, which needs a `/breakglass` grant in Slack first), gp-admin access with the `write_agent_runs` permission (or
 an `mt_*` Clerk M2M token for the target environment).
 
 **Written 2026-08 after campaign 325819 (William Bayer).** CampaignVerify rejected the
@@ -56,7 +56,7 @@ recoverable on our side. **`peerly_identity_id` is the discriminator.**
 
 ```sql
 SELECT id, campaign_id, status, filing_url, peerly_identity_id,
-       peerly_cv_verification_id, peerly_cv_status, internal_testing_approved_at,
+       peerly_cv_verification_id, peerly_cv_status, internal_testing_at,
        kickoff_sent_at, agentic_run_id, updated_at
 FROM tcr_compliance
 WHERE campaign_id = <campaign_id>;
@@ -84,8 +84,8 @@ report's vendor escalations use.
 As of 2026-08 all three currently-`rejected` prod rows are the second kind. Do not
 assume the incident's shape is the common one.
 
-Also bail out if `internal_testing_approved_at` is set — that's a staff marker row,
-not a real registration, and it never reaches `rejected` legitimately.
+Also bail out if `internal_testing_at` is set — that's a synthetic staff row (admin
+checkbox or Test mode), not a real registration, and it never reaches `rejected` legitimately.
 
 ### Finding the rejection reason
 

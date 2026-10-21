@@ -10,6 +10,7 @@ import {
 import { DomainStatus, WebsiteStatus } from '../../generated/prisma'
 import { Decimal } from '@prisma/client/runtime/library'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,6 +76,7 @@ describe('WebsitesController', () => {
   let mockAnalytics: {
     track: ReturnType<typeof vi.fn>
   }
+  let mockStoryCompleted: { announce: ReturnType<typeof vi.fn> }
   let mockS3Service: {
     buildKey: ReturnType<typeof vi.fn>
     uploadFile: ReturnType<typeof vi.fn>
@@ -90,6 +92,7 @@ describe('WebsitesController', () => {
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
+    mockStoryCompleted = { announce: vi.fn().mockResolvedValue(undefined) }
 
     mockWebsitesService = {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
@@ -123,6 +126,10 @@ describe('WebsitesController', () => {
         { provide: CampaignsService, useValue: {} },
         { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
+        {
+          provide: CampaignStoryCompletedProducer,
+          useValue: mockStoryCompleted,
+        },
         { provide: PinoLogger, useValue: createMockLogger() },
         WebsitesController,
       ],
@@ -131,6 +138,62 @@ describe('WebsitesController', () => {
     controller = module.get<WebsitesController>(WebsitesController)
 
     vi.clearAllMocks()
+  })
+
+  // The bio and issues are two of the three Campaign Story answers, so a save
+  // that touches `about` may have just completed the story, which makes an
+  // existing campaign plan stale.
+  describe('updateWebsite - campaign story announcement', () => {
+    // The controller merges the body into the fetched content in place, and
+    // `completeContent` is shared across this file, so a test that sends
+    // `about` has to work from its own copy or it corrupts later cases.
+    beforeEach(() => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: structuredClone(completeContent),
+        hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
+        domain: { status: DomainStatus.submitted },
+      })
+    })
+
+    it('announces a save that touches the story fields', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: '<p>my why</p>' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
+    // `about` also carries `committee`, which is not a story answer. Announcing
+    // on it would wipe and regenerate a complete-story campaign's whole plan
+    // for an unrelated edit.
+    it('stays quiet for a committee-only about save', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = { committee: 'Friends of the Candidate' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).not.toHaveBeenCalled()
+    })
+
+    it('announces a save that only touches the issues', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = { issues: [{ title: 'Roads', description: 'Fix them' }] }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
+    it('stays quiet for a save that does not touch the story fields', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.status = WebsiteStatus.published
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockStoryCompleted.announce).not.toHaveBeenCalled()
+    })
   })
 
   describe('updateWebsite - Segment event tracking', () => {
@@ -1302,6 +1365,10 @@ describe('WebsitesController MCP discoverability', () => {
       { provide: WebsiteViewsService, useValue: {} },
       { provide: CampaignsService, useValue: {} },
       { provide: AnalyticsService, useValue: { track: vi.fn() } },
+      {
+        provide: CampaignStoryCompletedProducer,
+        useValue: { announce: vi.fn() },
+      },
       { provide: PinoLogger, useValue: createMockLogger() },
       {
         provide: HttpAdapterHost,

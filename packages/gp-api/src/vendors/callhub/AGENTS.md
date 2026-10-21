@@ -48,9 +48,55 @@ HTTP routes of its own.
 - **`dont_call_dnc` / `block_cellphone_numbers` may be account-gated.** They can
   read back `false` even when sent `true`, depending on the CallHub plan; we
   still send them as the intended config.
+- **`frequency` (calls/min) is the per-campaign dial rate, defaulted to the
+  whole account pool.** CallHub's total Voice Broadcast capacity is ~120
+  calls/min, SHARED across RUNNING campaigns — two at 60 each tripped
+  `over_cps_limit` when both ran (incident 2026-10-08). `createVoiceBroadcast`
+  sends `CALLHUB_VB_CALLS_PER_MINUTE` (default 120, set 2026-10-15; 10 → 30 →
+  120 as the serial model let the rate climb). The default is the full pool
+  because the serial send sweep runs exactly ONE campaign at a time, so a single
+  run never contends with our own others; a stray `over_cps` self-heals via
+  `startCampaign`'s throttle revert. Raising total throughput ABOVE ~120 needs
+  CallHub to raise the account cap (support@callhub.io, billed monthly), not
+  this knob. A live PATCH confirmed CallHub accepts 120 on a campaign.
+  - **The serial send sweep reads this value via
+    `getConfiguredCallsPerMinute()`** to estimate when a dialing run finishes and
+    the shared pool can be freed (`outreachRobocallSend.service.ts`). The rate
+    each campaign was created with is FROZEN per-run at stage time
+    (`OutreachRobocall.stagedCallsPerMinute`; `createVoiceBroadcast` returns the
+    `frequency` it stamped), and the dial-completion estimate (plus the backlog
+    projection) reads THAT, falling back to this live value only for a run staged
+    before the freeze. The estimate walks the frozen rate at a fixed ratio
+    (`ROBOCALL_DIAL_SAFETY_RATE_DIVISOR`), so raising this env never shortens an
+    in-flight run's ceiling AND a higher rate shortens the estimate for new runs
+    in step — no manual drain needed. The once-open caveat (does CallHub reserve
+    the pool for merely-SCHEDULED PAUSED campaigns?) was settled AGAINST by the
+    Oct incident: leroy ran at 60 while others sat Paused at 60, so only RUNNING
+    campaigns consume the cap — which is why the full-pool default is safe under
+    serial even though the staging sweep does not enforce one-staged-at-a-time.
+
+- **No reliable per-campaign dialed-call count read — the serial completion seam
+  lives in `outreachRobocallSend.service.ts`, not here.** CallHub's
+  `POST /v2/credits_usage/` (`campaign_type=6`) `voice_calls` turned out
+  ACCOUNT-WIDE, not per-broadcast, and omitted a required `start_date`, so the old
+  per-campaign `CallhubCreditsService` read was retired (settlement moved to time).
+  Because of that, the serial send sweep decides a dialed run is finished through a
+  completion SEAM (`isDoneDialing`) whose wired signal is a money-SAFE TIME FLOOR —
+  `estimateRobocallDialCompletion` walked at a conservative rate haircut (so it can
+  never abort a still-dialing run) plus a buffer. Correctness does NOT depend on the
+  serial model: the floor works in any mode. A serial-ONLY SPEEDUP — an account-wide
+  `voice_calls` delta (valid because exactly one robocall dials at a time, so the
+  account-wide count IS that campaign's) — is the documented extension point behind
+  the seam but is DEFERRED until a reliable account-wide read (with `start_date`, its
+  field semantics verified against a real completed run) or a true per-campaign CDR
+  signal lands. If you add such a read here, wire it as that speedup and keep the
+  time floor as the fallback. A `dialing` row whose status read never resolves is
+  force-failed by the sweep's deadlock backstop (it VOIDs the hold) so it can't
+  block the serial queue — that lives in `outreachRobocallSend.service.ts` too.
 
 ## Config
 
 `CALLHUB_API_KEY` (required, asserted lazily), `CALLHUB_API_BASE_URL`
 (regional, defaults to the NA host — the generic host 403s),
-`CALLHUB_HTTP_TIMEOUT`.
+`CALLHUB_HTTP_TIMEOUT`, `CALLHUB_VB_CALLS_PER_MINUTE` (per-campaign `frequency`,
+default 120 — see the account-cap gotcha above).

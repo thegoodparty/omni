@@ -250,6 +250,9 @@ export function createAgentChatClient(
               content,
               clientMessageId,
               ...(attachmentIds?.length && { attachmentIds }),
+              // Read at send time, not mount time: a dock stays open while the
+              // user moves between pages. Only scopes that resolve it use it.
+              pagePath: window.location.pathname,
             }),
             signal,
           },

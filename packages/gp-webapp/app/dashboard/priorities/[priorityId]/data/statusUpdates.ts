@@ -1,9 +1,12 @@
 import { z } from 'zod'
 import {
+  PRIORITY_GATE_STEPS,
   PRIORITY_STEP_LABELS,
+  PriorityStepCheckInputSchema,
   PriorityStatusSchema,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
+  mergeStepCheck,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -21,6 +24,9 @@ const StepPatchSchema = z.object({
   state: PriorityStepStateSchema,
   summary: z.string().optional(),
   caveat: z.string().optional(),
+  // Dropped rather than failing the patch, so a check the model got wrong
+  // never stops the step itself from moving.
+  check: PriorityStepCheckInputSchema.optional().catch(undefined),
 })
 
 export const PriorityStatusUpdateSchema = z.object({
@@ -89,17 +95,55 @@ export const applyStatusUpdate = (
         backwards: step.state === 'settled' && patch.state !== 'settled',
       })
     }
+    const now = new Date().toISOString()
+    // The server refuses a check on a step that is not a gate, so the rail
+    // never shows one either.
+    const check = PRIORITY_GATE_STEPS.includes(step.id)
+      ? mergeStepCheck(step.check, patch.check, now)
+      : step.check
     return {
       id: step.id,
       state: patch.state,
       summary: patch.summary ?? step.summary,
       ...(caveat === undefined ? {} : { caveat }),
-      updatedAt: new Date().toISOString(),
+      ...(check === undefined ? {} : { check }),
+      updatedAt: now,
     }
   })
 
+  // Mirrors the server's applyUpdate: opening a step demotes any other active
+  // step to open. Without it the live rail can show two active steps until the
+  // turn reconciles, and replayStatusMarkers accumulates a baseline that
+  // carries both, so every later marker is computed against the wrong state.
+  const incomingActive = update.steps.filter((step) => step.state === 'active')
+  const activeStepId = incomingActive[incomingActive.length - 1]?.id
+  const demoted = steps.map((step): PriorityStep => {
+    if (
+      activeStepId === undefined ||
+      step.id === activeStepId ||
+      step.state !== 'active'
+    ) {
+      return step
+    }
+    // A step can be patched active and demoted in the same call when the model
+    // opens two at once. Report its net move from where it started, once.
+    const patched = changes.findIndex((change) => change.id === step.id)
+    if (patched !== -1) changes.splice(patched, 1)
+    const from =
+      current.steps.find((prior) => prior.id === step.id)?.state ?? 'open'
+    if (from !== 'open') {
+      changes.push({
+        id: step.id,
+        from,
+        to: 'open',
+        backwards: from === 'settled',
+      })
+    }
+    return { ...step, state: 'open', updatedAt: new Date().toISOString() }
+  })
+
   const nextAction = update.nextAction?.trim() || null
-  return { status: { ...current, steps }, nextAction, changes }
+  return { status: { ...current, steps: demoted }, nextAction, changes }
 }
 
 export const parseStatusToolResult = (
@@ -122,7 +166,7 @@ const lower = (id: PriorityStepId): string =>
  * like it had lost its place.
  */
 export const describeStepChange = (change: StepChange): string => {
-  if (change.to === 'settled') return `Settled ${lower(change.id)}`
+  if (change.to === 'settled') return `Done with ${lower(change.id)}`
   if (change.to === 'stale') {
     return `${PRIORITY_STEP_LABELS[change.id]} needs another look`
   }

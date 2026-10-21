@@ -22,10 +22,31 @@ same signature.
 
 import base64
 import hashlib
+import importlib.util
 import json
 import os
+import sys
 import time
+from pathlib import Path
+from typing import Any
 from urllib.request import Request, urlopen
+
+
+def _load_sibling_module(stem: str) -> Any:
+    """See handler.py's own copy for why this can't be a normal import."""
+    module_name = f"autopilot_conductor_{stem}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    module_path = Path(__file__).resolve().parent / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ai_secrets = _load_sibling_module("ai_secrets")
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 
@@ -171,7 +192,7 @@ def installation_token() -> str | None:
         if time.time() < expires_at - 60:
             return token
 
-    private_key_pem = os.environ.get("GITHUB_APP_PRIVATE_KEY", "")
+    private_key_pem = ai_secrets.secret("GITHUB_APP_PRIVATE_KEY")
     if not private_key_pem:
         print("ERROR: GITHUB_APP_PRIVATE_KEY not configured; cannot mint a GitHub token")
         return None

@@ -59,6 +59,7 @@ const makeInput = (): PlanInput => ({
   projectedTurnoutUpper: null,
   winNumberLower: null,
   winNumberUpper: null,
+  numberOfSeats: null,
   raceCandidates: [],
   milestones: null,
 })

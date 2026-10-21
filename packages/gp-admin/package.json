@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "next dev -p 3500 --turbopack",
     "dev:link": "next dev -p 3500",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start -p 3500",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "check:env-contract": "tsx scripts/check-env-contract.ts",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "clean": "rm -rf .next node_modules",
     "test": "vitest run",
@@ -20,10 +21,11 @@
     "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
+    "@clerk/backend": "^2.30.1",
     "@clerk/nextjs": "^6.36.5",
     "@clerk/themes": "^2.4.48",
     "@clerk/types": "^4.101.11",
-    "@goodparty_org/sdk": "*",
+    "@goodparty_org/contracts": "*",
     "@hookform/resolvers": "^5.2.2",
     "@poppanator/http-constants": "^3.0.0",
     "@radix-ui/react-navigation-menu": "^1.2.14",
@@ -37,6 +39,7 @@
     "libphonenumber-js": "^1.12.36",
     "next": "^15.5.19",
     "next-navigation-guard": "^0.2.0",
+    "ofetch": "^1.5.1",
     "postcss": "^8.5.11",
     "radix-ui": "^1.4.3",
     "react": "19.2.7",
@@ -44,7 +47,7 @@
     "react-hook-form": "^7.71.1",
     "react-icons": "^5.5.0",
     "tailwindcss": "^4.2.3",
-    "zod": "4.0.17"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -69,7 +72,7 @@
     "globals": "^16.5.0",
     "jsdom": "^27.4.0",
     "prettier": "^3.4.2",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.50.0",
     "vitest": "^4.0.18"
   },

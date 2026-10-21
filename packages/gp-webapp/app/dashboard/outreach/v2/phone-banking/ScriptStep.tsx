@@ -2,11 +2,13 @@
 
 import type { ReactNode } from 'react'
 import {
+  CONSTITUENT_NAME_TOKEN,
   PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   SOCIAL_TONE_VALUES,
   type SocialTone,
+  VOTER_NAME_TOKEN,
 } from '@goodparty_org/contracts'
 import {
   Button,
@@ -17,7 +19,9 @@ import {
   IconButton,
   Input,
   Label,
-  Textarea,
+  seamlessFieldHost,
+  TokenField,
+  type TokenSpec,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -30,13 +34,25 @@ import {
   SunIcon,
   TargetIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { ThinkingStream } from '../social/ThinkingStream'
 import { Intro } from '../social/Intro'
 
 const INSTRUCTIONS_PLACEHOLDER =
   'Optional: tell the AI what to change (e.g. mention the school levy, ' +
   'keep it under a minute)'
+
+// The contact's name, which the caller page fills in for each call. A pill,
+// because what the volunteer reads differs from what the script holds. Keyed
+// by surface: an elected official's script never says "voter".
+const CONTACT_NAME_TOKEN: Record<'win' | 'serve', TokenSpec> = {
+  win: { id: 'contact_name', label: 'Voter name', text: VOTER_NAME_TOKEN },
+  serve: {
+    id: 'contact_name',
+    label: 'Constituent name',
+    text: CONSTITUENT_NAME_TOKEN,
+  },
+}
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -65,6 +81,8 @@ interface ScriptStepProps {
   onInstructionsChange: (instructions: string) => void
   onRegenerate: () => void
   onImprove: () => void
+  // Repeats the call that failed, Regenerate or Improve.
+  onRetry: () => void
   canImprove: boolean
   isDrafting: boolean
   isDraftError: boolean
@@ -84,6 +102,7 @@ export const ScriptStep = ({
   onInstructionsChange,
   onRegenerate,
   onImprove,
+  onRetry,
   canImprove,
   isDrafting,
   isDraftError,
@@ -170,77 +189,82 @@ export const ScriptStep = ({
               We couldn&apos;t draft your script just now. Try again, or write
               your own below.
             </p>
-            <Button
-              type="button"
-              size="small"
-              onClick={isCustomPurpose ? onImprove : onRegenerate}
-            >
+            <Button type="button" size="small" onClick={onRetry}>
               Try again
             </Button>
           </Card>
         )}
 
-        {isDrafting && !script.trim() ? (
-          <ThinkingStream isServe={isServe} />
-        ) : (
-          <Card className="gap-3 p-4">
-            <Textarea
-              value={script}
-              onChange={(e) => onScriptChange(e.target.value)}
-              placeholder="Write your script…"
-              aria-label="Call script"
-              // Matches the draft/improve endpoint's currentDraft cap (2000),
-              // not the higher create-endpoint script cap (5000) — Improve
-              // with AI sends the full text as currentDraft, so the textarea
-              // must never accept more than that endpoint allows.
-              maxLength={PHONE_BANKING_SCRIPT_MAX_LENGTH}
-              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
-            />
-            <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
-              {canImprove && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="small"
-                  className="text-muted-foreground"
-                  disabled={isDrafting}
-                  onClick={onImprove}
-                >
-                  {isDrafting ? (
-                    <>
-                      <Loader2Icon className="size-4 animate-spin" />
-                      Improving…
-                    </>
-                  ) : (
-                    <>
-                      <SparklesIcon className="size-4" />
-                      Improve with AI
-                    </>
-                  )}
-                </Button>
-              )}
-              <IconButton
+        <Card className={cn('gap-3 p-4', seamlessFieldHost)}>
+          <TokenField
+            value={script}
+            onChange={onScriptChange}
+            tokens={[CONTACT_NAME_TOKEN[isServe ? 'serve' : 'win']]}
+            // Read-only until the first draft lands, so nothing typed is
+            // overwritten by it.
+            readOnly={isDrafting && !script.trim()}
+            placeholder={
+              isDrafting && !script.trim()
+                ? 'Drafting your script…'
+                : 'Write your script…'
+            }
+            aria-label="Call script"
+            // Matches the draft/improve endpoint's currentDraft cap (2000),
+            // not the higher create-endpoint script cap (5000) — Improve
+            // with AI sends the full text as currentDraft, so the field
+            // must never accept more than that endpoint allows.
+            maxLength={PHONE_BANKING_SCRIPT_MAX_LENGTH}
+            variant="seamless"
+            className="min-h-[140px]"
+          />
+          <LengthCounter
+            length={script.length}
+            max={PHONE_BANKING_SCRIPT_MAX_LENGTH}
+          />
+          <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+            {canImprove && (
+              <Button
                 type="button"
-                variant={isRecording ? 'destructive' : 'ghost'}
+                variant="ghost"
                 size="small"
-                aria-label={isRecording ? 'Stop dictation' : 'Dictate script'}
-                disabled={isDrafting || dictation.status === 'stopping'}
-                onClick={() => {
-                  void dictation.toggle()
-                }}
-                className={cn(!isRecording && 'text-muted-foreground')}
+                className="text-muted-foreground"
+                disabled={isDrafting}
+                onClick={onImprove}
               >
-                {dictation.busy && !isRecording ? (
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                ) : isRecording ? (
-                  <SquareIcon className="size-4 fill-current" aria-hidden />
+                {isDrafting ? (
+                  <>
+                    <Loader2Icon className="size-4 animate-spin" />
+                    Improving…
+                  </>
                 ) : (
-                  <MicIcon className="size-5" aria-hidden />
+                  <>
+                    <SparklesIcon className="size-4" />
+                    Improve with AI
+                  </>
                 )}
-              </IconButton>
-            </div>
-          </Card>
-        )}
+              </Button>
+            )}
+            <IconButton
+              type="button"
+              variant={isRecording ? 'destructive' : 'ghost'}
+              size="small"
+              aria-label={isRecording ? 'Stop dictation' : 'Dictate script'}
+              disabled={isDrafting || dictation.status === 'stopping'}
+              onClick={() => {
+                void dictation.toggle()
+              }}
+              className={cn(!isRecording && 'text-muted-foreground')}
+            >
+              {dictation.busy && !isRecording ? (
+                <Loader2Icon className="size-4 animate-spin" aria-hidden />
+              ) : isRecording ? (
+                <SquareIcon className="size-4 fill-current" aria-hidden />
+              ) : (
+                <MicIcon className="size-5" aria-hidden />
+              )}
+            </IconButton>
+          </div>
+        </Card>
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
@@ -248,10 +272,6 @@ export const ScriptStep = ({
           </p>
         )}
       </div>
-
-      <p className="text-sm text-muted-foreground">
-        Phone banking is free — your volunteers make the calls.
-      </p>
     </div>
   )
 }

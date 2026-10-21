@@ -52,8 +52,20 @@ const METADATA_MAX_TOKENS = 200
 // slow/hanging host can't stall the final answer; checks run in parallel.
 const LINK_CHECK_TIMEOUT_MS = 2500
 
+// `followups` IS REQUIRED, and `.default([])` is what made it optional. A
+// default is a parsing convenience, but this schema is also the
+// structured-output constraint handed to the model — and an optional key tells
+// the model it may omit the field, which it then does. The user sees no
+// follow-up chips and nothing distinguishes that from an answer that genuinely
+// suggested none.
+//
+// Required WITHOUT a length floor on purpose. `.min(1)` would turn a
+// legitimately empty list into a parse failure, and LlmService retries a
+// rejected object three times — four paid calls and several seconds of
+// backoff, on a best-effort call that sits behind a user waiting for a reply.
+// An empty array is a real answer; an absent key is a schema that did not ask.
 const ChatMetadataSchema = z.object({
-  followups: z.array(z.string().min(1)).max(3).default([]),
+  followups: z.array(z.string().min(1)).max(3),
   title: z.string().max(80).optional(),
 })
 

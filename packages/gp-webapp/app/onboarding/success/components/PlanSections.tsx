@@ -41,6 +41,8 @@ interface PlanSectionsProps {
   onStuckChange?: (stuck: boolean) => void
   voterInsightsContext?: VoterInsightsContext
   navStuckClassName?: string
+  navVariant?: 'select' | 'pills'
+  navStickyTop?: number
 }
 
 interface SectionProps {
@@ -58,7 +60,12 @@ const Section = ({
   children,
   transition,
 }: SectionProps): React.JSX.Element => (
-  <section id={id} className="scroll-mt-24">
+  // Lands just under whatever is pinned above the plan (see
+  // --plan-section-offset on the root); the page's header by default.
+  <section
+    id={id}
+    style={{ scrollMarginTop: 'var(--plan-section-offset, 6rem)' }}
+  >
     <header className="mb-2 space-y-2">
       <p className="text-xs font-semibold tracking-widest text-components-input-active uppercase">
         Section {number}
@@ -80,7 +87,7 @@ const Section = ({
 // Stable DOM anchors for each section, keyed by the shared manifest. These
 // ids never change with display numbering — only the visible "Section N"
 // label and nav number shift when Strategic Landscape drops out.
-const SECTION_DOM_ID: Record<PlanSectionKey, string> = {
+export const SECTION_DOM_ID: Record<PlanSectionKey, string> = {
   executiveSummary: 'plan-section-1',
   strategicLandscape: 'plan-section-2',
   electoralGoals: 'plan-section-3',
@@ -439,6 +446,8 @@ const PlanSections = ({
   onStuckChange,
   voterInsightsContext,
   navStuckClassName,
+  navVariant,
+  navStickyTop,
 }: PlanSectionsProps): React.JSX.Element => {
   const isStrategyGenerating = strategyState?.isGenerating ?? false
   const isStrategyError = strategyState?.isError ?? false
@@ -483,11 +492,25 @@ const PlanSections = ({
     // and match how the same content renders on the onboarding success page.
     // The section nav's Select portals out of this subtree, so it is
     // unaffected, and no styleguide component renders a ul in this tree.
-    <div className="text-left [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5">
+    <div
+      className="text-left [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5"
+      // With the pills pinned at navStickyTop, a jump to a section should
+      // land right under them (the pill row is about 52px tall), not under
+      // the page header's larger default.
+      style={
+        navVariant === 'pills' && navStickyTop !== undefined
+          ? ({
+              '--plan-section-offset': `${navStickyTop + 56}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
       <PlanSectionNav
         sections={navSections}
         onStuckChange={onStuckChange}
         stuckClassName={navStuckClassName}
+        variant={navVariant}
+        stickyTop={navStickyTop}
       />
 
       <div className="mt-8 space-y-12">
@@ -509,19 +532,30 @@ const PlanSections = ({
 
           <Subsection title="Projected Votes Needed to Win">
             <p>
-              Our modeling projects voter turnout of{' '}
-              <span className="font-semibold text-foreground">
-                {plan.projectedTurnout.toLocaleString('en-US')} voters
-              </span>{' '}
-              (we were within 1.5 percentage points on average), putting the
-              threshold for a win at{' '}
+              {plan.votesCast !== null ? (
+                <>
+                  Our modeling projects{' '}
+                  <span className="font-semibold text-foreground">
+                    {plan.votesCast.toLocaleString('en-US')} votes
+                  </span>{' '}
+                  will be cast for {plan.race} candidates in the election,
+                </>
+              ) : (
+                <>
+                  Our modeling projects voter turnout of{' '}
+                  <span className="font-semibold text-foreground">
+                    {plan.projectedTurnout.toLocaleString('en-US')} voters
+                  </span>
+                  ,
+                </>
+              )}{' '}
+              putting the threshold for victory at{' '}
               <span className="font-semibold text-foreground">
                 {plan.winNumber.toLocaleString('en-US')} votes
               </span>
-              , a simple majority of voters (50% + 1) who actually cast a
-              ballot. This is the lowest amount of votes we project you need to
-              win your election; our campaign plan below will guide you toward
-              surpassing that number. Hitting that target requires{' '}
+              . This is the lowest amount of votes we project{' '}
+              {plan.winNumberGoal}; our campaign plan below will guide you
+              toward surpassing that number. Hitting that target requires{' '}
               <span className="font-semibold text-foreground">
                 {plan.voterContactGoal.toLocaleString('en-US')} voter contacts
               </span>{' '}
@@ -888,8 +922,9 @@ const PlanSections = ({
             The contact cadence below is designed so that every likely voter
             receives at least 1 introductory voter contact, at least 1
             persuasion voter contact, at least 1 early vote reminder, and at
-            least 1 Election Day push. Texts are the primary workhorse;
-            robocalls layer on top to catch landline-only voters.
+            least 1 Election Day push.
+            {!plan.smsClosed &&
+              ' Texts are the primary workhorse; robocalls layer on top to catch landline-only voters.'}
           </p>
           <PlanTable
             columns={['Date', 'Tactic', 'Purpose']}
@@ -909,7 +944,7 @@ const PlanSections = ({
             <p>
               Across{' '}
               <span className="font-semibold text-foreground">
-                7 voter contact campaigns
+                {plan.contactSchedule.length} voter contact campaigns
               </span>
               , this plan produces over{' '}
               <span className="font-semibold text-foreground">
@@ -959,9 +994,9 @@ const PlanSections = ({
                 needed to win, stay the course.
               </li>
               <li>
-                If you are falling behind, prioritize scheduling your next text
-                or robocall campaign and look for additional outreach
-                opportunities.
+                If you are falling behind, prioritize scheduling your next{' '}
+                {plan.smsClosed ? 'robocall' : 'text or robocall'} campaign and
+                look for additional outreach opportunities.
               </li>
               <li>
                 Check in at least once a week — small gaps caught early are easy

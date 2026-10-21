@@ -12,10 +12,25 @@ import type { EventRecord } from './data'
  * retired verdict that dropped the successor's name on the copy people actually use.
  * Every sentence a reader sees has to exist in both, so assert it.
  */
-const template = readFileSync(
-  join(__dirname, '..', 'standalone', 'template.html'),
-  'utf8',
-)
+// The standalone's sentences live in two files since DATA-2580: its template, and the
+// event card it shares with the product map and the event health console.
+const template =
+  readFileSync(join(__dirname, '..', 'standalone', 'template.html'), 'utf8') +
+  readFileSync(
+    join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      '..',
+      'runbooks',
+      'surfaces',
+      'shared',
+      'card.js',
+    ),
+    'utf8',
+  )
 
 // The standalone builds its sentences by concatenation, so an interpolated verdict is
 // checked by its literal fragments rather than the assembled string.

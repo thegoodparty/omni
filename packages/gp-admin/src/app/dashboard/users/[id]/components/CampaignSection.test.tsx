@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignSection } from './CampaignSection'
 import {
@@ -7,8 +7,8 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignTier,
-} from '@goodparty_org/sdk'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
+import type { CampaignWithLiveContext } from '@/shared/gpApi'
 
 const mockCampaign: CampaignWithLiveContext = {
   id: 1,
@@ -111,6 +111,26 @@ describe('CampaignSection', () => {
     expect(screen.getByText('Election')).toBeInTheDocument()
     expect(screen.getByText('2026-11-03')).toBeInTheDocument()
     expect(screen.getByText('nonpartisan')).toBeInTheDocument()
+  })
+
+  describe('race targets election date', () => {
+    // Pin a zone behind UTC: in UTC (CI) the old `new Date('YYYY-MM-DD')`
+    // parse happened to render the right day, hiding the off-by-one.
+    let originalTz: string | undefined
+    beforeAll(() => {
+      originalTz = process.env.TZ
+      process.env.TZ = 'America/New_York'
+    })
+    afterAll(() => {
+      process.env.TZ = originalTz
+    })
+
+    it('shows the stored calendar day, not the day before', () => {
+      render(<CampaignSection campaign={mockCampaign} />)
+
+      expect(screen.getByText('Nov 3, 2026')).toBeInTheDocument()
+      expect(screen.queryByText('Nov 2, 2026')).not.toBeInTheDocument()
+    })
   })
 
   it('renders party and background card', () => {

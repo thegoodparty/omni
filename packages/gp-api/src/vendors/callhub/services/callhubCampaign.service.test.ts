@@ -109,9 +109,27 @@ describe('CallhubCampaignService', () => {
         dont_call_litigator: true,
         block_cellphone_numbers: true,
       })
+      // Calls-per-minute defaults to 120 — the whole ~120/min account pool
+      // (10 → 30 → 120 on 2026-10-15). Safe because the serial gate runs one
+      // campaign at a time, so a single run can own the full pool.
+      expect(body.frequency).toBe(120)
       // The launch status is never sent from this service.
       expect(body).not.toHaveProperty('status')
       expect(result.pk_str).toBe('3972682680557897335')
+    })
+
+    it('honors CALLHUB_VB_CALLS_PER_MINUTE over the default', async () => {
+      vi.stubEnv('CALLHUB_VB_CALLS_PER_MINUTE', '25')
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+      })
+
+      await service.createVoiceBroadcast(params)
+
+      const [, body] = http.post.mock.calls[0] ?? []
+      expect(body.frequency).toBe(25)
+      vi.unstubAllEnvs()
     })
 
     it('refuses to schedule a broadcast in the past (never dials now)', async () => {

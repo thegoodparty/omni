@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  CivicPanelStatusSchema as GeneratedCivicPanelStatusSchema,
+  type CivicPanelStatus as GeneratedCivicPanelStatus,
   ContactStatusFieldSchema as GeneratedContactStatusFieldSchema,
   type ContactStatusField as GeneratedContactStatusField,
   ContactStatusSourceSchema as GeneratedContactStatusSourceSchema,
@@ -30,14 +32,15 @@ export type ContactStatusField = GeneratedContactStatusField
 export const ContactStatusSourceSchema = GeneratedContactStatusSourceSchema
 export type ContactStatusSource = GeneratedContactStatusSource
 
-// ADR 0007. Not a member of UpdateContactStatusInputSchema below: the CRM's
-// status PATCH is Pro-gated, and the flagged door-knocking pilot is not, so
-// do-not-knock is written through its own door-knocking endpoint instead.
+// Do-not-knock. Not a member of UpdateContactStatusInputSchema below: the
+// CRM's status PATCH is Pro-gated, and the flagged door-knocking pilot is
+// not, so do-not-knock is written through its own door-knocking endpoint
+// instead.
 export const DoNotKnockStatusSchema = GeneratedDoNotKnockStatusSchema
 export type DoNotKnockStatus = GeneratedDoNotKnockStatus
 
-// ADR 0008. Written from the door only, for the same reason as do-not-knock,
-// and likewise absent from UpdateContactStatusInputSchema below.
+// Not-a-voter. Written from the door only, for the same reason as
+// do-not-knock, and likewise absent from UpdateContactStatusInputSchema below.
 export const NotAVoterStatusSchema = GeneratedNotAVoterStatusSchema
 export type NotAVoterStatus = GeneratedNotAVoterStatus
 
@@ -67,6 +70,25 @@ export const FollowUpStatusResponseSchema = z.object({
 })
 export type FollowUpStatusResponse = z.infer<
   typeof FollowUpStatusResponseSchema
+>
+
+// Serve's civic panel, written through its own endpoint for the follow-up
+// flag's reasons above: no Pro gate, and a response that guarantees only this
+// field rather than Win's two statuses.
+export const CivicPanelStatusSchema = GeneratedCivicPanelStatusSchema
+export type CivicPanelStatus = GeneratedCivicPanelStatus
+
+export const UpdateCivicPanelInputSchema = z
+  .object({ value: CivicPanelStatusSchema })
+  .strict()
+export type UpdateCivicPanelInput = z.infer<typeof UpdateCivicPanelInputSchema>
+
+// Read back from the persisted row, never echoed from the request.
+export const CivicPanelStatusResponseSchema = z.object({
+  civicPanel: CivicPanelStatusSchema,
+})
+export type CivicPanelStatusResponse = z.infer<
+  typeof CivicPanelStatusResponseSchema
 >
 
 // The two answers that mean something happened, without the off switch —
@@ -133,14 +155,14 @@ export const SUPPORT_STATUS_ROLLUP_LABELS: Record<
   refused: 'Refused',
 }
 
-// ADR 0007. Read as "Do Not Knock: — -> On" in the feed, so the values carry
+// Read as "Do Not Knock: — -> On" in the feed, so the values carry
 // the on/off reading and the field name carries the meaning.
 export const DO_NOT_KNOCK_LABELS: Record<DoNotKnockStatus, string> = {
   active: 'On',
   cleared: 'Off',
 }
 
-// ADR 0008. Reads as "Not A Voter: — -> Moved away" in the feed. `cleared`
+// Reads as "Not A Voter: — -> Moved away" in the feed. `cleared`
 // says the flag was lifted, not that anyone concluded the person is a voter.
 export const NOT_A_VOTER_LABELS: Record<NotAVoterStatus, string> = {
   moved: 'Moved away',
@@ -166,12 +188,19 @@ export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   cleared: 'No',
 }
 
+// Reads as "Civic panel: Not a member -> Member" in the feed.
+export const CIVIC_PANEL_STATUS_LABELS: Record<CivicPanelStatus, string> = {
+  member: 'Member',
+  left: 'Not a member',
+}
+
 const LABELS_BY_FIELD: Record<ContactStatusField, Record<string, string>> = {
   voter_likelihood: VOTER_LIKELIHOOD_LABELS,
   support_status: SUPPORT_STATUS_ROLLUP_LABELS,
   do_not_knock: DO_NOT_KNOCK_LABELS,
   not_a_voter: NOT_A_VOTER_LABELS,
   follow_up: FOLLOW_UP_STATUS_LABELS,
+  civic_panel: CIVIC_PANEL_STATUS_LABELS,
 }
 
 export const resolveContactStatusLabel = (

@@ -13,6 +13,7 @@ export const CHANNEL_TO_FLOW_TYPE: Record<string, CampaignTaskType> = {
   robocall: CampaignTaskType.robocall,
   doorKnocking: CampaignTaskType.doorKnocking,
   phoneBanking: CampaignTaskType.phoneBanking,
+  socialMedia: CampaignTaskType.socialMedia,
   event: CampaignTaskType.events,
   awareness: CampaignTaskType.awareness,
 }

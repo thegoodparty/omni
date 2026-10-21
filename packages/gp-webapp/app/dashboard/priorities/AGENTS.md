@@ -6,13 +6,14 @@ done this term, and where they open one to work it forward. Gated by
 
 ## Files
 
-| File                             | Role                                                                                                  |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `layout.tsx`                     | The flag gate for the whole segment. Flag off redirects to Chief of Staff                             |
-| `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page |
-| `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below                          |
-| `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                            |
-| `data/priorities-api.ts`         | Create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`                   |
+| File                             | Role                                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `layout.tsx`                     | The flag gate for the whole segment. Flag off redirects to Chief of Staff                                                                  |
+| `page.tsx`                       | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page                                      |
+| `components/PrioritiesHub.tsx`   | The list: lane chips, rows, archive, and the community-issue seed lane below. Adding a priority (form or seed lane) opens its conversation |
+| `components/AddPriorityForm.tsx` | Inline create, opened by the header button                                                                                                 |
+| `data/priorities-api.ts`         | List, create, update, archive, and prioritize-an-issue, all through `gpApi/typed-request`                                                  |
+| `priorityFormCopy.ts`            | The add form's questions and limits, shared with Serve onboarding's priorities step                                                        |
 
 `[priorityId]/` is the detail view and carries its own doc.
 
@@ -47,9 +48,38 @@ it is, what to do next, and where it has got to.
   the seven names. `currentStep` arrives as a plain string, so it is narrowed
   against `PRIORITY_STEP_IDS` rather than indexed blind: an id this build does
   not know reads as nothing. `currentStep: null` means every step is settled,
-  and the badge says so.
+  and the badge reads **Plan ready**. The last of the seven steps is "The
+  plan", so that is what finishing means, and "Settled" is already the name of
+  a per-step state in the rail.
+  A priority the agent has never worked has no status yet, and gp-api reads
+  it as on the first step (`currentStepOf`), so a new one never says Plan
+  ready.
+- **The list re-reads itself on mount.** Back renders this page from Next's
+  router cache, as it was first loaded, so a priority added since would be
+  missing and the row in its place would open an older one. A change made on
+  the page before the read lands wins over it.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
+
+## Analytics
+
+Everything fires under `Priorities -`. The browser fires what only it sees:
+`List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
+opened on, whether the thread is new, its `entry` and the read it opened
+with) and `Get Answers Clicked` (`source` strip, rail or results_page, only
+when the turn is actually queued). What the official types or picks in a
+clarify card is `AI Chat - Message Sent` (`shared/agent-chat/chatAnalytics.ts`);
+the hidden kickoff, sent markers and Get answers turn never fire it.
+`Results Viewed` fires on the results page with `heldBack` and
+`readStatus` (the read's status, snake case, `readStatusProperty.ts`),
+`answersFloor` and `groupsHeard` of `groupsTotal`. A
+priority card's outreach carries `launchSource` on the `Outreach -` events:
+`expand_panel` when the card answers a Get answers turn (read from the user
+turn before it, so it survives a reload), `priorities` otherwise. Creates,
+archives, step moves, check moves and `Plan Completed` are server truth and
+fire from gp-api (`EVENTS.Priorities` in `segment.types.ts`), because the Chief
+of Staff and Community Issues create and archive too, and only the agent's
+tool calls and real sends move a step or a check. Do not fire those here.
 
 ## Lane names are Serve names
 

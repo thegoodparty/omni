@@ -2,13 +2,12 @@
 
 import type { SocialAsset, SocialAssetPlatform } from '@goodparty_org/contracts'
 import { Button, Card, Input, Label } from '@styleguide'
+import { Loader2Icon } from '@styleguide/components/ui/icons'
 import { SOCIAL_PLATFORMS } from '../socialPlatforms'
 import { SocialAssetCard } from '../SocialAssetCards'
 import { Intro } from './Intro'
-import { ThinkingStream } from './ThinkingStream'
 
 interface ShareStepProps {
-  isServe: boolean
   platforms: SocialAssetPlatform[]
   assets: SocialAsset[] | null
   isGenerating: boolean
@@ -19,7 +18,6 @@ interface ShareStepProps {
 }
 
 export const ShareStep = ({
-  isServe,
   platforms,
   assets,
   isGenerating,
@@ -43,7 +41,15 @@ export const ShareStep = ({
         body="Copy the post text or read the script on camera. Free to share — no ad spend required."
       />
 
-      {isGenerating && <ThinkingStream isServe={isServe} />}
+      {isGenerating && (
+        <p
+          role="status"
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          <Loader2Icon className="size-4 animate-spin" aria-hidden />
+          Writing your posts…
+        </p>
+      )}
 
       {isError && !isGenerating && (
         <Card className="items-start gap-3 p-4">

@@ -13,6 +13,7 @@ export interface BiasAnalysisState {
   hasGrammar: boolean
   hasServerError: boolean
   hasBeenChecked: boolean
+  isAnalyzing: boolean
 }
 
 interface PollTextBiasInputProps {
@@ -109,12 +110,16 @@ export default function PollTextBiasInput({
     resetStates,
   ])
 
-  React.useEffect(() => {
+  // Layout effect, not passive: clicking Continue blurs the editor, which
+  // starts analysis, and PollFlow's click handler must already see
+  // isAnalyzing to hold the step (ENG-11305).
+  React.useLayoutEffect(() => {
     const currentState: BiasAnalysisState = {
       hasBias,
       hasGrammar,
       hasServerError,
       hasBeenChecked,
+      isAnalyzing,
     }
     const prevState = biasStateRef.current
     if (
@@ -122,7 +127,8 @@ export default function PollTextBiasInput({
       prevState.hasBias !== currentState.hasBias ||
       prevState.hasGrammar !== currentState.hasGrammar ||
       prevState.hasServerError !== currentState.hasServerError ||
-      prevState.hasBeenChecked !== currentState.hasBeenChecked
+      prevState.hasBeenChecked !== currentState.hasBeenChecked ||
+      prevState.isAnalyzing !== currentState.isAnalyzing
     ) {
       biasStateRef.current = currentState
       onBiasAnalysisChange?.(currentState)
@@ -132,6 +138,7 @@ export default function PollTextBiasInput({
     hasGrammar,
     hasServerError,
     hasBeenChecked,
+    isAnalyzing,
     onBiasAnalysisChange,
   ])
 
@@ -185,6 +192,7 @@ export default function PollTextBiasInput({
       hasGrammar: false,
       hasServerError: false,
       hasBeenChecked: false,
+      isAnalyzing: false,
     })
   }, [onBiasAnalysisChange])
 

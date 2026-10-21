@@ -18,7 +18,6 @@ All workspaces (apps and shared libs) live under `packages/`.
 | `packages/election-api`    | NestJS microservice — election data             | 3001 |
 | `packages/gp-admin`        | Next.js internal admin console                  | 3500 |
 | `packages/candidate-sites` | Next.js per-candidate sites                     | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | —    |
 
@@ -27,20 +26,15 @@ All workspaces (apps and shared libs) live under `packages/`.
 ```bash
 git clone --recurse-submodules git@github.com:thegoodparty/omni.git
 cd omni
-nvm use          # Node from .nvmrc
-npm install      # installs all workspaces
-npm run dev      # Postgres + gp-api (:3000) + gp-webapp (:4000)
+npm run setup
 ```
 
-Each app needs its own local env files (copy from each app's `.env.example` /
-`.env.local`). Run an individual app by workspace name:
-
-```bash
-npm run start:dev -w gp-api
-npm run dev -w packages/gp-webapp
-```
-
-More in [`docs/development.md`](./docs/development.md).
+One command from fresh clone to a running, seeded local stack — no manual
+env setup. New machine? Start at
+[`docs/machine-setup.md`](./docs/machine-setup.md) (one-time prerequisites
+with check-first commands), then the two commands above. Full path, flags,
+and the UI-only fast tier (`packages/prototypes`, zero env):
+[`docs/development.md`](./docs/development.md).
 
 ## Documentation
 

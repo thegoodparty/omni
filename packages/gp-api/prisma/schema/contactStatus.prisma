@@ -17,13 +17,13 @@ enum VoterLikelihood {
 enum ContactStatusField {
   voter_likelihood
   support_status
-  // ADR 0007: a standing instruction, not an observation of one conversation.
-  // Nothing derives it — no outcome, no answer, and deliberately not
-  // refused_to_engage, which means "not today" rather than "not ever". Seed is
-  // always `cleared`, so absence of a row reads as knockable like every other
-  // field here.
+  // Do-not-knock: a standing instruction, not an observation of one
+  // conversation. Nothing derives it — no outcome, no answer, and
+  // deliberately not refused_to_engage, which means "not today" rather than
+  // "not ever". Seed is always `cleared`, so absence of a row reads as
+  // knockable like every other field here.
   do_not_knock
-  // ADR 0008: why this person is not a voter to reach at this door. Written
+  // Not-a-voter: why this person is not a voter to reach at this door. Written
   // only by the follow-up question behind a `not_a_voter` outcome, and stored
   // here rather than on the interaction because it has to be reversible and
   // queryable as a set. Seed is `cleared`, same as do_not_knock.
@@ -34,9 +34,15 @@ enum ContactStatusField {
   // person-level fact an official toggles as they work through people. Seed is
   // `cleared`, same as the two flags above.
   follow_up
+  // Serve's civic panel: constituents who said yes to being asked for feedback.
+  // One panel per office, so the set of people at `member` IS the panel. A
+  // person-level standing fact like follow_up, written by the contact card and,
+  // later, by a yes to a panel invitation. Seed is `left`: nobody is a member
+  // until they say yes.
+  civic_panel
 }
 
-// ADR 0007. `cleared` is a real value rather than a deleted row so that
+// Do-not-knock. `cleared` is a real value rather than a deleted row so that
 // lifting a flag is itself recorded — a mis-tap on a phone in the rain is
 // foreseeable, and "who lifted this, and when" gets asked exactly when it
 // matters.
@@ -45,7 +51,7 @@ enum DoNotKnockStatus {
   cleared
 }
 
-// ADR 0008. One field rather than two booleans: `moved` and `deceased` are
+// Not-a-voter. One field rather than two booleans: `moved` and `deceased` are
 // mutually exclusive answers to one question asked at one door, so the latest
 // answer has to replace the previous one rather than sit beside it. `cleared`
 // carries the same reversibility argument as DoNotKnockStatus above — a
@@ -74,10 +80,22 @@ enum FollowUpStatus {
   cleared
 }
 
+// The vocabulary for `civic_panel`. `left` rather than a deleted row for the
+// DoNotKnockStatus reason: leaving is itself the event worth keeping, since a
+// panel's history (who joined, who left, when, and how) is what an official
+// will be asked to account for. Backs no column, like FollowUpStatus.
+enum CivicPanelStatus {
+  member
+  left
+}
+
 enum ContactStatusSource {
   manual
   door_knock
   phone_banking
+  // A text reply: JOIN to a send that asked someone onto the civic panel, or
+  // STOP, which takes them off it.
+  sms
 }
 
 // Append-only change log. `fromValue` snapshots the *effective* value at

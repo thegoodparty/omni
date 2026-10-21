@@ -1,0 +1,6 @@
+{
+  "exclude": ["src/chats/evals/.*"],
+  "jsc": {
+    "baseUrl": "./"
+  }
+}

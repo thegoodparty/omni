@@ -114,8 +114,6 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
     dim: 'businessOwner',
     buckets: ['Unknown', 'unknown'],
   },
-  registeredVoterTrue: { dim: 'registered', buckets: ['Yes', 'true'] },
-  registeredVoterFalse: { dim: 'registered', buckets: ['No', 'false'] },
   hasChildrenYes: { dim: 'presenceOfChildren', buckets: ['Yes'] },
   hasChildrenNo: { dim: 'presenceOfChildren', buckets: ['No'] },
   hasChildrenUnknown: {

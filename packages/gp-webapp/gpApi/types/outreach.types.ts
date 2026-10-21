@@ -8,6 +8,7 @@ export type OutreachType =
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
+  | 'poll'
 
 /** Outreach status values from the API / Prisma */
 export type OutreachStatus =
@@ -40,6 +41,11 @@ export interface CreateOutreachPayload {
   audienceRequest?: string | null
   phoneListId?: number
   campaignPlanDueDate?: string
+  /**
+   * The campaign-plan task this text was started from. The task list marks
+   * it done once the text is scheduled.
+   */
+  trackerTaskId?: string
   textCount?: number
   billableTextCount?: number
   /**
@@ -48,6 +54,11 @@ export interface CreateOutreachPayload {
    */
   draft?: boolean
   draftOutreachId?: number
+  /**
+   * The chat card proposal this text was started from. The server keeps it
+   * on the newest unpaid draft, so the card reads as sent once it is paid.
+   */
+  proposalKey?: string
 }
 
 /** VoterFileFilter as returned when included on Outreach (scalars only, from Prisma) */
@@ -101,9 +112,6 @@ export interface VoterFileFilterInOutreach {
   ethnicityUnknown: boolean | null
   businessOwnerYes: boolean | null
   businessOwnerUnknown: boolean | null
-  registeredVoterTrue: boolean | null
-  registeredVoterFalse: boolean | null
-  registeredVoterUnknown: boolean | null
   hasChildrenYes: boolean | null
   hasChildrenNo: boolean | null
   hasChildrenUnknown: boolean | null

@@ -175,7 +175,7 @@ import { dirname, join, relative } from 'node:path'
 // mutating button pair (flag / undo) rendered inside the client-only
 // PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
 // 2026-08-17: 566 -> 567 for door-knocking/native/NotAVoterControl.tsx — the
-// ADR 0008 follow-up and its marker, same shape and same reason as
+// not-a-voter follow-up and its marker, same shape and same reason as
 // DoNotKnockControl above: it POSTs on tap and renders from the response,
 // inside the client-only PersonSheet. The paper surfaces read the same reason
 // through statusPresentation.ts, which stays directive-free so print/ keeps its
@@ -258,7 +258,7 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
 // deletion (phone banking's inline audience builder, replaced by the shared
 // v2/audience/ step) = 603.
-// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx.
 // The door's Notes section owns a compose draft, an in-place editor, three
 // mutations and a dictation session, so it cannot render on the server — the
 // same shape and the same reason as DoNotKnockControl and NotAVoterControl
@@ -504,7 +504,23 @@ import { dirname, join, relative } from 'node:path'
 // accident (same pattern as `ordinances/data/ordinances-api.ts`). The chat
 // cards under `[priorityId]/cards/` deliberately carry NO directive: they
 // inherit the boundary from the chat that mounts them.
-const BASELINE = 592
+// 2026-09-29: 592 -> 591. The Priorities chat's own turnBlocks.tsx, a copy of
+// the shared splicer, was deleted when every chat moved onto the shared widget
+// registry. Locked in per the policy above.
+// 2026-10-14: 591 -> 593 for the SMS compliance cutoff. SmsCutoffNotice fires
+// its viewed event from an effect and tracks the channel a candidate picks,
+// and useSmsCompliance reads the campaign through the client campaign
+// context, so neither can render on the server. SmsCutoffNoticeDialog and
+// SmsCutoffPage carry no directive.
+// 2026-10-14: 593 -> 594 for the Serve poll create flow. PollFlow owns the
+// step, draft, audience and checkout state of a multi-step flow; its topic and
+// question steps carry no directive and inherit the boundary from it.
+// 2026-10-15: 594 -> 595 for the Serve poll results page. PollResultsPage is
+// the client boundary for the live results read (a 15s refetch while a poll
+// runs), the favorite and read marks, and the Gather more feedback flow; the
+// theme list, theme detail, comment list and CRM panel carry no directive and
+// inherit it, and the server page above it only validates the route.
+const BASELINE = 595
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

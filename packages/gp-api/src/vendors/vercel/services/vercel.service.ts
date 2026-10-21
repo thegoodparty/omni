@@ -1,4 +1,9 @@
-import { BadGatewayException, HttpStatus, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common'
 import { Vercel } from '@vercel/sdk'
 import type {
   GetRecordsResponseBody,
@@ -9,14 +14,67 @@ import { NotFound } from '@vercel/sdk/models/notfound'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { parsePhoneNumberWithError } from 'libphonenumber-js'
 import { PinoLogger } from 'nestjs-pino'
+import { resolveEnvVar } from '../../../shared/env/env'
+import {
+  vendorBaseUrl,
+  VENDOR_MODE,
+} from '../../../shared/util/appEnvironment.util'
 
-const { VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID } = process.env
+const VERCEL_NOT_CONFIGURED_MESSAGE =
+  'Candidate domains are disabled: set VERCEL_TOKEN and VERCEL_PROJECT_ID'
 
-if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
-  throw new Error(
-    'VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID must be set in environment variables',
-  )
+const VERCEL_MOCK_TOKEN = 'mock-vercel-token'
+const VERCEL_MOCK_PROJECT_ID = 'mock-vercel-project'
+
+type VercelConfig = {
+  token: string
+  projectId: string
+  teamId: string | undefined
 }
+
+const resolveVercelConfig = (): VercelConfig | null => {
+  const token = resolveEnvVar('VERCEL_TOKEN')
+  const projectId = resolveEnvVar('VERCEL_PROJECT_ID')
+  // The Vercel mock accepts any bearer token, so mock mode stays configured
+  // when the secret blob has no Vercel keys (domain purchase is on in mock mode).
+  if (VENDOR_MODE === 'mock') {
+    return {
+      token: token.configured ? token.value : VERCEL_MOCK_TOKEN,
+      projectId: projectId.configured
+        ? projectId.value
+        : VERCEL_MOCK_PROJECT_ID,
+      teamId: process.env.VERCEL_TEAM_ID,
+    }
+  }
+  if (!token.configured || !projectId.configured) {
+    return null
+  }
+  return {
+    token: token.value,
+    projectId: projectId.value,
+    teamId: process.env.VERCEL_TEAM_ID,
+  }
+}
+
+// Every Vercel call gets this bound. Without one the SDK waits out undici's
+// 300s headers timeout, long after the gateway has dropped the caller at
+// ~120s. On 2026-10-15 Vercel's registrar API stalled for about an hour, and
+// both the price lookup and the buy hung for 300s on each purchase attempt
+// (ENG-11299). Healthy calls finish in under 12s, so 30s fails a stalled call
+// fast and leaves the request time to return its 502.
+export const VERCEL_REQUEST_TIMEOUT_MS = 30_000
+
+// The SDK's default host; spelled out because vendorBaseUrl needs the live URL.
+const VERCEL_API_URL = 'https://api.vercel.com'
+
+const vercelConfig = resolveVercelConfig()
+const vercelClient = vercelConfig
+  ? new Vercel({
+      bearerToken: vercelConfig.token,
+      serverURL: vendorBaseUrl('vercel', VERCEL_API_URL),
+      timeoutMs: VERCEL_REQUEST_TIMEOUT_MS,
+    })
+  : null
 
 export const FORWARDEMAIL_MX1_VALUE = 'mx1.forwardemail.net'
 export const FORWARDEMAIL_MX2_VALUE = 'mx2.forwardemail.net'
@@ -31,7 +89,35 @@ export type DNSRecord = { uid: string; updated?: number }
 
 @Injectable()
 export class VercelService {
-  private readonly client = new Vercel({ bearerToken: VERCEL_TOKEN })
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(VercelService.name)
+    if (!vercelConfig) {
+      this.logger.warn(VERCEL_NOT_CONFIGURED_MESSAGE)
+    }
+  }
+
+  // Candidate domains degrade to a consistent 400 rather than crashing boot
+  // when Vercel isn't configured — resolved once at module load, not per call.
+  private requireClient(): {
+    client: Vercel
+    projectId: string
+    teamId: string | undefined
+  } {
+    if (!vercelClient || !vercelConfig) {
+      throw new BadRequestException(VERCEL_NOT_CONFIGURED_MESSAGE)
+    }
+    return {
+      client: vercelClient,
+      projectId: vercelConfig.projectId,
+      teamId: vercelConfig.teamId,
+    }
+  }
+
+  // The project candidate domains attach to; the Vercel mock records it on each
+  // project_domain, which is what mock-mode verify-live matches against.
+  getProjectId(): string {
+    return this.requireClient().projectId
+  }
 
   isVercelNotFoundError(e: unknown): e is NotFound {
     return (
@@ -42,11 +128,12 @@ export class VercelService {
   }
 
   async getProjectDomain(domainName: string) {
+    const { client, projectId, teamId } = this.requireClient()
     try {
-      return await this.client.projects.getProjectDomain({
-        idOrName: VERCEL_PROJECT_ID!,
+      return await client.projects.getProjectDomain({
+        idOrName: projectId,
         domain: domainName,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
       })
     } catch (error) {
       this.logger.error({ error }, `Error getting domain ${domainName}:`)
@@ -55,10 +142,11 @@ export class VercelService {
   }
 
   async addDomainToProject(domainName: string) {
+    const { client, projectId, teamId } = this.requireClient()
     try {
-      return await this.client.projects.addProjectDomain({
-        idOrName: VERCEL_PROJECT_ID!,
-        teamId: VERCEL_TEAM_ID,
+      return await client.projects.addProjectDomain({
+        idOrName: projectId,
+        teamId,
         requestBody: {
           name: domainName,
         },
@@ -73,11 +161,12 @@ export class VercelService {
   }
 
   async removeDomainFromProject(domainName: string) {
+    const { client, projectId, teamId } = this.requireClient()
     try {
-      return await this.client.projects.removeProjectDomain({
-        idOrName: VERCEL_PROJECT_ID!,
+      return await client.projects.removeProjectDomain({
+        idOrName: projectId,
         domain: domainName,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
       })
     } catch (error) {
       this.logger.error(
@@ -89,11 +178,12 @@ export class VercelService {
   }
 
   async verifyProjectDomain(domainName: string) {
+    const { client, projectId, teamId } = this.requireClient()
     try {
-      return await this.client.projects.verifyProjectDomain({
-        idOrName: VERCEL_PROJECT_ID!,
+      return await client.projects.verifyProjectDomain({
+        idOrName: projectId,
         domain: domainName,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
       })
     } catch (error) {
       this.logger.error({ error }, `Error verifying domain ${domainName}:`)
@@ -106,10 +196,11 @@ export class VercelService {
    * @see https://vercel.com/docs/domains/registrar-api
    */
   async checkDomainPrice(domainName: string): Promise<{ price: number }> {
+    const { client, teamId } = this.requireClient()
     try {
-      const result = await this.client.domainsRegistrar.getDomainPrice({
+      const result = await client.domainsRegistrar.getDomainPrice({
         domain: domainName,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
       })
 
       this.logger.debug(result, `Price check for ${domainName}:`)
@@ -161,6 +252,7 @@ export class VercelService {
     autoRenew: boolean = true,
     years: number = 1,
   ) {
+    const { client, teamId } = this.requireClient()
     try {
       this.logger.debug(`Purchasing domain ${domainName} through Vercel`)
 
@@ -179,9 +271,9 @@ export class VercelService {
         )
       }
 
-      const result = await this.client.domainsRegistrar.buySingleDomain({
+      const result = await client.domainsRegistrar.buySingleDomain({
         domain: domainName.trim(),
-        teamId: VERCEL_TEAM_ID,
+        teamId,
         requestBody: {
           autoRenew,
           years,
@@ -211,12 +303,13 @@ export class VercelService {
     }
   }
 
-  async getRegistrarOrder(orderId: string) {
+  async getRegistrarOrder(orderId: string, timeoutMs?: number) {
+    const { client, teamId } = this.requireClient()
     try {
-      return await this.client.domainsRegistrar.getOrder({
-        orderId,
-        teamId: VERCEL_TEAM_ID,
-      })
+      return await client.domainsRegistrar.getOrder(
+        { orderId, teamId },
+        timeoutMs === undefined ? undefined : { timeoutMs },
+      )
     } catch (error) {
       this.logger.error({ error }, `Error getting registrar order ${orderId}:`)
       throw error
@@ -229,13 +322,12 @@ export class VercelService {
    * @see https://vercel.com/docs/domains/registrar-api
    */
   async getDomainAuthCode(domainName: string): Promise<string> {
+    const { client, teamId } = this.requireClient()
     try {
-      const { authCode } = await this.client.domainsRegistrar.getDomainAuthCode(
-        {
-          domain: domainName,
-          teamId: VERCEL_TEAM_ID,
-        },
-      )
+      const { authCode } = await client.domainsRegistrar.getDomainAuthCode({
+        domain: domainName,
+        teamId,
+      })
 
       // The SDK's inbound schema coerces a null or absent authCode to '' and
       // still types it as string, so a partial 200 would hand support an empty
@@ -259,10 +351,11 @@ export class VercelService {
   }
 
   async getDomainDetails(domainName: string) {
+    const { client, teamId } = this.requireClient()
     try {
-      return await this.client.domains.getDomain({
+      return await client.domains.getDomain({
         domain: domainName,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
       })
     } catch (error) {
       this.logger.error(
@@ -274,9 +367,10 @@ export class VercelService {
   }
 
   async listDomains() {
+    const { client, teamId } = this.requireClient()
     try {
-      return await this.client.domains.getDomains({
-        teamId: VERCEL_TEAM_ID,
+      return await client.domains.getDomains({
+        teamId,
       })
     } catch (error) {
       this.logger.error({ error }, 'Error listing domains:')
@@ -285,6 +379,7 @@ export class VercelService {
   }
 
   async listDnsRecords(domainName: string): Promise<VercelDNSRecord[]> {
+    const { client, teamId } = this.requireClient()
     try {
       const all: VercelDNSRecord[] = []
       const limit = '100'
@@ -293,9 +388,9 @@ export class VercelService {
       let backoff = 250
       const maxBackoff = 4000
       while (hasMore) {
-        const res = await this.client.dns.getRecords({
+        const res = await client.dns.getRecords({
           domain: domainName,
-          teamId: VERCEL_TEAM_ID,
+          teamId,
           limit,
           ...(since ? { since } : {}),
         })
@@ -333,10 +428,11 @@ export class VercelService {
   }
 
   async createMXRecords(domain: string): Promise<DNSRecord[]> {
+    const { client, teamId } = this.requireClient()
     try {
-      const mx1 = await this.client.dns.createRecord({
+      const mx1 = await client.dns.createRecord({
         domain,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
         requestBody: {
           type: VercelDnsRecordType.Mx,
           name: '',
@@ -346,9 +442,9 @@ export class VercelService {
         },
       })
 
-      const mx2 = await this.client.dns.createRecord({
+      const mx2 = await client.dns.createRecord({
         domain,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
         requestBody: {
           type: VercelDnsRecordType.Mx,
           name: '',
@@ -371,10 +467,11 @@ export class VercelService {
     domain: string,
     forwardingDomainResponse: ForwardEmailDomainResponse,
   ): Promise<DNSRecord> {
+    const { client, teamId } = this.requireClient()
     try {
-      const res = await this.client.dns.createRecord({
+      const res = await client.dns.createRecord({
         domain,
-        teamId: VERCEL_TEAM_ID,
+        teamId,
         requestBody: {
           type: VercelDnsRecordType.Txt,
           name: '',
@@ -387,9 +484,5 @@ export class VercelService {
       this.logger.error({ error }, `Error creating SPF record for ${domain}:`)
       throw error
     }
-  }
-
-  constructor(private readonly logger: PinoLogger) {
-    this.logger.setContext(VercelService.name)
   }
 }

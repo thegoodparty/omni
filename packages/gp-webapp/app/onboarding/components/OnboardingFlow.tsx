@@ -13,6 +13,7 @@ import {
 
 const ONBOARDING_STEP_COMPLETE = 'onboarding-complete'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { clientRequest } from 'gpApi/typed-request'
@@ -66,6 +67,7 @@ import type {
   SelectedOffice,
   SignupGoal,
 } from './onboardingTypes'
+import { FIRST_LANDING_PARAM } from 'app/dashboard/campaign-manager/homeHeadlines'
 
 type OnboardingUpdateAttribute = {
   key: string
@@ -148,6 +150,16 @@ const signupGoalOptions: ReadonlyArray<RadioCardOption<SignupGoal>> = [
     description: 'Look around and see what is here.',
   },
 ]
+
+const signupGoalOptionsSmsClosed: ReadonlyArray<RadioCardOption<SignupGoal>> =
+  signupGoalOptions.map((option) =>
+    option.value === 'voter-outreach'
+      ? {
+          ...option,
+          description: 'Door-knocking, robocalls and phone banking.',
+        }
+      : option,
+  )
 
 // The Segment property is the selected option's own title, so the event reads
 // the same as the screen did. Derived from the options rather than a second
@@ -279,6 +291,8 @@ const StepBody = ({
   storyDraft,
   onStoryDictationActiveChange,
 }: StepBodyProps): React.JSX.Element | null => {
+  const { smsCompliance } = useSmsCompliance()
+
   if (activeStep.id === 'welcome') {
     return (
       <div className="space-y-8">
@@ -427,7 +441,11 @@ const StepBody = ({
         name="signup-goal"
         value={answers.signupGoal}
         onChange={(value) => updateAnswers({ signupGoal: value })}
-        options={signupGoalOptions}
+        options={
+          smsCompliance === 'closed'
+            ? signupGoalOptionsSmsClosed
+            : signupGoalOptions
+        }
       />
     )
   }
@@ -1134,9 +1152,10 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Lands on the Campaign Manager home, whose chat opens with the story
-      // intake (the plan + tracker are generated from the story later).
-      router.push('/dashboard')
+      // Lands on the Campaign Manager home with the chat closed; it opens
+      // only from the home's cards or the footer chat box. The marker tells
+      // Home this is the first landing, so it greets the candidate once.
+      router.push(`/dashboard?${FIRST_LANDING_PARAM}=1`)
       return
     }
     if (nextStep) {
@@ -1179,12 +1198,16 @@ export default function OnboardingFlow({
 
   // Leaving the story (from the final issues step) for signup-goal, the story
   // block's successor. Persistence and the per-step funnel events already
-  // happened in advanceStory; here we only kick off plan generation, once, when
-  // every question was answered this session.
+  // happened in advanceStory; here we only kick off plan generation, once.
+  //
+  // Deliberately NOT gated on the story being answered. The story sharpens a
+  // plan, it does not qualify a candidate for one, and gating here was the
+  // reason a candidate who skipped these steps finished signup with nothing
+  // generated and had to go press a button on the plan tab to get started.
+  // They get a generic plan now, and completing the story later regenerates
+  // it.
   const leaveStory = async (): Promise<void> => {
-    const answered = storyAnsweredRef.current
-    const complete = answered.why && answered.background && answered.issues
-    if (complete && !storyGenFiredRef.current) {
+    if (!storyGenFiredRef.current) {
       storyGenFiredRef.current = true
       // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
       // raceId) and prewarmStrategicLandscape swallows that, so a candidate
@@ -1371,18 +1394,7 @@ export default function OnboardingFlow({
                     {activeStep.title}
                   </h1>
                   <p className="text-lg text-muted-foreground sm:text-base">
-                    {activeStep.id === 'path-to-victory' && p2vOfficeName ? (
-                      <>
-                        We use historical voter data and proprietary models to
-                        get the most accurate projections for{' '}
-                        <span className="font-semibold text-foreground">
-                          {p2vOfficeName}
-                        </span>
-                        .
-                      </>
-                    ) : (
-                      activeStep.description
-                    )}
+                    {activeStep.description}
                   </p>
                 </div>
               )}

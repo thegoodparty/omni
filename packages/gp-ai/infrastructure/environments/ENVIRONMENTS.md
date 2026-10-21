@@ -111,6 +111,8 @@ goodparty-terraform-state-us-west-2
 | **Dev** | `https://ai-dev.goodparty.org/serve/messages/process` | `s3://serve-analyze-data-dev/input/` |
 | **Prod** | `https://ai.goodparty.org/serve/messages/process` | `s3://serve-analyze-data-prod/input/` |
 
+gp-api drops issue-capture memo CSVs under `feedback-input/` in the same bucket; that prefix's notification starts them as `constituent_feedback` runs.
+
 ## Deployment Flow
 
 ### Promotion Path

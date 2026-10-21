@@ -26,13 +26,30 @@ only about which words belong to whom.
 ## Banned in Serve
 
 `voter` · `voters` · `voter file` · `election` · `elections` · `electoral` ·
-`candidate` · `candidates` · `ballot` · `ballots`
+`candidate` · `candidates` · `ballot` · `ballots` · `supporter` · `supporters`
 
 Not banned, and load-bearing for a Serve official: **`vote`**, **`voting`**,
 **`elected`**, **`term`**, **`office`**. A legislative vote is the job.
 
 Nothing here is banned in Win. **Win copy must not change to fix a Serve
 bug** — see "How to fix it" below.
+
+## The civic panel has one name
+
+The residents who said yes to being asked before an official decides are the
+**civic panel**: lowercase in a sentence ("your civic panel"), sentence case
+at the start of a heading or label ("Civic panel", "Your civic panel"). One
+name everywhere, so officials and the residents they text recognize the same
+thing on every screen, text, door and call.
+
+Banned everywhere, in every product: `citizens' panel` · `citizen's panel` ·
+`citizens panel` · `civics panel` · `constituent panel`.
+
+Internal identifiers keep their old names (`serve-citizen-panels`,
+`/dashboard/contacts/citizens-panel`, `CitizensPanelSection`), and
+`CIVIC_PANEL_JOIN_LINES` in contracts keeps the join lines already sent under
+the old name, so the reply reader still recognizes those sends. Only the newest
+line is ever composed.
 
 ## "campaign" has two senses, and only one is banned
 
@@ -47,6 +64,11 @@ The test: could a city councilmember four years into a term read this
 sentence about themselves? "Your text campaign goes out Monday" — yes.
 "Checking your campaign tone" — no, they have no campaign.
 
+The outreach history is the exception to "fine": its headings, column and empty
+states name the thing "outreach" in Serve ("Your outreach", an "Outreach"
+column), because a list of everything an official sent reads as a campaign
+list to someone who never ran one.
+
 ## How to fix it
 
 **Never rename the Win string.** The two surfaces mount the same components
@@ -56,12 +78,12 @@ object** or an **`isServe` argument** instead.
 
 Four shapes, all already in the repo. Pick the smallest one that fits.
 
-| Shape                        | When                                           | Model                                                                                                        |
-| ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| A full mode-keyed label set  | A surface whose every noun changes             | `packages/gp-webapp/app/dashboard/shared/contactsLabels.ts` — `getContactsLabels(isWin)`. The gold standard. |
-| A sparse override record     | Most labels survive the change of vocabulary   | `.../door-knocking/native/statusPresentation.ts` — `statusLabel(status, isServe)` over `SERVE_STATUS_LABELS` |
-| A spread over the Win object | A copy object gains a few Serve-framed strings | `.../outreach/v2/phone-banking/PhoneBankingFlow.tsx` — `SERVE_PHONE_BANKING_AUDIENCE_COPY`                   |
-| A function of `isServe`      | A derived list or column set                   | `.../door-knocking/print/walkFacts.ts` — `walkColumns(isServe)`                                              |
+| Shape                        | When                                           | Model                                                                                                                                                                                                                                                    |
+| ---------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A full mode-keyed label set  | A surface whose every noun changes             | `packages/gp-webapp/app/dashboard/shared/contactsLabels.ts` — `getContactsLabels(isWin)`. The gold standard. `.../outreach/v2/outreachHistoryCopy.ts` — `getOutreachHistoryCopy(isServe)` — is the same shape for the outreach history table and drawer. |
+| A sparse override record     | Most labels survive the change of vocabulary   | `.../door-knocking/native/statusPresentation.ts` — `statusLabel(status, isServe)` over `SERVE_STATUS_LABELS`                                                                                                                                             |
+| A spread over the Win object | A copy object gains a few Serve-framed strings | `.../outreach/v2/phone-banking/PhoneBankingFlow.tsx` — `SERVE_PHONE_BANKING_AUDIENCE_COPY`                                                                                                                                                               |
+| A function of `isServe`      | A derived list or column set                   | `.../door-knocking/print/walkFacts.ts` — `walkColumns(isServe)`                                                                                                                                                                                          |
 
 Two more cases that are not copy:
 
@@ -83,12 +105,20 @@ and a ternary's strings are invisible to it.
 flags a banned word in **Serve copy** — not merely in a file Serve reaches,
 since the shared flows are full of Win copy that must not change. It looks at:
 
-1. every string in a file under a Serve-only route (`SERVE_ONLY_DIRS`)
+1. every string in a file under a Serve-only route (`SERVE_ONLY_DIRS`). A
+   one-word capitalised string or JSX text ("Campaign" as a column header)
+   counts as copy
 2. the initializer of any `SERVE_*` declaration, anywhere
 3. the value of any `serve:` key in a mode-keyed object, anywhere
 
 Comments, imports, object keys, route paths, enum values (`not_a_voter`),
 `className`s and strings being compared are not copy, and are not flagged.
+
+The civic panel's old names are flagged in **all** copy, not only in those
+three regions, since a panel string lives in shared flows too. gp-api and
+contracts get the same rule from
+`packages/gp-api/src/chats/general/product-knowledge/civicPanelName.test.ts`,
+a text scan that also reads comments and allows only the legacy join lines.
 
 Three layers run it:
 
@@ -138,7 +168,16 @@ copy.
   component a `SERVE_*` copy object (see that file's `SERVE_FOLLOW_UP_COPY`)
   and rule 2 covers it. Do NOT reach for a cleverer parser that follows the
   render graph: the fix is to write the copy where the check can see it.
-- `packages/gp-api` prompts and `packages/gp-sdk`. The gate is gp-webapp only.
+- `packages/gp-api` prompts. The gate is gp-webapp only.
   `SERVE_SOCIAL_VOICE` is the pattern to copy there, by hand.
 - Serve words leaking into **Win** ("constituent" on a candidate's screen).
   Rarer, and the same table above is the rule.
+- **Analytics event names and their constants.** The gate reads user-facing
+  copy, not `helpers/analyticsHelper.ts`, so a component both products mount
+  can record an elected official's activity under Win nouns and pass clean.
+  This is not a gap to close by widening the parser, because the fix is the
+  opposite of the copy rule: copy is mode-keyed per surface, an analytics
+  event is **one** name for both surfaces carrying `product: 'win' | 'serve'`
+  as a property. Two names would make every cross-product total a union and
+  undercount silently when someone forgets one. See
+  `.claude/skills/instrument-analytics-event/SKILL.md`, "Name the event".

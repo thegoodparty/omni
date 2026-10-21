@@ -5,7 +5,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  NotFoundException,
   Param,
   ParseIntPipe,
   Post,
@@ -22,7 +21,6 @@ import {
   type OutreachAssigneesResponse,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { FeaturesService } from '@/features/services/features.service'
 import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
@@ -34,13 +32,6 @@ import { Organization, User } from '../generated/prisma'
 import { AssignOutreachDto } from './schemas/assignOutreach.schema'
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 
-// gp-api evaluates flags through the project's ANALYTICS key (see
-// organizations/team.controller.ts) — Phase 1's team-accounts flag, not a
-// separate volunteer flag. Gates only the create route, same reasoning as
-// createInvite: without any assignment rows the flag being off makes every
-// other route here inert.
-const WIN_TEAM_ACCOUNTS_FLAG = 'win-team-accounts'
-
 @Controller('outreach')
 @UseOrganization()
 @UsePipes(ZodValidationPipe)
@@ -48,7 +39,6 @@ const WIN_TEAM_ACCOUNTS_FLAG = 'win-team-accounts'
 export class OutreachAssignmentController {
   constructor(
     private readonly assignments: OutreachAssignmentService,
-    private readonly features: FeaturesService,
     private readonly analytics: AnalyticsService,
   ) {}
 
@@ -76,14 +66,6 @@ export class OutreachAssignmentController {
     @Param('id', ParseIntPipe) outreachId: number,
     @Body() input: AssignOutreachDto,
   ): Promise<OutreachAssignee> {
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: WIN_TEAM_ACCOUNTS_FLAG,
-    })
-    if (!enabled) {
-      throw new NotFoundException()
-    }
-
     const assignee = await this.assignments.assignValidated(
       organization.slug,
       outreachId,

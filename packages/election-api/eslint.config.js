@@ -66,5 +66,5 @@ module.exports = defineConfig([
       '@typescript-eslint/no-unused-vars': 'off',
     },
   },
-  globalIgnores(['eslint.config.js', '**/generated/', '**/dist/']),
+  globalIgnores(['eslint.config.js', '**/generated/', '**/dist/', 'deploy/']),
 ])

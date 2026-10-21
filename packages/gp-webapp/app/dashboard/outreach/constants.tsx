@@ -1,3 +1,4 @@
+import { PRICE_PER_TEXT } from '@goodparty_org/contracts'
 import {
   MdOutlineSignalCellularAlt,
   MdOutlineSignalCellularAlt1Bar,
@@ -129,7 +130,7 @@ export const OUTREACH_OPTIONS: OutreachOption[] = [
   {
     title: 'Text message',
     impact: IMPACTS_LEVELS.medium,
-    cost: 0.035,
+    cost: PRICE_PER_TEXT,
     type: OUTREACH_TYPES.text,
     requiresPro: true,
   },

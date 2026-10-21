@@ -15,7 +15,7 @@ const AUTH_HEADER_PATTERN =
   /("authorization\\*"[ \t]*:[ \t]*\\*"|authorization:[ \t]*)([a-z][a-z0-9-]*[ \t]+)?[^"\\\n]+/gi
 
 const buildSecretPattern = (): RegExp => {
-  const escaped = (process.env.SECRET_NAMES ?? '')
+  const escaped = (process.env.SECRETS_MANAGER_KEYS ?? '')
     .split(',')
     .map((name) => process.env[name])
     .filter(isNotNil)

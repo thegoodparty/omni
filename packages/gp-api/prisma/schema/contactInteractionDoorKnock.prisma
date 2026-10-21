@@ -49,6 +49,13 @@ model ContactInteractionDoorKnock {
   // since a CHECK constraint would also have to be taught about every legacy
   // row that predates it.
   followUp         FollowUpAnswer?  @map("follow_up")
+  // The Serve door's closing question: did this resident agree to join the
+  // office's civic panel. What this one knock heard, never the standing
+  // membership, which lives on the `civic_panel` contact status.
+  joinCivicPanel   FollowUpAnswer?  @map("join_civic_panel")
+  // Asked instead on a turf of panel members only: did they want to stay on
+  // it. A no takes them off the panel; join_civic_panel stays null.
+  stayOnCivicPanel FollowUpAnswer?  @map("stay_on_civic_panel")
   note             String?
   // The door-knocking tool's route/interaction id, the idempotency key so a
   // re-sync upserts rather than double-writes. Null for manual logs; Postgres
@@ -61,8 +68,20 @@ model ContactInteractionDoorKnock {
   actorUserId      Int?             @map("actor_user_id")
   actor            User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  // The canvasser's spoken summary of this conversation, when they recorded
+  // one. At most one per knock — a re-record corrects in place.
+  constituentFeedback ConstituentFeedback?
+
+  // The envelope the knock was logged under. The write path already resolves
+  // this to authorize volunteers and never stored it; without it, "how many
+  // doors answered on this effort" has no exact source, because a person can
+  // sit in two turfs. Null on every row before this shipped.
+  outreachId Int?      @map("outreach_id")
+  outreach   Outreach? @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+
   @@unique([organizationSlug, sourceId])
   @@index([organizationSlug, personId, occurredAt])
   @@index([organizationSlug, actorUserId])
+  @@index([organizationSlug, outreachId])
   @@map("contact_interaction_door_knock")
 }

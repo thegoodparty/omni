@@ -3,6 +3,8 @@ import JSZip from 'jszip'
 import type { PhoneBankingList } from '@goodparty_org/contracts'
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
 import { serverRequest } from 'gpApi/server-request'
+import { getFlagVariants } from '@shared/experiments/getFlagVariants'
+import { SERVE_CITIZEN_PANELS_FLAG_KEY } from '@shared/experiments/serveCitizenPanelsFlag'
 import { renderCallSheetPdf } from '../../pdf/CallSheetPdf'
 import {
   callSheetFilename,
@@ -18,10 +20,10 @@ export const dynamic = 'force-dynamic'
 // runtime.
 export const runtime = 'nodejs'
 // A multi-sheet request renders every sheet before it can zip them, so this
-// scales with sheet count rather than any single sheet's own cost. The
-// default 15s is close enough to a large list's worst case to be worth
-// raising, same as the walk-list PDF route.
-export const maxDuration = 60
+// scales with sheet count rather than any single sheet's own cost. A full
+// 20-sheet list takes 15-23s on a laptop and ran past 60s in prod (ENG-11122),
+// so this leaves room for a slower function CPU.
+export const maxDuration = 300
 
 const notFound = () => new Response('Not found', { status: 404 })
 
@@ -67,13 +69,18 @@ export const GET = async (
   // typed it, and there's no reason to ask the API about it at all.
   if (!/^\d+$/.test(listId)) return notFound()
 
-  const list = await fetchList(listId)
+  const [list, variants] = await Promise.all([
+    fetchList(listId),
+    getFlagVariants(),
+  ])
   if (!list) return notFound()
 
   // The list's own surface, the same field the caller page reads — paper must
   // ask the question the app asks.
   const isServe = list.isServe === true
-  const rows = callSheetRows(list.entries, isServe)
+  const citizenPanelsEnabled =
+    variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value === 'on'
+  const rows = callSheetRows(list.entries, isServe, citizenPanelsEnabled)
   const sheets = sheetIndexesOf(rows)
   const sheetTotal = Math.max(sheets.length, 1)
 
@@ -88,6 +95,8 @@ export const GET = async (
       sheetCount: sheetTotal,
       rows: rowsForSheet(sheetIndex),
       isServe,
+      citizenPanelsEnabled,
+      civicPanelOnly: list.civicPanelOnly === true,
     })
 
   const sheetParam = new URL(request.url).searchParams.get('sheet')

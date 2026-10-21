@@ -126,9 +126,15 @@ export class ExperimentRunsService extends createPrismaBase(
     }
     const organization = await this.client.organization.findUnique({
       where: { slug: input.organizationSlug },
-      select: { owner: { select: { email: true } } },
+      select: {
+        owner: { select: { email: true } },
+        testModeCreatedAt: true,
+      },
     })
-    if (isTestUser({ email: organization?.owner.email ?? '' })) {
+    if (
+      isTestUser({ email: organization?.owner.email ?? '' }) ||
+      organization?.testModeCreatedAt
+    ) {
       this.logger.info(
         {
           organizationSlug: input.organizationSlug,

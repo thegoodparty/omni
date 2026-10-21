@@ -3,7 +3,6 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   createFlowStepHeading,
-  enableNativeDoorKnockingFlag,
   gotoDoorKnocking,
 } from 'src/helpers/door-knocking-e2e'
 
@@ -18,9 +17,9 @@ import {
 // sheet by TurfDetailsSheet.test.tsx, where a row costs a fixture.
 //
 // What is left is the half those unit tests cannot see: whether the page, its
-// flag, its Pro gate and gp-api's `GET /turfs` really line up on a live
-// preview — and 3.0 made that reachable, because an org with no lists opens
-// the create flow by itself.
+// Pro gate and gp-api's `GET /turfs` really line up on a live preview — and
+// 3.0 made that reachable, because an org with no lists opens the create flow
+// by itself.
 //
 // One test, one `setupProCampaignUser` — every other spec file in this suite
 // spends exactly one, because concurrent Clerk-user bootstraps against a cold
@@ -29,10 +28,6 @@ import {
 test.describe('native door-knocking zero state', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // Set before auth/navigation: the variant is resolved server-side and seeded
-    // into the first SSR render, and pinning it stops a live ramp flipping the
-    // surface under this spec.
-    await enableNativeDoorKnockingFlag(page)
   })
 
   test('opens the create flow on its own, and leaves door knocking when dismissed', async ({

@@ -4,8 +4,10 @@ import { PaymentPortalButton } from '@shared/PaymentPortalButton'
 import { MdOpenInNew } from 'react-icons/md'
 import { Button } from '@styleguide'
 import Link from 'next/link'
-import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
+import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+
+const UPGRADE_CTA = 'Upgrade Plan'
 
 interface AccountSettingsButtonProps {
   isPro: boolean
@@ -43,10 +45,14 @@ export const AccountSettingsButton = ({
     <div>
       <Button asChild>
         <Link
-          href={PRO_UPGRADE_ENTRY_PATH}
+          href={proUpgradeHref({
+            source: 'account_settings',
+            channel: 'generic',
+            cta: UPGRADE_CTA,
+          })}
           onClick={() => trackEvent(EVENTS.Settings.Account.ClickUpgrade)}
         >
-          Upgrade Plan
+          {UPGRADE_CTA}
         </Link>
       </Button>
     </div>

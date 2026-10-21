@@ -1,4 +1,8 @@
-import { VOTER_CONTACT_SCHEDULE } from '@goodparty_org/contracts'
+import {
+  TEXT_SEND_ROBOCALL_SWAPS,
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendDate,
+} from '@goodparty_org/contracts'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { StrategicLandscapeData } from 'gpApi/api-endpoints'
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
@@ -17,6 +21,12 @@ import {
   CONTACTS_PER_VOLUNTEER_HOUR,
   resolveWeeksRemaining,
 } from '../../components/volunteerHours'
+import {
+  planVotesCast,
+  planWinGoal,
+  resolveSeatContext,
+  winNumberPlanSource,
+} from '../../components/winNumberCopy'
 import { VOTER_DEADLINES_2026 } from '../data/voterDeadlines2026'
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
@@ -65,6 +75,13 @@ export interface PlanInput {
   state: string
   partisanType: string
   electionDateIso: string | null | undefined
+  // When the campaign's plan timeline started (the tracker's start), so a late
+  // joiner's past-due sends are compressed the same way the tracker does.
+  // Unset before the tracker exists, when the plan is starting today.
+  planStartIso?: string | null
+  // gp-api's texting window is closed: the plan swaps its text sends for
+  // robocalls the way the tracker does, and drops the text budget.
+  smsClosed?: boolean
   filingDateStartIso: string | null | undefined
   filingDateEndIso: string | null | undefined
   winNumber: number
@@ -86,6 +103,9 @@ export interface PlanInput {
   projectedTurnoutUpper: number | null
   winNumberLower: number | null
   winNumberUpper: number | null
+  // Seats the race fills. Null when unknown, and the win-number copy then
+  // makes no seat claim (see winNumberCopy.ts).
+  numberOfSeats: number | null
   raceCandidates: RaceCandidate[]
   // Per-category BR milestone windows. Null when election-api couldn't
   // fetch them; individual category nullable when BR has no data for it.
@@ -227,11 +247,17 @@ export interface PlanData {
   electionDateRaw: Date | null
   planGenerationDate: string
   contactWindowStart: string
+  smsClosed: boolean
 
   winNumber: number
   projectedTurnout: number
   registeredVoters: number
   voterContactGoal: number
+  // Seat-aware pieces of the "Projected Votes Needed to Win" summary (see
+  // winNumberCopy.ts). votesCast is null when the seat count is unknown, and
+  // the summary then states turnout instead.
+  votesCast: number | null
+  winNumberGoal: string
 
   opponentCount: number
   volunteerHourTarget: number
@@ -285,6 +311,7 @@ const buildTimeline = (
   filingDateEnd: Date | null,
   milestones: RaceMilestones | null,
   stateCode: string,
+  smsClosed: boolean,
 ): {
   timeline: TimelineRow[]
   keyDates: KeyDate[]
@@ -466,7 +493,9 @@ const buildTimeline = (
               milestone: 'Absentee ballot request opens',
               notes: sourceNote(
                 requestBallotStartIsReal,
-                'Plan introduction text and robocall campaigns to land before this date.',
+                smsClosed
+                  ? 'Plan introduction robocall campaigns to land before this date.'
+                  : 'Plan introduction text and robocall campaigns to land before this date.',
               ),
             },
           ]),
@@ -506,14 +535,18 @@ const buildTimeline = (
               notes: curatedNote(
                 requestBallotEndSource,
                 requestBallotTierNote,
-                'Push via text campaign.',
+                smsClosed
+                  ? 'Push via robocall campaign.'
+                  : 'Push via text campaign.',
               ),
             },
           ]),
       {
         date: electionDate,
         milestone: 'Election Day, polls open; absentee ballots due',
-        notes: 'All hands on deck; push via GOTV text and robocall campaigns.',
+        notes: smsClosed
+          ? 'All hands on deck; push via GOTV robocall campaigns.'
+          : 'All hands on deck; push via GOTV text and robocall campaigns.',
       },
     ]
 
@@ -579,16 +612,44 @@ const buildTimeline = (
   return { timeline, keyDates }
 }
 
-// The send offsets/tactics/purposes come from the shared canonical schedule so
-// this section, the tracker's outreach tasks, and the CAS ClickUp feed always
-// show identical dates.
-const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
+// The send offsets/tactics/purposes come from the shared canonical schedule,
+// and the dates from the same compression the tracker applies for a late
+// joiner (voterContactSendDate), so this section, the tracker's outreach tasks,
+// and the CAS ClickUp feed always show identical dates.
+const buildContactSchedule = (
+  electionDate: Date | null,
+  planStart: Date,
+  smsClosed: boolean,
+): ContactSend[] => {
   if (!electionDate) return []
-  return VOTER_CONTACT_SCHEDULE.map((send) => ({
-    date: formatDate(addDays(electionDate, -send.daysBeforeElection)),
+  const sends = VOTER_CONTACT_SCHEDULE.map((send) => ({
+    catalogId: send.catalogId,
+    date: formatDate(
+      voterContactSendDate(send.catalogId, electionDate, planStart) ??
+        addDays(electionDate, -send.daysBeforeElection),
+    ),
     tactic: send.tactic,
     purpose: send.purpose,
   }))
+  if (!smsClosed) {
+    return sends.map(({ date, tactic, purpose }) => ({ date, tactic, purpose }))
+  }
+  // Past the texting cutoff each text send becomes the tracker's swapped
+  // robocall on its date, unless a robocall already lands that day.
+  const robocallDates = new Set(
+    sends.filter((send) => send.tactic === 'Robocall').map((send) => send.date),
+  )
+  return sends.flatMap((send): ContactSend[] => {
+    if (send.tactic !== 'Text') {
+      return [{ date: send.date, tactic: send.tactic, purpose: send.purpose }]
+    }
+    const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+      (candidate) => candidate.catalogId === send.catalogId,
+    )
+    if (!swap || robocallDates.has(send.date)) return []
+    robocallDates.add(send.date)
+    return [{ date: send.date, tactic: 'Robocall', purpose: swap.description }]
+  })
 }
 
 const OUTLET_TYPE_LABEL: Record<ApiPressOutlet['type'], string> = {
@@ -634,19 +695,29 @@ const buildBudgetBreakdown = (
   contactGoal: number,
   projectedTurnout: number,
   filingFee: number | null,
+  smsClosed: boolean,
 ): BudgetBreakdown => {
-  const budget = computeBudget(contactGoal, projectedTurnout, filingFee)
+  const budget = computeBudget(
+    contactGoal,
+    projectedTurnout,
+    filingFee,
+    smsClosed,
+  )
 
   const lineItems: BudgetRow[] = [
-    {
-      category: 'Text campaigns',
-      amount: formatDollars(budget.textCost),
-      rationale: `60% of your ${contactGoal.toLocaleString(
-        'en-US',
-      )} voter contacts (${budget.textCount.toLocaleString(
-        'en-US',
-      )} texts) at $${TEXT_COST.toFixed(3)} per text.`,
-    },
+    ...(smsClosed
+      ? []
+      : [
+          {
+            category: 'Text campaigns',
+            amount: formatDollars(budget.textCost),
+            rationale: `60% of your ${contactGoal.toLocaleString(
+              'en-US',
+            )} voter contacts (${budget.textCount.toLocaleString(
+              'en-US',
+            )} texts) at $${TEXT_COST.toFixed(3)} per text.`,
+          },
+        ]),
     {
       category: 'Robocall campaigns',
       amount: formatDollars(budget.robocallCost),
@@ -735,7 +806,7 @@ const FUNDRAISING_MIX: FundraisingRow[] = [
 
 const KEY_ASSUMPTIONS: string[] = [
   'Turnout behaves like recent comparable off-year municipal elections in your area, roughly 18 to 24 percent of registered voters.',
-  'Voter preferences distribute across the field without one opponent dominating. A plurality near 40 percent is often sufficient to win, but we plan to the more conservative 50% + 1 threshold.',
+  'Voter preferences distribute across the field without one opponent dominating. Candidates often win with fewer votes than our projection, but we plan to the more conservative number.',
   'You will execute the contact cadence on schedule. Any slippage materially reduces the probability of hitting the contact goal.',
 ]
 
@@ -754,7 +825,7 @@ const GLOSSARY: GlossaryRow[] = [
   {
     term: 'Projected Votes Needed to Win',
     definition:
-      'The vote total at which a candidate would win the seat with certainty given the modeled voter turnout. Calculated as 50% + 1 of the projected voter turnout.',
+      "The vote total we project you need to win, given the modeled voter turnout. With 1 seat, that's 50% of votes + 1. With more seats, it's enough to finish among the winners.",
   },
   {
     term: 'Projected Voter Turnout',
@@ -807,6 +878,8 @@ const buildPlanAtAGlance = (
   projectedTurnout: number,
   contactWindowStart: string,
   electionDate: string,
+  smsClosed: boolean,
+  contactCount: number,
 ): { title: string; body: string }[] => [
   {
     title: 'Voter turnout is the ball game.',
@@ -816,7 +889,7 @@ const buildPlanAtAGlance = (
   },
   {
     title: 'Stack the channels.',
-    body: `7 coordinated voter contacts (text + robocall) blanket your targeted voters between ${
+    body: `${smsClosed ? `${contactCount} coordinated robocalls` : '7 coordinated voter contacts (text + robocall)'} blanket your targeted voters between ${
       contactWindowStart || '{12_weeks_before_election_date}'
     } and ${electionDate || '{election_date}'}.`,
   },
@@ -1022,6 +1095,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const districtName = (input.district ?? '').trim()
   const hasDistrict = districtName !== ''
   const electionType = resolveElectionType(input.partisanType ?? '')
+  const smsClosed = input.smsClosed ?? false
 
   const electionDateValid = parseDateIso(input.electionDateIso)
   const electionDate = electionDateValid ? formatDate(electionDateValid) : ''
@@ -1035,6 +1109,11 @@ export const buildPlanData = (input: PlanInput): PlanData => {
 
   const winNumber = input.winNumber
   const projectedTurnout = input.projectedTurnout
+  const seatContext = resolveSeatContext({
+    numberOfSeats: input.numberOfSeats,
+    winNumber,
+    projectedTurnout,
+  })
   const voterContactGoal = resolveVoterContactGoal(
     input.voterContactGoal,
     winNumber,
@@ -1062,7 +1141,12 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   const metricsReady = voterContactGoal > 0 && projectedTurnout > 0
   const emptyBudget: BudgetBreakdown = { totalBudget: 0, lineItems: [] }
   const { totalBudget, lineItems: budgetLineItems } = metricsReady
-    ? buildBudgetBreakdown(voterContactGoal, projectedTurnout, input.filingFee)
+    ? buildBudgetBreakdown(
+        voterContactGoal,
+        projectedTurnout,
+        input.filingFee,
+        smsClosed,
+      )
     : emptyBudget
 
   const weeksRemaining = resolveWeeksRemaining(electionDateValid)
@@ -1082,8 +1166,16 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     filingDateEnd,
     input.milestones,
     input.state,
+    smsClosed,
   )
-  const contactSchedule = buildContactSchedule(electionDateValid)
+  const contactSchedule = buildContactSchedule(
+    electionDateValid,
+    // Local midnight, like the election date, so the two compare by day.
+    input.planStartIso
+      ? new Date(input.planStartIso.slice(0, 10).replace(/-/g, '/'))
+      : new Date(new Date().setHours(0, 0, 0, 0)),
+    smsClosed,
+  )
 
   const confidenceEstimates = buildConfidenceEstimates(
     registeredVoters,
@@ -1096,6 +1188,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     projectedTurnout,
     contactWindowStart,
     electionDate,
+    smsClosed,
+    contactSchedule.length,
   )
 
   const opponents = buildOpponents(
@@ -1119,10 +1213,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       target: winNumber.toLocaleString('en-US'),
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: projectedTurnout.toLocaleString('en-US'),
-    },
-    {
       metric: 'Targeted Voter Contact Goal',
       target: voterContactGoal.toLocaleString('en-US'),
     },
@@ -1144,16 +1234,9 @@ export const buildPlanData = (input: PlanInput): PlanData => {
         'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
     },
     {
-      metric: 'Projected Voter Turnout',
-      target: `${projectedTurnout.toLocaleString('en-US')} voters turnout`,
-      source:
-        'The projected number of voters we expect to cast a ballot in your race, based on past voter turnout and our proprietary models.',
-    },
-    {
       metric: 'Projected Votes Needed to Win',
       target: `${winNumber.toLocaleString('en-US')} votes needed to win`,
-      source:
-        'Projecting a simple majority (50% + 1) of projected voter turnout.',
+      source: winNumberPlanSource(seatContext),
     },
     {
       metric: 'Contacts Per Likely Voter',
@@ -1185,10 +1268,13 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     electionDateRaw: electionDateValid,
     planGenerationDate,
     contactWindowStart,
+    smsClosed,
     winNumber,
     projectedTurnout,
     registeredVoters,
     voterContactGoal,
+    votesCast: planVotesCast(seatContext, projectedTurnout),
+    winNumberGoal: planWinGoal(seatContext),
     opponentCount,
     volunteerHourTarget,
     totalBudget,
@@ -1220,7 +1306,9 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     keyAssumptions: KEY_ASSUMPTIONS,
     confidenceEstimates,
     planDoesNotDo: PLAN_DOES_NOT_DO,
-    glossary: GLOSSARY,
+    glossary: smsClosed
+      ? GLOSSARY.filter((row) => row.term !== 'Text')
+      : GLOSSARY,
     filingFee: input.filingFee,
     filingRequirementsText: input.filingRequirementsText,
   }

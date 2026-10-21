@@ -6,6 +6,7 @@ import {
   type ComplianceStateOutput,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import { api } from 'helpers/test-utils/api-mocking'
 import type {
   Campaign,
@@ -42,7 +43,7 @@ const stateWith = (
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus,
   pinDelivery,
-  internalTestingApprovedAt: null,
+  internalTestingAt: null,
   hasComplianceRecord: true,
   committeeName: null,
   filingUrl: null,
@@ -470,5 +471,60 @@ describe('ProUpgrade3Compliance — PIN submit', () => {
     // stays disabled — the API never receives a non-numeric PIN.
     expect(getPinInput()!.value).toBe('')
     expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled()
+  })
+})
+
+describe('ProUpgrade3Compliance — SMS compliance window', () => {
+  const smsCampaign = (
+    smsCompliance: 'closing' | 'closed',
+  ): Partial<Campaign> => ({
+    hasFreeTextsOffer: false,
+    smsCompliance,
+    smsCutoffDate: '2026-10-15',
+    generalElectionDate: '2026-11-03',
+  })
+  const closingTitle = `Get verified to send SMS by the ${formatSmsCutoffDate('2026-10-15')} deadline`
+
+  it.each<[TcrComplianceStatus | null]>([[null], ['error'], ['submitted']])(
+    'renders nothing when closed, whatever the record says (%s)',
+    async (status) => {
+      mockUseCampaign.mockReturnValue([smsCampaign('closed')])
+      mockGetTcrCompliance.mockResolvedValue(
+        status === null ? null : tcrWith(status),
+      )
+      const { container } = render(<ProUpgrade3Compliance />)
+
+      expect(container).toBeEmptyDOMElement()
+      expect(screen.queryByRole('link', { name: 'Get started' })).toBeNull()
+      expect(getPinInput()).toBeNull()
+    },
+  )
+
+  it('puts the cutoff date in the set-up card title while closing', async () => {
+    mockUseCampaign.mockReturnValue([smsCampaign('closing')])
+    mockGetTcrCompliance.mockResolvedValue(null)
+    render(<ProUpgrade3Compliance />)
+
+    expect(await screen.findByText(closingTitle)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Register your campaign for 10DLC texting compliance so you can send text messages to voters.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Get started' })).toHaveAttribute(
+      'href',
+      '/dashboard/profile/texting-compliance/election-filing',
+    )
+  })
+
+  it('keeps the in-review card while closing once a record is in', async () => {
+    mockUseCampaign.mockReturnValue([smsCampaign('closing')])
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('pending'))
+    render(<ProUpgrade3Compliance />)
+
+    expect(
+      await screen.findByText('Your candidate profile is being reviewed'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(closingTitle)).toBeNull()
   })
 })

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import { ClockIcon, ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ProUpgradeFlow, {
   type ProUpgradeFlowPosition,
 } from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
@@ -12,6 +13,7 @@ import CampaignVerificationSteps, {
   type VerificationStep,
 } from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
 import { PinDialog } from 'app/dashboard/shared/membership/PinDialog'
+import { SmsCutoffNotice } from 'app/dashboard/shared/smsCutoff/SmsCutoffNotice'
 import {
   BANNER_COPY,
   GATE_CHROME_COPY,
@@ -20,6 +22,10 @@ import {
   type GateChannel,
 } from './gateCopy'
 import type { GateRequirement, OutreachGateState } from './useOutreachGate'
+import type {
+  OutreachFlowSource,
+  OutreachTrackerOrigin,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 
 interface OutreachGateProps {
   channel: GateChannel
@@ -39,6 +45,11 @@ interface OutreachGateProps {
   // position in place of the flow's (design: renderSgModal). `totalSteps`
   // 0 is a screen that draws no header. Null once the gate unmounts.
   onChromeChange?: (chrome: GateChrome | null) => void
+  // Where the flow was opened from and the label of the button that opened
+  // the gate, for the wizard's `Pro Upgrade - Flow Started`.
+  source: OutreachFlowSource
+  cta?: string
+  tracker?: OutreachTrackerOrigin
 }
 
 export interface GateChrome {
@@ -48,8 +59,8 @@ export interface GateChrome {
 }
 
 // The gate screens themselves, mounted in place of a paused flow's step body:
-// the Pro interstitial, campaign verification, the PIN dialog, or an
-// in-review notice. None of them offers Delete (design: no gate screen does)
+// the Pro interstitial, campaign verification, the PIN dialog, an in-review
+// notice, or the SMS cutoff notice. None of them offers Delete (design: no gate screen does)
 // — a saved draft is discarded from its history row's drawer.
 export const OutreachGate = ({
   channel,
@@ -59,6 +70,9 @@ export const OutreachGate = ({
   onComplete,
   showInterstitial = true,
   onChromeChange,
+  source,
+  cta,
+  tracker,
 }: OutreachGateProps): React.JSX.Element | null => {
   // Read through a ref so the callbacks handed to the wizard and the
   // verification steps stay stable — both re-fire their position effects
@@ -109,7 +123,8 @@ export const OutreachGate = ({
     if (
       remaining === 'verify' ||
       remaining === 'in_review' ||
-      remaining === 'pin'
+      remaining === 'pin' ||
+      remaining === 'closed'
     ) {
       setScreen(remaining)
       return
@@ -118,15 +133,26 @@ export const OutreachGate = ({
   }
 
   // The PIN and in-review cards are the verification phase's own notices
-  // and draw no header of their own (design: the pending screen).
+  // and draw no header of their own (design: the pending screen). The
+  // cutoff notice is the same kind of stop.
   useEffect(() => {
-    if (!open || (screen !== 'pin' && screen !== 'in_review')) return
+    if (
+      !open ||
+      (screen !== 'pin' && screen !== 'in_review' && screen !== 'closed')
+    ) {
+      return
+    }
     onChromeChangeRef.current?.({
       overline: GATE_CHROME_COPY.verification,
       currentStep: 0,
       totalSteps: 0,
     })
   }, [open, screen])
+
+  useEffect(() => {
+    if (!open || screen !== 'in_review') return
+    trackEvent(EVENTS.Outreach.Gate.InReviewViewed, { channel })
+  }, [open, screen, channel])
 
   if (!open || screen === null) return null
 
@@ -142,6 +168,14 @@ export const OutreachGate = ({
               : PRO_UPGRADE_STEP.GUIDANCE
           }
           channel={channel}
+          attribution={{
+            source,
+            channel,
+            ...(cta ? { cta } : {}),
+            ...(tracker
+              ? { trackerTaskId: tracker.trackerTaskId, phase: tracker.phase }
+              : {}),
+          }}
           onExit={onExit}
           onComplete={handleProComplete}
           onPositionChange={reportProPosition}
@@ -182,6 +216,17 @@ export const OutreachGate = ({
           tcrCompliance={state.tcrCompliance}
         />
       </div>
+    )
+  }
+
+  if (screen === 'closed') {
+    return (
+      <SmsCutoffNotice
+        variant="screen"
+        surface="outreach_gate"
+        onBack={onExit}
+        onPick={onExit}
+      />
     )
   }
 

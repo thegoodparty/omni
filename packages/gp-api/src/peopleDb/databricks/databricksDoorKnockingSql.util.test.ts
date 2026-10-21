@@ -9,9 +9,12 @@ import {
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
   buildPackSql,
+  buildWalkableAreaSql,
   PACK_CSV_COLUMNS,
   type DbxDistrict,
 } from './databricksVoterSql.util'
+
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
 
 const CITY: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',
@@ -19,6 +22,8 @@ const CITY: DbxDistrict = {
   districtType: 'City',
   districtName: 'SPRINGFIELD',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const STATEWIDE: DbxDistrict = {
@@ -27,6 +32,8 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'IL',
   useVoterOnlyPath: true,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const EMPTY_FILTERS = filtersSchema.parse({})
@@ -104,6 +111,16 @@ describe('buildDoorKnockingEvaluateSql', () => {
     expect(build().sql).not.toContain('NOT IN')
   })
 
+  it('keeps to one census tract when asked, bound', () => {
+    const { sql, params } = build({ tract: '53017950100' })
+    const marker = sql.match(
+      /substr\(v\.`Census_Block_Group_Geoid`, 1, 11\) = (:p\d+)/,
+    )?.[1]
+    expect(marker).toBeDefined()
+    expect(valueOf(params, marker ?? '')).toBe('53017950100')
+    expect(build().sql).not.toContain('Census_Block_Group_Geoid')
+  })
+
   it('refuses to inline a non-uuid into the suppression set', () => {
     expect(() => build({ excludePersonIds: ["' OR 1=1 --"] })).toThrow(
       /non-uuid/,
@@ -119,6 +136,62 @@ describe('buildDoorKnockingEvaluateSql', () => {
     })
     expect(sql).toContain('v.`State` =')
     expect(sql).not.toContain('v.`State` = :p0 AND v.`State` =')
+  })
+})
+
+describe('buildWalkableAreaSql', () => {
+  const build = (overrides = {}) =>
+    buildWalkableAreaSql({
+      district: CITY,
+      filters: EMPTY_FILTERS,
+      households: 40,
+      ...overrides,
+    })
+
+  it('picks over every eligible rooftop door, with no cap on the scan', () => {
+    const { sql } = build()
+    expect(sql).toContain(
+      "`Residence_Addresses_LatLongAccuracy` = 'GeoMatchRooftop'",
+    )
+    // The only LIMITs are the one seed cell and the step's doors, both after
+    // the whole scope is grouped into cells.
+    const points = sql.slice(0, sql.indexOf('seed AS'))
+    expect(points).not.toContain('LIMIT')
+    expect(sql.match(/LIMIT/g)).toHaveLength(2)
+  })
+
+  it('seeds on the densest 3x3 block of 200m cells, ties to the lower key', () => {
+    const { sql } = build()
+    expect(sql).toContain('floor(x / 200)')
+    expect(sql).toContain('(VALUES (-1), (0), (1))')
+    expect(sql).toContain("ORDER BY score DESC, concat(kx, ':', ky) LIMIT 1")
+    expect(sql).toContain(
+      'ORDER BY hypot(p.x - s.centerX, p.y - s.centerY), p.addressKey',
+    )
+  })
+
+  it('binds the step size as the number of doors', () => {
+    const { sql, params } = build({ households: 100 })
+    const limit = sql.match(/hypot[^)]*\), p\.addressKey LIMIT (:\w+)/)?.[1]
+    expect(limit && valueOf(params, limit)).toBe('100')
+  })
+
+  it('narrows to the tract and leaves out people already drawn', () => {
+    const drawn = '11111111-1111-4111-8111-111111111111'
+    const { sql, params } = build({
+      tract: '17167000100',
+      excludePersonIds: [drawn],
+    })
+    expect(boundValues(params)).toContain('17167000100')
+    expect(sql).toContain(`NOT IN ('${drawn}')`)
+  })
+
+  it('returns a position and resident ids per door, never a name or address', () => {
+    const { sql } = build()
+    expect(sql).not.toContain('FirstName')
+    const output = sql.slice(sql.lastIndexOf(' SELECT '))
+    expect(output).not.toContain('addressKey AS')
+    expect(output).toContain('AS `personIds`')
   })
 })
 
@@ -167,11 +240,10 @@ describe('buildDoorKnockingResidentsSql', () => {
     expect(sql).toContain('CASE WHEN')
   })
 
-  it('casts key components to string so the INT direction columns coalesce', () => {
-    // Residence_Addresses_PrefixDirection / _SuffixDirection are INT in the
-    // mart, and Spark will not coalesce an INT with ''. Without the cast the
-    // legacy key would fail to compile rather than produce the empty segment
-    // Postgres produces.
+  it('casts every key component to string before it coalesces', () => {
+    // Spark will not coalesce a non-string column with ''. The cast keeps
+    // every component of the legacy key on the empty segment Postgres
+    // produces, whatever the column's type.
     const { sql } = build([LEGACY_KEY])
     expect(sql).toContain(
       'coalesce(cast(v.`Residence_Addresses_PrefixDirection` AS STRING)',

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   OutreachDetail,
+  ProposalLink,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialPurpose,
@@ -20,6 +21,13 @@ import { excludedSocialPlatformsForPurpose } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachFlowSource,
+  type OutreachLaunchSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { ChannelBadge } from '../channelMeta'
 import { OUTREACH_TYPES } from '../../constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -61,11 +69,14 @@ interface SocialFlowGenerateInput {
   platforms: SocialAssetPlatform[]
 }
 
-interface SocialFlowSaveInput {
+interface SocialFlowSaveInput extends ProposalLink {
   name: string
   purpose: SocialFlowPurpose
   draftMessage: string
   assets: SocialAsset[]
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the post is saved.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -116,11 +127,24 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
       )
       return data.assets
     },
-    save: async (input) => {
-      const { data } = await clientRequest(
-        'POST /v1/outreach/social',
-        input as SocialSaveRequest,
-      )
+    save: async ({
+      name,
+      purpose,
+      draftMessage,
+      assets,
+      proposalKey,
+      trackerTaskId,
+    }) => {
+      // Named, not rest-spread: Win's save takes a Campaign Manager card's
+      // key alone, never the rest of a Serve link.
+      const { data } = await clientRequest('POST /v1/outreach/social', {
+        name,
+        purpose,
+        draftMessage,
+        assets,
+        trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
+      } as SocialSaveRequest)
       return data
     },
   },
@@ -163,6 +187,9 @@ export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
 export interface SocialFlowPrefill {
   draftText: string
   purpose?: string | null
+  // From a chat card's proposal: saved with the post, linking it to its
+  // priority and making a second save of the same proposal return the first.
+  proposalLink?: ProposalLink
 }
 
 interface SocialFlowProps {
@@ -171,6 +198,13 @@ interface SocialFlowProps {
   onSaved: (detail: OutreachDetail) => void
   surface?: SocialFlowSurface
   prefill?: SocialFlowPrefill
+  // The tracker task this flow was launched from, carried onto the completion
+  // event so a completed task and the post it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events.
+  source: OutreachFlowSource
+  // The chat card that launched this post, for the Outreach events.
+  launchSource?: OutreachLaunchSource
 }
 
 const SuccessScreen = ({
@@ -210,12 +244,20 @@ export const SocialFlow = ({
   onSaved,
   surface = WIN_SOCIAL_SURFACE,
   prefill,
+  tracker,
+  source,
+  launchSource,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   const [draft, setDraft] = useState('')
-  const [manuallyEdited, setManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, prefilled or polished)
+  // rather than an untouched fresh draft, as on SMS: a tone change polishes
+  // them instead of replacing them, and Improve stays on offer.
+  const [ownWords, setOwnWords] = useState(false)
+  // The candidate's words from just before the last AI change replaced
+  // them. Typing clears it: going back would throw the typing away.
   const [undoText, setUndoText] = useState<string | null>(null)
   // Last text shown under each tone this compose session (generated or
   // manually edited). Revisiting a tone restores from here; only the
@@ -234,6 +276,10 @@ export const SocialFlow = ({
   // Guards against an out-of-order response (or one from a closed flow)
   // clobbering a newer draft.
   const draftRequestRef = useRef(0)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   const draftMutation = useMutation({
     mutationFn: (input: SocialFlowDraftInput) => surface.endpoints.draft(input),
@@ -267,9 +313,45 @@ export const SocialFlow = ({
         purpose: purpose as SocialFlowPurpose,
         draftMessage: draft.trim(),
         assets: assets as SocialAsset[],
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
+          : {}),
+        ...prefill?.proposalLink,
       }),
     onSuccess: (detail) => {
       setSaved(true)
+      // Social's create and completion are one press — there is no draft to
+      // pay for — so Created fires here too, immediately before Completed.
+      // It is kept rather than skipped so that every channel has a Created
+      // and the created → completed funnel has no channel-shaped hole in it;
+      // social simply converts at 100%.
+      trackEvent(
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        outreachEventProps({
+          channel: 'socialMedia',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          outreachCampaignId: detail.id,
+          ...(tracker ? { tracker } : {}),
+          launchSource,
+        }),
+      )
+      // Save is social's completion: the assets exist and the candidate has
+      // them. There is no send step to wait on, and no recipient count to
+      // report — a post reaches whoever it reaches, so `recipientCount` is
+      // omitted rather than sent as 0.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+        ...outreachEventProps({
+          channel: 'socialMedia',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          sendDate: new Date(),
+          outreachCampaignId: detail.id,
+          ...(tracker ? { tracker } : {}),
+          launchSource,
+        }),
+        platformCount: assets?.length ?? 0,
+      })
       onSaved(detail)
     },
   })
@@ -290,7 +372,7 @@ export const SocialFlow = ({
     setPurpose(null)
     setTone('warm')
     setDraft('')
-    setManuallyEdited(false)
+    setOwnWords(false)
     setUndoText(null)
     setPlatforms(ALL_SOCIAL_PLATFORM_IDS)
     setAssets(null)
@@ -307,7 +389,7 @@ export const SocialFlow = ({
       if (matchedPurpose) {
         setPurpose(prefill.purpose as SocialFlowPurpose)
         setDraft(prefill.draftText)
-        setManuallyEdited(true)
+        setOwnWords(true)
         const excluded = surface.excludedPlatforms(
           prefill.purpose as SocialFlowPurpose,
         )
@@ -317,7 +399,7 @@ export const SocialFlow = ({
         setStepId('platforms')
       } else {
         setDraft(prefill.draftText)
-        setManuallyEdited(true)
+        setOwnWords(true)
         setStepId('compose')
       }
     }
@@ -351,12 +433,13 @@ export const SocialFlow = ({
     nextPurpose: SocialFlowPurpose | null,
     nextTone: SocialTone,
     priorDraft: string,
-    priorManuallyEdited: boolean,
+    priorOwnWords: boolean,
     currentDraft?: string,
   ) => {
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     draftMutation.mutate(
       {
         purpose: nextPurpose,
@@ -366,12 +449,14 @@ export const SocialFlow = ({
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
-          if (priorManuallyEdited) {
-            setUndoText(priorDraft)
-            setManuallyEdited(false)
-          }
+          setUndoText(priorOwnWords ? priorDraft : null)
           setDraft(generated)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
+          setOwnWords(currentDraft !== undefined)
+          // Only fresh drafts are remembered per tone: a polish is of the
+          // candidate's words, which a tone switch must not swap away.
+          if (currentDraft === undefined) {
+            setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
+          }
           invalidateAssets()
         },
       },
@@ -381,7 +466,7 @@ export const SocialFlow = ({
   const handleSelectPurpose = (selected: SocialFlowPurpose) => {
     setPurpose(selected)
     setTone('warm')
-    setManuallyEdited(false)
+    setOwnWords(false)
     setUndoText(null)
     setDraft('')
     setToneDrafts({})
@@ -399,6 +484,15 @@ export const SocialFlow = ({
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      setTone(nextTone)
+      if (draft.trim().length > 0) {
+        requestDraft(purpose, nextTone, draft, true, draft)
+      }
+      return
+    }
     if (!purpose || purpose === 'custom') {
       setTone(nextTone)
       return
@@ -417,31 +511,38 @@ export const SocialFlow = ({
       draftRequestRef.current += 1
       resetDraftMutation()
       setDraft(remembered)
-      setManuallyEdited(false)
+      setOwnWords(false)
+      // Undo belonged to the words just swapped out, not to this draft.
+      setUndoText(null)
       invalidateAssets()
       return
     }
-    requestDraft(purpose, nextTone, draft, manuallyEdited)
+    requestDraft(purpose, nextTone, draft, ownWords)
   }
 
   const handleDraftChange = (value: string) => {
     setDraft(value)
-    setManuallyEdited(true)
+    setOwnWords(true)
+    setUndoText(null)
     invalidateAssets()
-    // Typing supersedes a failed draft call — clear the inline error.
-    if (draftMutation.isError) resetDraftMutation()
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   const handleImprove = () => {
     if (draft.trim().length === 0) return
-    requestDraft(purpose, tone, draft, manuallyEdited, draft)
+    requestDraft(purpose, tone, draft, ownWords, draft)
   }
 
   const handleUndo = () => {
     if (undoText === null) return
+    draftRequestRef.current += 1
+    resetDraftMutation()
     setDraft(undoText)
     setUndoText(null)
-    setManuallyEdited(true)
+    setOwnWords(true)
     invalidateAssets()
   }
 
@@ -516,6 +617,7 @@ export const SocialFlow = ({
       title={saved ? 'Done' : STEP_TITLES[stepId]}
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.socialMedia} />}
       channel="social"
+      source={source}
       trackedStep={saved ? null : stepId}
       settled={saved}
       currentStep={stepIndex + 1}
@@ -537,20 +639,22 @@ export const SocialFlow = ({
         />
       ) : stepId === 'compose' ? (
         <ComposeStep
-          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           draft={draft}
           onDraftChange={handleDraftChange}
-          onRegenerate={() =>
-            requestDraft(purpose, tone, draft, manuallyEdited)
-          }
+          onRegenerate={() => requestDraft(purpose, tone, draft, ownWords)}
           onImprove={handleImprove}
-          canImprove={manuallyEdited && draft.trim().length > 0}
+          canImprove={ownWords && draft.trim().length > 0}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
+          onRetry={() =>
+            lastDraftWasImproveRef.current
+              ? handleImprove()
+              : requestDraft(purpose, tone, draft, ownWords)
+          }
           isCustomPurpose={purpose === 'custom'}
         />
       ) : stepId === 'platforms' ? (
@@ -563,7 +667,6 @@ export const SocialFlow = ({
         />
       ) : (
         <ShareStep
-          isServe={surface.isServe}
           platforms={platforms}
           assets={assets}
           isGenerating={generateMutation.isPending}

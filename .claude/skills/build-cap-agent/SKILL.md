@@ -144,7 +144,7 @@ Use this skeleton. Every section is mandatory and in this order:
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/<slug>.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
@@ -316,7 +316,7 @@ branches (`dev` -> `qa` -> `main`), not by selecting experiments at publish time
    `markdown_block` (push per-item formatting into the parallel units).
 3. **Canned merge** — ship `assemble.py` as an ATTACHMENT, don't make the agent write
    it. Put deterministic helpers (e.g. `assemble.py` that reads the fragments +
-   `PARAMS_JSON` and emits the artifact + runs spot-checks) in
+   the params file and emits the artifact + runs spot-checks) in
    `experiments/<slug>/attachments/`; the runner writes every attachment to
    `/workspace/<basename>`. The assembly step becomes `python3 /workspace/assemble.py`
    - `validate_output.py` — no build-a-script-then-edit loop. (Static briefs can ship
@@ -659,7 +659,7 @@ with the relevant subset of these:
 - **`total_active_voters` matches the whole city, not the district** -> your L2
   district WHERE clause matched zero rows; the broker's auto-injected city scope was
   the only filter that hit. Re-confirm `l2DistrictType` / `l2DistrictName` came
-  verbatim from PARAMS_JSON.
+  verbatim from the params file.
 - **All top-N percentages <5%** -> you used `= 1` instead of `>= 50` (binary inference
   from suffix). Re-do the distribution check.
 - **Multiple top-N entries from the same policy area** -> candidate selection too narrow.

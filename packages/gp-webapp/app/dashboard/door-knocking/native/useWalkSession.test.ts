@@ -21,7 +21,7 @@ describe('useWalkSession', () => {
   })
 
   it('reports how the walk was entered', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'existingRoute'))
 
@@ -29,6 +29,7 @@ describe('useWalkSession', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.SessionStarted,
       {
+        product: 'win',
         turfId: 12,
         entry: 'existingRoute',
       },
@@ -39,7 +40,7 @@ describe('useWalkSession', () => {
   // both its own funnel event and the canonical outreach one.
   it('completes a walk that logged doors and feeds the activation metric', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     act(() => {
@@ -56,17 +57,21 @@ describe('useWalkSession', () => {
     expect(result.current.turf).toBeNull()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.SessionCompleted,
-      { turfId: 12, doorsLogged: 2, durationSeconds: 90, stopCount: 40 },
-    )
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.VoterContact.CampaignCompleted,
       {
-        medium: 'doorKnocking',
-        method: 'native',
-        recipientCount: 2,
-        price: 0,
+        product: 'win',
+        turfId: 12,
+        doorsLogged: 2,
+        durationSeconds: 90,
+        stopCount: 40,
       },
     )
+    // The session does NOT complete the campaign any more: a canvasser
+    // stopping for the evening has not finished the list. That event now hangs
+    // off the turf being completed (`turfLifecycle.ts`), which is what
+    // `walkCompletion.ts` stamps on a walk that ran out of doors.
+    expect(
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
+    ).toHaveLength(0)
     expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned)).toHaveLength(0)
   })
 
@@ -74,7 +79,7 @@ describe('useWalkSession', () => {
   // the canonical event must stay silent — otherwise every idle look at a
   // route inflates the metric the launch is judged by.
   it('abandons a walk with no doors and fires no outreach event', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     let doorsLogged = -1
@@ -97,7 +102,7 @@ describe('useWalkSession', () => {
   // first's doors or its clock.
   it('starts each walk from zero', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     act(() => result.current.recordDoor())
@@ -110,6 +115,7 @@ describe('useWalkSession', () => {
     act(() => void result.current.end({ stopCount: 8 }))
 
     expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted)[1]?.[1]).toEqual({
+      product: 'win',
       turfId: 13,
       doorsLogged: 1,
       durationSeconds: 30,
@@ -120,7 +126,7 @@ describe('useWalkSession', () => {
   // Doors can only be attributed to a walk in progress; a stray callback
   // after the session closed must not open a new one.
   it('ignores a door logged outside a session', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.recordDoor())
     act(() => void result.current.end({ stopCount: 0 }))

@@ -1,7 +1,9 @@
 import * as React from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { Textarea } from '../components/ui/textarea'
+import { Textarea, seamlessFieldHost } from '../components/ui/textarea'
 import { Label } from '../components/ui/label'
+import { Card } from '../components/ui/card'
+import { cn } from '../lib/utils'
 
 const meta: Meta<typeof Textarea> = {
   title: 'Components/Textarea',
@@ -23,14 +25,42 @@ export const Playground: Story = {
     placeholder: 'Type your message here.',
     disabled: false,
     rows: 3,
+    variant: 'default',
   },
   argTypes: {
+    variant: {
+      control: 'inline-radio',
+      options: ['default', 'seamless'],
+      description:
+        'Seamless drops the border and padding so the field sits inside a card; the card takes seamlessFieldHost and draws the focus ring.',
+    },
     disabled: { control: 'boolean' },
     rows: { control: { type: 'number', min: 1, max: 20, step: 1 } },
     placeholder: { control: 'text' },
   },
-  render: ({ placeholder, disabled, rows }) => (
-    <Textarea placeholder={placeholder} disabled={disabled} rows={rows} />
+  render: ({ placeholder, disabled, rows, variant }) => (
+    <Textarea
+      placeholder={placeholder}
+      disabled={disabled}
+      rows={rows}
+      variant={variant}
+    />
+  ),
+}
+
+// The outreach composers' field: the card is the visible boundary, so the
+// field has none of its own. Tab into it to see the card take the focus ring.
+export const Seamless: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Card className={cn('w-full max-w-md p-4', seamlessFieldHost)}>
+      <Textarea
+        variant="seamless"
+        className="min-h-[140px] resize-none [field-sizing:content]"
+        aria-label="Message body"
+        defaultValue="Hi, it's Sarah Chen, running for city council. Can I count on your vote on November 3?"
+      />
+    </Card>
   ),
 }
 

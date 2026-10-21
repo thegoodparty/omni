@@ -100,6 +100,9 @@ export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
   clientMessageId: z.guid().optional(),
   attachmentIds: z.array(z.string()).max(10).optional(),
+  // The page the message was sent from. A scope that reads it resolves it
+  // against its own product map, so an unknown path adds nothing.
+  pagePath: z.string().max(300).optional(),
 })
 export type SendChatMessageRequest = z.infer<
   typeof SendChatMessageRequestSchema
@@ -179,11 +182,29 @@ export const ChatMessageSchema = z.object({
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 
+// Token usage of every assistant turn, summed by the model that answered.
+// `complete` is false when any assistant turn has no recorded usage (an
+// interrupted turn, or one whose usage write failed), so the totals are a
+// floor. Turns written without an LLM call count as recorded with 0 tokens
+// and add no byModel row.
+export const ChatConversationUsageSchema = z.object({
+  complete: z.boolean(),
+  byModel: z.array(
+    z.object({
+      model: z.string(),
+      inputTokens: z.number().int(),
+      outputTokens: z.number().int(),
+    }),
+  ),
+})
+export type ChatConversationUsage = z.infer<typeof ChatConversationUsageSchema>
+
 export const ChatConversationSchema = z.object({
   conversationId: z.string(),
   scope: ChatScopeSchema,
   title: z.string().nullable(),
   messages: z.array(ChatMessageSchema),
+  usage: ChatConversationUsageSchema,
 })
 export type ChatConversation = z.infer<typeof ChatConversationSchema>
 

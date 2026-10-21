@@ -19,6 +19,7 @@ import {
 } from '@/authentication/agentMcpMarker'
 import { routeIsPublicAndNoRoles } from '@/authentication/util/routeIsPublicAndNoRoles.util'
 import { TRANSCRIBE_STREAM_PATH } from '@/speech/ws/speechToText.gateway'
+import { VENDOR_MOCKS_PREFIX } from '@/vendorMocks/vendorMockUrl.util'
 import { UsersService } from '@/users/services/users.service'
 import { SessionsService } from '@/users/services/sessions.service'
 
@@ -48,6 +49,14 @@ export class SessionGuard implements CanActivate {
       return true
     }
 
+    // A vendor mock receives the real vendor client's own Authorization
+    // header (CallHub sends `Token <key>`), never a session token. Verifying
+    // it throws before @PublicAccess() is consulted, so every mocked call
+    // 401'd; the route's public-and-no-roles check still applies.
+    if (request.url.startsWith(VENDOR_MOCKS_PREFIX)) {
+      return this.allowPublicOrThrow(context)
+    }
+
     const token = request.headers.authorization?.replace('Bearer ', '')
 
     if (!token) {
@@ -63,6 +72,18 @@ export class SessionGuard implements CanActivate {
         // just fall back to public-or-throw for a non-verifiable M2M token.
         return this.allowPublicOrThrow(context)
       }
+    }
+
+    // Clerk verifies a JWT-format M2M token against the instance JWKS only,
+    // never its scopes or our machine secret, so any machine in the Clerk
+    // instance can mint one that verifies. It must never set m2mToken, which
+    // the M2M route guards treat as fully privileged, and it only gets past
+    // this guard on @PublicAccess routes, where ServiceReadGuard reads it.
+    if (this.authProvider.isM2MJwt(token)) {
+      request.serviceReader = await this.authProvider
+        .verifyM2MJwt(token)
+        .catch(() => undefined)
+      return this.allowPublicOrThrow(context)
     }
 
     try {

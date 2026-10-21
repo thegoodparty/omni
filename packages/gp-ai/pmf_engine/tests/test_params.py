@@ -7,13 +7,15 @@ without hitting any network, mirroring test_input_files.py.
 from __future__ import annotations
 
 import json
+import os
+import stat
 from unittest.mock import patch
 
 import httpx
 import pytest
 
 from pmf_engine.runner.config import RunnerConfig
-from pmf_engine.runner.params import fetch_params_from_broker
+from pmf_engine.runner.params import fetch_params_from_broker, write_params_file
 
 BROKER_URL = "https://broker-dev.test"
 BROKER_TOKEN = "broker-token-test-123"
@@ -110,3 +112,26 @@ class TestFromEnvParamsViaBroker:
 
         assert config.params == {"district": "CA-12"}
         mock_fetch.assert_not_called()
+
+
+class TestWriteParamsFile:
+    def test_writes_params_read_only_under_workspace(self, tmp_path):
+        params = {"opponents": [{"full_name": "Pat Doe"}], "state": "MI"}
+
+        path = write_params_file(str(tmp_path), params)
+
+        assert path == str(tmp_path / "params.json")
+        assert json.loads((tmp_path / "params.json").read_text()) == params
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o444
+
+    def test_empty_params_still_write_a_readable_object(self, tmp_path):
+        path = write_params_file(str(tmp_path), {})
+
+        assert json.loads(open(path).read()) == {}
+
+    def test_replaces_a_read_only_file_left_in_a_reused_workspace(self, tmp_path):
+        write_params_file(str(tmp_path), {"run": 1})
+
+        path = write_params_file(str(tmp_path), {"run": 2})
+
+        assert json.loads(open(path).read()) == {"run": 2}

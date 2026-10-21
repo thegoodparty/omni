@@ -821,6 +821,31 @@ describe('CampaignsService.setIsPro', () => {
     expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
   })
 
+  // The grant's guard, now that the admin console comps through here too
+  // (ENG-11344): a campaign that already redeemed its free texts is comped
+  // back to Pro without being handed the offer a second time.
+  it('does not re-grant a redeemed free-texts offer on a first Pro flip', async () => {
+    const { campaign } = await seedCampaign()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { freeTextsOfferRedeemedAt: new Date() },
+    })
+
+    const { becamePro } = await buildService().setIsPro(
+      campaign.id,
+      true,
+      false,
+    )
+
+    expect(becamePro).toBe(true)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.hasFreeTextsOffer).toBe(false)
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
+
   // The same fact stated as the mechanism rather than the consequence: one
   // commit, so a failed stamp takes the flip with it and there is no half
   // state for a redelivery to misread.

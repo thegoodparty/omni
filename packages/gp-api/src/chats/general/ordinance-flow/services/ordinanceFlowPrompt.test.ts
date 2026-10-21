@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildOrdinanceFlowSystemPrompt,
   ORDINANCE_FLOW_GUARDRAIL_DECLINE,
   ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL,
 } from './ordinanceFlowPrompt'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
+import { guardrailLine } from '../../services/guardrailLines'
+import { SUPPORT_EMAIL } from '../../product-knowledge/productKnowledgePrompt'
 
 const baseCtx = (
   overrides: Partial<OrdinanceFlowContext> = {},
@@ -29,6 +31,22 @@ const baseCtx = (
 })
 
 describe('buildOrdinanceFlowSystemPrompt', () => {
+  it("tells the assistant what day it is, in the office state's zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    try {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ state: 'CO' }),
+        toolNames: [],
+      })
+      expect(prompt).toContain(
+        'Today is Monday, October 5, 2026 (Mountain Time).',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('frames the assistant as a legislative drafting assistant', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx(),
@@ -39,6 +57,63 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
     expect(prompt).toContain('City Council Member')
     expect(prompt).toContain('Reduce late-night construction noise')
+  })
+
+  describe('guardrails and the legal caution', () => {
+    const municipal = (step: OrdinanceFlowContext['step'] = 'clarify') =>
+      buildOrdinanceFlowSystemPrompt({ ctx: baseCtx({ step }), toolNames: [] })
+    const bill = (step: OrdinanceFlowContext['step'] = 'clarify') =>
+      buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ step, officeLevel: 'STATE' }),
+        toolNames: [],
+      })
+
+    it('asks for the decline line inside the reply, not as the whole reply', () => {
+      for (const prompt of [municipal(), bill()]) {
+        expect(prompt).toContain('give this line in its place')
+        expect(prompt).toContain('give the line in place of the rest')
+        expect(prompt).toContain('someone may be in danger')
+        expect(prompt).toContain('what you can do for them')
+        expect(prompt).toContain(`send them to ${SUPPORT_EMAIL}`)
+        expect(prompt).not.toContain('nothing else')
+      }
+      expect(municipal()).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
+      expect(bill()).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL)
+    })
+
+    // Guards against the text being inlined in the prompt again.
+    it('reads both declines from the shared guardrail module', () => {
+      expect(ORDINANCE_FLOW_GUARDRAIL_DECLINE).toBe(
+        guardrailLine('scope_decline', 'ordinance_flow', 'municipal'),
+      )
+      expect(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL).toBe(
+        guardrailLine('scope_decline', 'ordinance_flow', 'bill'),
+      )
+    })
+
+    it('asks for the legal line on every step but drafting', () => {
+      const legal = guardrailLine('legal_advice', 'ordinance_flow')
+      const steps = [
+        'intro',
+        'clarify',
+        'authority',
+        'current_law',
+        'comparables',
+        'review',
+      ] as const
+      for (const step of steps) {
+        expect(municipal(step)).toContain('LEGAL CAUTION')
+        expect(municipal(step)).toContain(
+          'include this line, once, in these exact words and in place of any caution of your own',
+        )
+        expect(municipal(step)).not.toContain('end it with this line')
+        expect(municipal(step)).toContain(legal)
+        expect(bill(step)).toContain(legal)
+      }
+      expect(municipal('draft')).not.toContain('LEGAL CAUTION')
+      expect(municipal('draft')).not.toContain(legal)
+      expect(bill('draft')).not.toContain(legal)
+    })
   })
 
   it('forbids reciting unverified legal specifics on every step, in prose', () => {
@@ -61,6 +136,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       expect(prompt).toContain('SPECIFIC LEGAL VALUES')
       expect(prompt).toContain('came from a source you consulted in THIS')
       expect(prompt).toContain('say so and POINT')
+      expect(prompt).toContain('HOW SURE TO SOUND')
+      expect(prompt).toContain('Match the verb to the evidence')
     }
   })
 
@@ -280,6 +357,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     )
     expect(prompt).toContain('Never ask for a decision in prose')
     expect(prompt).toContain('defers to your judgment')
+    expect(prompt).toContain('which is context and never itself a question')
   })
 
   it('keeps the clarify rulebook off the draft step and forbids interviewing', () => {

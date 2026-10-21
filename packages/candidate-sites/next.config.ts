@@ -5,6 +5,9 @@ import { ALLOWED_IMAGE_HOSTS } from './app/shared/utils/allowedImageHosts'
 const nextConfig: NextConfig = {
   // ESLint already runs in the Validate CI job; don't re-run it during builds.
   eslint: { ignoreDuringBuilds: true },
+  // The build script type-checks with tsc (TypeScript 7) before next build, so
+  // skip next build's slower in-process check on the TypeScript 6 API.
+  typescript: { ignoreBuildErrors: true },
   outputFileTracingRoot: path.join(__dirname, '../..'),
   images: {
     domains: [...ALLOWED_IMAGE_HOSTS],

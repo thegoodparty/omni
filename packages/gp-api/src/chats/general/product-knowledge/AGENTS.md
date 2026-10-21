@@ -21,6 +21,12 @@ feature in your head.
 Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
 `../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`).
 
+The map also tells the Campaign Manager where a message was sent from: the
+webapp sends the page path with each message, and `areaForPath` (in
+`productMap.ts`) resolves it to the most specific area holding it. A path the
+map does not know adds nothing, so a page missing from the map is also a page
+the manager cannot recognize.
+
 The map has a companion: `../help-center/` holds `search_help_center`, which
 searches our published support articles. The two split cleanly.
 

@@ -18,7 +18,7 @@ type Props = {
  *
  * Shown for the nearest upcoming briefing. Bordered card with a blue
  * UPCOMING countdown pill, meeting metadata, and a single CTA: "View briefing"
- * once ready, otherwise an "Upload agenda" path. The upload affordance lives
+ * once ready (plus "Replace agenda" so a wrong packet can be corrected), otherwise an "Upload agenda" path. The upload affordance lives
  * here as well as in AwaitingAgendaRow because the featured meeting is
  * excluded from the Upcoming list — without it, the nearest awaiting meeting
  * would have no submission path on the landing page.
@@ -59,7 +59,7 @@ export default function UpcomingCountdownCard({
       </div>
 
       {ready ? (
-        <div className="pt-1">
+        <div className="flex flex-wrap items-center gap-3 pt-1">
           <Link
             href={`/dashboard/briefings/${summary.slug}`}
             className={buttonVariants()}
@@ -67,10 +67,20 @@ export default function UpcomingCountdownCard({
             View briefing
             <ArrowRight className="size-4" aria-hidden />
           </Link>
+          {canUpload ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(true)}
+            >
+              <UploadIcon className="size-4" aria-hidden />
+              Replace agenda
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col items-start gap-3 pt-1">
-          <AgendaStatusPill status={status} />
+          <AgendaStatusPill status={status} reason={summary.userAgendaReason} />
           {canUpload ? (
             <Button type="button" onClick={() => setOpen(true)}>
               <UploadIcon className="size-4" aria-hidden />

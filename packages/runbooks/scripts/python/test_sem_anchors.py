@@ -227,3 +227,65 @@ def test_load_anchors_skips_gh_when_fallback_disabled(monkeypatch):
     monkeypatch.setattr(sa.subprocess, "run", lambda *a, **k: pytest.fail("gh must not run"))
     anchors, problems = sa.load_anchors()
     assert anchors == {} and any(sa.TOKEN_ENV in p for p in problems)
+
+
+def test_a_serve_exclusion_is_kept_and_a_contact_unit_is_ignored():
+    # `unit: contact` changes how the mart counts campaigns, not whether the leg fires,
+    # so it must not split the series key. A product exclusion does narrow the leg.
+    anchors = sa.parse_anchors(FIXTURE.read_text())
+    legs = {leg.event: leg for leg in anchors["win_activated_users"]}
+    door = legs["Outreach - Door Knocking Door Logged"]
+    assert door.excluding == (("product", ("serve",)),)
+    assert door.key == "Outreach - Door Knocking Door Logged[excluding product=serve]"
+    assert door.registry_key == "Outreach - Door Knocking Door Logged"
+
+
+def test_vendored_copy_round_trips_with_its_refresh_date(tmp_path, monkeypatch):
+    text = FIXTURE.read_text()
+    monkeypatch.setattr(sa, "_fetch_via_gh", lambda path: text)
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(sa.GH_FALLBACK_ENV, raising=False)
+    problems = sa.refresh_vendored(tmp_path, today="2026-10-01")
+    assert problems == []
+    anchors, refreshed = sa.load_vendored_anchors(tmp_path)
+    assert refreshed == "2026-10-01"
+    assert sa.Leg(event="Viewed", path="/dashboard", era=None) in anchors["win_active_candidates_30d"]
+
+
+def test_refresh_keeps_the_old_copy_when_a_read_fails(tmp_path, monkeypatch):
+    (tmp_path / "sem_analytics__users_win.yml").write_text("# Refreshed from x on 2026-09-01\nmetrics: []\n")
+    def boom(path):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(sa, "_fetch_via_gh", boom)
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(sa.GH_FALLBACK_ENV, raising=False)
+    problems = sa.refresh_vendored(tmp_path, today="2026-10-01")
+    assert len(problems) == 2
+    assert "2026-09-01" in (tmp_path / "sem_analytics__users_win.yml").read_text()
+
+
+def test_refresh_refuses_a_file_with_no_anchors(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa, "_fetch_via_gh", lambda path: "metrics: []\n")
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(sa.GH_FALLBACK_ENV, raising=False)
+    problems = sa.refresh_vendored(tmp_path, today="2026-10-01")
+    assert any("no anchored_on" in p for p in problems)
+    assert not any(tmp_path.iterdir())
+
+
+def test_the_committed_vendored_copy_loads():
+    anchors, refreshed = sa.load_vendored_anchors()
+    assert anchors, "the vendored sem copy must declare at least one governed metric"
+    assert refreshed is not None
+
+
+def test_vendored_texts_parse_with_the_oldest_refresh_date():
+    """The guard reads the vendored copy from the merge base through git, so parsing has to
+    work on texts as well as on the directory."""
+    body = FIXTURE.read_text()
+    anchors, refreshed = sa.parse_vendored_texts([
+        "# Refreshed from x on 2026-09-28 by sem_anchors.py refresh-vendored.\n" + body,
+        "# Refreshed from x on 2026-10-01 by sem_anchors.py refresh-vendored.\nmetrics: []\n",
+    ])
+    assert refreshed == "2026-09-28"
+    assert "win_active_candidates_30d" in anchors

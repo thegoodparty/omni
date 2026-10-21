@@ -9,6 +9,8 @@ import type { LiveLocation } from './useLiveLocation'
 import type { RoutePin } from './VoterMapCanvas'
 import { useSheetControlsOffset, useSheetSnap } from './useSheetSnap'
 import WalkView from './WalkView'
+import type { KnockDraft } from './RecordKnockForm'
+import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 
 // A stop the canvasser asked to open, from the map rather than from the list.
 // A token and not a bare stop id: closing the sheet leaves this state
@@ -58,7 +60,8 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
   // and the knockability are two answers to two questions, and the pin needs
   // both: a fully flagged stop rolls up over an empty list to the same
   // `unknown` grey as one nobody has been to, so the status alone would send a
-  // canvasser to a door ADR 0007 or 0008 already told them to skip.
+  // canvasser to a door a do-not-knock or not-a-voter flag already told them
+  // to skip.
   const routePins = useMemo<RoutePin[]>(
     () =>
       walkTurf && routeQuery.data
@@ -220,6 +223,13 @@ export default function WalkSurface({
   // drag it open on the list of routes has learned it here.
   const { snap, cycle, gripHandlers, heightClass, sheetRef } = useSheetSnap()
   useSheetControlsOffset(sheetRef, snap, onMapControlsOffsetChange, undefined)
+  // Up here rather than in `WalkView`, which `peek` unmounts: a door's replay
+  // key and its unsaved answers belong to the walk, not to whether the list
+  // is on screen.
+  const [clientKeys, setClientKeys] = useState<Map<number, string>>(
+    () => new Map(),
+  )
+  const knockDrafts = useUnsavedDrafts<KnockDraft>()
 
   return (
     <aside
@@ -296,6 +306,9 @@ export default function WalkSurface({
           archivePending={archivePending}
           onMarkDone={onMarkDone}
           markDonePending={markDonePending}
+          clientKeys={clientKeys}
+          onClientKeysChange={setClientKeys}
+          knockDrafts={knockDrafts}
         />
       )}
     </aside>

@@ -33,6 +33,7 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   projectedTurnoutUpper: null,
   winNumberLower: null,
   winNumberUpper: null,
+  numberOfSeats: null,
   raceCandidates: [],
   milestones: null,
   ...overrides,
@@ -344,7 +345,8 @@ describe('buildPlanData voter insights source precedence', () => {
 
 describe('buildPlanData contact schedule', () => {
   it('derives the 7 sends from the canonical schedule off the election date', () => {
-    const plan = buildPlanData(makeInput())
+    // A plan started long before the first send keeps every send on schedule.
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-01-05' }))
 
     expect(plan.contactSchedule.map((s) => s.tactic)).toEqual(
       VOTER_CONTACT_SCHEDULE.map((s) => s.tactic),
@@ -364,9 +366,120 @@ describe('buildPlanData contact schedule', () => {
     ])
   })
 
+  it('compresses a late joiner’s past sends into the time before the next one', () => {
+    // Started Oct 7: the four sends dated Sep 8 to Oct 6 move up, three days
+    // apart, into the 13 days before the Oct 20 send.
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-10-07' }))
+    expect(plan.contactSchedule.map((s) => s.date)).toEqual([
+      'Oct 7, 2026',
+      'Oct 10, 2026',
+      'Oct 13, 2026',
+      'Oct 16, 2026',
+      'Oct 20, 2026',
+      'Nov 2, 2026',
+      'Nov 3, 2026',
+    ])
+  })
+
   it('is empty when there is no valid election date', () => {
     const plan = buildPlanData(makeInput({ electionDateIso: null }))
     expect(plan.contactSchedule).toEqual([])
+  })
+})
+
+describe('buildPlanData once texting is closed', () => {
+  // Started Oct 15: the four past sends get one day each before the Oct 20
+  // send.
+  const closed = () =>
+    buildPlanData(makeInput({ planStartIso: '2026-10-15', smsClosed: true }))
+
+  it('swaps each text send for the tracker robocall on the same date and drops election day', () => {
+    expect(closed().contactSchedule).toEqual([
+      {
+        date: 'Oct 15, 2026',
+        tactic: 'Robocall',
+        purpose: 'Introduce yourself to voters with an automated call.',
+      },
+      {
+        date: 'Oct 16, 2026',
+        tactic: 'Robocall',
+        purpose: 'Introduce yourself to voters with landlines.',
+      },
+      {
+        date: 'Oct 17, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Build trust and make your case for why voters should pick you, by automated call.',
+      },
+      {
+        date: 'Oct 18, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Build trust and persuade voters with landlines to vote for you.',
+      },
+      {
+        date: 'Oct 20, 2026',
+        tactic: 'Robocall',
+        purpose:
+          'Encourage your supporters to vote early with an automated call.',
+      },
+      {
+        date: 'Nov 2, 2026',
+        tactic: 'Robocall',
+        purpose: 'Get out the vote on election day.',
+      },
+    ])
+  })
+
+  it('drops a text send that lands on a day a robocall already has', () => {
+    // Started Nov 2: every send but election day's text crowds onto Nov 2,
+    // where the election-day robocall already is.
+    const plan = buildPlanData(
+      makeInput({ planStartIso: '2026-11-02', smsClosed: true }),
+    )
+    expect(plan.contactSchedule.map((s) => [s.date, s.tactic])).toEqual([
+      ['Nov 2, 2026', 'Robocall'],
+      ['Nov 2, 2026', 'Robocall'],
+      ['Nov 2, 2026', 'Robocall'],
+    ])
+  })
+
+  it('drops the text budget line and leaves it out of the total', () => {
+    const open = buildPlanData(makeInput({ planStartIso: '2026-10-15' }))
+    const plan = closed()
+    expect(plan.budgetLineItems.map((row) => row.category)).not.toContain(
+      'Text campaigns',
+    )
+    expect(open.budgetLineItems.map((row) => row.category)).toContain(
+      'Text campaigns',
+    )
+    expect(plan.totalBudget).toBeLessThan(open.totalBudget)
+    const rowsTotal = plan.budgetLineItems
+      .filter((row) => row.category !== 'Total')
+      .reduce((sum, row) => sum + Number(row.amount.replace(/[$,]/g, '')), 0)
+    expect(rowsTotal).toBe(plan.totalBudget)
+  })
+
+  it('says nothing in the plan about texts', () => {
+    const plan = closed()
+    expect(plan.smsClosed).toBe(true)
+    expect(plan.glossary.map((row) => row.term)).not.toContain('Text')
+    expect(plan.planAtAGlance[1]?.body).toMatch(/^6 coordinated robocalls/)
+    for (const row of plan.timeline) {
+      expect(row.notes).not.toMatch(/\btext\b/i)
+    }
+  })
+
+  it('keeps the texts while texting is open', () => {
+    const plan = buildPlanData(makeInput({ planStartIso: '2026-10-15' }))
+    expect(plan.smsClosed).toBe(false)
+    expect(plan.contactSchedule.map((s) => s.tactic)).toEqual(
+      VOTER_CONTACT_SCHEDULE.map((s) => s.tactic),
+    )
+    expect(plan.glossary.map((row) => row.term)).toContain('Text')
+    expect(plan.planAtAGlance[1]?.body).toMatch(
+      /^7 coordinated voter contacts \(text \+ robocall\)/,
+    )
   })
 })
 
@@ -406,5 +519,59 @@ describe('buildPlanData prediction intervals', () => {
     )
 
     expect(rangeFor('Registered voters', plan)).toBe('')
+  })
+})
+
+describe('buildPlanData seat-aware win number copy', () => {
+  const winNumberSource = (plan: ReturnType<typeof buildPlanData>) =>
+    plan.metrics.find((m) => m.metric === 'Projected Votes Needed to Win')
+      ?.source
+
+  it('frames a multi-seat race as a top-N finish', () => {
+    const plan = buildPlanData(
+      makeInput({
+        projectedTurnout: 35914,
+        winNumber: 17958,
+        numberOfSeats: 3,
+      }),
+    )
+
+    expect(plan.votesCast).toBe(71828)
+    expect(plan.winNumberGoal).toBe('to secure a finish in the top 3')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting enough votes to finish in the top 3.',
+    )
+  })
+
+  it('frames a single-seat race as more than half the votes cast', () => {
+    const plan = buildPlanData(
+      makeInput({ projectedTurnout: 2000, winNumber: 1001, numberOfSeats: 1 }),
+    )
+
+    expect(plan.votesCast).toBe(2000)
+    expect(plan.winNumberGoal).toBe('you need to win the race')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting more than half of the votes cast.',
+    )
+  })
+
+  it('makes no seat claim when the seat count is unknown', () => {
+    const plan = buildPlanData(
+      makeInput({ projectedTurnout: 2000, winNumber: 1001 }),
+    )
+
+    expect(plan.votesCast).toBeNull()
+    expect(plan.winNumberGoal).toBe('you need to win your election')
+    expect(winNumberSource(plan)).toBe(
+      'Projecting from the voters we expect to cast a ballot.',
+    )
+  })
+
+  it('makes no seat claim for an archived civics win number', () => {
+    // The fixture's 1,000 is not floor(2,000 / 2) + 1, as a civics number
+    // wouldn't be.
+    const plan = buildPlanData(makeInput({ numberOfSeats: 3 }))
+
+    expect(plan.votesCast).toBeNull()
   })
 })

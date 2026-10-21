@@ -12,7 +12,7 @@ is a bug.
 The voter outreach flows and onboarding are the reference implementations.
 When you need a model, read those and match them.
 
-## The nine rules
+## The ten rules
 
 ### 1. A step title is a question the user can answer
 
@@ -86,11 +86,31 @@ Verb plus object, in the user's frame. "Start verification", "Save and exit",
 specific and irreversible is about to happen. Never a button that requires
 the caption to explain it.
 
+A button that opens an assistant about the thing in front of the user says
+"Ask about this", not "Chat", "Chat about this" or "Discuss in chat". Ask is
+what the user wants, an answer; chat is only the place it opens, so chat
+names the panel ("Chat about this draft"), never the button. The ordinances
+selection toolbar and the next-step card are the reference implementations.
+
+Anything that can be finished (a task, a turf) uses the same words
+everywhere:
+
+- **Mark done** finishes it, and **Mark not done** undoes that. Not "Mark as
+  done", "Mark complete" or "Reopen"; the two stay the same short shape, and
+  "done" matches the "Done" status the item then shows.
+- **Skip** opens the ways to set it aside: **Show in 3 days** moves its date,
+  and **Not for me** sets it aside until **Bring it back**.
+
+The plan's tasks, the next-step card and door knocking's turfs are the
+reference implementations. Changing one of these words means changing it
+everywhere it appears, in the same change.
+
 ### 7. Reuse the phrase we already use
 
 The same question should read the same way in every channel. Before writing
 a new string, grep for the one that exists. Consistency beats freshness, and
-a new synonym for an old idea is a bug, not a flourish.
+a new synonym for an old idea is a bug, not a flourish. The panel residents
+join is the "civic panel" and nothing else (`product-vocabulary.md`).
 
 Copy that is shared lives in constants, not inline: see
 `outreach/v2/*Purposes.ts`, `outreach/v2/channelMeta.tsx`,
@@ -108,6 +128,22 @@ guess whether to wait or act.
 No claims we cannot support, no invented numbers, no urgency we did not
 earn. Nonpartisan, factual, plain. If a projection is a projection, call it
 one.
+
+### 10. A card sells the outcome, not the steps
+
+The headline names the value the user gets. The one-sentence body says why it
+matters to them. Cost, counts, channels and how it works belong in the flow
+the card opens, never on the card. Cards that show an item (a meeting, an
+agenda item, an issue, a priority's next step) keep the item as the headline.
+
+| Write this                                  | Not this                                         |
+| ------------------------------------------- | ------------------------------------------------ |
+| Know what residents think before you decide | A paid text to up to 3,334 residents, about $117 |
+
+Source of truth for the pattern: the Chief of Staff build card in
+`packages/gp-api/src/dashboardCards/services/dashboardCards.service.ts` and
+the get-started cards in
+`packages/gp-webapp/app/dashboard/chief-of-staff/components/onboardingCardsConfig.ts`.
 
 ## Mechanics
 
@@ -135,7 +171,9 @@ to", "Here you can", "We're excited to". Start with the point.
 3. Does anything in it describe how the system works? Cut it.
 4. Would you say it out loud on the phone?
 5. Does the phrase already exist somewhere in the repo? Use that one.
-6. Read it once more and delete the words doing no work.
+6. On a card, does the headline say what they get and the body say why?
+   Move any cost or mechanics into the flow.
+7. Read it once more and delete the words doing no work.
 
 ## AI-generated copy
 

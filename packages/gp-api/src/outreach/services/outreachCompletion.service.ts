@@ -7,9 +7,10 @@ import {
   getMidnightForDate,
   parseIsoDateAsUTC,
 } from 'src/shared/util/date.util'
-import { Outreach, OutreachStatus } from '../../generated/prisma'
+import { Outreach, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { PeerlyJob, PeerlyJobStatus } from '../../vendors/peerly/peerly.types'
 import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.service'
+import { hasPeerlyCanvassersBooked } from '../util/peerlyCanvassersBooked.util'
 
 // Activity conditions (task 04) and the wizard's campaign picker (task 09)
 // reference a completed outreach days later, not minutes — hourly is plenty.
@@ -120,6 +121,58 @@ export class OutreachCompletionService extends createPrismaBase(
   // pass is one Peerly read per open row, so two replicas doubled the
   // account's job-status traffic for no second answer (the retrieve_cv
   // budget Peerly asked us to cut in August was the same shape).
+  // Exposed for TestFixturesService's run-job allowlist, so the completion
+  // sweep can be triggered from a Playwright spec without the hourly
+  // CronLock gate — same pattern as OutreachRobocallCompletionService.
+  async runCompletion(): Promise<void> {
+    const now = new Date()
+    const candidates = await this.model.findMany({
+      where: {
+        projectId: { not: null },
+        AND: [
+          {
+            OR: [
+              { status: null },
+              { status: OutreachStatus.pending },
+              { status: OutreachStatus.in_progress },
+            ],
+          },
+          {
+            OR: [
+              {
+                date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
+              },
+              {
+                AND: [
+                  { date: null },
+                  {
+                    createdAt: {
+                      gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS),
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    for (const outreach of candidates) {
+      if (!outreach.projectId) {
+        continue
+      }
+      try {
+        await this.syncOutreachStatus(outreach, outreach.projectId, now)
+      } catch (err) {
+        this.logger.warn(
+          { err, outreachId: outreach.id, projectId: outreach.projectId },
+          '[Outreach Completion] Peerly job status check failed; will retry next sweep',
+        )
+      }
+    }
+  }
+
   @Cron(OUTREACH_COMPLETION_SWEEP_CRON, { name: OUTREACH_COMPLETION_JOB })
   async sweepOutreachCompletions(): Promise<void> {
     const now = new Date()
@@ -196,7 +249,19 @@ export class OutreachCompletionService extends createPrismaBase(
     now: Date,
   ): Promise<void> {
     const job = await this.peerlyP2pJobService.getJob(projectId)
-    const nextStatus = mapPeerlyJobToOutreachStatus(job, now)
+    const mappedStatus = mapPeerlyJobToOutreachStatus(job, now)
+    // A p2p send only goes out once canvassers are booked (console approve,
+    // or by hand in Peerly). An unbooked row whose day passed sent nothing,
+    // and completing it hid it from the CAS console's Awaiting tab before
+    // anyone could reschedule it (Rendon + Johnson, 2026-10-04).
+    const isUnbookedP2p =
+      outreach.outreachType === OutreachType.p2p &&
+      outreach.canvassRequestedAt === null &&
+      !hasPeerlyCanvassersBooked(job)
+    const nextStatus =
+      mappedStatus === OutreachStatus.completed && isUnbookedP2p
+        ? OutreachStatus.in_progress
+        : mappedStatus
     if (!nextStatus) {
       this.logger.warn(
         { outreachId: outreach.id, projectId, peerlyStatus: job.status },

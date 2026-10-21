@@ -11,7 +11,10 @@ import {
   buildKnownCausesAnnotation,
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
-import { routeErrorAlerts } from './alerting/route-alerts'
+import {
+  ROUTE_EVALUATION_SECONDS,
+  routeErrorAlerts,
+} from './alerting/route-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -24,6 +27,11 @@ import {
   recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
+import {
+  CLOUDWATCH_DATASOURCE_UID,
+  electionApiDbDashboardConfigJson,
+  GRAFANA_CLOUDWATCH_ROLE_ARN,
+} from './electionApiDbDashboard'
 
 export interface GrafanaConfig {
   environment: 'dev' | 'prod'
@@ -35,7 +43,7 @@ const PROM_DATASOURCE_UID = 'grafanacloud-prom'
 const USAGE_DATASOURCE_UID = 'grafanacloud-usage'
 
 const datasourceConfig = {
-  log: { uid: LOKI_DATASOURCE_UID, queryType: 'range' },
+  log: { uid: LOKI_DATASOURCE_UID, queryType: 'instant' },
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
   usage: { uid: USAGE_DATASOURCE_UID, queryType: 'instant' },
 } as const
@@ -58,6 +66,44 @@ const datasourceConfig = {
 export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
   prod: 'https://ai.goodparty.org/grafana/alert-webhook',
 }
+
+/**
+ * The window an alert's query fetches, as Grafana's seconds-before-now pair.
+ *
+ * Exported so the tests can assert the window Grafana is actually given,
+ * rather than the fields it is built from.
+ */
+export const alertTimeRange = (alert: Alert) => {
+  const offset = alert.timeRangeOffsetSeconds ?? 0
+  return { from: (alert.timeRangeSeconds ?? 600) + offset, to: offset }
+}
+
+/**
+ * The model JSON for an alert's query, the A step of every rule.
+ *
+ * Exported so the tests can assert what Loki is actually asked to run, which
+ * is the only place the instant-versus-range decision is visible.
+ */
+export const alertQueryModel = (alert: Alert, environment: string) =>
+  JSON.stringify({
+    expr: alert.expr.replace(/\$ENV/g, environment),
+    refId: 'A',
+    // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
+    // `queryType` from here, not from the rule's DataQuery-level field, and
+    // without it every log rule ran as a range query: a point per second
+    // across the whole fetch window, each re-reading its own range vector,
+    // so a `[10m]` count over a 600s fetch read twenty minutes of logs to
+    // produce the one value `reduce: last` kept. Measured on 2026-10-09
+    // against prod: a range query read 2.4x what the instant query over the
+    // same vector read, and 3x on a one-hour vector. Only the vector is read
+    // now, ending `timeRangeOffsetSeconds` before the evaluation.
+    //
+    // Not on metric or usage rules: Prometheus ignores the key, and those
+    // queries are not billed by bytes.
+    ...(alert.type === 'log'
+      ? { queryType: 'instant', instant: true, range: false }
+      : {}),
+  })
 
 /**
  * The snapshot, read rather than imported.
@@ -144,8 +190,9 @@ const checkAlertRouting = async ({
   // correct and is what keeps dev out of Slack. Checking a dev deploy against
   // EXPECTED_PROD_RECEIVERS would therefore report all seventeen slugs as
   // misrouted, and a warning that always fires is one nobody reads — the exact
-  // failure this function exists to catch. Drift above is still checked
-  // everywhere, since the tree is global and a dev deploy can see it move.
+  // failure this function exists to catch. Only prod deploys call this now,
+  // since no other environment provisions alerting; the guard stays so a
+  // future caller cannot reintroduce the always-firing warning.
   if (environment !== 'prod') return
 
   const misrouted = misroutedAlerts({
@@ -446,6 +493,104 @@ export const createGrafanaResources = async ({
     }),
   })
 
+  const { probes } = await grafana.syntheticmonitoring.getProbes()
+
+  new grafana.syntheticmonitoring.Check('health-check', {
+    job: `gp-api-${environment}-health`,
+    target: `https://${domain}/v1/health`,
+    // Prod only. Check executions bill against one account-wide allowance
+    // (100k/month) that all environments share, and three probes a minute is
+    // 129,600 a month per environment — so dev alone was ~43% of our synthetic
+    // monitoring volume. What it bought was nothing: probe failures raise the
+    // `health-check-probe-failure` rule, and no environment but prod
+    // provisions alert rules at all (see PROD ONLY below).
+    //
+    // Disabled rather than removed so the check, its history, and its Pulumi
+    // state survive. Re-enabling it in dev is this line plus provisioning
+    // alerting there, which is deliberately not done.
+    enabled: environment === 'prod',
+    frequency: 60000,
+    timeout: 10000,
+    probes: [
+      probes['NorthCalifornia'],
+      probes['NorthVirginia'],
+      probes['Ohio'],
+    ],
+    labels: {
+      environment,
+      alert_slug: 'health-check',
+    },
+    settings: {
+      http: {
+        method: 'GET',
+        ipVersion: 'V4',
+        validStatusCodes: [200],
+        failIfNotSsl: true,
+      },
+    },
+  })
+
+  // PROD ONLY: no alert rule, recording rule or alert folder exists in any
+  // other environment. Dev's copies notified nobody, because every non-prod
+  // alert routes to the `nowhere` contact point, and they still read their
+  // own stream on every evaluation: 211 GB/day of Loki queries on 2026-10-09,
+  // a fifth of everything the account read, for pages no one could receive.
+  // Removing them from a dev deploy deletes the DEV folder's rules, their
+  // history and any silence on them; prod is untouched.
+  if (environment !== 'prod') return
+
+  // The Delegate agent swarm (ops repo, agent-swarm/README.md) is not part of
+  // gp-api. It is probed from here because this deploy already owns the
+  // Grafana provider, the probe list and the alert routing; ops has none.
+  // Two probes every two minutes is 43,200 executions a month against the
+  // shared 100k allowance, a third of what gp-api's own check costs.
+  new grafana.syntheticmonitoring.Check('delegate-swarm-health-check', {
+    job: 'delegate-swarm-health',
+    target: 'https://delegate-swarm.infra.goodparty.org/health',
+    enabled: true,
+    frequency: 120000,
+    timeout: 10000,
+    probes: [probes['NorthCalifornia'], probes['NorthVirginia']],
+    labels: {
+      environment,
+      alert_slug: 'delegate-swarm-health',
+    },
+    settings: {
+      http: {
+        method: 'GET',
+        ipVersion: 'V4',
+        validStatusCodes: [200],
+        failIfNotSsl: true,
+      },
+    },
+  })
+
+  // One data source for the stack, so only the prod deploy owns it. It reads
+  // the production AWS account through a role Grafana Cloud assumes; no AWS
+  // keys are stored in Grafana.
+  const cloudwatch = new grafana.oss.DataSource('cloudwatch', {
+    type: 'cloudwatch',
+    name: 'CloudWatch (production account)',
+    uid: CLOUDWATCH_DATASOURCE_UID,
+    jsonDataEncoded: JSON.stringify({
+      authType: 'grafana_assume_role',
+      assumeRoleArn: GRAFANA_CLOUDWATCH_ROLE_ARN,
+      defaultRegion: 'us-west-2',
+    }),
+  })
+
+  new grafana.oss.Dashboard(
+    'election-api-db-dashboard',
+    {
+      folder: folder.uid,
+      overwrite: true,
+      configJson: electionApiDbDashboardConfigJson({
+        lokiDatasourceUid: LOKI_DATASOURCE_UID,
+      }),
+    },
+    { dependsOn: [cloudwatch] },
+  )
+
   const alertFolder = new grafana.oss.Folder('alerts-folder', {
     title: `${environment.toUpperCase()} Alerts (provisioned via gp-api)`,
   })
@@ -466,6 +611,7 @@ export const createGrafanaResources = async ({
       name: alert.name,
       condition: 'C',
       for: alert.for,
+      keepFiringFor: alert.keepFiringFor,
       isPaused: alert.disabled ?? false,
       // NoData IS the healthy steady state here, which is why this is not the
       // trade-off it looks like. The route alerts `sum by` over an error
@@ -490,7 +636,7 @@ export const createGrafanaResources = async ({
       // than `NoData -> Alerting` on five rules, which would reproduce the
       // 2026-09-28 flood in miniature.
       noDataState: 'OK',
-      execErrState: 'Alerting',
+      execErrState: alert.execErrState ?? 'Alerting',
       annotations: {
         summary: buildAlertSummary(alert, environment),
         description: buildAlertDescription(alert, environment),
@@ -504,12 +650,9 @@ export const createGrafanaResources = async ({
         {
           refId: 'A',
           queryType: datasourceConfig[alert.type].queryType,
-          relativeTimeRange: { from: alert.timeRangeSeconds ?? 600, to: 0 },
+          relativeTimeRange: alertTimeRange(alert),
           datasourceUid: datasourceConfig[alert.type].uid,
-          model: JSON.stringify({
-            expr: alert.expr.replace(/\$ENV/g, environment),
-            refId: 'A',
-          }),
+          model: alertQueryModel(alert, environment),
         },
         {
           refId: 'B',
@@ -617,76 +760,19 @@ export const createGrafanaResources = async ({
     })
   }
 
-  // TWO GROUPS, where there used to be one per controller. Grafana evaluates a
-  // rule group as a unit, so the group IS the cadence — which is why the two
-  // window shapes cannot share one. The five counting rules evaluate every
-  // minute and the one thresholded rule every ten; `routeWindow` in
-  // alerting/route-alerts.ts is where that split is argued.
-  //
-  // Bucketed the same way the global rules are, and the minute bucket keeps the
-  // bare resource name so the group a rule moves between is the exception
-  // rather than both of them.
+  // ONE GROUP, where there used to be one per controller. Grafana evaluates a
+  // rule group as a unit, so the group IS the cadence, and every route rule
+  // judges the same minute window on the same minute — see MINUTE_WINDOW in
+  // alerting/route-alerts.ts.
   //
   // This replaces 75 `<controller>-rules` groups. Pulumi will delete those on
   // the next deploy, which also deletes their alert history and any silence
   // keyed to an old `<controller>-route-errors` slug. Routing is unaffected:
   // the notification policy matches on `environment`, not on slug.
-  const routeAlertsByInterval = new Map<number, Alert[]>()
-  for (const alert of routeErrorAlerts()) {
-    const interval = alert.evaluationIntervalSeconds ?? 60
-    routeAlertsByInterval.set(interval, [
-      ...(routeAlertsByInterval.get(interval) ?? []),
-      alert,
-    ])
-  }
-
-  for (const [intervalSeconds, alerts] of routeAlertsByInterval) {
-    const isDefault = intervalSeconds === 60
-    new grafana.alerting.RuleGroup(
-      isDefault ? 'route-error-rules' : `route-error-rules-${intervalSeconds}s`,
-      {
-        name: isDefault ? 'Route errors' : `Route errors (${intervalSeconds}s)`,
-        folderUid: alertFolder.uid,
-        intervalSeconds,
-        rules: alerts.map(alertToRule),
-      },
-    )
-  }
-
-  const { probes } = await grafana.syntheticmonitoring.getProbes()
-
-  new grafana.syntheticmonitoring.Check('health-check', {
-    job: `gp-api-${environment}-health`,
-    target: `https://${domain}/v1/health`,
-    // Prod only. Check executions bill against one account-wide allowance
-    // (100k/month) that all environments share, and three probes a minute is
-    // 129,600 a month per environment — so dev alone was ~43% of our synthetic
-    // monitoring volume. What it bought was nothing: probe failures raise the
-    // `health-check-probe-failure` rule, and every non-prod alert is routed to
-    // the `nowhere` contact point, a webhook pointed at localhost:0.
-    //
-    // Disabled rather than removed so the check, its history, and its Pulumi
-    // state survive. If dev alerting ever gets a real destination, re-enabling
-    // is this one line.
-    enabled: environment === 'prod',
-    frequency: 60000,
-    timeout: 10000,
-    probes: [
-      probes['NorthCalifornia'],
-      probes['NorthVirginia'],
-      probes['Ohio'],
-    ],
-    labels: {
-      environment,
-      alert_slug: 'health-check',
-    },
-    settings: {
-      http: {
-        method: 'GET',
-        ipVersion: 'V4',
-        validStatusCodes: [200],
-        failIfNotSsl: true,
-      },
-    },
+  new grafana.alerting.RuleGroup('route-error-rules', {
+    name: 'Route errors',
+    folderUid: alertFolder.uid,
+    intervalSeconds: ROUTE_EVALUATION_SECONDS,
+    rules: routeErrorAlerts().map(alertToRule),
   })
 }

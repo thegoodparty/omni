@@ -38,20 +38,20 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/opponent_research.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`; capture the opponent identity, `race_context`, and the hint URLs (Step 0).
+1. Read `PARAMS_FILE`; capture the opponent identity, `race_context`, and the hint URLs (Step 0).
 2. Fan out one researcher subagent per web category to discover and fetch sources (Step 1).
 3. For every web candidate finding, `verify_quote` the `source_extract`; DROP any that fails (Step 2).
 4. Run the L2 residency query for the named opponent; produce a residency finding or set `residency_data: "unavailable"` (Step 3).
 5. Assemble the artifact and write it (Step 4).
 6. Validate (Step 5).
 
-## Inputs (the params in `PARAMS_JSON`)
+## Inputs (the params in `PARAMS_FILE`)
 
 - `opponent` (object): `{ full_name, website_url?, social_urls?, is_incumbent? }` — the person to research.
 - `race_context` (object): `{ office_name, state, city?, election_date? }` — disambiguates the race and scopes the L2 query.
@@ -95,7 +95,7 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 OPP = PARAMS["opponent"]
 OPP_NAME = OPP["full_name"]
 RACE = PARAMS["race_context"]

@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -19,6 +18,8 @@ import {
   BuildDoorKnockingRouteSchema,
   CreateDoorKnockingTurf,
   CreateDoorKnockingTurfSchema,
+  CreateServeDoorKnockingTurf,
+  CreateServeDoorKnockingTurfSchema,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionSchema,
   RecordDoorKnockInteractionResponseSchema,
@@ -121,6 +122,7 @@ export class DoorKnockingController {
     input: CreateDoorKnockingTurf,
   ) {
     await this.contacts.assertProAccess(organization)
+    const { proposalKey, ...turf } = input
     return this.createService.create(
       organization,
       campaign
@@ -129,8 +131,9 @@ export class DoorKnockingController {
             organizationSlug: campaign.organizationSlug,
           }
         : { campaignId: null, organizationSlug: organization.slug },
-      input,
+      turf,
       user.id,
+      proposalKey !== undefined ? { proposalKey } : {},
     )
   }
 
@@ -156,15 +159,21 @@ export class DoorKnockingController {
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
-    @Body(new ZodValidationPipe(CreateDoorKnockingTurfSchema))
-    input: CreateDoorKnockingTurf,
+    @Body(new ZodValidationPipe(CreateServeDoorKnockingTurfSchema))
+    input: CreateServeDoorKnockingTurf,
   ) {
     await this.contacts.assertProAccess(organization)
+    const { proposalKey, priorityId, stepId, side, ...turf } = input
+    const link = await this.createService.resolveProposalLink(
+      { proposalKey, priorityId, stepId, side },
+      electedOffice.id,
+    )
     return this.createService.create(
       organization,
       { campaignId: null, organizationSlug: electedOffice.organizationSlug },
-      input,
+      turf,
       user.id,
+      link,
     )
   }
 
@@ -427,14 +436,26 @@ export class DoorKnockingController {
   // and heartbeats until the pack is ready — see utils/packStream.util.ts.
   // The corollary is that a build failure lands after this 200, as an error
   // frame and a log line, not as a status code.
+  //
+  // What is awaited here is only the district resolve, which is also the
+  // voter-data eligibility gate: an organization with no district gets the same
+  // 4xx it gets from every other voter-data read, because that answer has to
+  // reach the client as a status and not as a half-drawn map.
+  //
+  // The content type rides on the StreamableFile rather than on a route-level
+  // `@Header`, as the CSV and PDF downloads in this service do. A header
+  // declared on the route is set for the refusal too, and Fastify cannot send a
+  // JSON error body under `application/octet-stream` — it turns the 400 into a
+  // 500 with no message in it.
   @Get('pack')
   @UseOrganization()
-  @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
-    return new StreamableFile(this.packService.stream(organization))
+    return new StreamableFile(await this.packService.stream(organization), {
+      type: 'application/octet-stream',
+    })
   }
 
-  // The draw step's address list (ADR 0010). A read of voter data, so it is
+  // The draw step's address list. A read of voter data, so it is
   // Pro-gated with the rest — the two holes below are instructions about a
   // door, and this is neither. A POST because the shape and the filter draft
   // are a body, not a query string; nothing is written and no vendor credit
@@ -457,7 +478,7 @@ export class DoorKnockingController {
   // nothing is written and no vendor credit is spent.
   //
   // The cost difference between the two is the point. address-preview buys a
-  // people-db scan and ADR 0010 made it explicit for that reason; this
+  // people-db scan and is an explicit request for that reason; this
   // resolves person-id sets out of our own tables and buys nothing, which is
   // what lets it fire on every list pick rather than on a button.
   //
@@ -491,7 +512,8 @@ export class DoorKnockingController {
     return this.interactionService.record(organization, user.id, input, role)
   }
 
-  // ADR 0007, and the first of the two deliberate holes in the Pro gate above.
+  // Do-not-knock, and the first of the two deliberate holes in the Pro gate
+  // above.
   // Deliberately not the CRM's PATCH /contacts/:personId/status, which is
   // Pro-gated — a candidate who cannot honor "don't come back" is worse than
   // one who never had the button, so suppression outlives the entitlement: if
@@ -516,7 +538,7 @@ export class DoorKnockingController {
     )
   }
 
-  // ADR 0008, and the second hole. Ungated for the same reason as
+  // Not-a-voter reason, and the second hole. Ungated for the same reason as
   // do-not-knock: the reason a door is wrong is worth capturing from whoever
   // is standing at it, and "moved" / "deceased" suppress future evaluation the
   // same way a refusal does. Both are instructions about a door rather than

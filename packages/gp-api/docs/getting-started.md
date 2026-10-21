@@ -1,32 +1,17 @@
 # Getting started
 
-## Prerequisites
-
-- Node 22.12.0 (enforced by `.nvmrc` and `package.json` engines)
-- Docker (for local Postgres via `docker compose`) — or a local Postgres install
-- `nvm` recommended
-
-## Quickstart
-
-```bash
-nvm use
-npm run setup
-```
-
-`npm run setup` runs `npm ci`, copies `.env.example` to `.env` if missing, starts Postgres via docker-compose, and runs `npm run migrate:reset` (which creates tables + seeds).
-
-Fill in real values for required vendor keys in `.env` before starting the API (see `docs/team-setup.md`). Then:
-
-```bash
-npm run start:dev
-```
-
-API boots on `:3000`.
+Setup is one command, from the repo root: `npm run setup` (`docs/development.md`).
+It installs dependencies, vends dev-grade secrets, brings up gp-api + gp-webapp
+against a local Postgres, migrates + seeds, and seeds a login. This doc covers
+gp-api once your stack is running.
 
 ## Common commands
 
-| Task                                   | Command                                   |
-| -------------------------------------- | ----------------------------------------- |
+Run from `packages/gp-api/`:
+
+| Task                                    | Command                                   |
+| ---------------------------------------- | ------------------------------------------ |
+| Start gp-api alone                      | `npm run start:dev` (:3000)               |
 | Verify a change (lint + types + tests) | `npm run verify`                          |
 | Run a single test file                 | `npx vitest run src/path/to/file.test.ts` |
 | Apply a new migration                  | `npm run migrate:dev`                     |
@@ -36,9 +21,9 @@ API boots on `:3000`.
 
 ## Related docs
 
-- `CLAUDE.md` — the canonical agent/contributor guide (kept short, commands first)
+- `AGENTS.md` — the canonical agent/contributor guide (kept short, commands first)
 - `docs/writing-tests.md` — testing patterns and when to reach for each
 - `docs/observability.md` — Grafana alerts, Loki, Tempo
 - `docs/debugging.md` — reproducing bugs with `useTestService`
 - `docs/contracts.md` — working with `@goodparty_org/contracts`
-- `docs/team-setup.md` — deeper setup (nvm, npm ci flags, IDE config)
+- `docs/team-setup.md` — deeper setup detail (nvm, npm ci flags, IDE config)

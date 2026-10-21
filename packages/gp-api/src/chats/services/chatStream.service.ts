@@ -5,9 +5,11 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  ChatScope,
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
+import { isToolRefusal } from '@goodparty_org/contracts'
 import {
   type LlmFilePart,
   type LlmMessage,
@@ -19,15 +21,19 @@ import {
   LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
-import { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import {
+  ChatMessageWithSegments,
+  ChatStoreService,
+  PersistedSegment,
+} from './chatStore.prisma'
+import {
+  ATTACHMENT_SCOPES,
   ChatAttachmentsService,
-  SERVE_CHAT_ATTACHMENTS_FLAG,
 } from './chatAttachments.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { JudgeTurnTelemetryService } from '@/judge/services/judgeTurnTelemetry.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 
 export type ChatStreamErrorCode =
@@ -48,7 +54,12 @@ export type ChatStreamChunk =
       args: unknown
       toolCallId: string
     }
-  | { type: 'tool_result'; toolName: string; result: unknown }
+  | {
+      type: 'tool_result'
+      toolName: string
+      result: unknown
+      toolCallId: string
+    }
   | {
       type: 'citation'
       attachmentId: string
@@ -69,6 +80,43 @@ export type ChatStreamChunk =
       retryable: boolean
     }
 
+// One tool call of a turn, as seen by the finalize hook. A call starts
+// `open`, then becomes `returned` with its result or `failed` with the error
+// message. A result or error whose id matches no open call is kept as
+// `unpaired` and never attached to another call. A provider-run tool that the
+// provider never reports on stays `open`.
+//
+// This is not the persisted `segments` list: it carries tool results, which
+// can hold constituent data, so it lives only in memory for the turn and a
+// hook must never log it or copy result contents into the reply.
+export type TurnToolEvent =
+  | { toolCallId: string; name: string; args: unknown; status: 'open' }
+  | {
+      toolCallId: string
+      name: string
+      args: unknown
+      status: 'returned'
+      result: unknown
+    }
+  | {
+      toolCallId: string
+      name: string
+      args: unknown
+      status: 'failed'
+      error: string
+    }
+  | {
+      toolCallId: string
+      name: string
+      status: 'unpaired'
+      result?: unknown
+      error?: string
+    }
+
+export interface FinalizeTurn {
+  toolEvents: TurnToolEvent[]
+}
+
 export interface StreamArgs {
   conversationId: string
   ownerUserId: number
@@ -88,13 +136,22 @@ export interface StreamArgs {
   // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
   traceName?: string
   // Optional post-generation hook. On a clean finish, given the full assembled
-  // text, returns a line to append (e.g. the CoS professional-advice
-  // disclaimer) or null. Streamed as the final text chunk and included in the
-  // persisted turn; a throw is logged, never fails the turn.
-  finalizeText?: (fullText: string) => string | null
+  // text and the turn's tool events, returns a line to append (a guardrail
+  // backstop line) or null. Streamed as the final text chunk and included in
+  // the persisted turn; a throw is logged, never fails the turn.
+  finalizeText?: (fullText: string, turn: FinalizeTurn) => string | null
   // Subset of attachment IDs the client wants injected on this turn. When
   // omitted all ready attachments for the conversation are injected.
   attachmentIds?: string[]
+  // The caller's chat scope. Attachments are injected only for a scope in
+  // ATTACHMENT_SCOPES, and the AttachedDocumentQueried analytics event needs
+  // it to attribute a citation to the right product (Win vs Serve).
+  scope?: ChatScope
+  // Set by the caller only for a Universal Judge conversation on a non-prod
+  // deploy (see judgeSweepIdFromOrgSlug). Undefined on every production turn,
+  // which is what keeps the telemetry write off the hot path: one comparison
+  // against undefined and nothing else.
+  judgeSweepId?: string
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -130,10 +187,38 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
 // Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
 // construction (the model produced them against the tool's JSON schema), so
 // persisting them as the segment payload is safe.
-const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+export const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
   if (value === null || value === undefined) return null
 
   return value as Prisma.InputJsonValue
+}
+
+// What an assistant turn persists, or nothing. Separate from the method that
+// writes it so a row can be built in this shape without the ability to write
+// one into an arbitrary conversation — this is the one write in the chat
+// stack with no ownership check on it.
+//
+// Persist the structure when the turn used a tool or citation: a pure-text
+// turn renders identically from `content`, so storing a single text segment
+// would be wasted rows. A widget-only turn (tool calls, no text) persists
+// only with `allowToolOnly`, on a clean finish, so the widget replays;
+// otherwise a zero-text turn is dropped and the caller writes the interrupted
+// sentinel instead.
+export const assistantRowToPersist = (
+  text: string,
+  segments?: PersistedSegment[],
+  allowToolOnly = false,
+): { content: string; segments?: PersistedSegment[] } | null => {
+  const usedTool = segments?.some((s) => s.kind === ChatMessageSegmentKind.tool)
+  const hasCitation = segments?.some(
+    (s) => s.kind === ChatMessageSegmentKind.citation,
+  )
+  const hasStructured = usedTool || hasCitation
+  if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+  return {
+    content: text,
+    ...(hasStructured && segments ? { segments } : {}),
+  }
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -183,9 +268,46 @@ const roleToOpenAiRole = (
   role: ChatMessageRole,
 ): 'user' | 'assistant' | 'system' | 'tool' => role
 
+// Only a turn's text replays on its own, so without these notes the model
+// cannot recall what it put on a card: the message, the audience, the options.
+// A later "do #1" or "change that text" was then answered against a card it
+// had forgotten.
+const CARD_NOTE_PREFIX = '[Card you showed:'
+
+// The Chief of Staff's weekly time question is a fixed question the app
+// draws, so its note is what tells the model it asked.
+const QUESTION_TOOLS = ['ask_clarify_question', 'ask_panel_weekly_time']
+
+const isCardTool = (toolName: string | null): boolean =>
+  toolName !== null &&
+  (toolName.startsWith('present_') || QUESTION_TOOLS.includes(toolName))
+
+const replayAssistantContent = (m: ChatMessageWithSegments): string =>
+  m.segments.some(
+    (s) => s.kind === ChatMessageSegmentKind.tool && isCardTool(s.toolName),
+  )
+    ? m.segments
+        .map((s) =>
+          s.kind === ChatMessageSegmentKind.text
+            ? (s.text ?? '')
+            : s.kind === ChatMessageSegmentKind.tool && isCardTool(s.toolName)
+              ? `\n\n${CARD_NOTE_PREFIX} ${s.toolName} ` +
+                `${JSON.stringify(s.payload)}]\n\n`
+              : '',
+        )
+        .join('')
+        .trim()
+    : m.content
+
+const CARD_NOTE_SYSTEM_LINE =
+  `Lines in your earlier replies that start with "${CARD_NOTE_PREFIX}" ` +
+  'record a card the app drew for you, with what was on it. The user saw ' +
+  'the card, not that line. Never write such a line yourself; to show a ' +
+  'card, call its tool.'
+
 const toLlmMessages = (
   systemPrompt: string,
-  history: ChatMessage[],
+  history: ChatMessageWithSegments[],
 ): LlmMessage[] => {
   // A scope may seed an assistant greeting as the conversation's first message
   // (Campaign Manager) so it persists and replays. Anthropic requires the
@@ -196,27 +318,44 @@ const toLlmMessages = (
   const [first, ...tail] = history
   const leadingGreeting =
     first?.role === ChatMessageRole.assistant ? first : null
-  const system = leadingGreeting
-    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${leadingGreeting.content}`
+  const greeting = leadingGreeting
+    ? replayAssistantContent(leadingGreeting)
+    : null
+  const greeted = greeting
+    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${greeting}`
     : systemPrompt
   const rest = leadingGreeting ? tail : history
 
+  const replayed = rest.map((m) => ({
+    role: roleToOpenAiRole(m.role),
+    content:
+      m.role === ChatMessageRole.assistant
+        ? replayAssistantContent(m)
+        : m.content,
+  }))
+  const hasCardNote =
+    greeting?.includes(CARD_NOTE_PREFIX) ||
+    replayed.some(
+      (m) => m.role === 'assistant' && m.content.includes(CARD_NOTE_PREFIX),
+    )
+  const system = hasCardNote
+    ? `${greeted}\n\n${CARD_NOTE_SYSTEM_LINE}`
+    : greeted
+
   const out: LlmMessage[] = [{ role: 'system', content: system }]
-  for (const m of rest) {
-    const role = roleToOpenAiRole(m.role)
-    if (role === 'system') {
+  for (const m of replayed) {
+    if (m.role === 'system') {
       out.push({ role: 'system', content: m.content })
       continue
     }
-    if (role === 'user') {
+    if (m.role === 'user') {
       out.push({ role: 'user', content: m.content })
       continue
     }
-    if (role === 'assistant') {
-      // A widget-only turn persists with empty content (its tool segments
-      // aren't replayed to the model). Sending `{content: ''}` makes Anthropic
-      // reject the turn ("text content blocks must be non-empty"), so drop
-      // empty-content assistant turns from the replayed history.
+    if (m.role === 'assistant') {
+      // A widget-only turn with no card to describe still has empty content.
+      // Sending `{content: ''}` makes Anthropic reject the turn ("text content
+      // blocks must be non-empty"), so drop it from the replayed history.
       if (m.content.length === 0) continue
       out.push({ role: 'assistant', content: m.content })
       continue
@@ -382,8 +521,9 @@ export class ChatStreamService {
     @Optional() private readonly braintrust?: BraintrustService,
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
-    @Optional() private readonly features?: FeaturesService,
     @Optional() private readonly analytics?: AnalyticsService,
+    @Optional()
+    private readonly judgeTelemetry?: JudgeTurnTelemetryService,
   ) {
     this.logger.setContext(ChatStreamService.name)
   }
@@ -396,18 +536,14 @@ export class ChatStreamService {
 
   private async loadAttachmentBlocks(
     conversationId: string,
-    ownerUserId: number,
+    scope?: ChatScope,
     attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
   } | null> {
-    if (!this.chatAttachments || !this.s3 || !this.features) return null
-    const enabled = await this.features.isFeatureEnabled({
-      user: ownerUserId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    if (!enabled) return null
+    if (!this.chatAttachments || !this.s3) return null
+    if (!scope || !ATTACHMENT_SCOPES.has(scope)) return null
 
     const rows = await this.chatAttachments.model.findMany({
       where: {
@@ -470,6 +606,8 @@ export class ChatStreamService {
           data: new Uint8Array(bytes),
           mediaType: row.mimeType,
           filename: row.id,
+          // Images can't carry citations; only PDF document blocks do.
+          ...(isPdf && { citationsEnabled: true }),
         })
       } else {
         const text = row.extractedText
@@ -512,7 +650,7 @@ export class ChatStreamService {
 
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
-      args.ownerUserId,
+      args.scope,
       args.attachmentIds,
     )
 
@@ -586,6 +724,31 @@ export class ChatStreamService {
     const queue = new ChunkQueue(MAX_BUFFERED_CHUNKS, args.signal)
     const textBuffer: string[] = []
     let toolCallCount = 0
+
+    // The turn's tool calls, handed to finalizeText so a backstop can act on
+    // what the tools reported. A result is paired to its call by toolCallId
+    // and never by name: two calls to the same tool in one turn each keep
+    // their own result. A result with no open call of that id is recorded as
+    // unpaired rather than attached to the wrong call.
+    const toolEvents: TurnToolEvent[] = []
+    const settleToolEvent = (
+      toolCallId: string,
+      name: string,
+      outcome: { result: unknown } | { error: string },
+    ): void => {
+      const index = toolEvents.findIndex(
+        (event) => event.toolCallId === toolCallId && event.status === 'open',
+      )
+      const open = index === -1 ? undefined : toolEvents[index]
+      if (!open || open.status !== 'open') {
+        toolEvents.push({ toolCallId, name, status: 'unpaired', ...outcome })
+        return
+      }
+      toolEvents[index] =
+        'result' in outcome
+          ? { ...open, status: 'returned', result: outcome.result }
+          : { ...open, status: 'failed', error: outcome.error }
+    }
 
     // Ordered display structure of the turn (text runs and tool calls
     // interleaved), built at PRODUCTION time as the model streams — not as the
@@ -687,6 +850,7 @@ export class ChatStreamService {
         },
         onToolCallStart: ({ name, input, toolCallId }) => {
           toolCallCount += 1
+          toolEvents.push({ toolCallId, name, args: input, status: 'open' })
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: name,
@@ -700,11 +864,26 @@ export class ChatStreamService {
             toolCallId,
           })
         },
-        onToolCallEnd: ({ name, output }) => {
+        onToolCallEnd: ({ name, output, toolCallId }) => {
+          settleToolEvent(toolCallId, name, { result: output })
+          if (isToolRefusal(output)) {
+            const segment = segments.find(
+              (s) =>
+                s.kind === ChatMessageSegmentKind.tool &&
+                s.toolCallId === toolCallId,
+            )
+            if (segment) segment.payload = null
+          }
           void queue.push({
             type: 'tool_result',
             toolName: name,
             result: output,
+            toolCallId,
+          })
+        },
+        onToolCallError: ({ name, toolCallId, error }) => {
+          settleToolEvent(toolCallId, name, {
+            error: error instanceof Error ? error.message : String(error),
           })
         },
         onSource: (source) => {
@@ -779,7 +958,7 @@ export class ChatStreamService {
         // throw here must not fail an otherwise-complete turn.
         if (!args.signal?.aborted && args.finalizeText) {
           try {
-            const extra = args.finalizeText(textBuffer.join(''))
+            const extra = args.finalizeText(textBuffer.join(''), { toolEvents })
             if (extra) {
               textBuffer.push(extra)
               pushTextDelta(extra)
@@ -855,7 +1034,11 @@ export class ChatStreamService {
               .track(
                 args.ownerUserId,
                 EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                { documentId: firstAttachmentId, turnIndex },
+                {
+                  documentId: firstAttachmentId,
+                  turnIndex,
+                  ...(args.scope && { scope: args.scope }),
+                },
               )
               .catch((err: unknown) => {
                 this.logger.error(
@@ -865,6 +1048,69 @@ export class ChatStreamService {
               })
           }
         }
+      }
+      // Written before the done frame so a client that reads the conversation
+      // right after done sees this turn priced.
+      if (cleanFinish && persistedId !== undefined) {
+        try {
+          const usage = await result.usage
+          await this.store.recordAssistantUsage(persistedId, {
+            model: result.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          })
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to write assistant message usage',
+          )
+        }
+      }
+      // One row per assistant turn, for judge conversations only. Here and
+      // not in LlmService because every value is in scope together only at
+      // this point: the tool events, the prompt the provider was actually
+      // handed, the conversation, and the assistant row this turn wrote.
+      //
+      // Fire-and-forget with a swallowed rejection, like the AnalyticsService
+      // call above: a judge observation must never cost a user their turn.
+      if (
+        cleanFinish &&
+        args.judgeSweepId !== undefined &&
+        this.judgeTelemetry
+      ) {
+        // The system message as sent, NOT `effectiveSystemPrompt`. That
+        // variable is only reassigned in the attached-documents branch, so on
+        // a turn with no attachments it still holds the handler's raw prompt
+        // and is missing the leading-greeting fold and the card-note line
+        // that toLlmMessages adds. Hashing it would digest a prompt the model
+        // never saw.
+        const system = effectiveMessages[0]
+        const sentSystemPrompt =
+          system?.role === 'system' && typeof system.content === 'string'
+            ? system.content
+            : args.systemPrompt
+        void this.judgeTelemetry
+          .recordTurn({
+            sweepId: args.judgeSweepId,
+            conversationId: args.conversationId,
+            // Derived from the conversation rather than counted: `history` is
+            // this turn's replay, already fetched, and it grows by the user
+            // row this turn appended. A retry that reuses clientMessageId
+            // dedups that row, so it lands on the same index and the upsert
+            // overwrites instead of filing a second opinion.
+            turnIndex: history.length,
+            ...(persistedId !== undefined && {
+              assistantMessageId: persistedId,
+            }),
+            systemPrompt: sentSystemPrompt,
+            toolEvents,
+          })
+          .catch((err: unknown) => {
+            this.logger.error(
+              { err, conversationId: args.conversationId },
+              'failed to write judge turn telemetry',
+            )
+          })
       }
       // Meter usage only on a clean finish; a partial/aborted turn's usage is
       // unreliable. Guarded so metering never breaks the turn.
@@ -947,25 +1193,12 @@ export class ChatStreamService {
     segments?: PersistedSegment[],
     allowToolOnly = false,
   ): Promise<ChatMessage | null> {
-    // Persist the structure when the turn used a tool or citation — a
-    // pure-text turn renders identically from `content`, so storing a single
-    // text segment would be wasted rows.
-    const usedTool = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.tool,
-    )
-    const hasCitation = segments?.some(
-      (s) => s.kind === ChatMessageSegmentKind.citation,
-    )
-    const hasStructured = usedTool || hasCitation
-    // A widget-only turn (tool calls, no text) still persists on a clean finish
-    // so the widget replays; without `allowToolOnly` a zero-text turn is
-    // dropped (the caller writes the interrupted sentinel instead).
-    if (text.length === 0 && !(allowToolOnly && usedTool)) return null
+    const row = assistantRowToPersist(text, segments, allowToolOnly)
+    if (!row) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,
-      content: text,
-      ...(hasStructured && segments ? { segments } : {}),
+      ...row,
     })
   }
 }

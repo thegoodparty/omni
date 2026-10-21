@@ -94,7 +94,7 @@ describe('ExperimentRunsService', () => {
 
       expect(organizationFindUnique).toHaveBeenCalledWith({
         where: { slug: 'org-1' },
-        select: { owner: { select: { email: true } } },
+        select: { owner: { select: { email: true } }, testModeCreatedAt: true },
       })
       expect(result).toBeUndefined()
       expect(mockModel.create).not.toHaveBeenCalled()

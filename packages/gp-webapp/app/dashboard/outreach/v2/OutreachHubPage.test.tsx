@@ -3,6 +3,8 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { OutreachDetail } from '@goodparty_org/contracts'
@@ -10,6 +12,7 @@ import type { ComposeRequest } from 'app/dashboard/outreach/components/OutreachC
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachHubPage } from './OutreachHubPage'
 import type { HistoryRow } from './historyStatus.util'
+import { DRAFT_FOOTER_LABELS } from './listDetails/footerMode'
 
 // The desktop history table, scoped so its content isn't confused with the
 // mobile card list (also in the DOM, hidden via CSS) — same convention as
@@ -27,7 +30,16 @@ vi.mock('app/dashboard/shared/DashboardLayout', () => ({
 vi.mock('./ChannelTileGrid', () => ({
   ChannelTileGrid: () => null,
 }))
-vi.mock('./social/SocialFlow', () => ({ SocialFlow: () => null }))
+interface SocialFlowStubProps {
+  open: boolean
+  prefill?: { draftText: string; purpose?: string | null }
+}
+vi.mock('./social/SocialFlow', () => ({
+  SocialFlow: ({ open, prefill }: SocialFlowStubProps) =>
+    open ? (
+      <div data-testid="social-flow">{prefill?.draftText ?? 'fresh'}</div>
+    ) : null,
+}))
 vi.mock('./phone-banking/PhoneBankingFlow', () => ({
   PhoneBankingFlow: () => null,
 }))
@@ -39,6 +51,8 @@ vi.mock('./phone-banking/PhoneBankingFlow', () => ({
 interface FlowStubProps {
   open: boolean
   resumeDraft?: OutreachDetail | null
+  source?: string
+  resumeCta?: string
 }
 vi.mock('./robocall/RobocallFlow', () => ({
   RobocallFlow: ({ open, resumeDraft }: FlowStubProps) =>
@@ -49,9 +63,9 @@ vi.mock('./robocall/RobocallFlow', () => ({
     ) : null,
 }))
 vi.mock('./sms/SmsFlow', () => ({
-  SmsFlow: ({ open, resumeDraft }: FlowStubProps) =>
+  SmsFlow: ({ open, resumeDraft, source, resumeCta }: FlowStubProps) =>
     open ? (
-      <div data-testid="sms-flow">
+      <div data-testid="sms-flow" data-source={source} data-cta={resumeCta}>
         {resumeDraft ? `resuming ${resumeDraft.id}` : 'fresh'}
       </div>
     ) : null,
@@ -94,9 +108,32 @@ vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
   }: {
     onCompose: (request: ComposeRequest) => void
   }) => (
-    <button type="button" onClick={() => onCompose({ type: 'text' })}>
-      compose text
-    </button>
+    <>
+      <button type="button" onClick={() => onCompose({ type: 'text' })}>
+        compose text
+      </button>
+      <button
+        type="button"
+        onClick={() => onCompose({ type: 'text', source: 'campaign_tracker' })}
+      >
+        compose text from the plan
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onCompose({
+            type: 'socialMedia',
+            source: 'campaign_manager',
+            socialPrefill: {
+              draftText: 'The pothole crew starts Monday.',
+              purpose: 'event_invite',
+            },
+          })
+        }
+      >
+        compose social from the manager
+      </button>
+    </>
   ),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -336,6 +373,153 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
     expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
       EVENTS.Outreach.Draft.Resumed,
       expect.anything(),
+    )
+  })
+})
+
+// The list arrives as a server-rendered snapshot held in `useState`, so it
+// is only as fresh as the last time this route's RSC ran — and coming back
+// from another route can be served from the client router cache without
+// re-running it. Anything written while away is missing until something
+// asks again.
+describe('OutreachHubPage — a list written while away', () => {
+  beforeEach(() => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free', texting: 'needs_verification' }),
+      tcrCompliance: null,
+    })
+    mockFetchOutreachDetail.mockReset()
+  })
+
+  const freshRow = {
+    ...sentRow,
+    id: 4242,
+    name: 'Introduction walk',
+    outreachType: 'doorKnocking',
+  } as unknown as typeof sentRow
+
+  it('asks the server once on mount, so a campaign made while away appears', async () => {
+    // The seeded snapshot predates the campaign; the refetch is what puts it
+    // on the table.
+    api.mock('GET /v1/outreach', { status: 200, data: [sentRow, freshRow] })
+    renderHub([sentRow])
+
+    expect(
+      await within(desktopTable()).findByText('Introduction walk'),
+    ).toBeInTheDocument()
+  })
+
+  it('opens a deep link to a campaign the snapshot never carried', async () => {
+    // The consume-once ref used to be set BEFORE the lookup, so a link to a
+    // row the snapshot lacked spent the param and could never open — which
+    // is exactly the campaign a candidate has this second created and been
+    // handed back from a walk.
+    api.mock('GET /v1/outreach', { status: 200, data: [sentRow, freshRow] })
+    mockFetchOutreachDetail.mockResolvedValue({
+      id: 4242,
+      name: 'Introduction walk',
+    })
+
+    render(
+      <OutreachHubPage
+        pathname="/dashboard/outreach"
+        campaign={campaign}
+        outreaches={[sentRow]}
+        initialOutreachId={4242}
+      />,
+    )
+
+    expect(await screen.findByTestId('details-drawer')).toHaveTextContent(
+      'Introduction walk',
+    )
+  })
+
+  it('keeps the deep link when the refetch fails', async () => {
+    // Settling on a failed GET would spend the param against the seeded
+    // snapshot, which is the one list that cannot carry the new campaign.
+    api.mock('GET /v1/outreach', { status: 500, data: { error: 'boom' } })
+    router.replace?.mockClear()
+
+    render(
+      <OutreachHubPage
+        pathname="/dashboard/outreach"
+        campaign={campaign}
+        outreaches={[sentRow]}
+        initialOutreachId={4242}
+      />,
+    )
+
+    expect(
+      await within(desktopTable()).findByText('Intro post'),
+    ).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.replace).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachHubPage flow source', () => {
+  beforeEach(() => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free', texting: 'needs_verification' }),
+      tcrCompliance: null,
+    })
+    mockFetchOutreachDetail.mockReset()
+  })
+
+  it('opens a draft row as a draft, with the footer label that resumed it', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
+    const flow = await screen.findByTestId('sms-flow')
+
+    expect(flow).toHaveAttribute('data-source', 'draft')
+    expect(flow).toHaveAttribute('data-cta', DRAFT_FOOTER_LABELS.pro)
+  })
+
+  it('opens a compose link with no source as a deep link', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(screen.getByRole('button', { name: 'compose text' }))
+
+    expect(await screen.findByTestId('sms-flow')).toHaveAttribute(
+      'data-source',
+      'deep_link',
+    )
+  })
+
+  it('reads a campaign tracker compose link as the campaign plan', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'compose text from the plan' }),
+    )
+
+    const flow = await screen.findByTestId('sms-flow')
+    expect(flow).toHaveAttribute('data-source', 'campaign_plan')
+    expect(flow).not.toHaveAttribute('data-cta')
+  })
+
+  // A Campaign Manager compose_handoff: the deep link resolves the
+  // sessionStorage nonce into `ComposeRequest.socialPrefill`, and the hub
+  // hands it straight to SocialFlow's own `prefill` prop.
+  it('passes a compose_handoff socialPrefill through to SocialFlow', async () => {
+    renderHub([sentRow])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'compose social from the manager' }),
+    )
+
+    expect(await screen.findByTestId('social-flow')).toHaveTextContent(
+      'The pothole crew starts Monday.',
     )
   })
 })

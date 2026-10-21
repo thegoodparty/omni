@@ -4,6 +4,7 @@ import {
   DoorKnockingTurf,
   UpdateDoorKnockingTurf,
 } from '@goodparty_org/contracts'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   OrganizationRole,
@@ -35,7 +36,15 @@ import {
 // cannot live behind a row that may not exist.
 const TURF_INCLUDE = {
   route: { select: { id: true, totalSeconds: true } },
-  outreach: { select: { id: true, status: true, archivedAt: true } },
+  outreach: {
+    select: {
+      id: true,
+      status: true,
+      archivedAt: true,
+      priorityId: true,
+      campaignOutreach: { select: { priorityId: true } },
+    },
+  },
 } as const satisfies Prisma.DoorKnockingTurfInclude
 
 type TurfWithEnvelope = Prisma.DoorKnockingTurfGetPayload<{
@@ -93,6 +102,10 @@ const toResponse = (
   routeSeconds: turf.route?.totalSeconds ?? null,
   completed: turf.outreach.status === OutreachStatus.completed,
   archivedAt: turf.outreach.archivedAt,
+  priorityId:
+    turf.outreach.priorityId ??
+    turf.outreach.campaignOutreach?.priorityId ??
+    null,
   createdAt: turf.createdAt,
   updatedAt: turf.updatedAt,
 })
@@ -302,6 +315,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
       void this.stats
         .emitCanvassingTotals(actorUserId, organizationSlug)
         .catch(() => undefined)
+      this.synthesizeCompletedEfforts(organizationSlug, [turf.outreach.id])
     }
 
     return this.withCounts(turf, organizationSlug)
@@ -357,7 +371,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
     organizationSlug: string,
     actorUserId: number,
   ): Promise<DoorKnockingTurf[]> {
-    const { turfs, completedNow } = await this.client.$transaction(
+    const { turfs, completedIds } = await this.client.$transaction(
       async (tx) => {
         // Existence is decided BEFORE the write and against the ENVELOPES,
         // which is the set the write touches. Deciding it afterwards from
@@ -373,13 +387,14 @@ export class DoorKnockingTurfService extends createPrismaBase(
         // candidate has already put away. Without this the dialog would say
         // "1 turf isn't done yet" and the press would finish two, which is
         // exactly the blast-radius invariant `campaignTurfScope` states.
-        const { count } = await tx.outreach.updateMany({
+        const completed = await tx.outreach.updateManyAndReturn({
           where: {
             ...campaignEnvelopeScope(anchorId, organizationSlug),
             status: OutreachStatus.in_progress,
             archivedAt: null,
           },
           data: { status: OutreachStatus.completed },
+          select: { id: true },
         })
 
         // Read AFTER the write, unlike the per-turf methods, which fold the
@@ -396,7 +411,10 @@ export class DoorKnockingTurfService extends createPrismaBase(
           where: campaignTurfScope(anchorId, organizationSlug),
           ...CAMPAIGN_READ,
         })
-        return { turfs: rows.map(assertEnveloped), completedNow: count > 0 }
+        return {
+          turfs: rows.map(assertEnveloped),
+          completedIds: completed.map((envelope) => envelope.id),
+        }
       },
     )
 
@@ -408,10 +426,11 @@ export class DoorKnockingTurfService extends createPrismaBase(
     // query, a Segment call and a HubSpot workflow run, and a campaign
     // complete is one act. `uniqueTurfsCompleted` moves by N either way,
     // since it counts envelopes rather than counting events.
-    if (completedNow) {
+    if (completedIds.length > 0) {
       void this.stats
         .emitCanvassingTotals(actorUserId, organizationSlug)
         .catch(() => undefined)
+      this.synthesizeCompletedEfforts(organizationSlug, completedIds)
     }
 
     return this.withCountsMany(turfs, organizationSlug)
@@ -537,5 +556,29 @@ export class DoorKnockingTurfService extends createPrismaBase(
       turfs.map((turf) => turf.id),
     )
     return turfs.map((turf) => toResponse(turf, counts.get(turf.id)))
+  }
+
+  // Each turf that just finished is an effort whose memos can now be
+  // summarized. Resolved lazily for the same module-cycle reason as
+  // assertVolunteerAssignedToOutreach. Fire-and-forget: the floor and a run
+  // in flight are expected refusals, and nothing about synthesis may fail
+  // the press that ended the walk.
+  private synthesizeCompletedEfforts(
+    organizationSlug: string,
+    outreachIds: number[],
+  ): void {
+    try {
+      const synthesis = this.moduleRef.get(FeedbackSynthesisService, {
+        strict: false,
+      })
+      for (const outreachId of outreachIds) {
+        synthesis.requestRunOnEffortCompleted({ organizationSlug, outreachId })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, organizationSlug, outreachIds },
+        'Could not start synthesis for completed turfs',
+      )
+    }
   }
 }

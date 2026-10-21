@@ -8,6 +8,7 @@ import { ElectedOfficeModule } from '../electedOffice/electedOffice.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VoterFileFilterService } from './services/voterFileFilter.service'
 import { VoterFileFilterGeoService } from './services/voterFileFilterGeo.service'
+import { VoterFileFilterSampleService } from './services/voterFileFilterSample.service'
 import { VotersService } from './services/voters.service'
 import { VoterFileController } from './voterFile/voterFile.controller'
 import { VoterFileService } from './voterFile/voterFile.service'
@@ -33,12 +34,14 @@ import { VoterFileService } from './voterFile/voterFile.service'
     VotersService,
     VoterFileFilterService,
     VoterFileFilterGeoService,
+    VoterFileFilterSampleService,
   ],
   exports: [
     VoterFileService,
     VotersService,
     VoterFileFilterService,
     VoterFileFilterGeoService,
+    VoterFileFilterSampleService,
   ],
 })
 export class VotersModule {}

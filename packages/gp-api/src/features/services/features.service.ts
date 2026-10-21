@@ -1,9 +1,20 @@
 import { Injectable } from '@nestjs/common'
 import { UsersService } from '../../users/services/users.service'
 import { Experiment } from '@amplitude/experiment-node-server'
-import { User } from '../../generated/prisma'
+import { Organization, User } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import type { ExperimentVariants } from '@goodparty_org/contracts'
+import { resolveEnvVar } from '../../shared/env/env'
+import { ISSUE_CAPTURE_FLAG } from '../../constituentFeedback/util/issueCaptureFlag.util'
+
+// Flags that roll out by organization, not by person: anyone acting in an
+// org reads what its owner reads. Amplitude buckets by user id, so a
+// percentage rollout evaluated per person would split a candidate from
+// their own volunteers. Routes gated on one of these pass the org's owner
+// to isFeatureEnabled themselves.
+export const ORGANIZATION_FLAGS: ReadonlySet<string> = new Set([
+  ISSUE_CAPTURE_FLAG,
+])
 
 // User attributes sent to Amplitude for segment targeting. Mirrors the fields
 // gp-webapp's buildUserTraits sends so server and client evaluations match.
@@ -15,19 +26,26 @@ type ExperimentUserProperties = {
   zip?: string
 }
 
-const AMPLITUDE_PROJECT_API_KEY = process.env.AMPLITUDE_PROJECT_API_KEY
-if (!AMPLITUDE_PROJECT_API_KEY) {
-  throw new Error('AMPLITUDE_PROJECT_API_KEY is not set')
+// The .env.example default (ENV_VAR_CONTRACT's documented placeholder). Local
+// dev runs with this placeholder and no real Amplitude, so every remote flag
+// evaluation 401s. We treat that as "local box" and default gated features ON
+// so they stay developable; a real key fails closed instead (see
+// isFeatureEnabled).
+const amplitudeKey = resolveEnvVar('AMPLITUDE_PROJECT_API_KEY')
+
+// Deferred to first real use rather than created at import time — it's only
+// ever reached once amplitudeKey.configured is true (see the placeholder
+// short-circuits below), so importing this module never talks to Amplitude.
+let amplitudeClient: ReturnType<typeof Experiment.initializeRemote> | null =
+  null
+const getAmplitudeClient = () => {
+  if (!amplitudeClient) {
+    amplitudeClient = Experiment.initializeRemote(
+      amplitudeKey.configured ? amplitudeKey.value : '',
+    )
+  }
+  return amplitudeClient
 }
-
-// The .env.example default. Local dev runs with this placeholder and no real
-// Amplitude, so every remote flag evaluation 401s. We treat that as "local box"
-// and default gated features ON so they stay developable; a real key fails
-// closed instead (see isFeatureEnabled).
-const PLACEHOLDER_API_KEY = 'some_key'
-const usingPlaceholderKey = AMPLITUDE_PROJECT_API_KEY === PLACEHOLDER_API_KEY
-
-const amplitude = Experiment.initializeRemote(AMPLITUDE_PROJECT_API_KEY)
 
 @Injectable()
 export class FeaturesService {
@@ -55,7 +73,7 @@ export class FeaturesService {
     // tests into their timeout) and go straight to the local-box default.
     // Before the user lookup: the answer doesn't depend on the user, so the
     // DB read would be wasted too.
-    if (usingPlaceholderKey) {
+    if (!amplitudeKey.configured) {
       return true
     }
 
@@ -67,7 +85,7 @@ export class FeaturesService {
         : params.user
 
     try {
-      const variants = await amplitude.fetchV2({
+      const variants = await getAmplitudeClient().fetchV2({
         user_id: user.id.toString(),
         user_properties: {
           email: user.email,
@@ -103,16 +121,57 @@ export class FeaturesService {
    * reaching Amplitude (which ad blockers and some networks block). User
    * properties mirror gp-webapp's buildUserTraits so server and client
    * evaluations target the same segments.
+   *
+   * Given the organization the request acts in, ORGANIZATION_FLAGS come
+   * from its owner's evaluation instead, so a volunteer's pages gate the
+   * way the routes they call do.
    */
-  async getAllVariants(user: User): Promise<ExperimentVariants> {
+  async getAllVariants(
+    user: User,
+    organization?: Organization,
+  ): Promise<ExperimentVariants> {
     // Same placeholder short-circuit as isFeatureEnabled: the fetch can only
     // 401, and the client falls back to its own SDK evaluation regardless.
-    if (usingPlaceholderKey) {
+    if (!amplitudeKey.configured) {
       return {}
     }
 
+    if (!organization || organization.ownerId === user.id) {
+      return this.fetchVariants(user)
+    }
+
+    const [own, owners] = await Promise.all([
+      this.fetchVariants(user),
+      this.usersService
+        .findUniqueOrThrow({ where: { id: organization.ownerId } })
+        .then((owner) => this.fetchVariants(owner))
+        // Every page seeds from this call, so an owner that cannot be read
+        // degrades like an Amplitude outage rather than 500ing the page.
+        .catch((err: Error): ExperimentVariants => {
+          this.logger.warn({
+            err,
+            userId: user.id,
+            ownerId: organization.ownerId,
+            msg: 'Owner lookup failed in getAllVariants; org flags read off',
+          })
+          return {}
+        }),
+    ])
+
+    // A failed owner fetch leaves these flags out, which reads off.
+    return {
+      ...Object.fromEntries(
+        Object.entries(own).filter(([flag]) => !ORGANIZATION_FLAGS.has(flag)),
+      ),
+      ...Object.fromEntries(
+        Object.entries(owners).filter(([flag]) => ORGANIZATION_FLAGS.has(flag)),
+      ),
+    }
+  }
+
+  private async fetchVariants(user: User): Promise<ExperimentVariants> {
     try {
-      const variants = await amplitude.fetchV2({
+      const variants = await getAmplitudeClient().fetchV2({
         user_id: user.id.toString(),
         user_properties: this.buildUserProperties(user),
       })

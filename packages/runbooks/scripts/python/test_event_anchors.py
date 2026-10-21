@@ -524,15 +524,15 @@ def test_derive_url_handles_gp_admin_real_directory_structure():
     pages = [
         "packages/gp-admin/src/app/page.tsx",
         "packages/gp-admin/src/app/dashboard/page.tsx",
-        "packages/gp-admin/src/app/dashboard/ecanvasser/page.tsx",
+        "packages/gp-admin/src/app/dashboard/campaigns/page.tsx",
     ]
     assert ea.derive_url("packages/gp-admin/src/app/page.tsx", pages) == "/ (gp-admin)"
     assert ea.derive_url(
         "packages/gp-admin/src/app/dashboard/SomeComponent.tsx", pages
     ) == "/dashboard (gp-admin)"
     assert ea.derive_url(
-        "packages/gp-admin/src/app/dashboard/ecanvasser/SomeComponent.tsx", pages
-    ) == "/dashboard/ecanvasser (gp-admin)"
+        "packages/gp-admin/src/app/dashboard/campaigns/SomeComponent.tsx", pages
+    ) == "/dashboard/campaigns (gp-admin)"
 
 
 def test_derive_url_does_not_treat_the_app_root_as_a_catch_all():

@@ -9,9 +9,11 @@ import {
 } from '@goodparty_org/contracts'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
+import type { PeopleDataset } from './peopleDataset.service'
 import type {
   DbxEvaluateRow,
   DbxResidentRow,
+  DbxWalkableHouseholdRow,
 } from '../databricks/databricksVoterSql.util'
 import {
   mapAge,
@@ -29,6 +31,7 @@ import {
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
+  WalkableAreaDTO,
 } from '../schemas/doorKnocking.schema'
 
 // The eleven attributes the door shows for a target, through the same display
@@ -165,12 +168,14 @@ export class VoterDoorKnockingService {
   // belongs beside the roster shaping rather than inside the query.
   async evaluate(
     dto: DoorKnockingEvaluateDTO,
+    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DoorKnockingEvaluateResponse> {
     const rows = await this.readLog.measure({
       op: 'dk-evaluate',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
+      dataset,
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, dataset, opts),
     })
     return shapeEvaluate(rows, dto)
   }
@@ -183,6 +188,7 @@ export class VoterDoorKnockingService {
   // the CRM already does.
   async evaluatePoints(
     dto: DoorKnockingEvaluateDTO,
+    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<{
     people: DoorKnockingEvaluateResponse['people']
@@ -191,7 +197,8 @@ export class VoterDoorKnockingService {
     const rows = await this.readLog.measure({
       op: 'dk-evaluate-points',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
+      dataset,
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, dataset, opts),
     })
     // The query LIMITs cap + 1, so overflow is known without counting past it.
     const truncated = rows.length > dto.maxPeople
@@ -201,14 +208,32 @@ export class VoterDoorKnockingService {
     return { people, truncated }
   }
 
+  // The civic panel's door step: the households of its walkable area, chosen
+  // in the warehouse over every eligible household rather than from a capped
+  // first slice, so a large district is not picked from one corner of it.
+  async walkableArea(
+    dto: WalkableAreaDTO,
+    dataset: PeopleDataset,
+  ): Promise<DbxWalkableHouseholdRow[]> {
+    return this.readLog.measure({
+      op: 'dk-walkable-area',
+      districtId: dto.districtId,
+      dataset,
+      read: () => this.databricks.walkableAreaRows(dto, dataset),
+    })
+  }
+
   async residents(
     dto: DoorKnockingResidentsDTO,
+    dataset: PeopleDataset,
   ): Promise<DoorKnockingResidentsResponse> {
     const residentsCap = dto.targetPersonIds.length * 10
     const rows = await this.readLog.measure({
       op: 'dk-residents',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingResidentRows(dto, residentsCap),
+      dataset,
+      read: () =>
+        this.databricks.doorKnockingResidentRows(dto, dataset, residentsCap),
     })
     return shapeResidents(rows, dto, residentsCap)
   }

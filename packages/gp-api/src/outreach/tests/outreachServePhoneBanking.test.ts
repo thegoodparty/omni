@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { ElectedOffice } from '../../generated/prisma'
 import { SERVE_PHONE_BANKING_VOICE } from '../services/outreachPhoneBankingGeneration.service'
@@ -22,6 +23,10 @@ let electedOffice: ElectedOffice
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(true)
 
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   eoOrgSlug = `eo-${suffix}`
@@ -103,8 +108,58 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
     expect(systemPrompt).toContain(SERVE_PHONE_BANKING_VOICE.openerRule)
     expect(systemPrompt).toContain('[your name]')
+    expect(systemPrompt).toContain(
+      "official's full name given below, never the first name alone",
+    )
     expect(systemPrompt).toContain(CONSTITUENT_NAME_TOKEN)
     expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
+  })
+
+  // The community-input question is what the effort exists to ask, so the
+  // script has to close on it rather than on a generic issue question.
+  it('builds the script around the community-input question', async () => {
+    mockDraft('You: Hi.')
+    const question = 'Would you take part in a compost pilot?'
+
+    const res = await postDraft({
+      purpose: 'community_input',
+      tone: 'warm',
+      communityInputQuestion: question,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toContain(question)
+    // Fenced, so a typed question reads as quoted material and not as
+    // further instructions to the prompt.
+    expect(userPrompt).toContain(`"""\n${question}\n"""`)
+    // The purpose copy bans a yes/no question and a real one often is partly
+    // yes/no, so the rule resolves that rather than leaving them to conflict.
+    expect(userPrompt).toContain('inviting them to say more')
+  })
+
+  // Same leak the door had: the field was accepted on every purpose, so an
+  // event-invite script could be written around a community-input question.
+  it('refuses a question on a purpose that asks none', async () => {
+    mockDraft('You: Hi.')
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      communityInputQuestion: 'Would you take part in a compost pilot?',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('asks nothing extra when no question is given', async () => {
+    mockDraft('You: Hi.')
+
+    await postDraft({ purpose: 'community_input', tone: 'warm' })
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).not.toContain('The question this effort')
   })
 
   // The dialogue speaker label is the one part of the script format a human
@@ -276,5 +331,34 @@ describe('Public Profile grounding (ENG-10982)', () => {
         'Write the call script.',
       ].join('\n'),
     )
+  })
+
+  // The civic panel invite asks the closing question the caller records.
+  it('drafts the civic panel invite around the join question', async () => {
+    mockDraft('You: Hi. Constituent: Hello.')
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toContain('whether they want to join the civic panel')
+    expect(userPrompt).toContain('Never call the panel representative')
+  })
+
+  it('hides the civic panel invite with the panel flag off', async () => {
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(jsonCompletion).not.toHaveBeenCalled()
   })
 })

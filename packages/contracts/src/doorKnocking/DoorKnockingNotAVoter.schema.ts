@@ -4,7 +4,7 @@ import {
   NotAVoterStatusSchema,
 } from '../people/ContactStatus.schema'
 
-// ADR 0008. The answer to "What happened?", asked after a `not_a_voter`
+// The answer to "What happened?", asked after a `not_a_voter`
 // outcome. Its own request rather than a field on RecordDoorKnockInteraction
 // for two reasons: that payload is replay-idempotent on clientKey, so a
 // correction made on a later visit could not reach the row it needs to change;

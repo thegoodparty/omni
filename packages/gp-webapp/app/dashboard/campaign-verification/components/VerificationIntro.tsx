@@ -2,29 +2,13 @@
 
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import { CalendarClockIcon } from '@styleguide/components/ui/icons'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import {
-  ClockIcon,
-  FileTextIcon,
-  MailIcon,
-} from '@styleguide/components/ui/icons'
-
-const ROWS = [
-  {
-    icon: FileTextIcon,
-    title: 'Your filing details',
-    body: 'The committee name and filing link or document from your election authority',
-  },
-  {
-    icon: MailIcon,
-    title: 'Contact details',
-    body: 'The email, phone or address exactly as it appears on your filing',
-  },
-  {
-    icon: ClockIcon,
-    title: 'About 1 to 2 weeks',
-    body: 'A PIN arrives once the carriers clear your campaign',
-  },
-]
+  SMS_CUTOFF_COPY,
+  VERIFICATION_INTRO_ROWS,
+  formatSmsCutoffDate,
+} from '../verificationCopy'
 
 interface VerificationIntroProps {
   onContinue: () => void
@@ -38,6 +22,7 @@ export const VerificationIntro = ({
   onContinue,
   onBack,
 }: VerificationIntroProps): React.JSX.Element => {
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <div className="mb-6 flex flex-col gap-2">
@@ -49,8 +34,16 @@ export const VerificationIntro = ({
           can go out.
         </p>
       </div>
+      {smsCompliance === 'closing' && smsCutoffDate && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl bg-warning-light px-4 py-2.5 text-sm text-warning-dark">
+          <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+          {SMS_CUTOFF_COPY.countdownDeadline(
+            formatSmsCutoffDate(smsCutoffDate),
+          )}
+        </div>
+      )}
       <ul className="overflow-hidden rounded-xl border border-base-border bg-card">
-        {ROWS.map(({ icon: Icon, title, body }) => (
+        {VERIFICATION_INTRO_ROWS.map(({ icon: Icon, title, body }) => (
           <li
             key={title}
             className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"

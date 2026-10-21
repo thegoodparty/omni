@@ -55,7 +55,7 @@ import { BriefingSeedService } from '../services/briefingSeed.service'
 import { MeetingBriefingsService } from '../services/meetingBriefings.service'
 import { UserAgendaUploadService } from '../services/userAgendaUpload.service'
 
-type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+import type { UserAgendaStatus } from '../services/userAgendaUpload.service'
 
 type MeetingListItem = {
   meetingDate: string
@@ -66,6 +66,12 @@ type MeetingListItem = {
   location: string
   hasBriefing: boolean
   userAgendaStatus: UserAgendaStatus | null
+  /**
+   * Why gp-api declined to publish the user's agenda run, when
+   * userAgendaStatus is 'rejected'. Machine string; the web app turns it
+   * into a label. Null otherwise.
+   */
+  userAgendaReason: string | null
 }
 
 @Controller('meetings')
@@ -127,6 +133,7 @@ export class MeetingsBriefingsController {
           location: knownSchedule.location,
           hasBriefing: false,
           userAgendaStatus: null,
+          userAgendaReason: null,
         })
       }
     }
@@ -154,6 +161,7 @@ export class MeetingsBriefingsController {
           '',
         hasBriefing: true,
         userAgendaStatus: existing?.userAgendaStatus ?? null,
+        userAgendaReason: existing?.userAgendaReason ?? null,
       })
     }
 
@@ -172,10 +180,14 @@ export class MeetingsBriefingsController {
         from: windowFrom,
         to: windowTo,
       })
-    for (const [date, status] of userAgendaStatuses) {
+    for (const [date, { status, reason }] of userAgendaStatuses) {
       const existing = byDate.get(date)
       if (existing) {
-        byDate.set(date, { ...existing, userAgendaStatus: status })
+        byDate.set(date, {
+          ...existing,
+          userAgendaStatus: status,
+          userAgendaReason: reason,
+        })
         continue
       }
       // Off-list date: user uploaded an agenda for a meeting we don't have a
@@ -190,6 +202,7 @@ export class MeetingsBriefingsController {
         location: '',
         hasBriefing: false,
         userAgendaStatus: status,
+        userAgendaReason: reason,
       })
     }
 

@@ -4,6 +4,7 @@ import {
   ServeSmsDraftRequestSchema,
 } from './ServeSms.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 describe('ServeSmsDraftRequestSchema', () => {
   it('takes the serve purpose vocabulary', () => {
@@ -43,6 +44,7 @@ describe('ServeSmsCreateRequestSchema', () => {
   const valid = {
     name: 'Ward 3 street repair update',
     message: 'Hello {first_name}, ...',
+    imageUrl: 'https://assets.test/header.png',
     scheduledLocalDate: '2026-10-05',
     voterFileFilterId: 42,
   }
@@ -65,10 +67,30 @@ describe('ServeSmsCreateRequestSchema', () => {
     ).toBe(false)
   })
 
+  it('requires an image', () => {
+    const { imageUrl: _omitted, ...withoutImage } = valid
+    expect(ServeSmsCreateRequestSchema.safeParse(withoutImage).success).toBe(
+      false,
+    )
+  })
+
   it('requires a saved list', () => {
     const { voterFileFilterId: _omitted, ...withoutList } = valid
     expect(ServeSmsCreateRequestSchema.safeParse(withoutList).success).toBe(
       false,
     )
+  })
+
+  it('takes a round 2 size no bigger than one draw', () => {
+    expect(
+      ServeSmsCreateRequestSchema.parse({ ...valid, roundTwoSize: 400 })
+        .roundTwoSize,
+    ).toBe(400)
+    expect(
+      ServeSmsCreateRequestSchema.safeParse({
+        ...valid,
+        roundTwoSize: MAX_LIST_SAMPLE_SIZE + 1,
+      }).success,
+    ).toBe(false)
   })
 })

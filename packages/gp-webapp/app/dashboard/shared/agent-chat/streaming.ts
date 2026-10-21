@@ -10,9 +10,7 @@ export type LiveSegment =
   | { kind: 'text'; text: string }
   // `running` shimmers the pill while the tool is in flight (set on tool_call,
   // cleared on tool_result). Absent on persisted history, so reloaded pills are
-  // always static. `payload` carries structured tool-call args for widget tools
-  // (e.g. compose_handoff) so InlineSegments can render a CTA from the segment
-  // without a separate extraction pass.
+  // always static. `payload` carries the tool-call args.
   | { kind: 'tool'; toolName: string; running?: boolean; payload?: unknown }
   // Inline citation chip rendered at the position where the model cited a
   // source attachment. `ordinal` is 1-based and assigned in stream order.
@@ -27,15 +25,17 @@ export type LiveSegment =
 // Project a persisted assistant message into interleaved LiveSegments, so a
 // reloaded turn renders identically to how it streamed: stored segments in order
 // (dropping empty text), falling back to a bare `content` string for legacy rows
-// with no segments. Shared by every agent-chat scope.
+// with no segments. Shared by every agent-chat scope. `citationsBefore` carries
+// the numbering on when a turn is projected in pieces around its widgets.
 export function segmentsToLive(
   segments: ChatMessageSegment[],
   content: string,
+  citationsBefore = 0,
 ): LiveSegment[] {
   if (segments.length === 0) {
     return content ? [{ kind: 'text', text: content }] : []
   }
-  let citationOrdinal = 0
+  let citationOrdinal = citationsBefore
   return segments.flatMap((s): LiveSegment[] => {
     if (s.kind === 'text') {
       return s.text ? [{ kind: 'text', text: s.text }] : []

@@ -3,6 +3,7 @@ import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -31,6 +32,7 @@ export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
+  testModeCreatedAt: Date | null
   position: {
     id: string
     name: string
@@ -145,7 +147,10 @@ export class OrganizationsService extends createPrismaBase(
   async listOrganizations(userId: number) {
     const orgs = await this.model.findMany({
       where: {
-        OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
+        OR: [
+          { ownerId: userId },
+          { memberships: { some: { userId } }, testModeCreatedAt: null },
+        ],
       },
       // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
       // Without an explicit order Postgres may return these rows in any order,
@@ -165,7 +170,9 @@ export class OrganizationsService extends createPrismaBase(
     })
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
-        const friendly = await this.makeFriendly(org)
+        const friendly = await this.makeFriendly(org, {
+          tolerateElectionApiFailure: true,
+        })
         return {
           ...friendly,
           role: this.viewerRole(org, userId),
@@ -728,24 +735,45 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
+    options?: { tolerateElectionApiFailure?: boolean },
   ): Promise<FriendlyOrganization> {
-    const [position, overrideDistrict] = await Promise.all([
-      org.positionId
-        ? this.electionsService
-            .getPositionById(org.positionId, { includeDistrict: true })
-            .then((position) => {
-              if (!position) {
-                throw new InternalServerErrorException(
-                  'Organization references a non-existent position',
-                )
-              }
-              return position
-            })
-        : Promise.resolve(null),
-      org.overrideDistrictId
-        ? this.electionsService.getDistrict(org.overrideDistrictId)
-        : Promise.resolve(null),
+    const lookup = async <T>(fetch: () => Promise<T | null>) => {
+      try {
+        return { value: await fetch(), failed: false }
+      } catch (error) {
+        if (
+          options?.tolerateElectionApiFailure &&
+          error instanceof BadGatewayException
+        ) {
+          this.logger.warn(
+            { error, slug: org.slug },
+            'Election API unavailable; returning organization without position/district',
+          )
+          return { value: null, failed: true }
+        }
+        throw error
+      }
+    }
+    const { positionId, overrideDistrictId } = org
+    const [positionLookup, districtLookup] = await Promise.all([
+      positionId
+        ? lookup(() =>
+            this.electionsService.getPositionById(positionId, {
+              includeDistrict: true,
+            }),
+          )
+        : { value: null, failed: false },
+      overrideDistrictId
+        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId))
+        : { value: null, failed: false },
     ])
+    if (positionId && !positionLookup.failed && !positionLookup.value) {
+      throw new InternalServerErrorException(
+        'Organization references a non-existent position',
+      )
+    }
+    const position = positionLookup.value
+    const overrideDistrict = districtLookup.value
 
     const rawDistrict = overrideDistrict ?? position?.district
     const district: OrgDistrict | null = rawDistrict
@@ -761,6 +789,7 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
+      testModeCreatedAt: org.testModeCreatedAt,
       position: position
         ? {
             id: position.id,

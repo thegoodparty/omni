@@ -159,7 +159,9 @@ class Verdict:
     checks: list[dict] = field(default_factory=list)
     violations: list[str] = field(default_factory=list)
     duration_ms: int = 0
-    cost_usd: float = 0.0
+    # None when a stage that spends could not say what it spent. Summing an
+    # unknown term as 0 would report the gate as cheaper than it was.
+    cost_usd: float | None = None
 
     def to_dict(self) -> dict:
         """Serialize to the contract-C wire shape, UNCAPPED.
@@ -218,8 +220,12 @@ def run_qa_gate(
     the injected adapter the evaluator stage calls (the runner bridges the async
     ``run_evaluator_agent`` onto its event loop); it is REQUIRED whenever
     ``qa/eval.md`` is present and may be None for a deterministic-only folder.
-    The verdict's ``cost_usd`` is the sum of the stages' costs (0 for the
-    deterministic stage, the evaluator's model cost for the eval.md stage).
+    The verdict's ``cost_usd`` is the sum of the stages' costs (a known 0 for
+    the deterministic stage, which makes no model calls, and the evaluator's
+    model cost for the eval.md stage). It is None only when the evaluator ran
+    and could not report what it spent, because a sum missing a term is not a
+    smaller cost — and None is distinguishable from the genuine zero a
+    deterministic-only gate reports.
 
     ``run_id``/``experiment_id`` are OPTIONAL log-correlation keys (cross-lane
     interface): Lane B's main.py passes ``config.run_id`` / ``config.experiment_id``.
@@ -245,6 +251,10 @@ def run_qa_gate(
                 status="skipped",
                 qa_version_ids=qa_version_ids,
                 duration_ms=_elapsed_ms(started),
+                # A KNOWN zero. There are no qa files, so no stage ran and
+                # nothing could have spent — withholding a figure we have
+                # would be the same mistake as inventing one.
+                cost_usd=0.0,
             )
             _log_verdict(verdict, run_id)
             return verdict, None, None
@@ -267,6 +277,9 @@ def run_qa_gate(
                     f"{required}s required for present stages"
                 ],
                 duration_ms=_elapsed_ms(started),
+                # Also a known zero: this branch exists precisely to avoid
+                # spawning anything, so nothing was spent.
+                cost_usd=0.0,
             )
             _log_verdict(verdict, run_id)
             return verdict, None, None
@@ -278,7 +291,12 @@ def run_qa_gate(
 
         checks: list[dict] = []
         stage_error = False
-        cost_usd = 0.0
+        # Starts at a KNOWN zero, not at None. The deterministic stage makes
+        # no model calls, so a gate that runs only that stage cost nothing and
+        # we know it — reporting None there would withhold a figure we have.
+        # Only a spending stage that cannot say what it spent makes this
+        # unknown.
+        cost_usd: float | None = 0.0
         raw_output: str | None = None
         eval_transcript: str | None = None
 
@@ -309,7 +327,9 @@ def run_qa_gate(
             )
             checks.extend(ev_checks)
             stage_error = stage_error or ev_error
-            cost_usd += ev_cost
+            # An evaluator that could not say what it spent makes the gate's
+            # total unknown, not unchanged.
+            cost_usd = None if ev_cost is None else ev_cost + (cost_usd if cost_usd is not None else 0.0)
 
         status: VerdictStatus = "error" if stage_error else "evaluated"
         # A1: an entrypoint that produced ZERO fragments verified nothing —
@@ -345,6 +365,12 @@ def run_qa_gate(
             pass_=None,
             violations=[violation],
             duration_ms=_elapsed_ms(started),
+            # NO cost_usd, and that default of None is the right answer here
+            # rather than an oversight: this catches anything thrown anywhere
+            # in the body, including after the evaluator was spawned, so
+            # whatever was spent before the throw is unknown. The two returns
+            # above pass an explicit 0.0 because they provably spawned
+            # nothing.
         )
         _log_verdict(verdict, run_id)
         return verdict, None, None
@@ -698,10 +724,11 @@ def _run_evaluator(
     evaluator_runner: Callable[[EvaluatorHarnessParams], EvaluatorResult] | None,
     broker_env: dict,
     run_id: str | None = None,
-) -> tuple[list[dict], bool, float, str | None]:
+) -> tuple[list[dict], bool, float | None, str | None]:
     """Spawn the evaluator via the injected runner and read its fragment array
     from the injected result_file_path. Returns
-    ``(checks, error, cost_usd, eval_transcript)``.
+    ``(checks, error, cost_usd, eval_transcript)``, where ``cost_usd`` is None
+    when the evaluator did not report one.
 
     A missing ``evaluator_runner`` (none injected though eval.md is present),
     a missing/unparseable result file, a runner-raised exception, or an
@@ -743,9 +770,11 @@ def _run_evaluator(
         result = evaluator_runner(params)
     except Exception as e:
         logger.exception("qa_gate_evaluator_runner_failed errorType=%s run_id=%s: %s", type(e).__name__, run_id, e)
-        return [], True, 0.0, None
+        # No cost, not a zero cost: the runner raised, so whatever it spent
+        # before raising is unknown.
+        return [], True, None, None
 
-    cost = result.cost_usd if result is not None else 0.0
+    cost = result.cost_usd if result is not None else None
     # Capture + REDACT the evaluator's per-turn transcript here — the gate is
     # the single redaction chokepoint. Forwarded even on a stage error so a
     # truncated/errored run is still diagnosable (the v1 observe-only value).

@@ -132,13 +132,15 @@ All routes require `X-Broker-Token` (per-run UUIDv4) except `/health` and `/inte
 | Path | Used by | Purpose |
 |---|---|---|
 | `GET /health` | ECS health check | liveness only |
-| `POST /internal/mint-run-token` | Dispatch Lambda | Validates SERVICE_TOKEN, creates a scope ticket in DynamoDB, returns a per-run broker token (UUIDv4) the runner uses for auth |
+| `POST /internal/mint-run-token` | Dispatch Lambda | Validates SERVICE_TOKEN, creates a scope ticket in DynamoDB, returns a per-run broker token (UUIDv4) the runner uses for auth. Rejects unknown body fields (`extra="forbid"`) so a field nothing here consumes can't be silently dropped. Optionally carries `is_eval`, a version-pinned `experiment_override` key pair and a judge page-replay setting (`replay`: `record` or `replay` plus a `_judge/replay/` store key) onto the ticket. `replay` is refused unless the run is a dev judge run and the broker has `REPLAY_ENABLED=true`, which Terraform sets in the dev broker only |
 | `POST /anthropic/v1/messages` | Runner (via Claude SDK) | Proxies to `api.anthropic.com`, injects broker's `ANTHROPIC_API_KEY`; streams response back |
 | `POST /databricks/query` | Runner (via `pmf_runtime.databricks`) | Scope-aware SQL execution — broker rewrites WHERE clauses to inject `state`/`city` filters per scope ticket; rejects cross-scope queries |
-| `POST /artifact/publish` | Runner (via `pmf_runtime.publish`) | Validates artifact against contract schema, uploads to S3, sends callback to results queue |
+| `POST /artifact/publish` | Runner (via `pmf_runtime.publish`) | Validates artifact against contract schema, uploads to S3, sends callback to results queue. A ticket with `is_eval` skips both the callback (a judge run has no gp-api run row to reconcile) and the mutable `latest.json` pointer (it is the org's current product artifact) — the immutable per-run archive is still written |
 | `GET /artifact/read` | Runner (via `pmf_runtime.priors`) | Reads a prior experiment's artifact (for dependency chaining, e.g. one experiment reading a prior experiment's artifact — the dependency relation is encoded in gp-api, not the broker) |
-| `POST /run-status` | Runner | Update run status (RUNNING/CONTRACT_VIOLATION/etc.); broker sends callback to results queue |
+| `POST /run-status` | Runner | Update run status (RUNNING/CONTRACT_VIOLATION/etc.); broker sends callback to results queue (same `is_eval` suppression as publish) |
 | `POST /internal/upload-logs` | Runner | Forward runner logs to S3 for debugging |
+| `POST /http/fetch` | Runner (via `pmf_runtime.http.get/download`) | The sole URL retrieval route: SSRF-guarded Playwright render or download, streamed back with `X-Source-URL`, `X-Byte-Size` and `X-Upstream-Status`. On a judge ticket carrying `replay` (and only while `REPLAY_ENABLED=true`), `record` saves each response under 400 write-once under the ticket's `_judge/replay/` key after it is sent (an error page may be transient, so the candidate gets its own try), and `replay` serves a saved copy written before the run started, else fetches live. Matching uses the normalized URL (no fragment or tracking parameters, lowercase scheme and host, sorted query). Each replay request leaves an empty hit or miss marker under `<key>/outcomes/<run_id>/` for the judge to count. A recording run is capped at 500 saved objects and 500 MB, counted on its ticket item, and downloads over 50 MB are not recorded. Any record or replay failure falls back to the live path (`broker/page_replay.py`) |
+| `POST /http/head` | Runner (via `pmf_runtime.http.head`) | Non-browser liveness check (HEAD, falling back to a ranged GET). Records and replays its status and final URL the same way as `/http/fetch`, in a separate store |
 
 Full spec: see `broker/endpoints/*.py`.
 
@@ -168,6 +170,9 @@ Full spec: see `broker/endpoints/*.py`.
   3. Runner Fargate task:
      - Pulls image via ECR endpoints + S3 prefix list
      - If PARAMS_VIA_BROKER is set: GET /params/read (token auth) → ticket params
+     - Writes the params (either path) to /workspace/params.json, read-only, and
+       sets PARAMS_FILE to that path in the agent's env; agent tools read params
+       there, since PARAMS_JSON exists only on the inline path
      - Starts Claude Agent SDK (passes ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY as env)
      - Every API call: Claude SDK → broker /anthropic/v1/messages (token auth)
      - Every DB query: pmf_runtime.databricks → broker /databricks/query

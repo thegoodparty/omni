@@ -45,60 +45,97 @@ const renderPicker = () => {
   )
 }
 
+type FetchResult = Awaited<ReturnType<typeof clientFetch>>
+
+// Answers the picker's two lookups: upcoming races for the list, past races
+// for each row's last elected date.
+const mockRaces = ({
+  upcoming,
+  past = [],
+  pastFails = false,
+}: {
+  upcoming: ReturnType<typeof ward1>[]
+  past?: ReturnType<typeof ward1>[]
+  pastFails?: boolean
+}) => {
+  mockClientFetch.mockImplementation(async (_route, params) => {
+    const { timeframe } = params as { timeframe: string }
+    if (timeframe === 'past' && pastFails) {
+      return { ok: false, status: 500, statusText: 'Error' } as FetchResult
+    }
+    return {
+      ok: true,
+      data: timeframe === 'past' ? past : upcoming,
+    } as unknown as FetchResult
+  })
+}
+
 describe('ServeOfficePicker', () => {
   beforeEach(() => {
     mockClientFetch.mockReset()
   })
 
-  it('shows both cohort twins, each with its latest general/primary date', async () => {
-    mockClientFetch.mockResolvedValue({
-      ok: true,
-      data: [
-        // Cohort A: a primary + general in 2022 → latest general/primary is Nov 2022
-        ward1('brA', 'pA', '2022-08-16', { isPrimary: true }),
+  it('shows both cohort twins, each with its last general election', async () => {
+    mockRaces({
+      upcoming: [
+        ward1('brA', 'pA', '2026-11-03'),
+        ward1('brB', 'pB', '2028-11-07'),
+      ],
+      past: [
+        // Cohort A: a later primary is not when they were elected.
         ward1('brA', 'pA', '2022-11-08'),
-        // Cohort B: a 2024 general + a later runoff that must be ignored
+        ward1('brA', 'pA', '2026-03-03', { isPrimary: true }),
+        // Cohort B: a later runoff is ignored too.
         ward1('brB', 'pB', '2024-11-05'),
         ward1('brB', 'pB', '2024-12-10', { isRunoff: true }),
       ],
-    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+    })
 
     renderPicker()
 
     const rows = await screen.findAllByRole('radio', { name: /Ward 1/ })
     expect(rows).toHaveLength(2)
-    // The date is what disambiguates two identically-named cohort positions.
-    expect(screen.getByText(/Last election:.*2022/)).toBeInTheDocument()
-    // Cohort B shows its 2024 general, not the later 2024 runoff.
-    expect(screen.getByText(/Last election:.*2024/)).toBeInTheDocument()
+    expect(
+      screen.getByText('City · Last elected: Nov 8, 2022'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('City · Last elected: Nov 5, 2024'),
+    ).toBeInTheDocument()
   })
 
-  it('requests upcoming races for the submitted zip', async () => {
-    mockClientFetch.mockResolvedValue({
-      ok: true,
-      data: [],
-    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+  it('lists offices from upcoming races and dates them from past ones', async () => {
+    mockRaces({ upcoming: [] })
 
     renderPicker()
 
-    await waitFor(() => expect(mockClientFetch).toHaveBeenCalled())
-    expect(mockClientFetch).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ zipcode: '82001', timeframe: 'future' }),
-      expect.anything(),
-    )
+    await waitFor(() => expect(mockClientFetch).toHaveBeenCalledTimes(2))
+    for (const timeframe of ['future', 'past']) {
+      expect(mockClientFetch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ zipcode: '82001', timeframe }),
+        expect.anything(),
+      )
+    }
   })
 
-  it('shows an office whose only election on file is upcoming, with no last-election date', async () => {
-    mockClientFetch.mockResolvedValue({
-      ok: true,
-      data: [ward1('brC', 'pC', '2999-11-05')],
-    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+  it('shows an office with no past election on file without a date', async () => {
+    mockRaces({ upcoming: [ward1('brC', 'pC', '2999-11-05')] })
 
     renderPicker()
 
     const rows = await screen.findAllByRole('radio', { name: /Ward 1/ })
     expect(rows).toHaveLength(1)
-    expect(screen.queryByText(/Last election:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Last elected:/)).not.toBeInTheDocument()
+  })
+
+  it('still lists offices when the past lookup fails', async () => {
+    mockRaces({ upcoming: [ward1('brC', 'pC', '2999-11-05')], pastFails: true })
+
+    renderPicker()
+
+    expect(
+      await screen.findAllByRole('radio', { name: /Ward 1/ }),
+    ).toHaveLength(1)
+    expect(screen.queryByText(/Last elected:/)).not.toBeInTheDocument()
   })
 })

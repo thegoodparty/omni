@@ -18,7 +18,6 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
-import { useAttachmentsEnabled } from '../shared/agent-chat/hooks/useAttachmentsEnabled'
 import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
@@ -58,6 +57,10 @@ interface CampaignManagerChatContextValue {
   // Open the manager and ask how to get on the ballot (the ballot-access home
   // card). Does NOT dismiss the meet card.
   startBallotAccess: () => void
+  // Open the manager on a new chat that starts with the given message, e.g. a
+  // tracker task the candidate wants to talk through. Does NOT dismiss the
+  // meet card.
+  discussTask: (message: string) => void
   // First-run meet-card visibility, shared so the home card and a manager open
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
@@ -104,6 +107,7 @@ export function CampaignManagerChatProvider({
   const router = useRouter()
   const pathname = usePathname()
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [conversationId, setConversationId] = useState<string | null>(null)
   // One-shot hidden kickoff sent once the resolved conversation loads (see
   // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
@@ -117,10 +121,6 @@ export function CampaignManagerChatProvider({
   // already personalized, so the "Personalize your campaign" starter chip is
   // dropped from the chat.
   const { isComplete: storyComplete } = useCampaignStoryComplete(true)
-  // Off for campaign_assistant today; the footer paperclip appears the moment
-  // the hook enables attachments for this scope.
-  const attachmentsEnabled = useAttachmentsEnabled('campaign_assistant')
-
   // Fetched at mount so a general open can resume the latest conversation
   // synchronously. The chat body invalidates this key when a conversation is
   // created, so [0] (the list is updatedAt-desc) tracks the one the candidate
@@ -214,6 +214,7 @@ export function CampaignManagerChatProvider({
   // conversation in the history popover. Does NOT touch the meet card — the
   // callers below decide whether opening counts as "meeting the manager".
   const openNewChat = useCallback((kickoff?: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(kickoff)
     setConversationId(null)
     setChatOpen(true)
@@ -224,14 +225,26 @@ export function CampaignManagerChatProvider({
   // only a candidate with no history lands on a new chat.
   const openManager = useCallback(() => {
     dismissMeetCard()
+    setPendingFile(undefined)
     setPendingKickoff(undefined)
     setConversationId(latestConversationId)
     setChatOpen(true)
   }, [dismissMeetCard, latestConversationId])
 
+  // The footer paperclip: the same open as the footer bar, with the picked
+  // file attached to whichever conversation that resumes.
+  const openManagerWithFile = useCallback(
+    (file: File) => {
+      openManager()
+      setPendingFile(file)
+    },
+    [openManager],
+  )
+
   const openConversation = useCallback(
     (id: string) => {
       dismissMeetCard()
+      setPendingFile(undefined)
       setPendingKickoff(undefined)
       setConversationId(id)
       setChatOpen(true)
@@ -254,6 +267,13 @@ export function CampaignManagerChatProvider({
   const startBallotAccess = useCallback(() => {
     openNewChat(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
   }, [openNewChat])
+
+  const discussTask = useCallback(
+    (message: string) => {
+      openNewChat(message)
+    },
+    [openNewChat],
+  )
 
   // The personalize deep link (`/dashboard?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story
@@ -295,6 +315,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      discussTask,
       meetDismissed,
       dismissMeetCard,
     }),
@@ -303,6 +324,7 @@ export function CampaignManagerChatProvider({
       openConversation,
       startStory,
       startBallotAccess,
+      discussTask,
       meetDismissed,
       dismissMeetCard,
     ],
@@ -320,10 +342,10 @@ export function CampaignManagerChatProvider({
         firstName={firstName}
         onOpen={openManager}
         onOpenConversation={openConversation}
+        onAttachFile={openManagerWithFile}
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
-        showAttachIcon={attachmentsEnabled.enabled}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
@@ -331,7 +353,10 @@ export function CampaignManagerChatProvider({
           setChatOpen(next)
           // Clear the one-shot kickoff on close: a later plain reopen (the
           // meet card, the footer bar) must never replay the story sentinel.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={conversationId}
         // The header's "New chat" clears any queued kickoff too, so a fresh
@@ -348,6 +373,7 @@ export function CampaignManagerChatProvider({
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
+        analyticsSurface="campaign_manager_page"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         // The greeting rides on `opener` alone. This only keeps the entries
         // that pass no opener from falling through to the body's Chief of
@@ -365,6 +391,7 @@ export function CampaignManagerChatProvider({
           firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
         }
         pendingKickoff={pendingKickoff}
+        pendingFile={pendingFile}
         composerRef={composerRef}
         // Overridden because `title` is sentence-cased ("Campaign manager") but
         // the agent's name reads as a proper noun in prose.

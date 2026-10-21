@@ -40,6 +40,9 @@ export const RobocallDraftCreateRequestSchema = z.object({
       message: 'campaignPlanDueDate must be a valid calendar date',
     })
     .optional(),
+  // The campaign-plan task the flow was opened from. Stored on the outreach
+  // so the task list can mark that task done once the robocall is scheduled.
+  trackerTaskId: z.string().min(1).optional(),
   // Converts an existing `draft` row in place instead of inserting (resume).
   draftOutreachId: z.number().int().positive().optional(),
 })
@@ -57,6 +60,9 @@ export const OutreachRobocallDetailSchema = z.object({
   audioKey: z.string(),
   callbackNumber: z.string(),
   billableCount: z.number().int().nullable(),
+  // Payment-settlement state (pending → held → captured, or null before
+  // hold). Read by the E2E spec to confirm the capture job ran.
+  settleState: z.string().optional(),
 })
 export type OutreachRobocallDetail = z.infer<
   typeof OutreachRobocallDetailSchema

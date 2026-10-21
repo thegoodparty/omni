@@ -113,3 +113,14 @@ export const phoneDigitsKey = (phone: string): string | null => {
     digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
   return tenDigits.length === 10 ? tenDigits : null
 }
+
+// Only all-lowercase input is rewritten: mixed case (McDonald, de La Cruz) is
+// a deliberate spelling, and all caps may be initials.
+export const normalizePersonName = (value: string): string =>
+  value === value.toLowerCase()
+    ? value.replace(
+        /(^|[^\p{L}])(\p{L})/gu,
+        (_match, boundary: string, letter: string) =>
+          `${boundary}${letter.toUpperCase()}`,
+      )
+    : value

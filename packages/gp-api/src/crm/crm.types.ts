@@ -41,6 +41,27 @@ export type CRMTeamMemberContactProperties = {
   team_role: HubSpot.TeamRole
 }
 
+/**
+ * Properties gp-api writes on an Office Holder custom object record
+ * (DATA-2623). The data platform owns every seat field after the app's
+ * day-one snapshot, so only the app-owned group is required on each write.
+ */
+export type CRMOfficeHolderProperties = {
+  elected_date: string
+  sworn_in_date: string
+  pledged_at: string
+  onboarding_completed_at: string
+  self_reported: 'true' | 'false'
+  name?: string
+  status?: HubSpot.OfficeHolderStatus
+  position_name?: string
+  candidate_office?: string
+  state?: string
+  party_affiliation?: string
+  term_start_date?: string
+  term_end_date?: string
+}
+
 /** HubSpot related types and enums */
 export namespace HubSpot {
   /** Hubspot webhook payload */
@@ -151,6 +172,13 @@ export namespace HubSpot {
     VOLUNTEER = 'Volunteer',
   }
 
+  /** Office Holder `status` values: won but not seated, seated, or past. */
+  export enum OfficeHolderStatus {
+    ELECTED = 'elected',
+    IN_OFFICE = 'in_office',
+    FORMER = 'former',
+  }
+
   /**
    * Hubspot property names that we recieve from Hubspot via webhook or sync pulls
    */
@@ -184,13 +212,10 @@ export namespace HubSpot {
     calls_made = 'calls_made',
     direct_mail_sent = 'direct_mail_sent',
     event_impressions = 'event_impressions',
-    knocked_doors = 'knocked_doors',
     doors_knocked = 'doors_knocked',
     online_impressions = 'online_impressions',
     yard_signs_impressions = 'yard_signs_impressions',
     // p2p_texts = 'p2p_texts', TODO: we need a new field in HS for sms text contact numbers
-    ecanvasser_contacts_count = 'ecanvasser_contacts_count',
-    ecanvasser_houses_count = 'ecanvasser_houses_count',
 
     // candidate details
     candidate_district = 'candidate_district',

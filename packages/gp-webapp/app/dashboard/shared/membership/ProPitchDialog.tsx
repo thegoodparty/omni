@@ -11,14 +11,25 @@ import {
   DialogTitle,
   ProBadge,
 } from '@styleguide'
+import { Alert, AlertTitle } from '@styleguide/components/ui/alert'
 import {
   DoorOpenIcon,
+  InfoIcon,
   MessageSquareIcon,
   ShieldCheckIcon,
   UsersIcon,
 } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { PRO_UPGRADE_ENTRY_PATH } from 'app/shared/experiments/proUpgrade3Flag'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  proUpgradeHref,
+  type ProUpgradeChannel,
+  type ProUpgradeSource,
+} from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 
 const TILE_ICONS = [UsersIcon, MessageSquareIcon, DoorOpenIcon, ShieldCheckIcon]
@@ -35,6 +46,9 @@ const TILE_TINTS = [
 interface ProPitchDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Which wall opened the pitch, for its events and the wizard's Flow Started.
+  source: ProUpgradeSource
+  channel: ProUpgradeChannel
 }
 
 // The membership surface's Pro pitch (design: renderProPitch): what Pro costs
@@ -43,23 +57,48 @@ interface ProPitchDialogProps {
 export const ProPitchDialog = ({
   open,
   onOpenChange,
+  source,
+  channel,
 }: ProPitchDialogProps): React.JSX.Element => {
   const router = useRouter()
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  // Verification only exists to unlock texting, so once texting has closed
+  // for the race the tile sells nothing Pro can still deliver.
+  const tiles = MEMBERSHIP_COPY.pitch.tiles
+    .map((tile, index) => ({
+      ...tile,
+      Icon: TILE_ICONS[index]!,
+      tint: TILE_TINTS[index],
+    }))
+    .filter(({ title }) => !smsClosed || title !== 'Campaign verification')
 
   useEffect(() => {
-    if (open) trackEvent(EVENTS.ProUpgrade.Membership.PitchViewed)
-  }, [open])
+    if (open) {
+      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialViewed, { channel })
+    }
+  }, [open, channel])
 
   const handleJoin = () => {
-    trackEvent(EVENTS.ProUpgrade.Membership.PitchJoin)
+    trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialCompleted, { channel })
     onOpenChange(false)
-    router.push(PRO_UPGRADE_ENTRY_PATH)
+    router.push(
+      proUpgradeHref({
+        source,
+        channel,
+        cta: MEMBERSHIP_COPY.pitch.join,
+      }),
+    )
   }
 
   // Every other way out of the dialog — the X, escape, the overlay — is a
   // dismissal, and there is no dismiss button left to report it.
   const handleOpenChange = (next: boolean) => {
-    if (!next) trackEvent(EVENTS.ProUpgrade.Membership.PitchDismiss)
+    if (!next) {
+      trackEvent(EVENTS.ProUpgrade.Compliance.InterstitialDismissed, {
+        channel,
+      })
+    }
     onOpenChange(next)
   }
 
@@ -82,21 +121,27 @@ export const ProPitchDialog = ({
               {MEMBERSHIP_COPY.pitch.pill}
             </span>
           </DialogHeader>
+          {smsClosed && (
+            <Alert variant="info" icon={<InfoIcon />}>
+              <AlertTitle>
+                {SMS_CUTOFF_COPY.closedReason(
+                  smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+                )}
+              </AlertTitle>
+            </Alert>
+          )}
           <div className="grid gap-5 rounded-xl border border-brand-blue-200 p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
-            {MEMBERSHIP_COPY.pitch.tiles.map(({ title, body }, index) => {
-              const Icon = TILE_ICONS[index]!
-              return (
-                <div key={title} className="flex flex-col gap-2">
-                  <span
-                    className={`flex size-10 items-center justify-center rounded-full ${TILE_TINTS[index]}`}
-                  >
-                    <Icon className="size-5" aria-hidden />
-                  </span>
-                  <p className="font-semibold">{title}</p>
-                  <p className="text-sm text-base-muted-foreground">{body}</p>
-                </div>
-              )
-            })}
+            {tiles.map(({ title, body, Icon, tint }) => (
+              <div key={title} className="flex flex-col gap-2">
+                <span
+                  className={`flex size-10 items-center justify-center rounded-full ${tint}`}
+                >
+                  <Icon className="size-5" aria-hidden />
+                </span>
+                <p className="font-semibold">{title}</p>
+                <p className="text-sm text-base-muted-foreground">{body}</p>
+              </div>
+            ))}
           </div>
         </div>
         <DialogFooter className="shrink-0 sm:justify-center">

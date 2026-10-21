@@ -1,15 +1,15 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
-  differenceInCalendarDays,
-  differenceInCalendarWeeks,
-  isValid,
-  parseISO,
-} from 'date-fns'
-import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  SmsComplianceWindow,
 } from '@goodparty_org/contracts'
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
+import { PinoLogger } from 'nestjs-pino'
+import {
+  type Campaign,
+  ChatMessageRole,
+  ChatScope,
+} from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
@@ -26,18 +26,25 @@ import {
   ResolveConversationParams,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
+import {
+  composeAppendix,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
-  LEGAL_LINE,
+  currentPageBlock,
+  type LiveRace,
 } from './campaignManagerPrompt'
+import { localDay } from '../services/todayLine'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import {
-  CampaignStoryIntakeService,
-  type StoryField,
-  type StoryState,
-} from './campaignStoryIntake.service'
+import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type {
+  StoryField,
+  StoryState,
+} from '@/campaignStory/services/campaignStoryState.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
@@ -47,12 +54,31 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
+import { buildCampaignManagerOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildCampaignManagerListProposalTool } from '../crm-tools/presentListProposal.tool'
+import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
+import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
+import { areaForPath } from '../product-knowledge/productMap'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import {
+  PublicProfileAddressService,
+  type PublicProfileAddress,
+  type PublicProfileGate,
+} from '@/personProfiles/services/public-profile-address.service'
+import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { ISSUE_CAPTURE_FLAG } from '@/constituentFeedback/util/issueCaptureFlag.util'
+import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -105,15 +131,15 @@ export const buildStoryGreeting = (story: StoryState): string => {
   const intro =
     answered === 0
       ? [
-          "Before I build your plan and tracker, let's get your Campaign " +
-            "Story down, since it's what personalizes your Campaign Plan, " +
-            'Campaign Tracker, and your GoodParty.org experience.',
+          "Before I build your campaign and outreach plan, let's get your " +
+            "Campaign Story down, since it's what personalizes your plan " +
+            'and your GoodParty.org experience.',
           "It's just three short questions, in your own words, and I can " +
             'help sharpen anything you write.',
         ]
       : [
           "Welcome back. Let's finish your Campaign Story so I can build " +
-            'your plan and tracker.',
+            'your campaign and outreach plan.',
         ]
   const lead = answered === 0 ? 'First' : 'Next'
   return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')
@@ -122,15 +148,20 @@ export const buildStoryGreeting = (story: StoryState): string => {
 // Canned reply for the product-overview sentinel (the "Learn more about the
 // product" chip). Independent of the candidate's Campaign Story state, so it
 // answers the same way whether the story is missing, in progress, or done.
-const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
-  "I'm your campaign manager, here to help you run and win.",
-  'GoodParty.org gives you a personalized campaign plan, a weekly tracker ' +
-    'of your highest-impact tasks, voter outreach tools like texting, ' +
-    'door-knocking scripts, and social posts, and a free candidate website.',
-  'Tell me what you are working on and I will point you to the next best ' +
-    'step. When you are ready, tap Personalize your campaign and I will ' +
-    'tailor everything to your race.',
-].join('\n\n')
+// Past the SMS cutoff it leaves texting out rather than announcing the cutoff.
+const buildProductOverview = (textingClosed: boolean): string =>
+  [
+    "I'm your campaign manager, here to help you run and win.",
+    'GoodParty.org gives you a personalized campaign and outreach plan with ' +
+      'your highest-impact tasks each week, voter outreach tools like ' +
+      (textingClosed
+        ? 'robocalls, door-knocking scripts, and social posts'
+        : 'texting, door-knocking scripts, and social posts') +
+      ', and a free candidate website.',
+    'Tell me what you are working on and I will point you to the next best ' +
+      'step. When you are ready, tap Personalize your campaign and I will ' +
+      'tailor everything to your race.',
+  ].join('\n\n')
 
 // Injection tokens for the aggregate-only Databricks provider and the in-code
 // table allowlist, provided by CampaignManagerModule.
@@ -149,25 +180,35 @@ const EMPTY_STORY_STATE: StoryState = {
   missing: ['why', 'background', 'positions'],
 }
 
-// details is a raw JSON blob with no schema at this call site, so a
-// human-patched or differently-formatted date parses to an Invalid Date and the
-// difference comes back NaN. NaN is not null, so it would slip past every
-// null-guard downstream and land in the system prompt as "NaN days from today".
-// Return null for anything unparseable and let the prompt say it does not know.
-const calendarDaysUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarDays(parsed, new Date()) : null
-}
-
-const calendarWeeksUntil = (iso: string): number | null => {
-  const parsed = parseISO(iso)
-  return isValid(parsed) ? differenceInCalendarWeeks(parsed, new Date()) : null
-}
-
 // Native web search only exists when the Anthropic key is configured. Read in
 // one place so the prompt's guidance and the tool registration can never
 // disagree about whether the manager can search.
 const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
+
+// Live race data is cut once per campaign per local day: the first turn of
+// the day fetches it and every later turn that day, in any of the campaign's
+// conversations, reuses it. The lookup fans out to election-api and
+// BallotReady, so it races a timer and a slow day degrades to "unavailable"
+// instead of holding the turn.
+const LIVE_RACE_TIMEOUT_MS = 3_000
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timed out after ${ms} ms`)),
+      ms,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
 
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
@@ -177,11 +218,16 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   district: null,
   officeLevel: null,
   location: null,
-  weeksToElection: null,
+  electionDate: null,
+  primaryElectionDate: null,
+  primaryResult: null,
+  didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
+  liveRace: { status: 'none', reason: 'no-election-date' },
   ballotStatus: null,
   filingPeriodStart: null,
   filingPeriodEnd: null,
-  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
@@ -197,6 +243,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   webSearchEnabled: false,
   story: null,
   plan: null,
+  publicProfile: { status: 'unknown' },
 }
 
 @Injectable()
@@ -204,6 +251,18 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   readonly scope = ChatScope.campaign_assistant
   readonly isSensitive = true
   readonly models = [...CAMPAIGN_MANAGER_MODELS]
+  // The default 5 steps ran out mid-outreach: describe, count, size, then
+  // save or present is already four tool calls before any retry or search,
+  // and a turn that runs out of steps ends without presenting anything.
+  readonly maxSteps = 15
+
+  // One entry per campaign: the day it was cut and what came back. Replaced
+  // when the campaign's local day moves on; never holds an unavailable
+  // outcome, so the next turn after a failure tries again.
+  private readonly liveRaceByCampaign = new Map<
+    number,
+    { day: string; value: LiveRace }
+  >()
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -226,7 +285,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly elections?: ElectionsService,
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
-  ) {}
+    @Optional()
+    private readonly pastOutreach?: PriorityFlowOutreachService,
+    @Optional()
+    private readonly logger?: PinoLogger,
+    @Optional()
+    private readonly publicProfiles?: PublicProfileAddressService,
+    @Optional()
+    private readonly features?: FeaturesService,
+  ) {
+    this.logger?.setContext(CampaignManagerHandler.name)
+  }
 
   // The manager runs the shared session model (one fresh conversation per
   // open, resume by opening a past one from history), so it has no
@@ -242,6 +311,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       conversationId,
       role: ChatMessageRole.assistant,
       content: greeting,
+      inputTokens: 0,
+      outputTokens: 0,
     })
   }
 
@@ -283,7 +354,25 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
 
     const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
-      include: { user: true },
+      // The public profile's publish gate rides along: three columns on the
+      // read that already fetches the user, so an ordinary turn learns the
+      // page is not live without a query of its own.
+      include: {
+        user: {
+          include: {
+            personProfile: {
+              select: { personId: true, publishedAt: true, deletedAt: true },
+            },
+          },
+        },
+        tcrCompliance: {
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            peerlyIdentityId: true,
+          },
+        },
+      },
     })
     if (!campaign) return this.emptyContext()
 
@@ -302,10 +391,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         ])
       : [null, null]
     const details = campaign.details
-    const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
+    const { smsCompliance, smsCutoffDate } = smsComplianceWindow({
+      electionDate: details.electionDate,
+      tcrCompliance: campaign.tcrCompliance ?? null,
+      now: new Date(),
+    })
 
     // Scope constituent queries to the campaign's district (from its org's
     // position), same shape Chief of Staff uses. Folding districtFilters into
@@ -338,6 +431,25 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: ISSUE_CAPTURE_FLAG,
+        })
+      : false
+
+    const day = localDay(details.state ?? null)
+    // Independent lookups on independent timers, so a slow day costs one
+    // timeout and not two in a row.
+    const [liveRace, publicProfile] = await Promise.all([
+      this.resolveLiveRace(campaign, day),
+      this.resolvePublicProfile(
+        campaign.user?.personProfile ?? null,
+        campaign.id,
+        day,
+      ),
+    ])
+
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
       candidateName,
@@ -346,13 +458,21 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       district: details.district ?? null,
       officeLevel: details.ballotLevel ?? null,
       location,
-      weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
+      state: details.state ?? null,
+      districtState: resolved?.state ?? details.state ?? null,
+      // The record as stored. The prompt builder parses and counts from these
+      // against the candidate's local day, so an unparseable value reads as no
+      // date there rather than becoming NaN here.
+      electionDate: details.electionDate ?? null,
+      primaryElectionDate: details.primaryElectionDate ?? null,
+      primaryResult: campaign.primaryResult ?? null,
+      didWin: campaign.didWin ?? null,
+      smsCompliance,
+      smsCutoffDate,
+      liveRace,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
       filingPeriodEnd: details.filingPeriodsEnd ?? null,
-      daysToFilingDeadline: details.filingPeriodsEnd
-        ? calendarDaysUntil(details.filingPeriodsEnd)
-        : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,
         date: t.date,
@@ -369,13 +489,116 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
+      outreachFeedbackEnabled,
       story,
       plan,
+      publicProfile,
     }
   }
 
+  // The gate read with the campaign decides not-live for free; a published
+  // profile costs the removal check and, once a day, the election-api read
+  // for its canonical address. That read races the same timer as the live
+  // race data, so a slow day reads as unknown instead of holding the turn.
+  // Unknown, not not-live: the prompt must never tell a candidate who
+  // published that they did not.
+  private async resolvePublicProfile(
+    gate: PublicProfileGate | null,
+    campaignId: number,
+    day: string,
+  ): Promise<PublicProfileAddress> {
+    if (!this.publicProfiles) return { status: 'unknown' }
+    try {
+      return await withTimeout(
+        this.publicProfiles.resolve(gate, day),
+        LIVE_RACE_TIMEOUT_MS,
+      )
+    } catch (error) {
+      this.logger?.warn(
+        { error, campaignId },
+        'campaign manager public profile lookup failed',
+      )
+      return { status: 'unknown' }
+    }
+  }
+
+  // The record is checked first, as read this turn, so a campaign that gains
+  // a race today is looked up today and the two "none" outcomes never cost a
+  // call. The service returns a bare null for a missing election date, a
+  // missing race, and an upstream failure alike, which is why the checks
+  // live here rather than on its result. The trade: its position-based
+  // fallback for a campaign without a race hash is skipped, and that path
+  // cannot produce dates or windows, only a win number.
+  private async resolveLiveRace(
+    campaign: Campaign,
+    day: string,
+  ): Promise<LiveRace> {
+    const details = campaign.details
+    if (!details.electionDate) {
+      return { status: 'none', reason: 'no-election-date' }
+    }
+    if (!details.raceId) return { status: 'none', reason: 'no-race' }
+    const cached = this.liveRaceByCampaign.get(campaign.id)
+    if (cached && cached.day === day) return cached.value
+    const started = Date.now()
+    const value = await this.fetchLiveRace(campaign)
+    this.logger?.info(
+      {
+        campaignId: campaign.id,
+        status: value.status,
+        ms: Date.now() - started,
+      },
+      'campaign manager live race data fetched',
+    )
+    if (value.status === 'ok') {
+      this.liveRaceByCampaign.set(campaign.id, { day, value })
+    }
+    return value
+  }
+
+  private async fetchLiveRace(campaign: Campaign): Promise<LiveRace> {
+    try {
+      const metrics = await withTimeout(
+        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+        LIVE_RACE_TIMEOUT_MS,
+      )
+      if (!metrics) return { status: 'unavailable' }
+      const m = metrics.milestones
+      return {
+        status: 'ok',
+        data: {
+          generalElectionDate: metrics.generalElectionDate,
+          primaryElectionDate: metrics.primaryElectionDate,
+          milestones: m
+            ? {
+                voterRegistration: m.voter_registration,
+                earlyVoting: m.early_voting,
+                ballotRequest: m.request_ballot,
+              }
+            : null,
+          winNumber: metrics.winNumber,
+          voterContactGoal: metrics.voterContactGoal,
+        },
+      }
+    } catch (error) {
+      this.logger?.warn(
+        { error, campaignId: campaign.id },
+        'campaign manager live race data lookup failed',
+      )
+      return { status: 'unavailable' }
+    }
+  }
+
+  describePage(pagePath: string): string | null {
+    const area = areaForPath('win', pagePath)
+    return area ? currentPageBlock(area) : null
+  }
+
   buildSystemPrompt(ctx: CampaignManagerContext): string {
-    return buildCampaignManagerSystemPrompt(ctx)
+    return buildCampaignManagerSystemPrompt(
+      ctx,
+      Object.keys(this.buildTools(ctx)),
+    )
   }
 
   buildTools(ctx: CampaignManagerContext): Record<string, LlmTool> {
@@ -410,6 +633,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       const scope = buildWinConstituentDataScope(
         ctx.districtFilters,
         this.constituentTables,
+        ctx.districtState,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -430,8 +654,31 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.get_ballot_requirements = buildGetBallotRequirementsTool({
         elections: this.elections,
         raceId: ctx.raceId,
+        filingPeriodStart: ctx.filingPeriodStart,
+        filingPeriodEnd: ctx.filingPeriodEnd,
       })
     }
+
+    // Compose handoff: drafts a social post for the candidate to review in
+    // a prefilled Win social-flow compose drawer.
+    tools.compose_handoff = buildComposeHandoffTool('win_social')
+
+    if (this.pastOutreach && ctx.campaignId !== null) {
+      tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
+        outreach: this.pastOutreach,
+        campaignId: ctx.campaignId,
+      })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback =
+          buildCampaignManagerReadOutreachFeedbackTool({
+            outreach: this.pastOutreach,
+            campaignId: ctx.campaignId,
+          })
+      }
+      tools.present_past_outreach =
+        buildCampaignManagerPresentPastOutreachTool()
+    }
+    tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever
@@ -445,44 +692,52 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // No voter file tool registers when the campaign is known not to have
-    // access, the open catalog included: a catalog whose output this
-    // campaign cannot act on reads to the model as a menu to walk through,
-    // and what filtering covers is one line in the product map instead.
-    // Saved lists too: without Pro the service refuses every saved-list
-    // action except listing names, so the tool here would be a list of names
-    // the campaign cannot count, edit, or use, one more menu it cannot act
-    // on. Only a known false gates. An unknown flag
-    // arises only when no campaign resolved, which also turns these tools
-    // off, so the service stays the deciding check.
-    if (
-      this.contacts &&
-      ctx.crmToolsEnabled &&
-      ctx.organization &&
-      ctx.isPro !== false
-    ) {
+    // A campaign without Pro can still count, size a sample and be shown an
+    // outreach card: the count service is open to it (the outreach build path
+    // prices a list before the upgrade) and the card's own button takes it
+    // to the Pro gate. Only the tools whose services refuse it stay Pro:
+    // precincts and saved-list management. Only a known false gates; an
+    // unknown flag arises only when no campaign resolved, which turns every
+    // one of these off anyway.
+    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
+      const isPro = ctx.isPro !== false
       const filterTools: Record<string, LlmTool> = {}
+      // A Win org always reads the voters dataset (PeopleDatasetService).
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
+        peopleDataset: 'voters',
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
       // cannot carry, and a count is as entitled to a precinct as a saved
       // list is.
-      filterTools.list_precincts = buildListPrecinctsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
+      if (isPro) {
+        filterTools.list_precincts = buildListPrecinctsTool({
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
       // Saved-filter CRUD goes through the same VoterFileFilterService
       // paths as the voter-file routes (Pro gate, completed-outreach
       // validation, org scoping, locked-filter conflict all inherited).
-      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+      if (isPro && this.voterFileFilters && ctx.savedFilterToolsEnabled) {
         filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
+          peopleDataset: 'voters',
         })
+        // With the saved-list tool, as on the Chief of Staff: the only id
+        // it can be given is one crud_saved_filters returned.
+        filterTools.show_list_map = buildShowListMapTool()
+      }
+      // Saved through the same voter-file route the outreach cards use,
+      // which a free campaign can reach; the card's button holds the Pro
+      // gate.
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        filterTools.present_list_proposal =
+          buildCampaignManagerListProposalTool()
       }
       // The catalog is built over the filter tools so its description names
       // only the ones registered beside it. It is still listed first, as it
@@ -491,8 +746,22 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(filterTools),
+        peopleDataset: 'voters',
+        citizenPanels: false,
+        state: ctx.districtState,
       })
       Object.assign(tools, filterTools)
+      // The card's flows save the list through the voter-file route,
+      // which a free campaign can use too, so this follows the saved-list
+      // signal rather than the Pro-only tool.
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        const textingClosed = ctx.smsCompliance === SmsComplianceWindow.closed
+        tools.size_outreach_sample = buildSizeOutreachSampleTool({
+          textingClosed,
+        })
+        tools.present_outreach_proposal =
+          buildCampaignManagerOutreachProposalTool({ textingClosed })
+      }
     }
 
     return tools
@@ -501,12 +770,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // The prompt's legal-and-compliance rules carry the caution. The shared
   // finish-time check decides whether a reply is shaped like legal advice (a
   // statute citation, liability language, complaint filing) and carries no
-  // caution; when it is, the candidate gets the same line the prompt asks
-  // for, so the wording does not depend on which path supplied it.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text) === null
-      ? null
-      : `\n\n${LEGAL_LINE}`
+  // caution; when it is, the candidate gets the same registry line the prompt
+  // asks for, so the wording does not depend on which path supplied it. The
+  // small-count line rides the same hook: a data result that reports
+  // suppressed rows gets the disclosure whether or not the model wrote it.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'campaign_assistant'),
+      smallCountBackstop(text, 'campaign_assistant', turn.toolEvents),
+    ])
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the
@@ -519,7 +791,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   ): string | null {
     const message = userMessage.trim()
     if (message === CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL) {
-      return CAMPAIGN_MANAGER_PRODUCT_OVERVIEW
+      return buildProductOverview(
+        ctx.smsCompliance === SmsComplianceWindow.closed,
+      )
     }
     if (message !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
       return null

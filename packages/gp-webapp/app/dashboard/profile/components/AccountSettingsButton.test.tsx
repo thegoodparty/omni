@@ -23,7 +23,7 @@ describe('AccountSettingsButton', () => {
 
     expect(screen.getByRole('link', { name: 'Upgrade Plan' })).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade',
+      '/dashboard/pro-upgrade?source=account_settings&channel=generic&cta=Upgrade+Plan',
     )
   })
 

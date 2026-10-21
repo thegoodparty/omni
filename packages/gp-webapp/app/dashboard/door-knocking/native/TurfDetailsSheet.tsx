@@ -52,6 +52,7 @@ import {
   surfaceStatuses,
 } from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
+import { WhatWeHeardLink } from 'app/dashboard/issue-capture/WhatWeHeardLink'
 
 // The age field's own options plus the retired overlapping ranges ENG-10752
 // replaced. The pickers only offer the new ones, but a list saved before that
@@ -325,12 +326,13 @@ export default function TurfDetailsSheet({
 
   // What the walk actually produced, per status, off the frozen route only.
   const statusCounts = route ? knockStatusCounts(route.stops) : null
-  // ADR 0008's follow-up is optional, so `not_a_voter` is a status a resident
-  // can carry with no reason recorded — and it is the reason, not the status,
-  // that drops them from `knockableTargets`. So this bucket is the doors logged
-  // "not a voter" whose "what happened?" is still unanswered, which is worth a
-  // line only when there are any: it is the one row whose count moves when
-  // somebody answers a question rather than when somebody knocks a door.
+  // The not-a-voter follow-up is optional, so `not_a_voter` is a status a
+  // resident can carry with no reason recorded — and it is the reason, not the
+  // status, that drops them from `knockableTargets`. So this bucket is the
+  // doors logged "not a voter" whose "what happened?" is still unanswered,
+  // which is worth a line only when there are any: it is the one row whose
+  // count moves when somebody answers a question rather than when somebody
+  // knocks a door.
   const unresolvedNotAVoter = statusCounts?.not_a_voter ?? 0
 
   return (
@@ -455,8 +457,8 @@ export default function TurfDetailsSheet({
             />
             {/* Exact, with nothing to hedge: these came through the create
                 transaction's own evaluation of the polygon, which is also what
-                applied ADR 0007 and dropped the do-not-knock residents. A
-                route whose every resident is flagged reports a real 0. */}
+                dropped the do-not-knock residents. A route whose every
+                resident is flagged reports a real 0. */}
             <Metric
               icon={<UsersIcon />}
               label="People"
@@ -532,6 +534,13 @@ export default function TurfDetailsSheet({
                 style={{ width: `${knockedPercent}%` }}
               />
             </span>
+            {/* Flag-gated by the org's slug, which is what gp-api gates the
+                report on, so `isServeOrg` rather than the route's surface. */}
+            <WhatWeHeardLink
+              outreachId={liveTurf.outreachId}
+              isServe={isServeOrg}
+              className="mt-2 border-t border-border pt-3"
+            />
           </div>
         </DetailsSection>
         <DetailsSection title="Status breakdown">

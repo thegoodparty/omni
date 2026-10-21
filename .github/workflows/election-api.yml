@@ -60,5 +60,8 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc -p tsconfig.deploy.json
 
+      - name: Check env contract
+        run: npm run check:env-contract -w ${{ env.WORKSPACE }}
+
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}

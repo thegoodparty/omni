@@ -1,6 +1,6 @@
 import { HistoryIcon } from '@styleguide/components/ui/icons'
 import type { OrdinanceLegislativeHistory } from '@goodparty_org/contracts'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 // The present_legislative_history tool payload rendered as a vertical
 // timeline: why the chapter reads the way it does, with minutes excerpts.

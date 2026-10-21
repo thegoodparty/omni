@@ -5,11 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
-import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
+import { HubspotService } from 'src/crm/hubspot.service'
+import { Client } from '@hubspot/api-client'
 import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
-import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  P2pSmsSettleState,
+  UserRole,
+} from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -142,8 +149,10 @@ const seedOutreach = (
     identityId: string | null
     approvedAt: Date | null
     deniedAt: Date | null
+    canvassRequestedAt: Date | null
     script: string
     stripeCheckoutSessionId: string | null
+    freePurchaseSessionId: string | null
     date: Date
     scheduledLocalTime: string | null
   }> = {},
@@ -163,6 +172,9 @@ const seedOutreach = (
       scheduledLocalDate: SEND_LOCAL_DATE,
       textCount: 1200,
       billableTextCount: 1200,
+      // A row only reaches this console through a settled purchase, and
+      // approve refuses one that carries neither funding marker.
+      stripeCheckoutSessionId: 'cs_test_seed',
       ...overrides,
     },
   })
@@ -245,43 +257,6 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(listAccountJobs).toHaveBeenCalledTimes(2)
     })
 
-    it('caches the HubSpot owner per company across queue views', async () => {
-      vi.stubEnv('OWNER_CACHE_TTL_MS', '60000')
-      await service.prisma.campaign.update({
-        where: { id: campaignId },
-        data: { data: { hubspotId: 'hs-co-owner-cache' } },
-      })
-      const ownerName = vi.fn().mockResolvedValue('Casey Success')
-      vi.spyOn(
-        service.app.get(CrmCampaignsService),
-        'getCrmCompanyOwnerName',
-      ).mockImplementation(ownerName)
-      await seedOutreach()
-
-      const first = await service.client.get('/v1/outreach/admin/sms/queue')
-      expect(first.status).toBe(HttpStatus.OK)
-      expect(first.data.items[0].assignedPa).toBe('Casey Success')
-      const second = await service.client.get('/v1/outreach/admin/sms/queue')
-      expect(second.data.items[0].assignedPa).toBe('Casey Success')
-      expect(ownerName).toHaveBeenCalledTimes(1)
-    })
-
-    it('renders unassigned when the HubSpot owner read fails', async () => {
-      await service.prisma.campaign.update({
-        where: { id: campaignId },
-        data: { data: { hubspotId: 'hs-co-owner-fail' } },
-      })
-      vi.spyOn(
-        service.app.get(CrmCampaignsService),
-        'getCrmCompanyOwnerName',
-      ).mockRejectedValue(new Error('hubspot down'))
-      await seedOutreach()
-
-      const res = await service.client.get('/v1/outreach/admin/sms/queue')
-      expect(res.status).toBe(HttpStatus.OK)
-      expect(res.data.items[0].assignedPa).toBeNull()
-    })
-
     it('excludes rows outside the review window', async () => {
       await seedOutreach({ status: OutreachStatus.completed })
       await seedOutreach({ projectId: null })
@@ -319,6 +294,35 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(ids).toContain(recent.id)
     })
 
+    it('lists a booked send whose day has passed as sent', async () => {
+      const sent = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+      // The sweep completes an unapproved row on its day like any other,
+      // but nothing went out — it is not a sent campaign.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        date: subDays(new Date(), 2),
+      })
+      // Booked and sent, but older than the Sent tab's lookback.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 100),
+        canvassRequestedAt: subDays(new Date(), 100),
+        date: subDays(new Date(), 100),
+      })
+      listAccountJobs.mockResolvedValue([liveJob('peerly-job-1', true)])
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.items.map((i: { id: number }) => i.id)).toEqual([sent.id])
+      expect(res.data.items[0].approvalStatus).toBe('sent')
+    })
+
     it('keeps a send-day row the completion sweep moved to in_progress', async () => {
       // The hourly completion sweep ratchets pending -> in_progress at UTC
       // midnight of the Peerly start_date whether or not CAS approved, so
@@ -344,6 +348,384 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
       expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    })
+  })
+
+  // The assigned-PA column is the campaign's HubSpot company owner. Mocked
+  // at the HubSpot client boundary (not CrmCampaignsService) so the real
+  // batching, merge-following and owner-name formatting run.
+  describe('assigned PA (HubSpot company owner)', () => {
+    type FakeCompany = { id: string; ownerId?: string; mergedIds?: string[] }
+    type FakeOwner = { id: string; firstName?: string; lastName?: string }
+
+    let companies: FakeCompany[]
+    let owners: FakeOwner[]
+    let ownerPageSize: number
+
+    const findCompany = (id: string) =>
+      companies.find((c) => c.id === id || c.mergedIds?.includes(id))
+
+    // Like HubSpot: a merged-away id answers with the surviving record
+    // (a different id), and an unknown id is simply absent (207).
+    const fakeBatchRead = async ({ inputs }: { inputs: { id: string }[] }) => {
+      const found = new Map<string, FakeCompany>()
+      for (const { id } of inputs) {
+        const company = findCompany(id)
+        if (company) found.set(company.id, company)
+      }
+      return {
+        status: 'COMPLETE',
+        results: [...found.values()].map((c) => ({
+          id: c.id,
+          properties: {
+            hubspot_owner_id: c.ownerId ?? null,
+            hs_merged_object_ids: c.mergedIds?.join(';') ?? null,
+          },
+        })),
+      }
+    }
+    const fakeGetCompany = async (id: string) => {
+      const company = findCompany(id)
+      if (!company) throw Object.assign(new Error('not found'), { code: 404 })
+      return {
+        id: company.id,
+        properties: { hubspot_owner_id: company.ownerId ?? null },
+      }
+    }
+    const fakeOwnersPage = async (
+      _email: string | undefined,
+      after: string | undefined,
+    ) => {
+      const start = after ? Number(after) : 0
+      const end = start + ownerPageSize
+      return {
+        results: owners.slice(start, end),
+        paging:
+          end < owners.length ? { next: { after: String(end) } } : undefined,
+      }
+    }
+    const fakeGetOwner = async (id: number) => {
+      const owner = owners.find((o) => o.id === String(id))
+      if (!owner) throw Object.assign(new Error('bad owner'), { code: 400 })
+      return owner
+    }
+
+    const batchRead = vi.fn()
+    const getCompany = vi.fn()
+    const ownersGetPage = vi.fn()
+    const ownerGetById = vi.fn()
+    const rateLimited = () =>
+      Object.assign(new Error('HTTP-Code: 429 Message: TEN_SECONDLY_ROLLING'), {
+        code: 429,
+      })
+
+    let configuredSpy: { mockRestore: () => void }
+    let clientSpy: { mockRestore: () => void }
+
+    beforeEach(() => {
+      companies = []
+      owners = [
+        { id: '501', firstName: 'Casey', lastName: 'Success' },
+        { id: '502', firstName: 'Riley' },
+        { id: '503', lastName: 'Morgan' },
+      ]
+      ownerPageSize = 500
+      batchRead.mockReset().mockImplementation(fakeBatchRead)
+      getCompany.mockReset().mockImplementation(fakeGetCompany)
+      ownersGetPage.mockReset().mockImplementation(fakeOwnersPage)
+      ownerGetById.mockReset().mockImplementation(fakeGetOwner)
+
+      const hubspot = service.app.get(HubspotService)
+      configuredSpy = vi
+        .spyOn(hubspot, 'isConfigured', 'get')
+        .mockReturnValue(true)
+      clientSpy = vi.spyOn(hubspot, 'client', 'get').mockReturnValue({
+        crm: {
+          companies: {
+            batchApi: { read: batchRead },
+            basicApi: { getById: getCompany },
+          },
+          owners: {
+            ownersApi: { getPage: ownersGetPage, getById: ownerGetById },
+          },
+        },
+      } as unknown as Client)
+    })
+    afterEach(() => {
+      configuredSpy.mockRestore()
+      clientSpy.mockRestore()
+    })
+
+    const setHubspotId = (hubspotId: string) =>
+      service.prisma.campaign.update({
+        where: { id: campaignId },
+        data: { data: { hubspotId } },
+      })
+
+    const queueOwner = async () => {
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(res.status).toBe(HttpStatus.OK)
+      return res.data.items[0].assignedPa
+    }
+
+    // ENG-11319: every 429 used to cache as "unassigned" for the full
+    // owner TTL, so a rate-limited cold load blanked the column for 10 min.
+    it('renders unassigned when the HubSpot owner read fails, and retries it on the failed cool-off', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '600000')
+      companies = [{ id: '7100001', ownerId: '501' }]
+      await setHubspotId('7100001')
+      await seedOutreach()
+      batchRead.mockRejectedValueOnce(rateLimited())
+      getCompany.mockRejectedValueOnce(rateLimited())
+
+      expect(await queueOwner()).toBeNull()
+      expect(await queueOwner()).toBe('Casey Success')
+    })
+
+    it('caches the HubSpot owner per company across queue views', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '60000')
+      companies = [{ id: '7100010', ownerId: '501' }]
+      await setHubspotId('7100010')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBe('Casey Success')
+      expect(await queueOwner()).toBe('Casey Success')
+      expect(batchRead).toHaveBeenCalledTimes(1)
+      expect(ownersGetPage).toHaveBeenCalledTimes(1)
+    })
+
+    // Campaigns 4000+ each with their own company and queue row; the
+    // owners rotate so every display-name shape is exercised.
+    const seedCompanies = async (count: number, hubspotBase: number) => {
+      const campaignIds = Array.from({ length: count }, (_, i) => 4000 + i)
+      const hubspotIdFor = (id: number) => String(hubspotBase + id)
+      await service.prisma.organization.createMany({
+        data: campaignIds.map((id) => ({
+          slug: `campaign-${id}`,
+          ownerId: service.user.id,
+        })),
+      })
+      await service.prisma.campaign.createMany({
+        data: campaignIds.map((id) => ({
+          id,
+          organizationSlug: `campaign-${id}`,
+          userId: service.user.id,
+          slug: `owner-batch-${id}`,
+          details: {},
+          data: { hubspotId: hubspotIdFor(id) },
+          aiContent: {},
+        })),
+      })
+      await service.prisma.outreach.createMany({
+        data: campaignIds.map((id) => ({
+          campaignId: id,
+          outreachType: OutreachType.p2p,
+          name: 'Likely voters — SMS',
+          status: OutreachStatus.pending,
+          projectId: `peerly-job-${id}`,
+          identityId: 'identity-1',
+          script: 'Hello {first_name}',
+          date: SEND_DATE,
+          scheduledLocalDate: SEND_LOCAL_DATE,
+          textCount: 1200,
+          billableTextCount: 1200,
+          stripeCheckoutSessionId: 'cs_test_seed',
+        })),
+      })
+      const ownerFor = (id: number) => owners[id % owners.length]!
+      companies.push(
+        ...campaignIds.map((id) => ({
+          id: hubspotIdFor(id),
+          ownerId: ownerFor(id).id,
+        })),
+      )
+      const expectedName = (id: number) =>
+        ({ '501': 'Casey Success', '502': 'Riley', '503': 'Morgan' })[
+          ownerFor(id).id
+        ]
+      return { campaignIds, hubspotIdFor, expectedName }
+    }
+
+    const queueItems = async () => {
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(res.status).toBe(HttpStatus.OK)
+      return new Map<number, string | null>(
+        res.data.items.map(
+          (item: { campaignId: number; assignedPa: string | null }) => [
+            item.campaignId,
+            item.assignedPa,
+          ],
+        ),
+      )
+    }
+
+    const batchInputIds = (call: number) =>
+      batchRead.mock.calls[call]![0].inputs.map(({ id }: { id: string }) => id)
+
+    it('reads 101 companies in batches of at most 100 plus one directory read', async () => {
+      const { campaignIds, hubspotIdFor, expectedName } = await seedCompanies(
+        101,
+        7300000,
+      )
+
+      const assigned = await queueItems()
+
+      for (const id of campaignIds) {
+        expect(assigned.get(id)).toBe(expectedName(id))
+      }
+      expect(batchRead).toHaveBeenCalledTimes(2)
+      const sent = [...batchInputIds(0), ...batchInputIds(1)]
+      expect(batchInputIds(0).length).toBeLessThanOrEqual(100)
+      expect(batchInputIds(1).length).toBeLessThanOrEqual(100)
+      expect(new Set(sent)).toEqual(new Set(campaignIds.map(hubspotIdFor)))
+      expect(sent).toHaveLength(101)
+      expect(ownersGetPage).toHaveBeenCalledTimes(1)
+      expect(getCompany).not.toHaveBeenCalled()
+      expect(ownerGetById).not.toHaveBeenCalled()
+    })
+
+    it('renders only the failed batch unassigned and retries just those ids', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '600000')
+      const { campaignIds, hubspotIdFor, expectedName } = await seedCompanies(
+        101,
+        7400000,
+      )
+      batchRead.mockRejectedValueOnce(rateLimited())
+
+      const first = await queueItems()
+
+      const failedIds = new Set(batchInputIds(0))
+      for (const id of campaignIds) {
+        expect(first.get(id)).toBe(
+          failedIds.has(hubspotIdFor(id)) ? null : expectedName(id),
+        )
+      }
+
+      const second = await queueItems()
+
+      for (const id of campaignIds) {
+        expect(second.get(id)).toBe(expectedName(id))
+      }
+      expect(batchRead).toHaveBeenCalledTimes(3)
+      expect(new Set(batchInputIds(2))).toEqual(failedIds)
+    })
+
+    it('follows a merged company to the surviving record', async () => {
+      companies = [
+        { id: '7100099', ownerId: '502', mergedIds: ['7100020', '7100021'] },
+      ]
+      await setHubspotId('7100020')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBe('Riley')
+    })
+
+    it('caches a company HubSpot no longer has as unassigned', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '60000')
+      await setHubspotId('7100030')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBeNull()
+      expect(await queueOwner()).toBeNull()
+      expect(batchRead).toHaveBeenCalledTimes(1)
+    })
+
+    it('renders unassigned for a company with no owner or an unknown owner', async () => {
+      companies = [{ id: '7100040' }, { id: '7100041', ownerId: '999' }]
+      await setHubspotId('7100040')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBeNull()
+
+      await setHubspotId('7100041')
+      expect(await queueOwner()).toBeNull()
+      expect(ownerGetById).not.toHaveBeenCalled()
+    })
+
+    it('never sends a non-numeric HubSpot id to the batch read', async () => {
+      await setHubspotId('hs-co-legacy')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBeNull()
+      expect(batchRead).not.toHaveBeenCalled()
+    })
+
+    it('pages through the whole owner directory', async () => {
+      ownerPageSize = 1
+      companies = [{ id: '7100050', ownerId: '503' }]
+      await setHubspotId('7100050')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBe('Morgan')
+      expect(ownersGetPage).toHaveBeenCalledTimes(3)
+      expect(ownersGetPage).toHaveBeenLastCalledWith(undefined, '2', 500)
+    })
+
+    it('retries on the failed cool-off when the owner directory read fails', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '600000')
+      companies = [{ id: '7100060', ownerId: '501' }]
+      await setHubspotId('7100060')
+      await seedOutreach()
+      ownersGetPage.mockRejectedValueOnce(rateLimited())
+
+      expect(await queueOwner()).toBeNull()
+      expect(await queueOwner()).toBe('Casey Success')
+    })
+
+    it('shares one batch between concurrent queue views', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '60000')
+      companies = [{ id: '7100070', ownerId: '501' }]
+      await setHubspotId('7100070')
+      await seedOutreach()
+      let releaseRead!: () => void
+      batchRead.mockImplementationOnce(async (input) => {
+        await new Promise<void>((resolve) => {
+          releaseRead = resolve
+        })
+        return fakeBatchRead(input)
+      })
+
+      const firstView = service.client.get('/v1/outreach/admin/sms/queue')
+      const secondView = service.client.get('/v1/outreach/admin/sms/queue')
+      await vi.waitFor(() => expect(batchRead).toHaveBeenCalledTimes(1))
+      // Give the second view time to reach the owner read while the
+      // first view's batch is still outstanding.
+      await new Promise<void>((resolve) => setTimeout(resolve, 100))
+      releaseRead()
+      const [first, second] = await Promise.all([firstView, secondView])
+
+      expect(first.data.items[0].assignedPa).toBe('Casey Success')
+      expect(second.data.items[0].assignedPa).toBe('Casey Success')
+      expect(batchRead).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the owner on the detail view', async () => {
+      companies = [{ id: '7100080', ownerId: '501' }]
+      await setHubspotId('7100080')
+      const row = await seedOutreach({ projectId: 'peerly-job-detail-owner' })
+
+      const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.item.assignedPa).toBe('Casey Success')
+      expect(batchRead).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads nothing from HubSpot when it is not configured', async () => {
+      vi.spyOn(
+        service.app.get(HubspotService),
+        'isConfigured',
+        'get',
+      ).mockReturnValue(false)
+      companies = [{ id: '7100090', ownerId: '501' }]
+      await setHubspotId('7100090')
+      await seedOutreach()
+
+      expect(await queueOwner()).toBeNull()
+      expect(batchRead).not.toHaveBeenCalled()
+      expect(ownersGetPage).not.toHaveBeenCalled()
+      expect(getCompany).not.toHaveBeenCalled()
+      expect(ownerGetById).not.toHaveBeenCalled()
     })
   })
 
@@ -379,7 +761,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     })
 
@@ -539,6 +921,43 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).not.toHaveBeenCalled()
     })
 
+    it('400s a row carrying no record of a completed purchase', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain('no completed purchase')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+    })
+
+    it('approves a send the free-texts offer covered', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        freePurchaseSessionId: 'free_confirmed_1700000000000',
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
+    })
+
     it('409s a second approve', async () => {
       const row = await seedOutreach()
       await service.client.post(`/v1/outreach/admin/sms/${row.id}/approve`, {
@@ -550,6 +969,173 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       )
       expect(again.status).toBe(HttpStatus.CONFLICT)
       expect(requestCanvassers).toHaveBeenCalledTimes(1)
+    })
+
+    // Win SMS hold billing (managed flag win_sms_hold_billing): a paid send is
+    // funded by a manual-capture hold that is only money once CAPTURED. The
+    // funding marker is stamped at authorization, so the approve/send gate
+    // reads the committed `captured` state on the OutreachP2pSms satellite
+    // instead — no uncaptured hold can book canvassers. The satellite read is
+    // SATELLITE-gated, not flag-gated: a row with a satellite is held to
+    // `captured` regardless of the flag, and a row with no satellite stays on
+    // the funding-marker gate.
+    describe('hold-billing approve gate', () => {
+      const seedSatellite = (
+        outreachId: number,
+        settleState: P2pSmsSettleState,
+      ) =>
+        service.prisma.outreachP2pSms.create({
+          data: { outreachId, settleState },
+        })
+
+      it('approves a hold-model row once it is captured', async () => {
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.captured)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledTimes(1)
+        const updated = await service.prisma.outreach.findFirstOrThrow({
+          where: { id: row.id },
+        })
+        expect(updated.canvassRequestedAt).not.toBeNull()
+      })
+
+      it('blocks a hold still being captured and books nothing', async () => {
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.capturing)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('still being captured')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+        const untouched = await service.prisma.outreach.findFirstOrThrow({
+          where: { id: row.id },
+        })
+        expect(untouched.approvedAt).toBeNull()
+        expect(untouched.canvassRequestedAt).toBeNull()
+      })
+
+      it('blocks an authorized-but-uncaptured hold and books nothing', async () => {
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.authorized)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('has not been captured')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+        const untouched = await service.prisma.outreach.findFirstOrThrow({
+          where: { id: row.id },
+        })
+        expect(untouched.approvedAt).toBeNull()
+      })
+
+      it('blocks a terminal non-send hold (voided)', async () => {
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.voided)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('did not complete')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+      })
+
+      it('blocks an uncaptured satellite even with the flag OFF (rollback hole)', async () => {
+        // The kill-switch-as-free-send hazard: the hold was placed with the
+        // flag ON (satellite seeded, stripeCheckoutSessionId stamped at
+        // authorization), then the flag was flipped OFF. A flag-gated read
+        // would skip the satellite, let the funding marker pass, and send an
+        // uncaptured hold for free. The satellite-gated read blocks it.
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.authorized)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('has not been captured')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+        const untouched = await service.prisma.outreach.findFirstOrThrow({
+          where: { id: row.id },
+        })
+        expect(untouched.approvedAt).toBeNull()
+      })
+
+      it('approves a captured satellite with the flag OFF (rollback, already settled)', async () => {
+        // A hold captured before the rollback is real money committed — it must
+        // still be approvable with the flag off.
+        const row = await seedOutreach()
+        await seedSatellite(row.id, P2pSmsSettleState.captured)
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the funding-marker gate for a non-hold row (no satellite) with the flag off', async () => {
+        // The whole default population: no satellite, flag off — byte-for-byte
+        // the pre-existing funding-marker behavior.
+        const row = await seedOutreach()
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the funding-marker gate for a non-hold row (no satellite) with the flag on', async () => {
+        // A free/forgiven send: no satellite, funded by the free marker.
+        const row = await seedOutreach({
+          stripeCheckoutSessionId: null,
+          freePurchaseSessionId: 'free_confirmed_1700000000000',
+        })
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      })
+
+      it('still refuses a non-hold row with no funding marker when the flag is on', async () => {
+        const row = await seedOutreach({ stripeCheckoutSessionId: null })
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+        expect(JSON.stringify(res.data)).toContain('no completed purchase')
+        expect(requestCanvassers).not.toHaveBeenCalled()
+      })
     })
   })
 
@@ -609,11 +1195,73 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(item.approvalStatus).toBe('canceled')
     })
 
-    it('still refuses to cancel a booked send past its send time', async () => {
+    it('cancels an unbooked row the sweep moved to in_progress on its send day', async () => {
+      // Prod outreach 85286 (2026-10-15): the completion sweep ratchets a
+      // never-approved row to in_progress when its send day begins, and the
+      // console's cancel 400'd on it.
       const row = await seedOutreach({
         stripeCheckoutSessionId: null,
+        status: OutreachStatus.in_progress,
+        date: subDays(new Date(), 1),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    })
+
+    it('cancels a booked send past its send time and refunds it', async () => {
+      // Staff unbook canvassers through this console, not Peerly, so the
+      // candidate's send-time refusal does not apply to them; the console
+      // warns instead.
+      const stripe = service.app.get(StripeService)
+      const retrieveSession = vi
+        .spyOn(stripe, 'retrieveCheckoutSession')
+        .mockResolvedValue({
+          payment_intent: 'pi_booked_1',
+        } as Awaited<ReturnType<StripeService['retrieveCheckoutSession']>>)
+      const refund = vi
+        .spyOn(stripe, 'refundPaymentIntent')
+        .mockResolvedValue(
+          {} as Awaited<ReturnType<StripeService['refundPaymentIntent']>>,
+        )
+      const row = await seedOutreach({
+        status: OutreachStatus.in_progress,
         date: subDays(new Date(), 1),
         approvedAt: new Date(),
+        canvassRequestedAt: new Date(),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+      expect(retrieveSession).toHaveBeenCalledWith('cs_test_seed')
+      expect(refund).toHaveBeenCalledWith(
+        'pi_booked_1',
+        'outreach-cancel-pi_booked_1',
+      )
+      // No live booking read gates a staff cancel.
+      expect(getJob).not.toHaveBeenCalled()
+    })
+
+    it('still refuses a completed (sent) row', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        status: OutreachStatus.completed,
+        date: subDays(new Date(), 1),
+        canvassRequestedAt: new Date(),
       })
 
       const res = await service.client.post(
@@ -626,7 +1274,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const unchanged = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
       })
-      expect(unchanged.status).toBe(OutreachStatus.pending)
+      expect(unchanged.status).toBe(OutreachStatus.completed)
     })
 
     it('refuses a second cancel via the idempotent early-return', async () => {
@@ -810,6 +1458,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       await service.prisma.outreach.update({
         where: { id: row.id },
         data: { canvassRequestedAt: new Date() },
+      })
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
+    it('400s editing a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
       })
       const updateJob = await withImage(row.id)
 
@@ -1095,6 +1761,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJobSchedule).not.toHaveBeenCalled()
     })
 
+    it('409s a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+      expect(clearCanvassers).not.toHaveBeenCalled()
+    })
+
     it('400s a send time in the past', async () => {
       const row = await seedOutreach()
 
@@ -1204,6 +1888,22 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.item.approvalStatus).toBe('awaiting_review')
+    })
+
+    it('serves a sent row with its delivery stats', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+        projectId: 'peerly-job-detail-sent',
+      })
+
+      const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.item.approvalStatus).toBe('sent')
+      expect(res.data.stats).toMatchObject({ sentTotal: 100, delivered: 90 })
     })
 
     it('renders without stats when the vendor read fails', async () => {

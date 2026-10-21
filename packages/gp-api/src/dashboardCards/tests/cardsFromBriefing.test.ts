@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { addDays, format } from 'date-fns'
 import {
   DashboardCardType,
@@ -6,6 +6,7 @@ import {
   MeetingBriefing,
 } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { FeaturesService } from '@/features/services/features.service'
 import { DashboardCardsService } from '../services/dashboardCards.service'
 
 // Bridges the two halves the other tests cover in isolation: card generation
@@ -16,6 +17,14 @@ import { DashboardCardsService } from '../services/dashboardCards.service'
 const service = useTestService()
 
 const sync = () => service.app.get(DashboardCardsService)
+
+// Only the briefing's cards: serve-citizen-panels off keeps the panel's out.
+beforeEach(() => {
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(false)
+})
 
 const orgHeader = (slug: string) => ({
   headers: { 'x-organization-slug': slug },

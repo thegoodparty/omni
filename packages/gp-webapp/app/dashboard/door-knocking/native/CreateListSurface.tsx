@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -15,19 +19,21 @@ import {
 import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
 import { hasEmptiableCriteria } from './createFlow/emptiableCriteria'
-import CreateListFlow from './createFlow/CreateListFlow'
+import CreateListFlow, { type JoinSaveState } from './createFlow/CreateListFlow'
 import type {
   CreateFlowStep,
   RecommendedCriteria,
 } from './createFlow/CreateListFlow'
 import type {
   DoorKnockingTurf,
+  ProposalLink,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
+import type { ServeDoorKnockingPurpose } from './createFlow/serveDoorKnockingPurposes'
 import type { PolygonStats } from './filterEngine'
 
 // A module constant so the initial state is the same object on every render
@@ -174,7 +180,7 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
       // Rewind to the seed rather than to a fixed palette[0]: the next
       // create should start on whichever slot the assigner recommends
       // right now — a solo campaign gets palette[0], a candidate opening
-      // "Add another turf" on a two-turf campaign gets palette[2].
+      // "Add turf" on a two-turf campaign gets palette[2].
       //
       // The candidate's pick is released with it. This is the end of a
       // create, so the hue they chose for the last turf of it has no claim
@@ -190,7 +196,7 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
 // SEAM — the create-list flow (Wave 1B).
 //
 // This surface owns: every step of the wizard and everything a step asks of
-// gp-api. That is now the whole address-preview machinery (ADR 0010) — which
+// gp-api. That is now the whole address-preview machinery — which
 // shape was asked about, whether the answer still describes it, and the four
 // props the draw step reads off it — because nothing outside this flow has
 // ever read a preview. It also owns the who step's list picker and the
@@ -220,6 +226,8 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
   // The pack's bounding box, threaded to the draw step's static-map
   // preview card. Null while the pack decodes; the preview omits the image
   // in that window rather than rendering against no rect.
@@ -268,7 +276,13 @@ export interface CreateListSurfaceProps {
   onRestartDrawing: () => void
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -303,9 +317,19 @@ export interface CreateListSurfaceProps {
   // these to pick a palette slot the campaign has not already used.
   siblingTurfs?: DoorKnockingTurf[]
   // The anchor Outreach id this new turf should join, when the drawer's
-  // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
+  // "Add turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // The campaign-plan task the walk was started from. Threaded straight
+  // through to the create.
+  trackerTaskId?: string
+  // The chat card the walk was opened from. Threaded straight through to the
+  // create, which is what puts out that card's check.
+  proposalLink?: ProposalLink
+  // The drawing panel's Save while joining, and the write's state back.
+  // Threaded straight through, like the id above.
+  joinSaveRequest?: number
+  onJoinSaveStateChange?: (state: JoinSaveState) => void
   // The turfs cut in this sitting but not yet paid for. Owned by the page
   // because the canvas draws them; threaded down so the draw step can list
   // them and the save can buy a route for each.
@@ -325,6 +349,11 @@ export interface CreateListSurfaceProps {
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
+  // The purpose a civic panel plan's door step answered, opening the flow
+  // past the purpose picker on it.
+  initialPurpose?: ServeDoorKnockingPurpose
+  // The agent surface that opened the flow. Threaded straight through.
+  launchSource?: OutreachLaunchSource
 }
 
 // Stable identity, so the page's effect does not refire every render.
@@ -336,6 +365,7 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
+  source,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -357,12 +387,18 @@ export default function CreateListSurface({
   onPreselectApplied,
   siblingTurfs,
   campaignOutreachId,
+  trackerTaskId,
+  proposalLink,
+  joinSaveRequest,
+  onJoinSaveStateChange,
   turfDrafts,
   draftStats,
   onSelectDraft,
   onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
+  initialPurpose,
+  launchSource,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -405,7 +441,7 @@ export default function CreateListSurface({
     [savedListsQuery.data, selectedListId],
   )
 
-  // The shape the candidate asked for addresses about (ADR 0010). Not a
+  // The shape the candidate asked for addresses about. Not a
   // boolean, because it is what makes an answer belong to one ring: a preview
   // is fetched for the shape that was on screen when it was asked for, and a
   // vertex moved since means the list on screen describes a boundary that no
@@ -413,8 +449,8 @@ export default function CreateListSurface({
   // nothing — no request is ever made by drawing.
   const [previewRing, setPreviewRing] = useState<PolygonRing | null>(null)
   // The addresses inside the shape that was asked about, from gp-api's
-  // evaluation rather than from the pack — the pack carries no address at all
-  // (ADR 0010). Closing the ring the way the save path does, so the polygon
+  // evaluation rather than from the pack — the pack carries no address at
+  // all. Closing the ring the way the save path does, so the polygon
   // previewed and the polygon saved are the same geometry.
   const previewPolygon = useMemo(() => {
     if (!previewRing) return null
@@ -425,11 +461,11 @@ export default function CreateListSurface({
         : previewRing
     return { type: 'Polygon' as const, coordinates: [closed] }
   }, [previewRing])
-  // The draft plus whatever the draft cannot hold. `filters` is booleans, and
-  // a saved list's support-status, activity and precinct clauses are not — so
+  // The draft plus whatever the draft cannot hold. `filters` is booleans, and a
+  // saved list's support-status, activity and precinct clauses are not — so
   // assembling this request from the draft alone asked gp-api about the whole
-  // district inside the ring, and the draw step printed that as the exact
-  // count the route would be built from (ADR 0010's whole point is that these
+  // district inside the ring, and the draw step printed that as the exact count
+  // the route would be built from (the preview's whole point is that these
   // counts are the knock's own). The pack cannot shade those clauses and says
   // so; this endpoint CAN evaluate them, and does.
   //
@@ -494,6 +530,7 @@ export default function CreateListSurface({
     ...addressPreviewQueryOptions(
       previewPolygon ?? { type: 'Polygon', coordinates: [[]] },
       previewFilters,
+      selectedList?.id,
     ),
     // Gated on the draw step as well as on the ring, because the ring
     // OUTLIVES that step: Back keeps it and so does Continue. Without the
@@ -529,6 +566,7 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
+      source={source}
       districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}
@@ -562,13 +600,19 @@ export default function CreateListSurface({
       onPreselectApplied={onPreselectApplied}
       preselectedRecommendedVariant={preselectedRecommendedVariant}
       onRecommendedPreselectApplied={onRecommendedPreselectApplied}
+      {...(initialPurpose && { initialPurpose })}
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      trackerTaskId={trackerTaskId}
+      {...(proposalLink && { proposalLink })}
+      joinSaveRequest={joinSaveRequest}
+      onJoinSaveStateChange={onJoinSaveStateChange}
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}
       onRemoveDraft={onRemoveDraft}
+      launchSource={launchSource}
     />
   )
 }

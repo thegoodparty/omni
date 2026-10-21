@@ -12,8 +12,12 @@ export const PROFESSIONAL_ADVICE_DISCLAIMER =
 
 // The exact failure from the CoS eval qual review: statute citations,
 // explicit legal/criminal liability, and formal-complaint filing language.
-const ADVICE_SIGNALS: RegExp[] = [
-  /§/,
+// Exported on its own so a chat whose ordinary replies quote section numbers
+// can leave it out by identity rather than by matching the pattern's text.
+export const SECTION_MARK_SIGNAL = /§/
+
+export const ADVICE_SIGNALS: RegExp[] = [
+  SECTION_MARK_SIGNAL,
   /\bRCW\b/,
   /\bU\.S\.C\./,
   /\bStat\./,
@@ -27,10 +31,17 @@ const ADVICE_SIGNALS: RegExp[] = [
 // Tier-3 prompt line working). Kept to phrasings that read as a disclaimer, not
 // incidental prose ("consult a colleague") — a rare missed dedup is harmless,
 // a suppressed-but-needed disclaimer is not.
-const DISCLAIMER_PRESENT: RegExp[] = [
-  /\b(?:not|isn'?t|is not) a substitute for\b/i,
+// The canonical lines open this way. Exported on its own so a chat that counts
+// only the lines themselves as a caution can still honor a sentence that
+// starts like one, by identity rather than by matching the pattern's text.
+export const SUBSTITUTE_OPENER = /\b(?:not|isn'?t|is not) a substitute for\b/i
+
+export const DISCLAIMER_PRESENT: RegExp[] = [
+  SUBSTITUTE_OPENER,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,
+  // The ordinance draft's own line: "not final legal advice".
+  /\bnot (?:final )?legal advice\b/i,
 ]
 
 // Returns the line to append (with a leading blank line) when the response

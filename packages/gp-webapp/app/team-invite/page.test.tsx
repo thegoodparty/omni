@@ -219,7 +219,7 @@ describe('TeamInvitePage', () => {
 
   // ENG-11052: a volunteer accept lands on the reductive /volunteer shell,
   // not the campaign dashboard — /volunteer's own layout re-checks the
-  // win-team-accounts flag, so this hard nav doesn't need to.
+  // viewer's active org role, so this hard nav doesn't need to.
   it('accepting as a volunteer hard-navigates to /volunteer instead of /dashboard', async () => {
     mockUser = {
       publicMetadata: { ...validMetadata, role: 'volunteer' },

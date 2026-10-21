@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Query,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -11,11 +12,13 @@ import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorat
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { Organization } from '../generated/prisma'
+import { OnboardingStatsRateLimitGuard } from './guards/onboardingStatsRateLimit.guard'
 import {
   GetOnboardingStatsQueryDTO,
   onboardingStatsResponseSchema,
@@ -29,6 +32,7 @@ export class OnboardingContactsController {
   constructor(
     private readonly contactsService: ContactsService,
     private readonly organizations: OrganizationsService,
+    private readonly peopleDataset: PeopleDatasetService,
   ) {}
 
   @Get('stats')
@@ -37,6 +41,10 @@ export class OnboardingContactsController {
   // 403'd by the role guard on an endpoint anonymous callers can reach.
   @AllowVolunteer()
   @ResponseSchema(onboardingStatsResponseSchema)
+  // Public, but every call is a Databricks read of the voter mart, so it is
+  // metered per IP. Applied last so it lands first in the guard list and
+  // refuses before the org lookup above runs.
+  @UseGuards(OnboardingStatsRateLimitGuard)
   async getOnboardingStats(
     @Query() query: GetOnboardingStatsQueryDTO,
     @ReqOrganization() organization?: Organization,
@@ -69,6 +77,9 @@ export class OnboardingContactsController {
       )
     }
 
-    return this.contactsService.fetchStatsByDistrictId(districtId)
+    const dataset = organization
+      ? await this.peopleDataset.resolve(organization)
+      : 'voters'
+    return this.contactsService.fetchStatsByDistrictId(districtId, dataset)
   }
 }

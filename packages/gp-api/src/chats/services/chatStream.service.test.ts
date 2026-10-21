@@ -8,6 +8,8 @@ import {
   ChatConversation,
   ChatMessage,
   ChatMessageRole,
+  ChatMessageSegmentKind,
+  ChatScope,
 } from '../../generated/prisma'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import type {
@@ -21,6 +23,7 @@ import {
   CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
   ChatStreamService,
   ChatStreamChunk,
+  FinalizeTurn,
   MAX_BUFFERED_CHUNKS,
   MAX_CHAT_HISTORY_MESSAGES,
 } from './chatStream.service'
@@ -28,7 +31,7 @@ import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
-import type { FeaturesService } from '@/features/services/features.service'
+import type { JudgeTurnTelemetryService } from '@/judge/services/judgeTurnTelemetry.service'
 
 const DEFAULT_SYS = 'sys'
 const SAMPLE_USER = 'q'
@@ -81,6 +84,7 @@ class FakeChatStore {
     role: ChatMessageRole
     content: string
     createdAt?: Date
+    segments?: PersistedSegment[]
   }): ChatMessage {
     const row: ChatMessage = {
       id: `seed-${this.nextMessageId++}`,
@@ -89,6 +93,7 @@ class FakeChatStore {
       content: args.content,
       clientMessageId: null,
       createdAt: args.createdAt ?? new Date(),
+      segments: args.segments ?? [],
     } as unknown as ChatMessage
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
@@ -169,6 +174,7 @@ class FakeChatStore {
       content: args.content,
       clientMessageId: args.clientMessageId ?? null,
       createdAt: new Date(),
+      segments: args.segments ?? [],
     } as unknown as ChatMessage
     const list = this.messagesByConversation.get(args.conversationId) ?? []
     list.push(row)
@@ -177,6 +183,10 @@ class FakeChatStore {
   }
 
   softDeleteConversation(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  recordAssistantUsage(): Promise<void> {
     return Promise.resolve()
   }
 
@@ -197,6 +207,10 @@ type StreamScriptItem =
       name: string
       input: Record<string, unknown>
       output: Record<string, unknown>
+      // Defaults to `test-<name>`; set it when a script calls one tool twice.
+      toolCallId?: string
+      // When set, the tool throws instead of returning `output`.
+      error?: Error
     }
   | { kind: 'error'; error: Error }
   // Models the AI SDK routing a mid-generation error to onError (via
@@ -238,16 +252,27 @@ const consumeScriptItem = async (
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
     toolCallIds.push(id)
+    const toolCallId = item.toolCallId ?? `test-${item.name}`
     options.onToolCallStart?.({
       name: item.name,
       input: item.input,
-      toolCallId: `test-${item.name}`,
+      toolCallId,
     })
-    options.onToolCallEnd?.({
-      name: item.name,
-      input: item.input,
-      output: item.output,
-    })
+    if (item.error) {
+      options.onToolCallError?.({
+        name: item.name,
+        input: item.input,
+        toolCallId,
+        error: item.error,
+      })
+    } else {
+      options.onToolCallEnd?.({
+        name: item.name,
+        input: item.input,
+        output: item.output,
+        toolCallId,
+      })
+    }
     return { done: false }
   }
   throw item.error
@@ -362,6 +387,8 @@ const baseStreamArgs = (
     clientMessageId: string
     maxSteps: number
     attachmentIds: string[]
+    scope: ChatScope
+    judgeSweepId: string
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -376,6 +403,10 @@ const baseStreamArgs = (
   ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
   ...(overrides.attachmentIds !== undefined && {
     attachmentIds: overrides.attachmentIds,
+  }),
+  ...(overrides.scope !== undefined && { scope: overrides.scope }),
+  ...(overrides.judgeSweepId !== undefined && {
+    judgeSweepId: overrides.judgeSweepId,
   }),
 })
 
@@ -644,6 +675,278 @@ describe('ChatStreamService', () => {
       expect(assistantContent()).toBe('answer')
     })
 
+    it("passes the turn's tool calls and results to the hook, paired by id", async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'query_constituent_data',
+          input: { sql: 'select 1' },
+          output: { rows: [], rowsSuppressed: 2 },
+        },
+        { kind: 'text', delta: 'Here are the counts.' },
+      ])
+      const seen: FinalizeTurn[] = []
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, turn) => {
+            seen.push(turn)
+            return null
+          },
+        }),
+      )
+
+      expect(seen).toEqual([
+        {
+          toolEvents: [
+            {
+              toolCallId: 'test-query_constituent_data',
+              name: 'query_constituent_data',
+              args: { sql: 'select 1' },
+              status: 'returned',
+              result: { rows: [], rowsSuppressed: 2 },
+            },
+          ],
+        },
+      ])
+    })
+
+    it('passes empty toolEvents on a text-only turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'answer' }])
+      const seen: FinalizeTurn[] = []
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, turn) => {
+            seen.push(turn)
+            return null
+          },
+        }),
+      )
+
+      expect(seen).toEqual([{ toolEvents: [] }])
+    })
+
+    it('gives two calls to the same tool their own results, by id', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'a' },
+          output: { count: 10 },
+          toolCallId: 'call-a',
+        },
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'b' },
+          output: { count: 20 },
+          toolCallId: 'call-b',
+        },
+        { kind: 'text', delta: 'Two counts.' },
+      ])
+      let turn: FinalizeTurn | undefined
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, t) => {
+            turn = t
+            return null
+          },
+        }),
+      )
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          args: { filter: 'a' },
+          status: 'returned',
+          result: { count: 10 },
+        },
+        {
+          toolCallId: 'call-b',
+          name: 'count_contacts',
+          args: { filter: 'b' },
+          status: 'returned',
+          result: { count: 20 },
+        },
+      ])
+    })
+
+    it('records a tool that threw as an error, with no result', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'compose_handoff',
+          input: { channel: 'email' },
+          output: {},
+          error: new Error('drawer unavailable'),
+        },
+        { kind: 'text', delta: 'I could not open the draft.' },
+      ])
+      let turn: FinalizeTurn | undefined
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: (_text, t) => {
+            turn = t
+            return null
+          },
+        }),
+      )
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'test-compose_handoff',
+          name: 'compose_handoff',
+          args: { channel: 'email' },
+          status: 'failed',
+          error: 'drawer unavailable',
+        },
+      ])
+    })
+
+    it('keeps a result whose id matches no call as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'answer' }])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      // Fire a stray result through the live options once the stream is open.
+      const chunks: ChatStreamChunk[] = []
+      for await (const c of iter) {
+        chunks.push(c)
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallEnd?.({
+            name: 'count_contacts',
+            input: {},
+            output: { count: 1 },
+            toolCallId: 'never-started',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'never-started',
+          name: 'count_contacts',
+          status: 'unpaired',
+          result: { count: 1 },
+        },
+      ])
+    })
+
+    it('keeps a second result for an already-settled call as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'count_contacts',
+          input: { filter: 'a' },
+          output: { count: 10 },
+          toolCallId: 'call-a',
+        },
+        { kind: 'text', delta: 'answer' },
+      ])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      for await (const c of iter) {
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallEnd?.({
+            name: 'count_contacts',
+            input: { filter: 'a' },
+            output: { count: 99 },
+            toolCallId: 'call-a',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          args: { filter: 'a' },
+          status: 'returned',
+          result: { count: 10 },
+        },
+        {
+          toolCallId: 'call-a',
+          name: 'count_contacts',
+          status: 'unpaired',
+          result: { count: 99 },
+        },
+      ])
+    })
+
+    it('records a non-Error failure as its string form, and an unknown id as unpaired', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'x' },
+          output: {},
+          toolCallId: 'native-1',
+          error: new Error('unused'),
+        },
+        { kind: 'text', delta: 'answer' },
+      ])
+      let turn: FinalizeTurn | undefined
+      const iter = service.stream({
+        ...baseStreamArgs(),
+        finalizeText: (_text, t) => {
+          turn = t
+          return null
+        },
+      })
+      for await (const c of iter) {
+        if (c.type === 'text') {
+          firstOrThrow(llm.calls).options.onToolCallError?.({
+            name: 'fetch_url',
+            input: {},
+            toolCallId: 'never-started',
+            error: 'rate limited',
+          })
+        }
+      }
+
+      expect(turn?.toolEvents).toEqual([
+        {
+          toolCallId: 'native-1',
+          name: 'web_search',
+          args: { q: 'x' },
+          status: 'failed',
+          error: 'unused',
+        },
+        {
+          toolCallId: 'never-started',
+          name: 'fetch_url',
+          status: 'unpaired',
+          error: 'rate limited',
+        },
+      ])
+    })
+
     it('does not append on a provider-error turn', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([
@@ -722,6 +1025,138 @@ describe('ChatStreamService', () => {
       const sent = firstOrThrow(llm.calls).options.messages
       const userMessages = sent.filter((m) => m.role === 'user')
       expect(userMessages.length).toBeLessThanOrEqual(MAX_CHAT_HISTORY_MESSAGES)
+    })
+  })
+
+  describe('card replay', () => {
+    const seedTurns = (segments: PersistedSegment[], content: string) => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.user,
+        content: 'plan some texts',
+      })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content,
+        segments,
+      })
+    }
+    const sentMessages = async () => {
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+      await collect(service.stream(baseStreamArgs({ userMessage: 'do #1' })))
+      return firstOrThrow(llm.calls).options.messages
+    }
+
+    it('replays what a card held, in order with the text', async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'Here is #1.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'present_outreach_proposal',
+            payload: { channel: 'text', message: 'Code fixes start Monday' },
+          },
+          { kind: ChatMessageSegmentKind.text, text: 'Send when ready.' },
+        ],
+        'Here is #1.Send when ready.',
+      )
+
+      const sent = await sentMessages()
+
+      const assistant = sent.find((m) => m.role === 'assistant')
+      expect(assistant?.content).toBe(
+        'Here is #1.\n\n[Card you showed: present_outreach_proposal ' +
+          '{"channel":"text","message":"Code fixes start Monday"}]' +
+          '\n\nSend when ready.',
+      )
+      expect(String(firstOrThrow(sent).content)).toContain(
+        'record a card the app drew for you',
+      )
+    })
+
+    it('replays a card-only turn instead of dropping it', async () => {
+      seedTurns(
+        [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_clarify_question',
+            payload: { question: 'Which first?' },
+          },
+        ],
+        '',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        '[Card you showed: ask_clarify_question {"question":"Which first?"}]',
+      )
+    })
+
+    it("replays the Chief of Staff's weekly time question, which has no args", async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'A plan mixes texts.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_panel_weekly_time',
+            payload: {},
+          },
+        ],
+        'A plan mixes texts.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        'A plan mixes texts.\n\n[Card you showed: ask_panel_weekly_time {}]',
+      )
+    })
+
+    it('replays a card on a leading assistant turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: '',
+        segments: [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'present_outreach_proposal',
+            payload: { channel: 'text' },
+          },
+        ],
+      })
+
+      const system = String(firstOrThrow(await sentMessages()).content)
+
+      expect(system).toContain(
+        '[Card you showed: present_outreach_proposal {"channel":"text"}]',
+      )
+      expect(system).toContain('record a card the app drew for you')
+    })
+
+    it('leaves turns with only non-card tools as their text', async () => {
+      seedTurns(
+        [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'count_contacts',
+            payload: { filters: [] },
+          },
+          { kind: ChatMessageSegmentKind.text, text: '1,200 people.' },
+        ],
+        '1,200 people.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        '1,200 people.',
+      )
+      expect(String(firstOrThrow(sent).content)).not.toContain('record a card')
     })
   })
 
@@ -809,6 +1244,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'after' },
       ])
@@ -844,6 +1280,7 @@ describe('ChatStreamService', () => {
           type: 'tool_result',
           toolName: 'web_search',
           result: { results: ['r1'] },
+          toolCallId: 'test-web_search',
         },
         { type: 'text', delta: 'done' },
       ])
@@ -853,6 +1290,33 @@ describe('ChatStreamService', () => {
           kind: 'tool',
           toolName: 'web_search',
           payload: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
+        },
+        { kind: 'text', text: 'done' },
+      ])
+    })
+
+    it('drops the arguments of a call the tool refused, so its card never replays', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'bad' },
+          output: { error: 'Fix the arguments and call again.' },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      await collect(
+        service.stream(baseStreamArgs({ tools: { web_search: fakeTool } })),
+      )
+
+      expect(store.lastAppendedSegments).toEqual([
+        {
+          kind: 'tool',
+          toolName: 'web_search',
+          payload: null,
           toolCallId: 'test-web_search',
         },
         { kind: 'text', text: 'done' },
@@ -1814,24 +2278,14 @@ describe('ChatStreamService', () => {
       }
     }
 
-    class FakeFeaturesService {
-      public enabled = true
-
-      isFeatureEnabled(_params: {
-        user: number
-        feature: string
-      }): Promise<boolean> {
-        return Promise.resolve(this.enabled)
-      }
-
-      asService(): FeaturesService {
-        return this as unknown as FeaturesService
-      }
-    }
+    // Attachments are injected only for a scope in ATTACHMENT_SCOPES; the
+    // chief of staff is the default here, tests that need Win pass its scope.
+    const attachmentArgs = (
+      overrides: Parameters<typeof baseStreamArgs>[0] = {},
+    ) => baseStreamArgs({ scope: ChatScope.chief_of_staff, ...overrides })
 
     const buildAttachmentService = (
       opts: {
-        flagEnabled?: boolean
         rows?: AttachmentRow[]
         s3Bytes?: Map<string, Buffer>
       } = {},
@@ -1848,10 +2302,6 @@ describe('ChatStreamService', () => {
       const fakeS3 = new FakeS3Service()
       if (opts.s3Bytes) fakeS3.fetchMap = opts.s3Bytes
 
-      const fakeFeatures = new FakeFeaturesService()
-      if (opts.flagEnabled !== undefined)
-        fakeFeatures.enabled = opts.flagEnabled
-
       const fakeLlmSrc = new FakeLlmServiceWithSource()
 
       const analyticsTrack = vi.fn().mockResolvedValue(undefined)
@@ -1866,7 +2316,6 @@ describe('ChatStreamService', () => {
         undefined,
         fakeChatAttachments.asService(),
         fakeS3.asService(),
-        fakeFeatures.asService(),
         fakeAnalytics,
       )
 
@@ -1880,9 +2329,40 @@ describe('ChatStreamService', () => {
       }
     }
 
-    it('skips attachment loading when flag is off', async () => {
+    it('skips attachment loading for a scope without attachment support', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: false,
+        rows: [
+          {
+            id: 'att-1',
+            storageKey: 'key-1',
+            fileName: 'doc.pdf',
+            mimeType: 'application/pdf',
+            pageCount: 5,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: null,
+          },
+        ],
+        s3Bytes: new Map([['key-1', Buffer.from('%PDF-1.4 fake pdf bytes')]]),
+      })
+
+      fakeLlmSrc.setScript([{ kind: 'text', delta: 'answer' }])
+      await collect(
+        svc.stream(attachmentArgs({ scope: ChatScope.ordinance_flow })),
+      )
+
+      const { messages } = firstOrThrow(fakeLlmSrc.calls).options
+      const lastUser = messages.findLast((m) => m.role === 'user')
+      // Outside ATTACHMENT_SCOPES the user turn stays a plain string
+      expect(typeof lastUser?.content).toBe('string')
+      // No <attached_documents> block in system prompt
+      expect(String(messages[0]?.content)).not.toContain('<attached_documents>')
+      void attachmentsStore
+    })
+
+    it('skips attachment loading when no scope is passed (e.g. briefing chats)', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
         rows: [
           {
             id: 'att-1',
@@ -1904,17 +2384,40 @@ describe('ChatStreamService', () => {
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
-      // When flag is off, the user turn stays a plain string (no file parts)
       expect(typeof lastUser?.content).toBe('string')
-      // No <attached_documents> block in system prompt
       expect(String(messages[0]?.content)).not.toContain('<attached_documents>')
-      void attachmentsStore
+    })
+
+    it('injects attachments on the campaign_assistant scope', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
+        rows: [
+          {
+            id: 'att-win',
+            storageKey: 'key-win',
+            fileName: 'notes.txt',
+            mimeType: 'text/plain',
+            pageCount: null,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: 'win candidate notes',
+          },
+        ],
+      })
+
+      fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
+      await collect(
+        svc.stream(attachmentArgs({ scope: ChatScope.campaign_assistant })),
+      )
+
+      const { messages } = firstOrThrow(fakeLlmSrc.calls).options
+      const lastUser = messages.findLast((m) => m.role === 'user')
+      expect(Array.isArray(lastUser?.content)).toBe(true)
     })
 
     it('injects PDF bytes as file part on latest user turn', async () => {
       const pdfBytes = Buffer.from('%PDF-1.4 fake pdf bytes')
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-pdf',
@@ -1932,7 +2435,7 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'summary' }])
-      await collect(svc.stream(baseStreamArgs({ userMessage: 'summarize' })))
+      await collect(svc.stream(attachmentArgs({ userMessage: 'summarize' })))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
@@ -1941,18 +2444,52 @@ describe('ChatStreamService', () => {
         type: string
         mediaType?: string
         filename?: string
+        citationsEnabled?: boolean
       }>
       const filePart = parts.find((p) => p.type === 'file')
       expect(filePart).toBeDefined()
       expect(filePart?.mediaType).toBe('application/pdf')
       expect(filePart?.filename).toBe('att-pdf')
+      expect(filePart?.citationsEnabled).toBe(true)
       const textPart = parts.find((p) => p.type === 'text')
       expect(textPart).toBeDefined()
     })
 
+    it('injects images without enabling citations', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
+        rows: [
+          {
+            id: 'att-img',
+            storageKey: 'key-img',
+            fileName: 'flyer.png',
+            mimeType: 'image/png',
+            pageCount: null,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: null,
+          },
+        ],
+        s3Bytes: new Map([['key-img', Buffer.from([0x89, 0x50, 0x4e, 0x47])]]),
+      })
+
+      fakeLlmSrc.setScript([{ kind: 'text', delta: 'a flyer' }])
+      await collect(svc.stream(attachmentArgs({ userMessage: 'what is it' })))
+
+      const { messages } = firstOrThrow(fakeLlmSrc.calls).options
+      const lastUser = messages.findLast((m) => m.role === 'user')
+      const parts = lastUser?.content as Array<{
+        type: string
+        mediaType?: string
+        citationsEnabled?: boolean
+      }>
+      const filePart = parts.find((p) => p.type === 'file')
+      expect(filePart?.mediaType).toBe('image/png')
+      expect(filePart?.citationsEnabled).toBeUndefined()
+    })
+
     it('injects DOCX extracted text as citationsEnabled text/plain part', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-docx',
@@ -1971,7 +2508,7 @@ describe('ChatStreamService', () => {
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
       await collect(
-        svc.stream(baseStreamArgs({ userMessage: 'what is budget?' })),
+        svc.stream(attachmentArgs({ userMessage: 'what is budget?' })),
       )
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
@@ -1994,7 +2531,6 @@ describe('ChatStreamService', () => {
 
     it('leaves historical turns as strings and only injects on latest user turn', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-hist',
@@ -2023,7 +2559,7 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
-      await collect(svc.stream(baseStreamArgs({ userMessage: 'new question' })))
+      await collect(svc.stream(attachmentArgs({ userMessage: 'new question' })))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const userMessages = messages.filter((m) => m.role === 'user')
@@ -2040,7 +2576,6 @@ describe('ChatStreamService', () => {
 
     it('appends <attached_documents> block to system prompt', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-sys',
@@ -2057,7 +2592,7 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
-      await collect(svc.stream(baseStreamArgs()))
+      await collect(svc.stream(attachmentArgs()))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const systemContent = String(messages[0]?.content)
@@ -2069,7 +2604,6 @@ describe('ChatStreamService', () => {
 
     it('pushes citation chunks to the stream and persists segments', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-cite',
@@ -2103,7 +2637,7 @@ describe('ChatStreamService', () => {
         { kind: 'text', delta: 'the budget is set.' },
       ])
 
-      const chunks = await collect(svc.stream(baseStreamArgs()))
+      const chunks = await collect(svc.stream(attachmentArgs()))
 
       // Citation chunk must be in the stream
       const citationChunks = chunks.filter((c) => c.type === 'citation')
@@ -2145,7 +2679,6 @@ describe('ChatStreamService', () => {
         extractedText: 'The council resolves to allocate $500K.',
       })
       const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
-        flagEnabled: true,
         rows: [row('att-a', 'key-a'), row('att-b', 'key-b')],
       })
 
@@ -2181,33 +2714,84 @@ describe('ChatStreamService', () => {
         { kind: 'text', delta: 'the budget is set.' },
       ])
 
-      await collect(svc.stream(baseStreamArgs()))
+      await collect(svc.stream(attachmentArgs()))
 
       expect(analyticsTrack).toHaveBeenCalledTimes(1)
       expect(analyticsTrack).toHaveBeenCalledWith(
         OWNER_ID,
         EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-        { documentId: 'att-a', turnIndex: expect.any(Number) },
+        {
+          documentId: 'att-a',
+          turnIndex: expect.any(Number),
+          scope: ChatScope.chief_of_staff,
+        },
+      )
+    })
+
+    it('tags AttachedDocumentQueried with the caller-supplied scope', async () => {
+      const row = (id: string, storageKey: string): AttachmentRow => ({
+        id,
+        storageKey,
+        fileName: `${id}.txt`,
+        mimeType: 'text/plain',
+        pageCount: null,
+        source: ChatAttachmentSource.UPLOAD,
+        sourceUrl: null,
+        status: ChatAttachmentStatus.ready,
+        extractedText: 'The council resolves to allocate $500K.',
+      })
+      const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
+        rows: [row('att-a', 'key-a')],
+      })
+
+      fakeLlmSrc.setScript([
+        { kind: 'text', delta: 'Per the document, ' },
+        {
+          kind: 'source',
+          sourceType: 'document',
+          id: 'src-1',
+          filename: 'att-a',
+          providerMetadata: {
+            anthropic: {
+              citedText: 'allocate',
+              startCharIndex: 28,
+              endCharIndex: 36,
+            },
+          },
+        },
+        { kind: 'text', delta: 'the budget is set.' },
+      ])
+
+      await collect(
+        svc.stream(attachmentArgs({ scope: ChatScope.campaign_assistant })),
+      )
+
+      expect(analyticsTrack).toHaveBeenCalledWith(
+        OWNER_ID,
+        EVENTS.ChiefOfStaff.AttachedDocumentQueried,
+        {
+          documentId: 'att-a',
+          turnIndex: expect.any(Number),
+          scope: ChatScope.campaign_assistant,
+        },
       )
     })
 
     it('does not track AttachedDocumentQueried for a turn without citations', async () => {
       const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
-        flagEnabled: true,
         rows: [],
       })
 
       fakeLlmSrc.setScript([
         { kind: 'text', delta: 'plain answer, no sources' },
       ])
-      await collect(svc.stream(baseStreamArgs()))
+      await collect(svc.stream(attachmentArgs()))
 
       expect(analyticsTrack).not.toHaveBeenCalled()
     })
 
     it('injects only the requested attachment IDs when attachmentIds is set', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-included',
@@ -2236,7 +2820,7 @@ describe('ChatStreamService', () => {
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
       await collect(
-        svc.stream(baseStreamArgs({ attachmentIds: ['att-included'] })),
+        svc.stream(attachmentArgs({ attachmentIds: ['att-included'] })),
       )
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
@@ -2255,7 +2839,6 @@ describe('ChatStreamService', () => {
 
     it('preserves greeting fold when attachments are present', async () => {
       const { fakeLlmSrc, svc, attachmentsStore } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-greet',
@@ -2279,7 +2862,7 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
-      await collect(svc.stream(baseStreamArgs({ userMessage: 'hello' })))
+      await collect(svc.stream(attachmentArgs({ userMessage: 'hello' })))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       // Greeting folded into system prompt
@@ -2295,7 +2878,6 @@ describe('ChatStreamService', () => {
 
     it('skips attachments with no extractedText for non-binary types', async () => {
       const { fakeLlmSrc, svc } = buildAttachmentService({
-        flagEnabled: true,
         rows: [
           {
             id: 'att-notext',
@@ -2312,7 +2894,7 @@ describe('ChatStreamService', () => {
       })
 
       fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
-      await collect(svc.stream(baseStreamArgs()))
+      await collect(svc.stream(attachmentArgs()))
 
       const { messages } = firstOrThrow(fakeLlmSrc.calls).options
       const lastUser = messages.findLast((m) => m.role === 'user')
@@ -2380,6 +2962,138 @@ describe('ChatStreamService', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+  })
+  describe('judge turn telemetry', () => {
+    const SWEEP_ID = 'chief-of-staff-case-1-abcd1234'
+    let telemetry: { recordTurn: ReturnType<typeof vi.fn> }
+    let judged: ChatStreamService
+
+    const buildService = () =>
+      new ChatStreamService(
+        store.asService(),
+        llm as unknown as LlmService,
+        createMockLogger(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        telemetry as unknown as JudgeTurnTelemetryService,
+      )
+
+    beforeEach(() => {
+      telemetry = { recordTurn: vi.fn().mockResolvedValue(undefined) }
+      judged = buildService()
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'hello' }])
+    })
+
+    it('writes nothing for a conversation no judge owns', async () => {
+      await collect(judged.stream(baseStreamArgs()))
+
+      expect(telemetry.recordTurn).not.toHaveBeenCalled()
+    })
+
+    it('writes one row for a judge turn, naming the assistant row', async () => {
+      const chunks = await collect(
+        judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })),
+      )
+
+      const done = chunks.find((c) => c.type === 'done')
+      expect(telemetry.recordTurn).toHaveBeenCalledTimes(1)
+      expect(telemetry.recordTurn.mock.calls[0]![0]).toMatchObject({
+        sweepId: SWEEP_ID,
+        conversationId: CONVERSATION_ID,
+        assistantMessageId:
+          done?.type === 'done' ? done.assistantMessageId : undefined,
+      })
+    })
+
+    // The prompt the provider was handed, which is not args.systemPrompt: a
+    // leading assistant greeting is folded into the system message by
+    // toLlmMessages, and effectiveSystemPrompt only picks that up on a turn
+    // that also had an attachment. Hashing the handler's string would digest
+    // a prompt the model never saw.
+    it('records the system prompt as sent, greeting fold included', async () => {
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: 'I am your chief of staff.',
+      })
+
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      const recorded = telemetry.recordTurn.mock.calls[0]![0] as {
+        systemPrompt: string
+      }
+      const sent = llm.calls[0]!.options.messages[0]!
+      expect(recorded.systemPrompt).toBe(sent.content)
+      expect(recorded.systemPrompt).toContain('I am your chief of staff.')
+      expect(recorded.systemPrompt).not.toBe(DEFAULT_SYS)
+    })
+
+    it('hands over the turn tool events for the tool columns', async () => {
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'query_constituent_data',
+          input: { sql: 'SELECT 1' },
+          output: { rows: [] },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      expect(telemetry.recordTurn.mock.calls[0]![0]).toMatchObject({
+        toolEvents: [
+          expect.objectContaining({ name: 'query_constituent_data' }),
+        ],
+      })
+    })
+
+    // The index has to move between turns or the upsert overwrites, and the
+    // judge compares one arm's second turn against the other's first.
+    it('advances turnIndex as the conversation grows', async () => {
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      const [first, second] = telemetry.recordTurn.mock.calls.map(
+        (call) => (call[0] as { turnIndex: number }).turnIndex,
+      )
+      expect(second).toBeGreaterThan(first!)
+    })
+
+    it('writes nothing when the turn was interrupted', async () => {
+      const controller = new AbortController()
+      llm.setScript([
+        { kind: 'text', delta: 'partial' },
+        { kind: 'abortCheck' },
+      ])
+      const stream = judged.stream(
+        baseStreamArgs({
+          judgeSweepId: SWEEP_ID,
+          signal: controller.signal,
+        }),
+      )
+      const iterator = stream[Symbol.asyncIterator]()
+      await iterator.next()
+      controller.abort()
+      await iterator.return?.()
+
+      expect(telemetry.recordTurn).not.toHaveBeenCalled()
+    })
+
+    // A judge observation must never cost a user their turn.
+    it('a failed write does not fail the turn', async () => {
+      telemetry.recordTurn.mockRejectedValue(new Error('telemetry is down'))
+
+      const chunks = await collect(
+        judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })),
+      )
+
+      expect(chunks.some((c) => c.type === 'error')).toBe(false)
+      expect(chunks[chunks.length - 1]?.type).toBe('done')
     })
   })
 })

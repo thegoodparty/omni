@@ -1,7 +1,11 @@
 import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
-import { DatabricksVoterPackService } from './databricksVoterPack.service'
+import {
+  DatabricksVoterPackService,
+  MAX_PACK_ROWS,
+  VoterPackTooLargeError,
+} from './databricksVoterPack.service'
 import {
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
@@ -87,6 +91,8 @@ describe('DatabricksVoterPackService', () => {
           districtType: 'City',
           districtName: 'SPRINGFIELD',
           useVoterOnlyPath: false,
+          dataset: 'voters',
+          table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
         }),
       } as never,
     )
@@ -112,7 +118,7 @@ describe('DatabricksVoterPackService', () => {
     client.startCsvExport.mockResolvedValue({
       firstChunk: chunk('c0', [HEADER, csvRow('a'), csvRow('b')].join('\n')),
     })
-    const pack = await service.build(request as never)
+    const pack = await service.build(request as never, 'voters')
     expect(manifestOf(pack).counts.people).toBe(2)
   })
 
@@ -124,7 +130,7 @@ describe('DatabricksVoterPackService', () => {
       chunk('c1', csvRow('b'), 'link-2'),
     )
     client.fetchCsvChunk.mockResolvedValueOnce(chunk('c2', csvRow('c')))
-    const pack = await service.build(request as never)
+    const pack = await service.build(request as never, 'voters')
     expect(manifestOf(pack).counts.people).toBe(3)
     expect(client.fetchCsvChunk).toHaveBeenCalledTimes(2)
   })
@@ -134,7 +140,7 @@ describe('DatabricksVoterPackService', () => {
       firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'link-1'),
     })
     client.fetchCsvChunk.mockResolvedValue(chunk('c1', csvRow('b')))
-    await service.build(request as never)
+    await service.build(request as never, 'voters')
     // Presigned links expire in ~15 minutes, so resolving the whole chain up
     // front would hand a long export dead links.
     expect(client.fetchCsvChunk).toHaveBeenCalledWith('link-1')
@@ -146,14 +152,39 @@ describe('DatabricksVoterPackService', () => {
       firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'link-1'),
     })
     controller.abort()
-    const pack = await service.build(request as never, controller.signal)
+    const pack = await service.build(
+      request as never,
+      'voters',
+      controller.signal,
+    )
     expect(client.fetchCsvChunk).not.toHaveBeenCalled()
     expect(manifestOf(pack).counts.people).toBe(0)
   })
 
+  it('refuses a district over the pack limit before reading a chunk', async () => {
+    client.startCsvExport.mockResolvedValue({
+      totalRows: MAX_PACK_ROWS + 1,
+      firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'next'),
+    })
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
+      VoterPackTooLargeError,
+    )
+    expect(fetch).not.toHaveBeenCalled()
+    expect(client.fetchCsvChunk).not.toHaveBeenCalled()
+  })
+
+  it('builds a district at the pack limit', async () => {
+    client.startCsvExport.mockResolvedValue({
+      totalRows: MAX_PACK_ROWS,
+      firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n')),
+    })
+    const pack = await service.build(request as never, 'voters')
+    expect(manifestOf(pack).counts.people).toBe(1)
+  })
+
   it('surfaces a warehouse timeout as a 504, not a partial pack', async () => {
     client.startCsvExport.mockRejectedValue(new PeopleDbxTimeoutError(1))
-    await expect(service.build(request as never)).rejects.toThrow(
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
       GatewayTimeoutException,
     )
   })
@@ -162,7 +193,7 @@ describe('DatabricksVoterPackService', () => {
     client.startCsvExport.mockRejectedValue(
       new PeopleDbxUnavailableError('down'),
     )
-    await expect(service.build(request as never)).rejects.toThrow(
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
       /temporarily unavailable/,
     )
   })
@@ -178,7 +209,7 @@ describe('DatabricksVoterPackService', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
     )
-    await expect(service.build(request as never)).rejects.toThrow(
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
       BadGatewayException,
     )
   })
@@ -191,7 +222,7 @@ describe('DatabricksVoterPackService', () => {
       'fetch',
       vi.fn(() => Promise.resolve({ ok: false, status: 403 })),
     )
-    await expect(service.build(request as never)).rejects.toThrow()
+    await expect(service.build(request as never, 'voters')).rejects.toThrow()
     expect(logger.error).toHaveBeenCalled()
   })
 
@@ -219,7 +250,7 @@ describe('DatabricksVoterPackService', () => {
     })
 
     const buildThrough = async () => {
-      const pending = service.build(request as never)
+      const pending = service.build(request as never, 'voters')
       // Settled-but-unobserved while the timers run counts as unhandled, and
       // the failure cases here reject before the await below can reach them.
       void pending.catch(() => undefined)

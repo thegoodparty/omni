@@ -6,6 +6,8 @@ import {
   FollowUpAnswerSchema,
   OutreachTypeSchema,
   PhoneBankCallOutcomeSchema,
+  PriorityAnswerCodeSchema,
+  PriorityAnswerSourceSchema,
   SupportAnswerSchema,
   VoterOutreachAttributionSourceSchema,
   WillVoteAnswerSchema,
@@ -47,6 +49,19 @@ export const ConstituentActivityEventSchema = z.object({
 })
 export type ConstituentActivityEvent = z.infer<
   typeof ConstituentActivityEventSchema
+>
+
+// The priority a person's reply, call or knock answered, and how an AI
+// classifier coded it (priorities/AGENTS.md "Answer coding"). Serve only:
+// only a priority's outreach is coded, and a coded row is a model's reading,
+// not something the person confirmed.
+export const ConstituentPriorityAnswerSchema = z.object({
+  priorityId: z.string(),
+  priorityTitle: z.string(),
+  answer: PriorityAnswerCodeSchema,
+})
+export type ConstituentPriorityAnswer = z.infer<
+  typeof ConstituentPriorityAnswerSchema
 >
 
 // Serve poll-interaction activity (elected office context).
@@ -100,6 +115,7 @@ export const DoorKnockConstituentActivitySchema = z.object({
     manual: z.boolean(),
     actorName: z.string().nullable(),
     actorUserId: z.number().nullable(),
+    priorityAnswer: ConstituentPriorityAnswerSchema.nullable().optional(),
   }),
 })
 export type DoorKnockConstituentActivity = z.infer<
@@ -116,6 +132,11 @@ export const TextConstituentActivitySchema = z.object({
     note: z.string().nullable(),
     manual: z.boolean(),
     outreachId: z.number().nullable(),
+    // What they wrote back, oldest first. Only a Serve text keeps reply
+    // bodies (Win's Peerly sweep records timestamps), and only the person
+    // feed reads them; absent means none to show.
+    replies: z.array(z.string()).optional(),
+    priorityAnswer: ConstituentPriorityAnswerSchema.nullable().optional(),
   }),
 })
 export type TextConstituentActivity = z.infer<
@@ -155,16 +176,17 @@ export const PhoneBankingConstituentActivitySchema = z.object({
     manual: z.boolean(),
     actorName: z.string().nullable(),
     actorUserId: z.number().nullable(),
+    priorityAnswer: ConstituentPriorityAnswerSchema.nullable().optional(),
   }),
 })
 export type PhoneBankingConstituentActivity = z.infer<
   typeof PhoneBankingConstituentActivitySchema
 >
 
-// A contact-status-field override change (ENG-10835), Win-only — Serve orgs
-// can never write a ContactStatusEvent row (contacts.service.ts rejects the
-// PATCH for elected-office organizations), so this variant never appears in a
-// Serve feed. fromLabel/toLabel are the resolved display text (never the raw
+// A contact-status-field override change (ENG-10835), on both products, each
+// reading back only its own fields: Win sees support status, voter
+// likelihood and the rest, Serve sees follow_up and civic_panel
+// (contactEngagement.service.ts filters by field). fromLabel/toLabel are the resolved display text (never the raw
 // enum value — see resolveContactStatusLabel in ContactStatus.schema),
 // fromLabel null for the never-seen-before edge (no prior override row).
 // actorName is the writer's display name, null for a non-manual source
@@ -204,4 +226,21 @@ export const GetIndividualActivitiesResponseSchema = z.object({
 })
 export type GetIndividualActivitiesResponse = z.infer<
   typeof GetIndividualActivitiesResponseSchema
+>
+
+// Everything one person has told the office in answer to a priority's check,
+// newest first, across texts, calls and doors. Produced by gp-api
+// (GET /v1/contact-engagement/:id/priority-answers); empty for Win.
+export const PersonPriorityAnswerSchema =
+  ConstituentPriorityAnswerSchema.extend({
+    id: z.string(),
+    source: PriorityAnswerSourceSchema,
+  })
+export type PersonPriorityAnswer = z.infer<typeof PersonPriorityAnswerSchema>
+
+export const GetPersonPriorityAnswersResponseSchema = z.object({
+  results: z.array(PersonPriorityAnswerSchema),
+})
+export type GetPersonPriorityAnswersResponse = z.infer<
+  typeof GetPersonPriorityAnswersResponseSchema
 >

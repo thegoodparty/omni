@@ -39,7 +39,7 @@ beforeEach(() => {
 })
 
 const openToAudience = async () => {
-  render(<RobocallFlow open onClose={vi.fn()} />)
+  render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
   await userEvent.click(screen.getByText('Introduce myself to voters'))
   expect(
     await screen.findByText(/Choose a voter list|View your lists here/),
@@ -75,6 +75,7 @@ describe('RobocallFlow — a recommendation carried in from the voter data page'
     })
     render(
       <RobocallFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         preselectedRecommendedVariant="persuadeAffinity"
@@ -102,6 +103,7 @@ describe('RobocallFlow — a recommendation carried in, not saved yet', () => {
     })
     render(
       <RobocallFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         preselectedRecommendedVariant="persuadeAffinity"

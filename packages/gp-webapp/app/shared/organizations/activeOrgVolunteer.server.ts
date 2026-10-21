@@ -1,8 +1,6 @@
 import { cookies } from 'next/headers'
 import type { Organization } from 'gpApi/api-endpoints'
 import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
-import { getFlagVariants } from '@shared/experiments/getFlagVariants'
-import { TEAM_ACCOUNTS_FLAG_KEY } from '@shared/experiments/teamAccountsFlag'
 import { ORG_SLUG_COOKIE } from './constants'
 
 // Mirrors useSelectedOrgSlug's pickSlug: the cookie's org if it's still one
@@ -18,24 +16,17 @@ const resolveActiveOrg = (
 
 /**
  * Whether the signed-in user's ACTIVE org (not any org they hold) is one
- * where they're a volunteer — gated on win-team-accounts (ENG-11052). Team
- * invites create real volunteer memberships behind that same flag (ENG-11049,
- * membership and outreach assignment in one act), so this answers true for
- * people who exist rather than guarding against a case that could not arise.
+ * where they're a volunteer (ENG-11052).
  *
  * Shared by `candidateAccess.ts` (the /dashboard/* → /volunteer bounce and
  * the post-auth redirect) and `app/volunteer/layout.tsx` (the shell's own
- * gate), so the three can't drift on what "active org" or "flag on" means.
+ * gate), so the three can't drift on what "active org" means.
  */
 export const isActiveOrgVolunteer = async (): Promise<boolean> => {
-  const [organizations, flagVariants, cookieStore] = await Promise.all([
+  const [organizations, cookieStore] = await Promise.all([
     getCurrentUserOrganizations(),
-    getFlagVariants(),
     cookies(),
   ])
-  if (flagVariants?.[TEAM_ACCOUNTS_FLAG_KEY]?.value !== 'on') {
-    return false
-  }
   const activeOrg = resolveActiveOrg(
     organizations,
     cookieStore.get(ORG_SLUG_COOKIE)?.value,

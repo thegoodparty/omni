@@ -13,6 +13,7 @@ export const PHONE_BANKING_PURPOSE_LABELS: Record<PhoneBankingPurpose, string> =
     event_invite: 'Invite voters to a local event',
     early_voting: 'Encourage early voting',
     election_day_turnout: 'Encourage voters to vote on election day',
+    community_input: 'Hear from voters',
     custom: 'Write my own script',
   }
 
@@ -33,6 +34,7 @@ export const PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS: Record<
   event_invite: 'Event invite calls',
   early_voting: 'Early voting calls',
   election_day_turnout: 'Election day calls',
+  community_input: 'Listening calls',
   // The flow suggests nothing for custom; the entry keeps the record total so
   // a new purpose is a compile error here.
   custom: FALLBACK_NAME,

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { parseISO } from 'date-fns'
 import { Campaign, OutreachType, User } from '../../generated/prisma'
 import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
@@ -19,6 +20,8 @@ import {
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
 import { getPeerlyJobUrl } from 'src/vendors/peerly/utils/peerlyJobUrl.util'
+import { resolveSendWindowTimeZone } from 'src/vendors/peerly/utils/sendWindowTimeZone.util'
+import { formatScheduledSend } from '../util/scheduledSendLabel.util'
 import {
   AudienceSlackBlock,
   buildSlackBlocks,
@@ -221,6 +224,84 @@ export class OutreachNotificationService {
     )
   }
 
+  /**
+   * Alert CAS when a robocall could not send because the CallHub account is
+   * out of credit. Actionable (top up the account) where the generic failure
+   * log is not, and fires in the channel CAS already watches. Best-effort.
+   */
+  async notifyRobocallLowCredit(
+    campaignSlug: string,
+    outreachId: number,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⚠️ Robocall could not send — the CallHub account is out of credit. ` +
+        `Top up CallHub to resume. ${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
+  /**
+   * Alert CAS when a robocall is past its scheduled date and still has not
+   * dialed — failure-mode-agnostic, so it surfaces a silent tail (a stuck
+   * staged/authorized run) no settle-state-specific sweep catches. Carries the
+   * campaign/outreach id, the scheduled date, how overdue it is, and the current
+   * settle state so ops can triage without a DB read. Best-effort.
+   */
+  async notifyRobocallOverdue(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    overdueLabel: string,
+    settleState: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚨 Robocall overdue — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel}, ~${overdueLabel} overdue and still not ` +
+        `dialed (state: ${settleState}). Needs manual review.`,
+      outreachId,
+    )
+  }
+
+  /**
+   * Proactively warn CAS when the serial send queue's backlog is projected to
+   * push a robocall past its scheduled DAY — before it is actually late (that
+   * is `notifyRobocallOverdue`). Carries the campaign/outreach id, the scheduled
+   * day, and the projected dial day so ops can act (split a big list, reschedule,
+   * or raise the dial rate) while there is still time. Best-effort.
+   */
+  async notifyRobocallBacklogDelayed(
+    campaignSlug: string,
+    outreachId: number,
+    scheduledLabel: string,
+    projectedLabel: string,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `⏳ Robocall backlog — ${campaignSlug} · outreach #${outreachId} · ` +
+        `scheduled ${scheduledLabel} but the send queue won't reach it until ` +
+        `~${projectedLabel}. The backlog will push it past its day; consider ` +
+        `rescheduling or splitting a large list.`,
+      outreachId,
+    )
+  }
+
+  /**
+   * Notify CAS when a robocall is canceled before it dials (CAS request: the
+   * monitoring team wants cancels surfaced the way sends and completions are).
+   * Names who ended it — staff vs the candidate — so a canceled run doesn't
+   * silently vanish from the channel's narrative. Best-effort.
+   */
+  async notifyRobocallCanceled(
+    campaignSlug: string,
+    outreachId: number,
+    canceledByAdmin: boolean,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `🚫 Robocall canceled (by ${canceledByAdmin ? 'staff' : 'candidate'}) — ` +
+        `${campaignSlug} · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
   private async postRobocallLine(
     text: string,
     outreachId: number,
@@ -302,6 +383,17 @@ export class OutreachNotificationService {
       )
     }
 
+    // The same zone Peerly books the send in: the row's didState for a text,
+    // the campaign's state otherwise (a robocall has no didState).
+    const scheduledSend = formatScheduledSend({
+      date: outreach.date,
+      scheduledLocalDate: outreach.scheduledLocalDate,
+      scheduledLocalTime: outreach.scheduledLocalTime,
+      timeZone: resolveSendWindowTimeZone(
+        outreach.didState ?? campaign.details?.state,
+      ),
+    })
+
     return buildSlackBlocks({
       name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
       email: user.email,
@@ -310,7 +402,7 @@ export class OutreachNotificationService {
       crmCompanyId,
       voterFileUrl,
       type: outreach.outreachType,
-      date: outreach.date ?? undefined,
+      scheduledSend,
       script,
       ...(outreach.imageUrl ? { imageUrl: outreach.imageUrl } : {}),
       message: outreach.message ? sanitizeHtml(outreach.message) : '',
@@ -380,9 +472,20 @@ export class OutreachNotificationService {
         ? createOutreachDto.script.slice(0, 200)
         : 'None'
 
-    const dateText = createOutreachDto?.date
-      ? String(createOutreachDto.date)
-      : 'Not provided'
+    // The failure notice renders the same local label as the request
+    // notice. The DTO here may be the raw body of a rejected request, so an
+    // unparseable date falls back to the string as sent.
+    const dateText =
+      typeof createOutreachDto?.date === 'string'
+        ? (formatScheduledSend({
+            date: parseISO(createOutreachDto.date),
+            scheduledLocalDate: createOutreachDto.date.slice(0, 10),
+            scheduledLocalTime: createOutreachDto.scheduledLocalTime,
+            timeZone: resolveSendWindowTimeZone(
+              createOutreachDto.didState ?? campaign?.details?.state,
+            ),
+          }) ?? createOutreachDto.date)
+        : 'Not provided'
     const outreachTypeText = createOutreachDto?.outreachType
       ? String(createOutreachDto.outreachType)
       : 'Unknown'

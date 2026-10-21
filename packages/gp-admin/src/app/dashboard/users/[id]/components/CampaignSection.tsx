@@ -4,9 +4,9 @@ import { Grid, Text, Badge, Flex, Box } from '@radix-ui/themes'
 import { InfoCard } from './InfoCard'
 import { FieldList } from './FieldList'
 import { DataRow } from './DataRow'
-import type { CampaignData, CampaignDetails } from '@goodparty_org/sdk'
+import type { CampaignData, CampaignDetails } from '@/shared/gpApi'
 import type { EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
-import { formatDate } from '@/lib/utils/date'
+import { formatLocalDateString } from '@/lib/utils/date'
 import { buildDisplayFields } from '../campaign-fields'
 import { districtTypeLabel } from '@/shared/district/districtTypeLabel'
 
@@ -123,7 +123,7 @@ export function CampaignSection({ campaign, district }: CampaignSectionProps) {
 
         <InfoCard title="Race Targets">
           <DataRow label="Election Date">
-            {details.electionDate ? formatDate(details.electionDate) : '—'}
+            {formatLocalDateString(details.electionDate)}
           </DataRow>
           {metrics ? (
             <>

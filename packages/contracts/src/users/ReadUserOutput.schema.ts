@@ -4,7 +4,6 @@ import { UserMetaDataSchema } from './UserMetaData.schema'
 import { EmailSchema } from '../shared/Email.schema'
 import { PhoneSchema } from '../shared/Phone.schema'
 import { RolesSchema } from '../shared/Roles.schema'
-import { ZipSchema } from '../shared/Zip.schema'
 import { makeOptional } from '../shared/zod.util'
 import { zCoerceDate } from '../shared/Date.schema'
 
@@ -21,7 +20,14 @@ export const ReadUserOutputSchema = CreateUserInputSchema.omit({
   firstName: z.string(),
   lastName: z.string(),
   name: z.string().nullish(),
-  zip: makeOptional(ZipSchema),
+  // zip overrides CreateUserInputSchema's ZipSchema for the same reason
+  // firstName/lastName override its min(2): `isPostalCode(val, 'US')` is a
+  // signup-form rule, but the DB column is `zip String?` with no format
+  // constraint, so rows exist that never passed it. Enforcing it here made
+  // the global ZodResponseInterceptor 500 on any response containing one --
+  // and because Zod validates the whole `data` array, a single bad row failed
+  // an entire page of GET /v1/users rather than degrading one field.
+  zip: z.string().nullish(),
   phone: makeOptional(PhoneSchema),
   id: z.number(),
   email: EmailSchema,

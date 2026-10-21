@@ -1,11 +1,14 @@
 {
   "mcpServers": {
     "grafana": {
-      "command": "uvx",
-      "args": ["mcp-grafana"],
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec bash \"$(git rev-parse --show-toplevel)/scripts/mcp/grafana.sh\""
+      ],
       "env": {
         "GRAFANA_URL": "https://goodparty.grafana.net",
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}"
       }
     },
     "sentry": {

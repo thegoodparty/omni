@@ -214,9 +214,9 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
     for (const call of jsonCompletion.mock.calls) {
       const schema = call[0].schema
-      expect(schema.safeParse({ draft: 'x'.repeat(900) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1000) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1001) }).success).toBe(false)
+      expect(schema.safeParse({ draft: 'x'.repeat(1900) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2000) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2001) }).success).toBe(false)
     }
   })
 
@@ -263,10 +263,59 @@ describe('POST /v1/outreach/sms/draft', () => {
     const oversized = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'x'.repeat(1001),
+      currentDraft: 'x'.repeat(2001),
     })
     expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
 
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('writes an event invite with the details the flow sent', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('Join us Saturday.'))
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      event: {
+        date: '2026-10-17',
+        time: '18:30',
+        location: 'Georgetown Public Library',
+      },
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const prompts = call.messages
+      .map((m: { content: string }) => m.content)
+      .join('\n')
+    expect(prompts).toContain('Date: Saturday, October 17')
+    expect(prompts).toContain('Time: 6:30 PM')
+    expect(prompts).toContain('Location: Georgetown Public Library')
+    expect(prompts).not.toMatch(/\[(date|time|location|hours)\]/i)
+  })
+
+  it('asks for no logistics and no brackets when an invite has no details', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('Join us.'))
+
+    await postDraft({ purpose: 'event_invite', tone: 'warm' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const prompts = call.messages
+      .map((m: { content: string }) => m.content)
+      .join('\n')
+    expect(prompts).toContain('No event date, time or place was given.')
+    expect(prompts).toContain('leave the line out entirely')
+    expect(prompts).not.toMatch(/\[(date|time|location|hours)\]/i)
+  })
+
+  it('rejects event details in a shape it cannot write in', async () => {
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      event: { date: '10/17', time: '6:30 PM', location: '' },
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
 

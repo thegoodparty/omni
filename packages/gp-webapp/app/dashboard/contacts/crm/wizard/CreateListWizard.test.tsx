@@ -105,13 +105,15 @@ const skipBoundaryStep = async (
   await user.click(await screen.findByRole('button', { name: 'Continue' }))
 }
 
-// The shape is cut full-screen: the step itself carries a read-only preview
-// and a CTA into the overlay, and the ring only reaches the wizard on Save.
+// The shapes are cut full-screen: the step itself carries a card into the
+// overlay, and a shape only reaches the wizard on Save.
 const drawBoundary = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   await user.click(
-    await screen.findByRole('button', { name: /draw an area|edit area/i }),
+    await screen.findByRole('button', {
+      name: /draw shapes|draw another shape/i,
+    }),
   )
   for (const label of ['place point 1', 'place point 2', 'place point 3']) {
     await user.click(await screen.findByRole('button', { name: label }))
@@ -260,7 +262,7 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps the Win wizard at three steps with both branch cards', () => {
+  it('runs the Win wizard in four steps with both branch cards', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     // Stepper's own "Step X of Y" label was retired; position is read off
@@ -269,7 +271,7 @@ describe('CreateListWizard — step navigation', () => {
     // would make screen readers announce step 1 of 3 as 0%.
     const stepper = screen.getByRole('progressbar', { name: 'Progress' })
     expect(stepper).toHaveAttribute('aria-valuenow', '1')
-    expect(stepper).toHaveAttribute('aria-valuemax', '3')
+    expect(stepper).toHaveAttribute('aria-valuemax', '4')
     expect(stepper).toHaveAttribute('aria-valuemin', '0')
     expect(
       screen.getByRole('radio', {
@@ -285,7 +287,7 @@ describe('CreateListWizard — step navigation', () => {
 
   // ENG-10750: Serve has no outreach, so its wizard drops the branch chooser
   // entirely — it opens directly on the constituent filters. The boundary
-  // step then makes it three, and Win's stays at three of its own.
+  // step then makes it three, one fewer than Win's.
   it('opens Serve directly on the constituent filters step with no activity option', () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
@@ -304,7 +306,7 @@ describe('CreateListWizard — step navigation', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('gives Serve a boundary step between the conditions and the name, and Win none', async () => {
+  it('gives both products a boundary step between the conditions and the name', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     const user = userEvent.setup()
     const { unmount } = render(<CreateListWizard open onOpenChange={vi.fn()} />)
@@ -335,8 +337,13 @@ describe('CreateListWizard — step navigation', () => {
     )
 
     expect(
-      screen.getByRole('heading', { name: 'Name your list' }),
+      screen.getByRole('heading', {
+        name: 'What area should this list cover?',
+      }),
     ).toBeInTheDocument()
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '3')
+    expect(stepper).toHaveAttribute('aria-valuemax', '4')
   })
 
   // The whole point of POST /v1/contacts/points. The step used to draw
@@ -366,6 +373,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await user.click(await screen.findByRole('button', { name: 'Draw shapes' }))
 
     const map = await screen.findByTestId('contact-map-stub')
     expect(map).toHaveAttribute('data-people', '2')
@@ -422,10 +430,7 @@ describe('CreateListWizard — step navigation', () => {
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await drawBoundary(user)
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      JSON.stringify([BOUNDARY_TAPS]),
-    )
+    expect(screen.getByText('Shape 1')).toBeInTheDocument()
 
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
@@ -439,10 +444,10 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-other-rings',
-      JSON.stringify([BOUNDARY_TAPS]),
-    )
+    expect(screen.getByText('Shape 1')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Draw another shape' }),
+    ).toBeInTheDocument()
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
@@ -519,6 +524,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
 
@@ -557,6 +563,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Counted list')
     await clickSaveList(user)
 
@@ -662,6 +669,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
     await clickSaveList(user)
 
@@ -753,6 +761,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     )
     expect(cta).toBeEnabled()
     await user.click(cta)
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await clickSaveList(user)
 
@@ -791,6 +800,7 @@ describe('CreateListWizard — running total + CTA', () => {
     expect(cta).toBeInTheDocument()
 
     await user.click(cta)
+    await skipBoundaryStep(user)
     expect(await screen.findByText(/250 voters match/i)).toBeInTheDocument()
   })
 
@@ -823,6 +833,7 @@ describe('CreateListWizard — running total + CTA', () => {
     expect(cta).toBeEnabled()
 
     await user.click(cta)
+    await skipBoundaryStep(user)
 
     expect(await screen.findByText(/too many people/i)).toBeInTheDocument()
     // The build button must still be usable once named — the cap is
@@ -1003,6 +1014,7 @@ describe('CreateListWizard — error handling', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Broken list')
     await clickSaveList(user)
 
@@ -1041,6 +1053,7 @@ describe('CreateListWizard — error handling', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Too big')
     await clickSaveList(user)
 
@@ -1081,6 +1094,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
 
@@ -1140,7 +1154,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     expect(sentBody).not.toHaveProperty('geoPoly')
   })
 
-  it('sends the drawn boundary as a closed geoPoly on create', async () => {
+  it('sends the drawn boundary as a closed geoPoly, with its names, on create', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
@@ -1168,6 +1182,48 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
+      geoPoly: {
+        type: 'Polygon',
+        coordinates: [[...BOUNDARY_TAPS, BOUNDARY_TAPS[0]]],
+      },
+      geoPolyLabels: [{ name: 'Shape 1', color: '#2563eb' }],
+    })
+  })
+
+  it('sends a candidate’s drawn boundary on create too', async () => {
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 104, name: 'Riverside voters' } }
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+      timeout: 10_000,
+    })
+    await user.click(continueButton)
+    await user.type(screen.getByLabelText(/list name/i), 'Riverside voters')
+    await clickSaveList(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      genderFemale: true,
       geoPoly: {
         type: 'Polygon',
         coordinates: [[...BOUNDARY_TAPS, BOUNDARY_TAPS[0]]],
@@ -1320,6 +1376,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
         { timeout: 10_000 },
       ),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
     await clickSaveList(user)
 
@@ -1383,6 +1440,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
         { timeout: 10_000 },
       ),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await clickSaveList(user)
 
@@ -1477,7 +1535,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     )
   })
 
-  it('fires the Conditions Completed on advance to name, and Name Completed alongside List Created on save', async () => {
+  it('fires Conditions and Boundary Completed on the way to name, and Name Completed alongside List Created on save', async () => {
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
       data: { id: 101, name: 'Funnel list' },
@@ -1500,6 +1558,17 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.ListWizard.ConditionsCompleted,
       { context: 'win', branch: 'voterFile' },
+    )
+    await vi.waitFor(() =>
+      expect(
+        eventCalls(EVENTS.Contacts.ListWizard.BoundaryViewed),
+      ).toHaveLength(1),
+    )
+
+    await skipBoundaryStep(user)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.BoundaryCompleted,
+      { context: 'win', branch: 'voterFile', hasBoundary: false },
     )
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.NameViewed)).toHaveLength(1),
@@ -1589,6 +1658,7 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(screen.getByLabelText(/list name/i), 'Mid-mutation list')
     await clickSaveList(user)
 

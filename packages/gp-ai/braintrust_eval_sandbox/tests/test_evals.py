@@ -13,9 +13,8 @@ promise to PMs:
     Prompt object before rendering, so the strict-key check sees what the
     PM wrote rather than the already-substituted output.
 
-Also a regression test on `EVAL_PARAMETERS` shape — same null-field-in-
-playground-validator failure mode the campaign_plan_lambda sibling tests
-lock down.
+Also a regression test on `EVAL_PARAMETERS` shape — the null-field-in-
+playground-validator failure mode.
 """
 
 import copy
@@ -29,8 +28,7 @@ import pytest
 
 def _import_evals():
     """Import braintrust_eval_sandbox.evals without triggering the module-
-    level `Eval(...)` call (which connects to Braintrust). Mirrors the
-    pattern in campaign_plan_lambda/tests/test_evals.py — patches `Eval`
+    level `Eval(...)` call (which connects to Braintrust). Patches `Eval`
     and `init_dataset` so the import doesn't authenticate. If a prior test
     or `push_eval_to_braintrust.sh` already imported the module, reuse it."""
     if "braintrust_eval_sandbox.evals" in sys.modules:
@@ -402,8 +400,7 @@ def _walk(value, path=""):
 
 
 class TestEvalParametersShape:
-    """Same regression check the campaign_plan_lambda eval has. The
-    Braintrust playground silently rejects parameter shapes containing
+    """The Braintrust playground silently rejects parameter shapes containing
     JSON `null` leaves anywhere in the dict-literal parts. Pydantic
     parameter classes are exempt because Braintrust serializes them via a
     different path; we only police the dict-literal entries here."""

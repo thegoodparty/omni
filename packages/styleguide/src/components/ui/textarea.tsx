@@ -4,17 +4,42 @@ import * as React from 'react'
 
 import { cn } from '@styleguide/lib/utils'
 
+// Shared with `TokenField`, which is a contenteditable rather than a
+// textarea but has to look and focus exactly like one.
+const textareaVariants = (variant: 'default' | 'seamless' = 'default') =>
+  cn(
+    'border-components-input-border text-foreground placeholder:text-muted-foreground focus:border-components-input-active focus-visible:ring-components-input-focus aria-invalid:border-destructive focus:aria-invalid:border-destructive focus-visible:aria-invalid:ring-destructive-focus flex w-full rounded-md border bg-components-input-base px-3 py-2 text-base transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+    variant === 'seamless' && 'border-0 p-0 focus-visible:ring-0',
+  )
+
+// The focus treatment a seamless field gives up, drawn on the card that holds
+// it instead. A ring on the bare field outlines the text inside the card, but
+// the card is what reads as the field. Keyed on the field's own focus rather
+// than `focus-within`, so a button in the card's footer does not light it.
+const seamlessFieldHost = cn(
+  'has-[[data-variant=seamless]:not([aria-invalid=true]):focus-visible]:border-components-input-active has-[[data-variant=seamless]:not([aria-invalid=true]):focus-visible]:ring-[3px] has-[[data-variant=seamless]:not([aria-invalid=true]):focus-visible]:ring-components-input-focus',
+  'has-[[data-variant=seamless][aria-invalid=true]:focus-visible]:border-destructive has-[[data-variant=seamless][aria-invalid=true]:focus-visible]:ring-[3px] has-[[data-variant=seamless][aria-invalid=true]:focus-visible]:ring-destructive-focus',
+)
+
 interface TextareaProps extends React.ComponentProps<'textarea'> {
   /** Grow with the content instead of scrolling inside a fixed-height box. */
   autoGrow?: boolean
   /** With `autoGrow`, stop growing after this many rows and scroll instead. */
   maxRows?: number
+  /**
+   * `seamless` drops the border and padding so the field sits inside a card
+   * as the card's own content. Its focus ring moves to that card, which takes
+   * `seamlessFieldHost`: without one an editable draft looks like static
+   * text, and keyboard users have nothing to follow (WCAG 2.4.7).
+   */
+  variant?: 'default' | 'seamless'
 }
 
 function Textarea({
   className,
   autoGrow,
   maxRows,
+  variant = 'default',
   ref,
   onInput,
   ...props
@@ -65,6 +90,7 @@ function Textarea({
   return (
     <textarea
       data-slot="textarea"
+      data-variant={variant}
       ref={assignRef}
       onInput={(event) => {
         // Uncontrolled callers have no `value` for the effect above to watch.
@@ -72,7 +98,7 @@ function Textarea({
         onInput?.(event)
       }}
       className={cn(
-        'border-components-input-border text-foreground placeholder:text-muted-foreground focus:border-components-input-active focus-visible:ring-components-input-focus aria-invalid:border-destructive focus:aria-invalid:border-destructive focus-visible:aria-invalid:ring-destructive-focus flex w-full rounded-md border bg-components-input-base px-3 py-2 text-base transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+        textareaVariants(variant),
         autoGrow ? 'min-h-0 resize-none' : 'min-h-16',
         className,
       )}
@@ -81,4 +107,4 @@ function Textarea({
   )
 }
 
-export { Textarea, type TextareaProps }
+export { Textarea, textareaVariants, seamlessFieldHost, type TextareaProps }

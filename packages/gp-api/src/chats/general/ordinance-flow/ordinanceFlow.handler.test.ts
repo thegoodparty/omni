@@ -13,6 +13,8 @@ import {
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
+import { guardrailLine } from '../services/guardrailLines'
+import { ORDINANCE_FLOW_GUARDRAIL_DECLINE } from './services/ordinanceFlowPrompt'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -98,6 +100,107 @@ describe('OrdinanceFlowHandler', () => {
     expect(names).toContain('ask_clarify_question')
     expect(names).toContain('present_draft')
     expect(names).not.toContain('save_synthesis')
+  })
+
+  describe('finalizeAssistantText', () => {
+    const LEGAL_LINE = guardrailLine('legal_advice', 'ordinance_flow')
+    const turn = (...names: string[]) => ({
+      toolEvents: names.map((name, i) => ({
+        toolCallId: `call-${i}`,
+        name,
+        args: {},
+        status: 'returned' as const,
+        result: {},
+      })),
+    })
+
+    it('ends an uncautioned statute reading with the legal line', () => {
+      expect(
+        build().finalizeAssistantText(
+          'Under RCW 35.21.766 you can do this.',
+          turn(),
+        ),
+      ).toBe(`\n\n${LEGAL_LINE}`)
+    })
+
+    it("still appends the line after a caution in the model's own words", () => {
+      for (const closing of [
+        'This is legal-risk analysis, not legal advice; your city attorney needs to sign off.',
+        'This is a reading of the legal landscape, not legal advice.',
+      ]) {
+        expect(
+          build().finalizeAssistantText(
+            `Under RCW 35.21.766 you can. ${closing}`,
+            turn(),
+          ),
+        ).toBe(`\n\n${LEGAL_LINE}`)
+      }
+    })
+
+    it('appends nothing when the reply already carries the line or opens one like it', () => {
+      expect(
+        build().finalizeAssistantText(
+          'Under RCW 35.21.766 you can. This is not a substitute for advice from your city attorney.',
+          turn(),
+        ),
+      ).toBe(null)
+      expect(
+        build().finalizeAssistantText(
+          `Under RCW 35.21.766 you can. ${LEGAL_LINE}`,
+          turn(),
+        ),
+      ).toBe(null)
+    })
+
+    it.each(['present_draft', 'apply_draft_edit', 'accept_draft_changes'])(
+      'withholds the line on a turn where %s returned',
+      (tool) => {
+        expect(
+          build().finalizeAssistantText(
+            'Done. Section 1 tracks RCW 35.21.766 and § 3(c) sets the fine.',
+            turn('read_ordinance', tool),
+          ),
+        ).toBe(null)
+      },
+    )
+
+    it('still appends the line when the drafting call failed or a research tool ran', () => {
+      const failedDraft = {
+        toolEvents: [
+          {
+            toolCallId: 'call-0',
+            name: 'present_draft',
+            args: {},
+            status: 'failed' as const,
+            error: 'validation',
+          },
+        ],
+      }
+      expect(
+        build().finalizeAssistantText(
+          'Under RCW 35.21.766 you can set this fine.',
+          failedDraft,
+        ),
+      ).toBe(`\n\n${LEGAL_LINE}`)
+      expect(
+        build().finalizeAssistantText(
+          'Under RCW 35.21.766 you can set this fine.',
+          turn('read_ordinance', 'web_search'),
+        ),
+      ).toBe(`\n\n${LEGAL_LINE}`)
+    })
+
+    it('appends nothing to a decline or to prose with no legal signal', () => {
+      expect(
+        build().finalizeAssistantText(ORDINANCE_FLOW_GUARDRAIL_DECLINE, turn()),
+      ).toBe(null)
+      expect(
+        build().finalizeAssistantText(
+          'Three nearby cities passed similar rules last year.',
+          turn('web_search'),
+        ),
+      ).toBe(null)
+    })
   })
 
   it('is a sensitive, Anthropic-only scope', () => {

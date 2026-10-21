@@ -8,6 +8,7 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 |------|------|
 | `page.tsx` | Polls list — `PollsPage` + `PollsTable` |
 | `create/` | Multi-step poll creation flow |
+| `results/[outreachId]/` | Results page for a self-serve poll (an outreach row, not a legacy `Poll`). The UI lives in `outreach/v2/poll/results/`; Gather more feedback in `outreach/v2/poll/gather/`. Polls-list rows for outreach polls link here |
 | `[id]/` | Poll detail + extension flows (`expand/`, `expand-payment/`, `expand-payment-success/`, `expand-review/`, `issue/`) |
 | `components/` | List-page widgets (`PollPreview`, `PollImageUpload`, `StatusBadge`, scheduled-date selector) |
 | `shared/components/` + `shared/hooks/` | Reused across create + detail (form fields, validation hooks) |
@@ -18,6 +19,7 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 - **Status badge** semantics live in `components/StatusBadge.tsx` — single source of truth for status colors / labels.
 - **Image upload** pattern (`PollImageUpload`) is poll-specific; for general uploads use shared inputs from `app/shared/inputs/`.
 - Stripe checkout-session redirect pattern (not Stripe Elements) — payment flows hand off to gp-api, return via `expand-payment-success`.
+- **Polls own the sampling methodology, and it lives in contracts** (`outreach/SampleSizing.const.ts`): 83 target replies, a 3% default reply rate, the high-confidence bar (`isHighConfidence`, also used by gp-api's poll analysis), and the per-text price. `calculateRecommendedPollSize` wraps `recommendedSampleSize`. Priority checks size their samples from the same module, so a change there changes both.
 
 ## Gotchas
 
@@ -33,3 +35,5 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 
 - `app/polls/` — public poll-share pages.
 - `app/shared/inputs/` — generic form inputs the create flow uses.
+- **The results page never recomputes anything the server owns.** Confidence, the 20-response floor and theme ranking arrive from `poll-results`. It refetches every 15s only while the poll is in progress or a run is in flight (`pollRefetchInterval`). A reply is marked read only when opened, never on render.
+- **Gather more feedback has no Back off review.** The expansion row is written when the official leaves "when", and an unpaid one holds the next off (gp-api answers 409), so editing the size after that would meet its own leftover.

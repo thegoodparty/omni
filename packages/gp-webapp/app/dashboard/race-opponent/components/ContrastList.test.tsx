@@ -10,6 +10,19 @@ vi.mock('@shared/sentry', () => ({
   reportErrorToSentry: vi.fn(),
 }))
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 const baseContrast = (
   overrides: Partial<ContrastRecord> = {},
 ): ContrastRecord => ({
@@ -33,6 +46,11 @@ const baseContrast = (
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('<ContrastList>', () => {
@@ -199,5 +217,21 @@ describe('<ContrastList>', () => {
     await waitFor(() => {
       expect(screen.getByText(/Routed as draft/i)).toBeInTheDocument()
     })
+  })
+
+  it('hides Route to Texting once texting is closed', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    render(<ContrastList initialContrasts={[baseContrast()]} />)
+
+    expect(
+      screen.queryByRole('button', { name: /route to texting/i }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /route to story/i }),
+    ).toBeInTheDocument()
   })
 })

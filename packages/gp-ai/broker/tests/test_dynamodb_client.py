@@ -1,3 +1,4 @@
+import json
 import time
 from unittest.mock import MagicMock
 
@@ -6,7 +7,9 @@ import pytest
 from moto import mock_aws
 
 from broker.dynamodb_client import (
+    ExperimentOverrideRef,
     InputFileRef,
+    JudgeReplayRef,
     ScopeTicket,
     ScopeTicketStore,
     TicketAlreadyExistsError,
@@ -329,3 +332,310 @@ class TestInputFilesRoundTrip:
         result = store.get_ticket("token-noif")
         assert result is not None
         assert result.input_files is None
+
+
+class TestJudgeFieldsRoundTrip:
+    def test_defaults_are_off(self):
+        ticket = _make_ticket()
+        assert ticket.is_eval is False
+        assert ticket.experiment_override is None
+
+    def test_no_judge_fields_writes_no_extra_attributes(self, moto_ddb):
+        """The item a product run's ticket writes must be exactly what it
+        writes today — the judge attributes only appear when set."""
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-plain", run_id="run-PLAIN"))
+
+        item = moto_ddb.get_item(TableName="scope-tickets", Key={"pk": {"S": "token-plain"}})["Item"]
+        assert "is_eval" not in item
+        assert "experiment_override" not in item
+
+        result = store.get_ticket("token-plain")
+        assert result is not None
+        assert result.is_eval is False
+        assert result.experiment_override is None
+
+    def test_judge_fields_roundtrip_through_dynamodb(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        override = ExperimentOverrideRef(
+            manifest_key="_judge/voter_targeting/abc123/manifest.json",
+            instruction_key="_judge/voter_targeting/abc123/instruction.md",
+            manifest_version_id="override-m-1",
+            instruction_version_id="override-i-1",
+        )
+        ticket = _make_ticket(
+            pk="token-judge",
+            run_id="_judge-run-001",
+            is_eval=True,
+            experiment_override=override,
+        )
+
+        store.put_ticket(ticket)
+
+        result = store.get_ticket("token-judge")
+        assert result is not None
+        assert result.is_eval is True
+        assert result.experiment_override == override
+
+    def test_override_without_the_eval_flag_is_refused(self):
+        """An override only ever comes from a judge dispatch, which has no
+        gp-api run row — so a ticket carrying one must also suppress the
+        callback, and a mismatch is a wiring bug worth failing at mint."""
+        with pytest.raises(ValueError):
+            _make_ticket(
+                is_eval=False,
+                experiment_override=ExperimentOverrideRef(
+                    manifest_key="_judge/voter_targeting/abc123/manifest.json",
+                    instruction_key="_judge/voter_targeting/abc123/instruction.md",
+                    manifest_version_id="override-m-1",
+                    instruction_version_id="override-i-1",
+                ),
+            )
+
+    def test_eval_flag_is_independent_of_the_override(self, moto_ddb):
+        """A sweep's base arm runs the published bytes with no override, and
+        its callback still has to be suppressed."""
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-base-arm", run_id="_judge-base-001", is_eval=True))
+
+        result = store.get_ticket("token-base-arm")
+        assert result is not None
+        assert result.is_eval is True
+        assert result.experiment_override is None
+
+
+class TestJudgeContractAgreement:
+    """The judge key shape, the run-id prefix and the VersionId alphabet are
+    each written down more than once — in this module, in the dispatch Lambda
+    (a separate deployable with no import path to here), in the broker's own
+    request models, and in `packages/contracts` (TypeScript). Nothing but a
+    test holds them in agreement, so a rename on one side would otherwise pass
+    both suites green."""
+
+    def test_key_regex_matches_the_dispatch_lambdas(self):
+        from broker.dynamodb_client import JUDGE_OVERRIDE_KEY_RE as broker_re
+        from pmf_engine.control_plane.manifest_loader import JUDGE_OVERRIDE_KEY_RE as lambda_re
+
+        assert broker_re.pattern == lambda_re.pattern
+
+    def test_run_id_prefix_matches_the_dispatch_lambdas(self):
+        from broker.dynamodb_client import JUDGE_RUN_ID_PREFIX as broker_prefix
+        from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_PREFIX as lambda_prefix
+
+        # Also pinned literally, because the two could drift together away from
+        # the value `packages/contracts` publishes to a future TypeScript
+        # producer.
+        assert broker_prefix == lambda_prefix == "_judge-"
+
+    def test_run_id_regex_matches_the_dispatch_lambdas(self):
+        """The prefix is only half the shape. Mint `fullmatch`es this regex to
+        refuse a judge run id the dispatch Lambda would refuse, so the two
+        patterns drifting apart would silently reopen the gap: mint accepting a
+        run id dispatch rejects, or rejecting one a real sweep arm uses."""
+        from broker.dynamodb_client import JUDGE_RUN_ID_MAX_LENGTH as broker_max
+        from broker.dynamodb_client import JUDGE_RUN_ID_RE as broker_re
+        from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_MAX_LENGTH as lambda_max
+        from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_RE as lambda_re
+
+        assert broker_re.pattern == lambda_re.pattern
+        # Also pinned literally: the two could drift together away from the 36
+        # `packages/contracts` publishes as JUDGE_RUN_ID_MAX_LENGTH, which is
+        # what the TypeScript producer sizes its run ids against.
+        assert broker_max == lambda_max == 36
+
+    def test_replay_key_regexes_match_the_dispatch_lambdas(self):
+        """The dispatch Lambda refuses a `_judge_replay` the broker would
+        refuse at mint, so a dispatch fails before it queues a job. Drift
+        would either queue runs that mint then rejects, or refuse keys the
+        judge really builds."""
+        from broker.dynamodb_client import JUDGE_REPLAY_KEY_RES as broker_res
+        from pmf_engine.control_plane.manifest_loader import JUDGE_REPLAY_KEY_RES as lambda_res
+
+        assert {k: r.pattern for k, r in broker_res.items()} == {k: r.pattern for k, r in lambda_res.items()}
+
+    def test_version_id_alphabet_matches_the_request_models(self):
+        from broker.dynamodb_client import _S3_VERSION_ID_RE
+        from broker.endpoints.experiment_manifest import S3_VERSION_ID_PATTERN
+
+        assert _S3_VERSION_ID_RE.pattern == S3_VERSION_ID_PATTERN
+
+
+class TestOverrideIsBoundToItsAgent:
+    def test_an_override_for_another_agent_cannot_be_constructed(self):
+        """Enforced on the ticket, not only in mint's write path, so a tampered
+        or drifted DynamoDB item cannot be loaded either."""
+        with pytest.raises(ValueError, match="does not match experiment_id"):
+            _make_ticket(
+                experiment_id="voter_targeting",
+                is_eval=True,
+                experiment_override=ExperimentOverrideRef(
+                    manifest_key="_judge/walking_plan/abc123/manifest.json",
+                    instruction_key="_judge/walking_plan/abc123/instruction.md",
+                    manifest_version_id="override-m-1",
+                    instruction_version_id="override-i-1",
+                ),
+            )
+
+    def test_a_tampered_stored_item_cannot_be_read_back(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-tamper", run_id="_judge-run-t", is_eval=True))
+        moto_ddb.update_item(
+            TableName="scope-tickets",
+            Key={"pk": {"S": "token-tamper"}},
+            UpdateExpression="SET experiment_override = :o",
+            ExpressionAttributeValues={
+                ":o": {
+                    "S": json.dumps(
+                        {
+                            "manifest_key": "_judge/walking_plan/abc123/manifest.json",
+                            "instruction_key": "_judge/walking_plan/abc123/instruction.md",
+                            "manifest_version_id": "override-m-1",
+                            "instruction_version_id": "override-i-1",
+                        }
+                    )
+                }
+            },
+        )
+
+        with pytest.raises(ValueError, match="does not match experiment_id"):
+            store.get_ticket("token-tamper")
+
+
+SWEEP_KEY = "_judge/replay/sweep/judge-123-1/voter_targeting/t2-1"
+BASE_KEY = "_judge/replay/base/voter_targeting/abc123/t2-1"
+SEED_KEY = "_judge/replay/seed/voter_targeting/namesake"
+
+
+class TestJudgeReplayRef:
+    @pytest.mark.parametrize(
+        "mode,key",
+        [
+            ("record", SWEEP_KEY),
+            ("replay", SWEEP_KEY),
+            ("record", BASE_KEY),
+            ("replay", BASE_KEY),
+            ("replay", SEED_KEY),
+        ],
+    )
+    def test_accepts_each_store_layout(self, mode, key):
+        assert JudgeReplayRef(mode=mode, key=key).agent_id == "voter_targeting"
+
+    def test_a_seed_store_is_replay_only(self):
+        """The bench owns the seed store. A run recording into it would mix
+        live pages into planted ones."""
+        with pytest.raises(ValueError, match="replay-only"):
+            JudgeReplayRef(mode="record", key=SEED_KEY)
+
+    # The same shapes `packages/contracts` (JudgeReplay.schema.test.ts)
+    # refuses, plus the trailing newline Python's `$` would admit, so the
+    # TypeScript builder and this check cannot drift apart unnoticed.
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "_judge/replay/../manifest.json",
+            "_judge/replay/sweep/s/../voter_targeting/t1-1",
+            "_judge/replay/sweep/s//voter_targeting/t1-1",
+            f"{SWEEP_KEY}/",
+            f"/{SWEEP_KEY}",
+            f"{SWEEP_KEY}\n",
+            "_judge/replay/other/voter_targeting/t1",
+            "_judge/voter_targeting/abc/manifest.json",
+            "_judge/replay/sweep/s/voter_targeting/t1",
+            f"{SEED_KEY}/x",
+            f"_judge/replay/sweep/{'a' * 65}/voter_targeting/t1-1",
+            f"_judge/replay/seed/voter_targeting/{'a' * 81}",
+            "_judge/replay/sweep/s/voter_targeting/t1-0",
+            "_judge/replay/sweep/s/voter_targeting/t1-100",
+            "_judge/replay/sweep/s/voter_targeting/t1-01",
+            "_judge/replay/seed/Voter_targeting/t1",
+            f"_judge/replay/base/voter_targeting/{'a' * 65}/t1-1",
+            "_judge/replay/base/voter_targeting//t1-1",
+        ],
+    )
+    def test_refuses_a_key_outside_the_three_layouts(self, key):
+        with pytest.raises(ValueError):
+            JudgeReplayRef(mode="replay", key=key)
+
+    def test_refuses_an_unknown_mode(self):
+        with pytest.raises(ValueError):
+            JudgeReplayRef(mode="write", key=SWEEP_KEY)
+
+    def test_refuses_an_extra_field(self):
+        with pytest.raises(ValueError):
+            JudgeReplayRef(mode="replay", key=SWEEP_KEY, bucket="x")
+
+
+class TestReplayOnTheTicket:
+    def test_defaults_to_none(self):
+        assert _make_ticket().replay is None
+
+    def test_requires_the_eval_flag(self):
+        with pytest.raises(ValueError, match="replay requires is_eval"):
+            _make_ticket(replay=JudgeReplayRef(mode="replay", key=SWEEP_KEY))
+
+    def test_is_bound_to_its_agent(self):
+        with pytest.raises(ValueError, match="does not match experiment_id"):
+            _make_ticket(
+                run_id="_judge-run-r",
+                is_eval=True,
+                replay=JudgeReplayRef(mode="replay", key="_judge/replay/seed/walking_plan/t1"),
+            )
+
+    def test_roundtrips_through_dynamodb(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        replay = JudgeReplayRef(mode="record", key=SWEEP_KEY)
+        store.put_ticket(_make_ticket(pk="token-replay", run_id="_judge-run-r", is_eval=True, replay=replay))
+
+        result = store.get_ticket("token-replay")
+
+        assert result is not None
+        assert result.replay == replay
+
+    def test_a_ticket_without_it_writes_no_attribute(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-no-replay", run_id="_judge-run-n", is_eval=True))
+
+        item = moto_ddb.get_item(TableName="scope-tickets", Key={"pk": {"S": "token-no-replay"}})["Item"]
+
+        assert "replay" not in item
+
+    def test_a_ticket_minted_before_the_field_existed_still_loads(self, moto_ddb):
+        """Tickets live in DynamoDB across the deploy that adds this field, so
+        an item with no `replay` attribute, written by the old code, must load
+        as a ticket with no replay."""
+        now = int(time.time())
+        moto_ddb.put_item(
+            TableName="scope-tickets",
+            Item={
+                "pk": {"S": "token-old"},
+                "run_id": {"S": "_judge-run-old"},
+                "organization_slug": {"S": "org-42"},
+                "experiment_id": {"S": "voter_targeting"},
+                "scope": {"S": "{}"},
+                "params": {"S": "{}"},
+                "exp": {"N": str(now + 3600)},
+                "issued_at": {"N": str(now)},
+                "issued_by": {"S": "dispatch_lambda"},
+                "is_eval": {"BOOL": True},
+            },
+        )
+
+        result = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb).get_ticket("token-old")
+
+        assert result is not None
+        assert result.replay is None
+
+    def test_a_tampered_stored_item_cannot_be_read_back(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-tamper-r", run_id="_judge-run-tr", is_eval=True))
+        moto_ddb.update_item(
+            TableName="scope-tickets",
+            Key={"pk": {"S": "token-tamper-r"}},
+            UpdateExpression="SET replay = :r",
+            ExpressionAttributeValues={
+                ":r": {"S": json.dumps({"mode": "replay", "key": "_judge/replay/seed/walking_plan/t1"})}
+            },
+        )
+
+        with pytest.raises(ValueError, match="does not match experiment_id"):
+            store.get_ticket("token-tamper-r")

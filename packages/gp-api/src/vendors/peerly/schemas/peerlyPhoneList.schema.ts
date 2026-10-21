@@ -20,6 +20,20 @@ const phoneListStatusResponseSchema = z.object({
   }),
 })
 
+// listByAccount answers with every list in the identity and far more
+// columns than any caller needs; only the ones that identify a list and
+// say whether it is usable are parsed, so a vendor column change can't
+// break a read. list_id comes back as a number today, but coercion keeps
+// a stringified id from failing validation.
+const phoneListSummarySchema = z.object({
+  list_id: z.coerce.number(),
+  list_name: z.string().optional(),
+  list_state: z.string().optional(),
+  suppress_cell_phones: z.coerce.number().optional(),
+})
+
+const phoneListSummaryListSchema = z.array(phoneListSummarySchema)
+
 const phoneListDetailsResponseSchema = z.object({
   leads_duplicate: z.number(),
   leads_master_dnc: z.number(),
@@ -51,3 +65,8 @@ export class PhoneListStatusResponseDto extends createZodDto(
 export class PhoneListDetailsResponseDto extends createZodDto(
   phoneListDetailsResponseSchema,
 ) {}
+export class PhoneListSummaryListDto extends createZodDto(
+  phoneListSummaryListSchema,
+) {}
+
+export type PhoneListSummary = z.infer<typeof phoneListSummarySchema>

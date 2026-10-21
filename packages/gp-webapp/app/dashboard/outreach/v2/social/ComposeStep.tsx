@@ -1,7 +1,11 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -9,7 +13,8 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Textarea,
+  seamlessFieldHost,
+  TokenField,
 } from '@styleguide'
 import {
   ClockIcon,
@@ -22,8 +27,8 @@ import {
   SunIcon,
   TargetIcon,
 } from '@styleguide/components/ui/icons'
+import { LengthCounter } from 'app/dashboard/shared/compose/LengthCounter'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { ThinkingStream } from './ThinkingStream'
 import { Intro } from './Intro'
 
 const TONE_LABELS: Record<SocialTone, string> = {
@@ -41,7 +46,6 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ComposeStepProps {
-  isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   draft: string
@@ -50,6 +54,8 @@ interface ComposeStepProps {
   // Polishes the user's own words in place — available for every purpose,
   // including custom (the custom guard only blocks fresh generation).
   onImprove: () => void
+  // Repeats the call that failed, Regenerate or Improve.
+  onRetry: () => void
   // Improve appears only once the user has typed/dictated something —
   // never from tone-preset-only interaction (same precursor state as Undo).
   canImprove: boolean
@@ -64,13 +70,13 @@ interface ComposeStepProps {
 }
 
 export const ComposeStep = ({
-  isServe,
   tone,
   onToneChange,
   draft,
   onDraftChange,
   onRegenerate,
   onImprove,
+  onRetry,
   canImprove,
   isDrafting,
   isDraftError,
@@ -136,84 +142,88 @@ export const ComposeStep = ({
               We couldn&apos;t draft your message just now. Try again, or write
               your own below.
             </p>
-            <Button
-              type="button"
-              size="small"
-              onClick={isCustomPurpose ? onImprove : onRegenerate}
-            >
+            <Button type="button" size="small" onClick={onRetry}>
               Try again
             </Button>
           </Card>
         )}
 
-        {isDrafting && !draft.trim() ? (
-          <ThinkingStream isServe={isServe} />
-        ) : (
-          <Card className="gap-3 p-4">
-            <Textarea
-              value={draft}
-              onChange={(e) => onDraftChange(e.target.value)}
-              placeholder="Write your message…"
-              aria-label="Draft message"
-              maxLength={2000}
-              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
-            />
-            <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
-              {canUndo && (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="small"
-                  className="h-auto px-2"
-                  onClick={onUndo}
-                >
-                  Undo
-                </Button>
-              )}
-              {canImprove && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="small"
-                  className="text-muted-foreground"
-                  disabled={isDrafting}
-                  onClick={onImprove}
-                >
-                  {isDrafting ? (
-                    <>
-                      <Loader2Icon className="size-4 animate-spin" />
-                      Improving…
-                    </>
-                  ) : (
-                    <>
-                      <SparklesIcon className="size-4" />
-                      Improve with AI
-                    </>
-                  )}
-                </Button>
-              )}
-              <IconButton
+        <Card className={cn('gap-3 p-4', seamlessFieldHost)}>
+          <TokenField
+            value={draft}
+            onChange={onDraftChange}
+            // Read-only until the first draft lands, so nothing typed is
+            // overwritten by it.
+            readOnly={isDrafting && !draft.trim()}
+            placeholder={
+              isDrafting && !draft.trim()
+                ? 'Drafting your message…'
+                : 'Write your message…'
+            }
+            aria-label="Draft message"
+            maxLength={SOCIAL_DRAFT_MESSAGE_MAX_LENGTH}
+            variant="seamless"
+            className="min-h-[140px]"
+          />
+          <LengthCounter
+            length={draft.length}
+            max={SOCIAL_DRAFT_MESSAGE_MAX_LENGTH}
+          />
+          <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+            {canUndo && (
+              <Button
                 type="button"
-                variant={isRecording ? 'destructive' : 'ghost'}
+                variant="link"
                 size="small"
-                aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
-                disabled={isDrafting || dictation.status === 'stopping'}
-                onClick={() => {
-                  void dictation.toggle()
-                }}
-                className={cn(!isRecording && 'text-muted-foreground')}
+                className="h-auto px-2"
+                onClick={onUndo}
               >
-                {dictation.busy && !isRecording ? (
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                ) : isRecording ? (
-                  <SquareIcon className="size-4 fill-current" aria-hidden />
+                Undo
+              </Button>
+            )}
+            {canImprove && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                className="text-muted-foreground"
+                disabled={isDrafting}
+                onClick={onImprove}
+              >
+                {isDrafting ? (
+                  <>
+                    <Loader2Icon className="size-4 animate-spin" />
+                    Improving…
+                  </>
                 ) : (
-                  <MicIcon className="size-5" aria-hidden />
+                  <>
+                    <SparklesIcon className="size-4" />
+                    Improve with AI
+                  </>
                 )}
-              </IconButton>
-            </div>
-          </Card>
-        )}
+              </Button>
+            )}
+            <IconButton
+              type="button"
+              variant={isRecording ? 'destructive' : 'ghost'}
+              size="small"
+              aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
+              disabled={isDrafting || dictation.status === 'stopping'}
+              onClick={() => {
+                void dictation.toggle()
+              }}
+              className={cn(!isRecording && 'text-muted-foreground')}
+            >
+              {dictation.busy && !isRecording ? (
+                <Loader2Icon className="size-4 animate-spin" aria-hidden />
+              ) : isRecording ? (
+                <SquareIcon className="size-4 fill-current" aria-hidden />
+              ) : (
+                <MicIcon className="size-5" aria-hidden />
+              )}
+            </IconButton>
+          </div>
+        </Card>
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your

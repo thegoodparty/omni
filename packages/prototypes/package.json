@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 4002",
-    "build": "next build",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start -p 4002",
     "lint": "eslint . --quiet && prettier --check .",
     "types": "next typegen && tsc --noEmit",
@@ -23,7 +23,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "jsdom": "^28.0.0",
     "vitest": "^4.0.18",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "eslint": "^9.39.4",
     "prettier": "^3.8.3",
     "@tailwindcss/postcss": "^4.1.6",

@@ -1,11 +1,11 @@
 'use client'
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
 import DashboardNavHeader from './DashboardNavHeader'
 import { NavHeaderActionSlotContext } from './DashboardNavHeaderAction'
 import { NAV_LABELS, type NavHeaderIconKey } from './navLabels'
-import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradePrompt } from './ProUpgradePrompt'
@@ -144,38 +144,36 @@ const DashboardLayout = ({
   )
 
   return (
-    <EcanvasserProvider>
-      <SidebarProvider>
-        {!hideMenu && (
-          <Sidebar>
-            <DashboardMenu pathname={currentPath} />
-          </Sidebar>
+    <SidebarProvider>
+      {!hideMenu && (
+        <Sidebar>
+          <DashboardMenu pathname={currentPath} />
+        </Sidebar>
+      )}
+      <SidebarInset className="bg-[#f5f5f5]">
+        {!hideMenu && <MobileMenuTrigger />}
+        <ImpersonationBanner />
+        <ElectedOfficeTermDatesModalController />
+        {navHeader && (
+          <DashboardNavHeader
+            icon={navHeader.icon}
+            label={navHeader.label}
+            centered={navHeader.centered}
+            hasAction={navHeaderActionCount > 0}
+            actionSlotRef={setNavHeaderActionSlot}
+          />
         )}
-        <SidebarInset className="bg-[#f5f5f5]">
-          {!hideMenu && <MobileMenuTrigger />}
-          <ImpersonationBanner />
-          <ElectedOfficeTermDatesModalController />
-          {navHeader && (
-            <DashboardNavHeader
-              icon={navHeader.icon}
-              label={navHeader.label}
-              centered={navHeader.centered}
-              hasAction={navHeaderActionCount > 0}
-              actionSlotRef={setNavHeaderActionSlot}
-            />
+        <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
+          {hideChatDock ? (
+            pageBody
+          ) : (
+            <DashboardCampaignManagerChat>
+              {pageBody}
+            </DashboardCampaignManagerChat>
           )}
-          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
-            {hideChatDock ? (
-              pageBody
-            ) : (
-              <DashboardCampaignManagerChat>
-                {pageBody}
-              </DashboardCampaignManagerChat>
-            )}
-          </NavHeaderActionSlotContext.Provider>
-        </SidebarInset>
-      </SidebarProvider>
-    </EcanvasserProvider>
+        </NavHeaderActionSlotContext.Provider>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
 
@@ -208,13 +206,24 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (pathname: string | null): string | null => {
+// What we heard and a theme are reached from the outreach
+// hub and lead back to it, so they carry the hub's title, which is the
+// rail's own: Win reads Voter Outreach, Serve Outreach.
+const isIssueCapturePath = (pathname: string): boolean =>
+  pathname.startsWith('/dashboard/issue-capture/')
+
+const getMobilePageTitle = (
+  pathname: string | null,
+  nextTaskExperience: boolean,
+): string | null => {
   if (!pathname) return null
   // Exact matches, ahead of the table: a '/dashboard' entry in it would
   // prefix-match (and mistitle) every dashboard subroute that isn't listed.
-  if (pathname === '/dashboard') return NAV_LABELS.campaignManager
+  if (pathname === '/dashboard') {
+    return nextTaskExperience ? NAV_LABELS.home : NAV_LABELS.campaignManager
+  }
   if (pathname === '/dashboard/campaign-plan') {
-    return NAV_LABELS.campaignTracker
+    return NAV_LABELS.campaignPlan
   }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title
@@ -226,16 +235,23 @@ const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
-  // "Constituent Data". Use the same Win/Serve source as the page body
+  // "Constituents". Use the same Win/Serve source as the page body
   // (useWinVoterContext) so the header and content always agree — and wait for
-  // isReady so a Win user never flashes "Constituent Data" during load.
+  // isReady so a Win user never flashes "Constituents" during load.
   const { isWin, isReady } = useWinVoterContext()
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname)
+      : pathname && isIssueCapturePath(pathname)
+        ? isReady
+          ? isWin
+            ? NAV_LABELS.voterOutreach
+            : NAV_LABELS.constituentOutreach
+          : null
+        : getMobilePageTitle(pathname, nextTaskExperience)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

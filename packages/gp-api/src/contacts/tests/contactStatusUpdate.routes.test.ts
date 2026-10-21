@@ -93,6 +93,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     registeredVoter: 'Yes',
     estimatedIncomeAmount: null,
     voterStatus: null,
+    earlyVoteStatus: null,
     maritalStatus: null,
     hasChildrenUnder18: null,
     veteranStatus: null,

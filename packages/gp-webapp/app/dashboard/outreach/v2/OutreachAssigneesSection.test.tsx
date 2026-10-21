@@ -10,11 +10,6 @@ import type {
 } from 'gpApi/api-endpoints'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 
-let teamAccountsFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: () => teamAccountsFlag,
-}))
-
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-1' }),
 }))
@@ -69,7 +64,6 @@ const mockAssignees = () =>
 
 beforeEach(() => {
   testQueryClient.clear()
-  teamAccountsFlag = { ready: true, enabled: true }
   members = [owner, manager, volunteer]
   pendingInvites = []
   assignees = []
@@ -78,14 +72,6 @@ beforeEach(() => {
 })
 
 describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
-  it('does not render when the flag is off', () => {
-    teamAccountsFlag = { ready: true, enabled: false }
-    const { container } = render(
-      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
-
   it('opens a modal titled with the outreach name, listing every org member including the owner', async () => {
     const user = userEvent.setup()
     render(

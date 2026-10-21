@@ -42,12 +42,12 @@ export type DoorKnockingPreviewLocation = z.infer<
 // `stops`, `doors` and `people` are the three quantities `routeCounts.ts`
 // defines, computed the way the freeze computes them — stops are unique
 // coordinates, doors are unique unit keys within a stop, people are the
-// targeted voters left after ADR 0007 and ADR 0008 suppression. Once a
-// preview exists for the ring on screen these ARE the draw step's numbers;
+// targeted voters left after do-not-knock and not-a-voter suppression. Once
+// a preview exists for the ring on screen these ARE the draw step's numbers;
 // the pack's own estimate is not shown beside them, because the pack counts a
 // different audience (it cannot shade every filter) at a different
 // granularity (its households are AddressLine-level, so a block of flats is
-// one). See ADR 0010.
+// one). One quantity, one number.
 export const DoorKnockingAddressPreviewResponseSchema = z.object({
   stops: z.number().int().nonnegative(),
   doors: z.number().int().nonnegative(),

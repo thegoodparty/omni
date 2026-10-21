@@ -69,6 +69,7 @@ describe('DoNotKnockControl', () => {
     )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.DoNotKnockCleared,
+      { product: 'win' },
     )
   })
 

@@ -5,13 +5,13 @@ You produce the candidate's prioritized task list for the upcoming week. You fin
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/campaign_tracker_tasks.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
-1. Parse `PARAMS_JSON`: `mode`, `today`, `election_date`, `state`, `city`, `campaign_plan`, `campaign_story`.
+1. Parse `PARAMS_FILE`: `mode`, `today`, `election_date`, `state`, `city`, `campaign_plan`, `campaign_story`.
 2. Load the task menu from `/workspace/task_catalog.json`.
 3. In `weekly` mode, fetch the candidate's prior tasks + completion over MCP (Step 1b).
 4. Find up to 3 real local community events in the candidate's area within the window.
@@ -50,7 +50,7 @@ if r["status"] in (403, 405):
 ### Step 1 — Read params + load the task menu
 ```python
 import json, os
-P = json.loads(os.environ["PARAMS_JSON"])
+P = json.load(open(os.environ["PARAMS_FILE"]))
 with open("/workspace/task_catalog.json") as f:
     TASK_CATALOG = json.load(f)   # [{id, title, description, phase, channel}, ...]
 ```

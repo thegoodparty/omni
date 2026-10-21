@@ -1,0 +1,71 @@
+  /* --- surface nav (the same three buttons at the top of every page) --- */
+
+  .surfacenav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 12px 0 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .surfacenav-pages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .surfacenav-pages a {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ink-2);
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+  }
+
+  .surfacenav-pages a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .surfacenav-pages a.is-current {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+    cursor: default;
+  }
+
+  .surfacenav-feedback {
+    margin-left: auto;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    background: none;
+    border: 1px dashed var(--line-2);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .surfacenav-feedback:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Owner-only entries stay hidden until usage.js marks the body. */
+  .surfacenav [data-owner-only] {
+    display: none !important;
+  }
+
+  body.is-owner .surfacenav [data-owner-only] {
+    display: inline-flex !important;
+  }

@@ -283,3 +283,65 @@ def test_run_triage_chunks_judge_calls_and_merges_verdicts():
     assert out["status"] == "ok"
     assert {i["id"] for i in out["items"]} == {f"E{i}" for i in range(30)}
     assert all(i["tier"] == "fyi" for i in out["items"])
+
+
+def test_triage_system_prompt_includes_gotchas_when_given():
+    sp = dt.triage_system_prompt("RUBRIC-BODY", gotchas="GOTCHAS-BODY-MARKER")
+    assert "RUBRIC-BODY" in sp
+    assert "GOTCHAS-BODY-MARKER" in sp
+
+
+def test_triage_system_prompt_omits_gotchas_header_when_book_is_missing():
+    sp = dt.triage_system_prompt("RUBRIC-BODY", gotchas="")
+    assert "RUBRIC-BODY" in sp
+    assert "Known gotchas" not in sp
+
+
+class _PromptCapturingClient:
+    """Captures the assembled system prompt, then aborts the call."""
+
+    def __init__(self, seen):
+        outer = seen
+
+        class _Msgs:
+            def create(self, *, system, **kw):
+                outer["system"] = system
+                raise RuntimeError("stop after prompt assembly")
+
+        self.messages = _Msgs()
+
+
+def test_run_triage_sends_the_gotchas_book_to_the_judge(tmp_path, monkeypatch):
+    import governance_gotchas as gg
+
+    book = tmp_path / "book.md"
+    book.write_text("GOTCHAS-BODY-MARKER")
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
+    rubric = tmp_path / "rubric.md"
+    rubric.write_text("RUBRIC-BODY")
+    seen = {}
+
+    out = dt.run_triage(
+        [{"id": "x", "rank": 5}], api_key="k", rubric_path=rubric,
+        client_factory=lambda _k: _PromptCapturingClient(seen),
+    )
+    assert out["status"].startswith("failed:")
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
+def test_run_triage_still_tiers_when_the_gotchas_book_is_unreadable(tmp_path, monkeypatch):
+    """A missing book must never cost the digest its deterministic tiers."""
+    import governance_gotchas as gg
+
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", tmp_path / "nope.md")
+    rubric = tmp_path / "rubric.md"
+    rubric.write_text("RUBRIC-BODY")
+    seen = {}
+
+    out = dt.run_triage(
+        [{"id": "x", "rank": 5}], api_key="k", rubric_path=rubric,
+        client_factory=lambda _k: _PromptCapturingClient(seen),
+    )
+    assert out["items"][0]["tier"] == out["items"][0]["rules_tier"]
+    assert "Known gotchas" not in seen["system"]

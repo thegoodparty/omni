@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { CampaignStory } from '@goodparty_org/contracts'
+import { CampaignStoryCompletedProducer } from '@/queue/producer/campaignStoryCompleted.producer'
 import { UpdateCampaignStoryInput } from '../schemas/updateCampaignStory.schema'
 
 // Lifetime cap on AI "Help me rewrite" attempts per campaign, to bound Gemini
@@ -12,6 +13,10 @@ export const REWRITE_LIFETIME_LIMIT = 200
 export class CampaignStoryService extends createPrismaBase(
   MODELS.CampaignStory,
 ) {
+  constructor(private readonly storyCompleted: CampaignStoryCompletedProducer) {
+    super()
+  }
+
   async getForCampaign(campaignId: number): Promise<CampaignStory> {
     const story = await this.model.findUnique({ where: { campaignId } })
     return {
@@ -28,6 +33,17 @@ export class CampaignStoryService extends createPrismaBase(
     // before the row exists both attempt INSERT and the loser trips the
     // @@unique(campaign_id) constraint (P2002). The row exists by then, so
     // apply our fields as an UPDATE — re-fetching instead would drop them.
+    const saved = await this.upsertRow(campaignId, input)
+    // The story may have just become complete, which makes any existing plan
+    // stale. The handler decides that; this only reports the write.
+    await this.storyCompleted.announce(campaignId)
+    return saved
+  }
+
+  private async upsertRow(
+    campaignId: number,
+    input: UpdateCampaignStoryInput,
+  ): Promise<CampaignStory> {
     try {
       const { background } = await this.model.upsert({
         where: { campaignId },

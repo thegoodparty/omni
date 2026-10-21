@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
+import { ChatScope } from '../../generated/prisma'
 import {
   ChatAttachmentsService,
   isPdfBody,
@@ -42,6 +43,7 @@ const USER_ID = 1
 const mockConversation = {
   id: CONV_ID,
   ownerUserId: USER_ID,
+  scope: ChatScope.chief_of_staff,
   deletedAt: null,
   _count: { attachments: 0 },
 }

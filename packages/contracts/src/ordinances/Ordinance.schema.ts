@@ -4,6 +4,11 @@ import {
   OrdinanceSeedTypeSchema,
   OrdinanceQualityLoopStatusSchema,
 } from '../generated/enums'
+import {
+  ChatClarifyOptionSchema,
+  ChatClarifyQuestionSchema,
+  ChatSourceSchema,
+} from '../chats/ClarifyQuestion.schema'
 
 // Shown before the user relies on a draft: a persistent banner on the draft
 // page and at the top of the export appendix. One source of truth here (this is
@@ -19,14 +24,7 @@ export const ORDINANCE_DRAFT_DISCLAIMER = {
 
 // A cited source. Shared across the step artifacts and the draft. Candidate for
 // a normalized Source registry later (TDD Q12); JSON for now.
-export const OrdinanceSourceSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  url: z.string().url().optional(),
-  publisher: z.string().optional(),
-  kind: z.enum(['external', 'internal']).optional(),
-  excerpt: z.string().optional(),
-})
+export const OrdinanceSourceSchema = ChatSourceSchema
 export type OrdinanceSource = z.infer<typeof OrdinanceSourceSchema>
 
 // Snapshot of the pasted ordinance, captured at intake.
@@ -72,11 +70,7 @@ export type SaveOrdinanceClarifyAnswerRequest = z.infer<
 // One suggested answer to a clarify question. A factual option cites a source;
 // a pure-judgment option may omit one. The UI always adds an "Or write your
 // own..." freeform option on top of these.
-export const OrdinanceClarifyOptionSchema = z.object({
-  label: z.string(),
-  rationale: z.string().optional(),
-  source: OrdinanceSourceSchema.optional(),
-})
+export const OrdinanceClarifyOptionSchema = ChatClarifyOptionSchema
 export type OrdinanceClarifyOption = z.infer<
   typeof OrdinanceClarifyOptionSchema
 >
@@ -84,11 +78,7 @@ export type OrdinanceClarifyOption = z.infer<
 // The ask_clarify_question tool payload: one question shown as a widget in the
 // chat transcript. Persisted as the tool segment's payload so it replays on
 // reload.
-export const OrdinanceClarifyQuestionSchema = z.object({
-  questionId: z.string(),
-  question: z.string(),
-  options: z.array(OrdinanceClarifyOptionSchema),
-})
+export const OrdinanceClarifyQuestionSchema = ChatClarifyQuestionSchema
 export type OrdinanceClarifyQuestion = z.infer<
   typeof OrdinanceClarifyQuestionSchema
 >

@@ -7,6 +7,12 @@ import type {
   UpdatePriorityInput,
 } from '@goodparty_org/contracts'
 
+export const listPriorities = async (): Promise<Priority[]> => {
+  const res = await clientRequest('GET /v1/priorities', {})
+  if (!res.ok) throw new Error('Could not load priorities')
+  return res.data
+}
+
 export const createPriority = async (
   input: CreatePriorityInput,
 ): Promise<Priority> => {

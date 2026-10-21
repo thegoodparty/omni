@@ -11,6 +11,7 @@ import {
   cn,
 } from '@styleguide'
 import {
+  CircleAlertIcon,
   EyeIcon,
   GiftIcon,
   InfoIcon,
@@ -30,10 +31,7 @@ import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
-import {
-  SERVE_SMS_GREETING_PREVIEW,
-  withSampleFirstName,
-} from './smsCompose.util'
+import { SMS_GREETING_PREVIEW, withSampleFirstName } from './smsCompose.util'
 
 // A 400 from complete-free-purchase carries a user-fixable message (e.g.
 // Peerly rejecting a banned link in the script) worth showing verbatim.
@@ -46,6 +44,10 @@ const purchaseErrorSchema = z.object({
 // (stripe.service.ts divides amount_total by 100).
 const money = (dollars: number): string => dollars.toFixed(2)
 
+// What the follow-up is for, in the official's words: no draws or models.
+export const FOLLOW_UP_NOTE =
+  "The follow-up goes to the groups you've heard from least, once replies are in."
+
 const fmtDate = (d: Date) =>
   d.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -54,11 +56,25 @@ const fmtDate = (d: Date) =>
     year: 'numeric',
   })
 
+export interface SmsReviewCopy {
+  title: string
+  freeBody: string
+  paidBody: string
+  scheduleAction: string
+  chargeNote: string
+}
+
 interface SmsReviewStepProps {
   // Display only. Serve's greeting carries a merge token fulfilment fills
   // per recipient, so the bubble shows a stand-in name instead of the token
   // — the script sent to the API is untouched.
   isServe: boolean
+  // The channel the summary card names. Serve polls ride this step and read
+  // "Poll"; every other caller is SMS.
+  channelLabel?: string
+  // Replaces the Win-worded title, caption, schedule button and charge note
+  // for a caller whose thing sent is not a campaign (Serve polls).
+  copy?: SmsReviewCopy
   name: string
   audienceName: string
   sendAt: Date
@@ -72,14 +88,32 @@ interface SmsReviewStepProps {
   // rows it feeds are omitted rather than printed as 0.
   contactCount: number | null
   pricePerContact: number
+  // A priority text's follow-up, bought with it: how many of contactCount go
+  // out later, and when. The rest go out on sendAt.
+  followUp?: { count: number; sendAt: Date }
   outreachId: number | null
-  phoneListToken: string | null
+  // The PeerlyPhoneList row id. gp-api reads it only for a draft paid before
+  // its build finished; a draft that names its list is billed for that list.
+  phoneListBuildId: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
+  // Pay-before-ready (Win SMS hold billing): the total is the pre-pay estimate,
+  // a ceiling the capture bills down to the actual reachable list — so the pay
+  // card states the price as a ceiling instead of a flat charge.
+  priceIsCeiling?: boolean
   // Draft creation happens in the flow; until it lands there is no session
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // Why the draft was refused, when the server said. Shown under the generic
+  // line so support is not left guessing.
+  prepareErrorMessage?: string | null
+  // The phone-list build itself (not the draft-creation step `prepareError`
+  // covers) resolved to `failed` — distinct because the fix is different:
+  // there's a fresh build to request, not a draft to retry.
+  buildFailed?: boolean
+  retryingBuild?: boolean
+  onRetryBuild?: () => void
   // The candidate cannot send yet (milestone 2's gate), so this reads back
   // what they built with no schedule rows and no checkout — the flow's own
   // CTA saves it as a draft instead (design: flowReview's preClear branch).
@@ -91,6 +125,8 @@ interface SmsReviewStepProps {
 
 export const SmsReviewStep = ({
   isServe,
+  channelLabel = 'SMS',
+  copy,
   name,
   audienceName,
   sendAt,
@@ -99,35 +135,77 @@ export const SmsReviewStep = ({
   imagePreviewUrl,
   contactCount,
   pricePerContact,
+  followUp,
   outreachId,
-  phoneListToken,
+  phoneListBuildId,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
+  priceIsCeiling = false,
   preparing,
   prepareError,
+  prepareErrorMessage,
+  buildFailed = false,
+  retryingBuild = false,
+  onRetryBuild,
   readOnlySummary = false,
   onComplete,
 }: SmsReviewStepProps) => {
   const [campaign] = useCampaign()
-  const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
+  const { checkoutSession, error, setError, fetchClientSecret } =
+    useCheckoutSession()
   const [preview, setPreview] = useState(false)
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [payError, setPayError] = useState(false)
   const [payErrorMessage, setPayErrorMessage] = useState<string | null>(null)
+  // What Stripe is actually charging once the form has priced the session,
+  // which is the only figure that reflects an applied promo code. Null until
+  // the form reports it, so the summary falls back to the session amount.
+  const [liveTotalDollars, setLiveTotalDollars] = useState<number | null>(null)
+  // A declined or failed card confirm. The form stays mounted so the
+  // candidate can try another card on the same session; swapping in the
+  // purchase-error card read as "Failed to initialize purchase" and forced a
+  // Back that minted a new draft and session (Dujuan Thomas, 2026-10-06).
+  const [cardError, setCardError] = useState<string | null>(null)
   const isRedeemingRef = useRef(false)
   const hasFetchedSession = useRef(false)
 
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
+  // A send the offer fully covers is never a hold: gp-api prices it $0, and
+  // the flow waits for the built list before it opens checkout for one.
   const isFree =
     checkoutSession?.amount === 0 ||
     (hasFreeTextsOffer &&
       contactCount !== null &&
       contactCount <= FREE_TEXTS_OFFER.COUNT)
-  const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
+  const freeTextsDollars =
+    hasFreeTextsOffer && contactCount !== null
+      ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT) * pricePerContact
+      : 0
+  const stripeDollars = liveTotalDollars ?? checkoutSession?.amount ?? 0
+  // An immediate charge already has the free texts off its amount. A hold
+  // does not, so the total takes them off here the way capture will.
+  const totalDollars = isFree
+    ? 0
+    : Math.max(
+        0,
+        stripeDollars - (checkoutSession?.isHold ? freeTextsDollars : 0),
+      )
+  // The card is authorized for the hold, not the total, until capture.
+  const showsLargerHold =
+    Boolean(checkoutSession?.isHold) && stripeDollars > totalDollars
+  // The provider's error is set both when the session could not be created
+  // and, by the form, when a confirm fails. Only the first is fatal to the
+  // step; once a session exists an error is a card problem to show inline.
+  const sessionError = Boolean(error) && !checkoutSession
+  const inlineCardError = cardError ?? (checkoutSession ? error : null)
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
   const summaryDollars =
-    contactCount === null ? null : isFree ? 0 : contactCount * pricePerContact
+    contactCount === null
+      ? null
+      : isFree
+        ? 0
+        : contactCount * pricePerContact - freeTextsDollars
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -144,10 +222,9 @@ export const SmsReviewStep = ({
     try {
       const response = await completeFreePurchase(PURCHASE_TYPES.TEXT, {
         contactCount: contactCount ?? 0,
-        pricePerContact,
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
-        phoneListToken: phoneListToken ?? undefined,
+        phoneListBuildId: phoneListBuildId ?? undefined,
       })
       if (!response.ok) {
         const parsed = purchaseErrorSchema.safeParse(response.data)
@@ -166,6 +243,10 @@ export const SmsReviewStep = ({
   }
 
   const handlePaidComplete = async (sessionId: string) => {
+    // Reached only after Stripe confirmed the card, so a decline shown from
+    // an earlier attempt is stale while the flow moves to the success screen.
+    setCardError(null)
+    setError(null)
     const response = await completeCheckoutSession(sessionId)
     if (!response.ok) {
       const parsed = purchaseErrorSchema.safeParse(response.data)
@@ -174,8 +255,10 @@ export const SmsReviewStep = ({
         setPayError(true)
         return
       }
-      // Unparseable failures keep the throw so CheckoutForm's onError still
-      // reports to Sentry and snackbars.
+      // The card is already charged, so this is not a card problem: show the
+      // purchase error card, not the inline decline. The throw stays so
+      // CheckoutForm's onError still reports to Sentry and snackbars.
+      setPayError(true)
       throw new Error('Failed to complete purchase')
     }
     await onComplete(true)
@@ -187,16 +270,16 @@ export const SmsReviewStep = ({
         title={
           readOnlySummary
             ? 'Review and verify'
-            : isFree
-              ? 'Review and send'
-              : 'Review & pay'
+            : (copy?.title ?? (isFree ? 'Review and send' : 'Review & pay'))
         }
         body={
           readOnlySummary
             ? 'Review your campaign details, then verify your campaign so this can send.'
             : isFree
-              ? 'Review your campaign details and schedule your send.'
-              : 'Review your campaign details and complete your payment.'
+              ? (copy?.freeBody ??
+                'Review your campaign details and schedule your send.')
+              : (copy?.paidBody ??
+                'Review your campaign details and complete your payment.')
         }
       />
 
@@ -206,7 +289,7 @@ export const SmsReviewStep = ({
             <MessageSquareIcon className="size-6 text-foreground" />
           </span>
           <div className="min-w-0">
-            <p className="font-medium text-foreground">SMS</p>
+            <p className="font-medium text-foreground">{channelLabel}</p>
             <p className="truncate text-sm text-muted-foreground">{name}</p>
           </div>
         </div>
@@ -222,6 +305,15 @@ export const SmsReviewStep = ({
                       : fmtDate(sendAt)}
                   </dd>
                 </div>
+                {followUp && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Follow-up</dt>
+                    <dd className="text-right text-foreground">
+                      {followUp.count.toLocaleString()} on{' '}
+                      {fmtDate(followUp.sendAt)}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send time</dt>
                   <dd className="text-foreground">
@@ -247,6 +339,9 @@ export const SmsReviewStep = ({
                 </dd>
               </div>
             )}
+            {followUp && !readOnlySummary && (
+              <p className="text-xs text-muted-foreground">{FOLLOW_UP_NOTE}</p>
+            )}
             {!!excludedOptedOutCount && (
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Excluded (opted out)</dt>
@@ -270,11 +365,14 @@ export const SmsReviewStep = ({
               <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
             </div>
             {hasFreeTextsOffer && (
-              <div className="flex items-center gap-2 pt-1 text-link">
-                <GiftIcon className="size-4" />
-                <span className="text-sm font-medium">
+              <div className="flex items-center justify-between gap-4 pt-1 text-sm font-medium text-link">
+                <span className="flex items-center gap-2">
+                  <GiftIcon className="size-4" />
                   {FREE_TEXTS_OFFER.COUNT.toLocaleString()} free texts included
                 </span>
+                {freeTextsDollars > 0 && (
+                  <span>{`\u2212$${money(freeTextsDollars)}`}</span>
+                )}
               </div>
             )}
           </dl>
@@ -293,7 +391,7 @@ export const SmsReviewStep = ({
               ) : (
                 'Free'
               )
-            ) : prepareError || error ? (
+            ) : prepareError || buildFailed || sessionError ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -341,15 +439,35 @@ export const SmsReviewStep = ({
 
       {preview && isServe && (
         <p className="-mt-3 text-center text-xs text-muted-foreground">
-          {SERVE_SMS_GREETING_PREVIEW.caption}
+          {SMS_GREETING_PREVIEW.caption}
         </p>
       )}
 
-      {readOnlySummary ? null : prepareError ? (
+      {readOnlySummary ? null : buildFailed ? (
+        <Card className="items-start gap-3 border-destructive p-4">
+          <p className="text-sm text-foreground">
+            We couldn&apos;t prepare this audience. Try again.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onRetryBuild}
+            disabled={retryingBuild}
+            loading={retryingBuild}
+          >
+            Try again
+          </Button>
+        </Card>
+      ) : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.
           </p>
+          {prepareErrorMessage && (
+            <p className="text-sm text-muted-foreground">
+              {prepareErrorMessage}
+            </p>
+          )}
         </Card>
       ) : preparing ||
         !outreachId ||
@@ -360,7 +478,7 @@ export const SmsReviewStep = ({
         <div className="flex justify-center py-6">
           <Spinner />
         </div>
-      ) : payError || error ? (
+      ) : payError || sessionError ? (
         <PurchaseError serverError={payErrorMessage ?? undefined} />
       ) : isFree ? (
         <Button
@@ -371,7 +489,7 @@ export const SmsReviewStep = ({
           disabled={isRedeeming}
           loading={isRedeeming}
         >
-          Schedule campaign
+          {copy?.scheduleAction ?? 'Schedule campaign'}
         </Button>
       ) : (
         <>
@@ -379,14 +497,35 @@ export const SmsReviewStep = ({
             <p className="font-medium text-foreground">Payment details</p>
             <CheckoutPayment
               onPaymentSuccess={handlePaidComplete}
-              onPaymentError={() => setPayError(true)}
+              onPaymentError={setCardError}
+              onTotalChange={setLiveTotalDollars}
             />
           </Card>
+          {inlineCardError && (
+            <Alert
+              variant="destructive"
+              icon={<CircleAlertIcon className="size-4" />}
+            >
+              <AlertTitle>Your payment didn&apos;t go through</AlertTitle>
+              <AlertDescription>{inlineCardError}</AlertDescription>
+            </Alert>
+          )}
           <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-            <AlertTitle>${money(totalDollars)} due today</AlertTitle>
+            <AlertTitle>
+              {priceIsCeiling
+                ? `Up to $${money(totalDollars)}`
+                : `$${money(totalDollars)} due today`}
+            </AlertTitle>
             <AlertDescription>
-              One-time charge for this campaign. Your Pro subscription is billed
-              separately.
+              <p>
+                {priceIsCeiling
+                  ? 'Charged for your reachable list, up to this amount. Your Pro subscription is billed separately.'
+                  : (copy?.chargeNote ??
+                    'One-time charge for this campaign. Your Pro subscription is billed separately.')}
+              </p>
+              {showsLargerHold && (
+                <p>{`Your bank may show a temporary hold of $${money(stripeDollars)}.`}</p>
+              )}
             </AlertDescription>
           </Alert>
         </>

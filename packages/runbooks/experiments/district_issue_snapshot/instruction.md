@@ -6,14 +6,14 @@ For one district + one issue keyword, produce a JSON artifact combining (a) the 
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/district_issue_snapshot.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
 
-1. Parse `PARAMS_JSON` into `STATE`, `CITY`, `L2_TYPE`, `L2_NAME`, `ISSUE_KEYWORD`.
+1. Parse `PARAMS_FILE` into `STATE`, `CITY`, `L2_TYPE`, `L2_NAME`, `ISSUE_KEYWORD`.
 2. Discover candidate `hs_*` columns whose names semantically match `ISSUE_KEYWORD` (`information_schema.columns` query).
 3. Pick ONE matched column → `matched_hs_column`. If none match, set it to `null`.
 4. Run a single aggregation query over `int__l2_nationwide_uniform_w_haystaq`. **Always** select `COUNT(*) AS total_active_voters` for the district (this populates the required `total_active_voters` field even when no `hs_*` column matched). **If `matched_hs_column` is non-null,** also select `SUM(CASE WHEN \`<col>\` >= 50 THEN 1 ELSE 0 END) AS aligned_voter_count`; otherwise set `aligned_voter_count = None` in Python without that part of the query.
@@ -70,7 +70,7 @@ For one district + one issue keyword, produce a JSON artifact combining (a) the 
 
 ```python
 import os, json
-P = json.loads(os.environ["PARAMS_JSON"])
+P = json.load(open(os.environ["PARAMS_FILE"]))
 STATE          = P["state"]              # e.g. "NC"
 CITY           = P["city"]               # e.g. "Fayetteville"
 L2_TYPE        = P["l2DistrictType"]     # e.g. "City_Ward"
@@ -248,7 +248,7 @@ If the validator complains, re-read the failing field name against the `output_s
 
 Validator-passing JSON can still be garbage. Confirm BEFORE declaring success:
 
-- **`total_active_voters` is plausibly the size of one ward (~5K–20K), NOT the whole city (~50K+).** If it looks city-wide, your district WHERE clause matched zero rows and the broker's auto-injected city scope was the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_JSON`.
+- **`total_active_voters` is plausibly the size of one ward (~5K–20K), NOT the whole city (~50K+).** If it looks city-wide, your district WHERE clause matched zero rows and the broker's auto-injected city scope was the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_FILE`.
 - **`aligned_voter_percentage` is in the 30–80 range.** If it's 0–5%, first check whether the matched column is null outside its vendor vintage's states (~51 columns exist only in the 12-state December 2025 delivery) — an all-null column scores 0% with the correct `>= 50` threshold; if so, exclude that column: pick the next covered Step 2 candidate and re-run Step 3, or set `matched_hs_column = None` when none remains. If coverage is not the issue, you likely used `= 1` instead of `>= 50` (binary inference from suffix) — re-do Step 3 with `>= 50`. If it's >95%, you matched the wrong column or your sample is too narrow.
 - **`matched_hs_column` is null only when there was truly no usable match:** no semantic match from `information_schema.columns`, the only candidates were the excluded home-buyer pair, or every matching candidate had no coverage in this state. If you set it to null because you couldn't decide between two reasonable covered candidates, go back and pick one — null suppresses the entire alignment signal.
 - **The news URL actually loaded** (`http.get` returned status 200) AND the response body mentions BOTH the issue keyword (or a token from it) AND the city. Don't trust search snippets blindly.
@@ -260,7 +260,7 @@ Validator-passing JSON can still be garbage. Confirm BEFORE declaring success:
 | Symptom | Cause | Fix |
 |---|---|---|
 | Broker logs `ScopeViolation: scope_predicate_override` | Added `WHERE Residence_Addresses_State = ?` or `Residence_Addresses_City = ?` | Drop those clauses — the broker auto-injects them. |
-| `total_active_voters` looks like the whole city | `L2_NAME` doesn't exist in this column; broker's city scope is the only filter that matched | Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from PARAMS_JSON; spot-check by querying `SELECT DISTINCT \`<L2_TYPE>\` FROM ... LIMIT 50` |
+| `total_active_voters` looks like the whole city | `L2_NAME` doesn't exist in this column; broker's city scope is the only filter that matched | Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from PARAMS_FILE; spot-check by querying `SELECT DISTINCT \`<L2_TYPE>\` FROM ... LIMIT 50` |
 | `aligned_voter_percentage` is 0-5% | Matched column is null in this state (~51 columns exist only in the 12-state December 2025 delivery — 0% with a correct query), or `= 1` used instead of `>= 50` | Check coverage first (`COUNT(col)` on the Step-2-discovered name); if null, pick the next covered Step 2 candidate, else set `matched_hs_column = None`. Otherwise re-do Step 3 with `>= 50` |
 | Databricks returns 422 with positional placeholder error | Used `?` placeholders | Switch to named `:foo` placeholders |
 | `WebFetch` returns "Unable to verify if domain X is safe to fetch" | Used `WebFetch` instead of `pmf_runtime.http.get` | Use `pmf_runtime.http.get(url)` for page bodies; `WebSearch` only for discovery |

@@ -36,7 +36,7 @@ export class PersonProfilesService extends createPrismaBase(
   }
 
   // Powers the /people sitemap: only live (published, not deleted) profiles.
-  // Hard-capped at the 50k sitemap-URL ceiling so this unauthenticated,
+  // Hard-capped at the 50k sitemap-URL ceiling so this service-readable,
   // unpaginated endpoint can never serialize an unbounded full table into the
   // heap as the /people directory grows. Beyond 50k the sitemap must shard
   // anyway, so the cap costs nothing today.

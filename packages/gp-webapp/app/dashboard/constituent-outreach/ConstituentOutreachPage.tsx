@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   ComposeHandoffPayloadSchema,
+  PANEL_SEED_SAMPLE_SIZE,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
+import type { ProposedAudience } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -34,16 +37,31 @@ import {
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
-import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
+import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
+import { PollFlow } from 'app/dashboard/outreach/v2/poll/PollFlow'
+import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
+
+// The first civic panel text goes to a random draw of the whole district,
+// so the panel looks like the district rather than like any one list. The
+// one filter is the cell-phone reach a text needs, which is also what lets
+// the builder continue: it holds Continue until something is selected.
+const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
+  filters: { hasCellPhone: true },
+  supportStatus: [],
+  precincts: [],
+  name: 'Civic panel invite',
+  sample: { size: PANEL_SEED_SAMPLE_SIZE },
+  civicPanelInvite: true,
+}
 
 interface ConstituentOutreachPageProps {
   pathname?: string
   outreaches?: HistoryRow[]
 }
 
-// The four wired channels. Door knocking joined them in 3.0: a Serve turf
+// The wired channels. Door knocking joined them in 3.0: a Serve turf
 // now gets an outreach envelope like every other channel's, so it has a row
 // here at all, and `GET /v1/outreach/serve/:id` fills its `doorKnocking`
 // detail block — which is what makes the row worth opening. Anything left
@@ -59,7 +77,8 @@ const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
   row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
   row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
-  row.outreachType === OUTREACH_TYPES.text
+  row.outreachType === OUTREACH_TYPES.text ||
+  row.outreachType === 'poll'
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
@@ -112,13 +131,59 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const [pollFlowOpen, setPollFlowOpen] = useState(false)
+  // Same shape as SMS: the tile is the treatment surface, and the flow is
+  // mounted only on `ready && enabled`.
+  const { ready: pollsFlagReady, enabled: pollsFlagEnabled } =
+    useServeSelfServePollsFlag()
+  const pollsMounted = pollsFlagReady && pollsFlagEnabled
+  // A community issue's "Run a poll on this issue" links here as
+  // `?compose=poll` once the polls flag is on for the office.
+  const pollDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (composeParam !== 'poll') {
+      pollDeepLinkRef.current = false
+      return
+    }
+    if (pollDeepLinkRef.current || !pollsFlagReady) return
+    pollDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (pollsMounted) setPollFlowOpen(true)
+  }, [composeParam, pollsFlagReady, pollsMounted, router])
+  const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
+    useServeCitizenPanelsFlag(false)
+  // The Chief of Staff's "Build your civic panel" card links here as
+  // `?compose=text&purpose=build_citizens_panel`, which opens the text flow
+  // on that purpose with the seed draw already picked.
+  const [smsSeedsPanel, setSmsSeedsPanel] = useState(false)
+  const smsDeepLinkRef = useRef(false)
+  const purposeParam = searchParams?.get('purpose')
+  useEffect(() => {
+    if (composeParam !== 'text') {
+      smsDeepLinkRef.current = false
+      return
+    }
+    if (smsDeepLinkRef.current || !smsFlagReady || !panelsFlagReady) return
+    smsDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (!smsMounted) return
+    setSmsSeedsPanel(
+      panelsFlagEnabled && purposeParam === BUILD_CITIZENS_PANEL_PURPOSE,
+    )
+    setSmsFlowOpen(true)
+  }, [
+    composeParam,
+    purposeParam,
+    smsFlagReady,
+    smsMounted,
+    panelsFlagReady,
+    panelsFlagEnabled,
+    router,
+  ])
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
   const seedOutreachDetail = useSeedOutreachDetail()
-  // Whether this rail offers door knocking at all. The door-knocking page gate
-  // is the treatment surface, so no exposure is tracked here.
-  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -188,6 +253,51 @@ const ConstituentOutreachContent = () => {
     }
   }
 
+  // The list is SEEDED from `page.tsx` into `useState`, so it is only as
+  // fresh as the last time this route's RSC ran — and returning here from
+  // another route can be served from the client router cache without
+  // re-running it. Door knocking is what exposed this: it leaves to whichever
+  // hub the org belongs to, so a campaign the flow just created was missing
+  // from this table exactly as it was from Win's.
+  //
+  // One GET on mount settles it, and costs the same whoever arrives. Fixed
+  // here rather than at each departure for the reason `OutreachHubPage` gives
+  // beside its own copy of this: a `router.refresh()` per exit is the same
+  // fix written once per exit and forgotten on the next one.
+  //
+  // No settle flag, unlike Win's: the `?outreachId=` effect below resolves
+  // against whatever rows are loaded and simply runs again when the refetch
+  // lands. And no `.catch()`: `refetchOutreaches` already swallows both
+  // failure levels.
+  useEffect(() => {
+    void refetchOutreaches()
+    // Mount only: a refetch keyed on anything else would fire under the
+    // drawer while the official is reading it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A chat card's send opens here on its own row's drawer. The seeded rows
+  // are tried first and the mount refetch after, so a send made since this
+  // route's RSC last ran still finds its row.
+  const outreachIdParam = searchParams?.get('outreachId')
+  const outreachDeepLinkRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Cleared once the param is gone, so a later link to the same send (the
+    // same chip pressed again from the chat dock) opens it again.
+    if (!outreachIdParam) {
+      outreachDeepLinkRef.current = null
+      return
+    }
+    if (outreachDeepLinkRef.current === outreachIdParam) return
+    const row = (outreaches ?? []).find(
+      (candidate) => String(candidate.id) === outreachIdParam,
+    )
+    if (!row) return
+    outreachDeepLinkRef.current = outreachIdParam
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (isDrawerRow(row)) setDetailsRow(row)
+  }, [outreachIdParam, outreaches, router])
+
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ServeChannelCards
@@ -196,16 +306,14 @@ const ConstituentOutreachContent = () => {
         // Undefined while the flag is off or still resolving, which is what
         // keeps the card out of the grid entirely.
         onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
+        onPollClick={pollsMounted ? () => setPollFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
         // the wizard like the other two cards open theirs, rather than landing
         // on the rail and asking for one more press.
         onDoorKnockingClick={() =>
-          router.push('/dashboard/door-knocking?create=1')
-        }
-        showDoorKnocking={
-          nativeDoorKnocking.ready && nativeDoorKnocking.enabled
+          router.push('/dashboard/door-knocking?create=1&source=outreach_page')
         }
       />
       <SocialFlow
@@ -217,6 +325,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handleSocialSaved}
         surface={SERVE_SOCIAL_SURFACE}
         prefill={socialPrefill ?? undefined}
+        source="outreach_page"
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -229,6 +338,7 @@ const ConstituentOutreachContent = () => {
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
         preselectedListId={followUpListId}
+        source="outreach_page"
       />
       {/* Mounted only behind the flag, not merely rendered closed: with the
           flag off there is no flow in the tree at all, so no Serve SMS
@@ -239,9 +349,26 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => setSmsFlowOpen(false)}
+          onClose={() => {
+            setSmsFlowOpen(false)
+            // Spent on close, like the follow-up list below: the tile opens
+            // a plain flow afterwards.
+            setSmsSeedsPanel(false)
+          }}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
+          {...(smsSeedsPanel && {
+            initialPurpose: BUILD_CITIZENS_PANEL_PURPOSE,
+            proposedAudience: SERVE_PANEL_SEED_AUDIENCE,
+          })}
+          source={smsSeedsPanel ? 'deep_link' : 'outreach_page'}
+        />
+      )}
+      {pollsMounted && (
+        <PollFlow
+          open={pollFlowOpen}
+          onClose={() => setPollFlowOpen(false)}
+          onScheduled={refetchOutreaches}
         />
       )}
       <OutreachHistoryTable

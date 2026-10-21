@@ -126,6 +126,8 @@ vi.mock('./VoterMapCanvas', () => ({
     liveLocationEnabled,
     startDrawToken,
     resumeDrawToken,
+    loadDrawToken,
+    loadDrawRing,
     onToggleLiveLocation,
     onPolygonChange,
     onDrawPointCount,
@@ -146,6 +148,8 @@ vi.mock('./VoterMapCanvas', () => ({
     liveLocationEnabled?: boolean
     startDrawToken: number
     resumeDrawToken: number
+    loadDrawToken: number
+    loadDrawRing: Array<[number, number]> | null
     onToggleLiveLocation?: (next: boolean) => void
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
@@ -171,6 +175,16 @@ vi.mock('./VoterMapCanvas', () => ({
       resetRef.current.onDrawPointCount?.(0)
       resetRef.current.onPolygonChange(null)
     }, [startDrawToken])
+    // The real canvas installs the loaded ring and reports it back.
+    const loadRef = useRef(loadDrawRing)
+    loadRef.current = loadDrawRing
+    useEffect(() => {
+      if (loadDrawToken === 0) return
+      const ring = loadRef.current ?? []
+      drawSession.placed = ring
+      resetRef.current.onDrawPointCount?.(ring.length)
+      resetRef.current.onPolygonChange(ring.length >= 3 ? ring : null)
+    }, [loadDrawToken])
 
     return (
       <div
@@ -224,6 +238,7 @@ vi.mock('./VoterMapCanvas', () => ({
         // empties the ring and the other keeps it.
         data-start-draw={String(startDrawToken)}
         data-resume-draw={String(resumeDrawToken)}
+        data-load-draw={String(loadDrawToken)}
       >
         <button
           type="button"
@@ -349,6 +364,7 @@ const turf: DoorKnockingTurf = {
   loggedCount: 0,
   knockedDoorCount: 0,
   routeSeconds: 1860,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
@@ -1831,6 +1847,31 @@ describe('NativeDoorKnockingPage draw step', () => {
     const map = screen.getByTestId('voter-map')
     expect(map).toHaveAttribute('data-start-draw', '1')
     expect(map).toHaveAttribute('data-resume-draw', '0')
+  })
+
+  // A civic panel plan's door step carries its walkable area: the first
+  // arrival at the draw step loads it as the campaign's first turf instead of
+  // a blank session.
+  it('loads a carried walkable area as the first turf', async () => {
+    renderPage({
+      prefillArea: [
+        [-97.75, 30.25],
+        [-97.74, 30.25],
+        [-97.74, 30.26],
+        [-97.75, 30.26],
+      ],
+    })
+    await mapReady()
+
+    await openFlowAndDraw()
+
+    const map = screen.getByTestId('voter-map')
+    expect(map).toHaveAttribute('data-load-draw', '1')
+    await drawnTurfCard('Turf 1')
+    // Drawn, not a card waiting for a boundary.
+    expect(
+      screen.queryByText(/Draw this turf|Draw and name this turf/),
+    ).toBeNull()
   })
 
   // Removed: DoorsPanel / "See the addresses" toggle and the address-preview

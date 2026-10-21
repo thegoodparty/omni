@@ -1,7 +1,8 @@
 {
     "receiver": "dev-alerts",
     "group_by": [
-        "alert_slug"
+        "alert_slug",
+        "request_endpoint"
     ],
     "routes": [
         {

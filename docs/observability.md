@@ -83,14 +83,14 @@ whole of it:
 
 The plan includes log queries up to **100x** what we ingest. Ingest is the
 denominator, so cutting log volume also cuts the free query budget — reducing
-ingest is not a fix for a query overage. Two rules page before the vendor does:
-`loki-query-budget-half` and `loki-query-budget-critical`, at 50% and 80% of
-that allowance.
+ingest is not a fix for a query overage. No alert rule watches the spend (the
+6h ratio is driven by ad-hoc Grafana reads, which no rule change bounds), so
+check it by hand.
 
 Live usage is on the `grafanacloud-usage` Prometheus datasource
 (`grafanacloud_logs_instance_query_bytes:rate5m` against
 `grafanacloud_logs_instance_billable_bytes_received_per_second`). When the
-budget alert fires, the question is _which query_ — that is the
+spend looks high, the question is _which query_ — that is the
 `grafanacloud-usage-insights` Loki datasource:
 
 ```logql
@@ -122,7 +122,7 @@ widening the metric query.
 Every log line gp-api and election-api write passes through `redactLine`
 (`packages/nest-common/src/observability/log-redaction.ts`), wired in as pino's
 `hooks.streamWrite`. It scrubs the literal values of the env vars named in
-`SECRET_NAMES`, sensitive query parameters, connection-string passwords, and
+`SECRETS_MANAGER_KEYS`, sensitive query parameters, connection-string passwords, and
 `Authorization` credentials for any scheme — in the raw header form
 (`Authorization: Bearer x`), in the JSON-serialized header bag pino emits for an
 Axios error (`"Authorization":"JWT x"`), and in the escaped form a caller

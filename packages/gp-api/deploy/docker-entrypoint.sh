@@ -33,7 +33,7 @@ export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?c
 # Must run before prisma migrate deploy because $DB_NAME may not exist yet on
 # the shared Aurora cluster. Connects to the maintenance "postgres" db (which
 # always exists) and issues CREATE DATABASE only when pg_database has no
-# matching row; migrate deploy + seed below populate it.
+# matching row; migrate deploy below populates it.
 # CREATE DATABASE cannot run inside a transaction, so this uses a plain client
 # connection rather than a transaction block.
 # The pg package is a direct (non-dev) dependency, so it is present in --omit=dev
@@ -116,6 +116,42 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   fi
 done
 
+# election-db lives on its own Aurora cluster, loaded by ETL. gp-api owns its
+# schema since the election-api service was absorbed, so its migrations run
+# here too, and fatally: a failed election migration must stop the deploy
+# rather than start a task whose generated client disagrees with the database.
+# ECS's deployment circuit breaker keeps the previous tasks serving, so the
+# blast radius is "deploys are blocked", not "gp-api is down".
+#
+# Previews are the exception. They read the shared dev election database
+# rather than cloning it (cloning would give every preview an empty one, and
+# every election-backed feature would render nothing), so a preview must never
+# apply an unmerged migration to a database other PRs are reading.
+if [ "$IS_PREVIEW" = "true" ]; then
+  echo "Preview environment: skipping election-db migrations (reads shared dev)."
+elif [ -z "$ELECTION_DATABASE_URL" ]; then
+  echo "ERROR: ELECTION_DATABASE_URL is not set."
+  exit 1
+else
+  echo "Running election-db migrations..."
+  ELECTION_RETRY_COUNT=0
+  while [ $ELECTION_RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if npx prisma migrate deploy --schema=prisma-election/schema 2>&1; then
+      echo "✅ election-db migrations completed successfully."
+      break
+    else
+      ELECTION_RETRY_COUNT=$((ELECTION_RETRY_COUNT + 1))
+      if [ $ELECTION_RETRY_COUNT -lt $MAX_RETRIES ]; then
+        echo "⏳ election-db not ready yet. Retrying in 10s..."
+        sleep 10
+      else
+        echo "❌ ERROR: election-db migrations failed after $MAX_RETRIES attempts."
+        exit 1
+      fi
+    fi
+  done
+fi
+
 if [ -z "$CLERK_SECRET_KEY" ] || [ -z "$CLERK_PUBLISHABLE_KEY" ]; then
   echo "ERROR: CLERK_SECRET_KEY or CLERK_PUBLISHABLE_KEY is not set."
   exit 1
@@ -140,15 +176,6 @@ case "$CLERK_SECRET_KEY" in
     ;;
 esac
 
-if [ "$IS_PREVIEW" = "true" ]; then
-  echo "Preview environment detected. Running seed..."
-  if npx tsx seed/seed.ts; then
-    echo "Seed completed successfully."
-  else
-    echo "WARNING: Seed failed with exit code $?. Continuing with app startup..."
-  fi
-fi
-
 # For preview environments, start app in background, sync content, then wait
 if [ "$IS_PREVIEW" = "true" ]; then
   echo "Starting application in background for content sync..."
@@ -159,7 +186,10 @@ if [ "$IS_PREVIEW" = "true" ]; then
   for i in $(seq 1 30); do
     if curl -s http://localhost:${PORT:-80}/v1/health > /dev/null 2>&1; then
       echo "App is healthy. Running content sync..."
-      if curl -s http://localhost:${PORT:-80}/v1/content/sync > /dev/null 2>&1; then
+      # Runs in its own process against the Nest application context rather
+      # than over HTTP, so the sync is not something the running service has
+      # to expose a route for.
+      if node dist/content/syncContent.cli.js; then
         echo "Content sync completed."
       else
         echo "WARNING: Content sync failed. Continuing..."

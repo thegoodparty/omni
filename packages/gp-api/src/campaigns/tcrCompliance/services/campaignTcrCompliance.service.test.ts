@@ -8,6 +8,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
+import { PEERLY_USECASE } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
@@ -15,6 +16,7 @@ import {
   CommitteeType,
   ExperimentRunStatus,
   OfficeLevel,
+  TcrCompliance,
   TcrComplianceStatus,
 } from '../../../generated/prisma'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
@@ -44,6 +46,28 @@ import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+
+// NON_PROD_LIVE_VENDOR_BYPASS is a module constant (non-prod AND live mode), so
+// a test can't flip it through process.env alone. Mirror its definition off the
+// per-test OTEL_SERVICE_ENVIRONMENT, and default to live mode: the bypass tests
+// below assert dev's live-mode behavior; the mock-mode tests set `appEnv.mode`.
+const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return appEnv.mode
+    },
+    get NON_PROD_LIVE_VENDOR_BYPASS() {
+      return (
+        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
+        appEnv.mode === 'live'
+      )
+    },
+  }
+})
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -637,6 +661,19 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
+    it('does nothing for a synthetic test-org record after payment', async () => {
+      mockModel.findUnique.mockResolvedValueOnce({
+        ...paidRecord,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+      })
+      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
+
+      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
     it('does nothing when the campaign has no Clerk user', async () => {
       mockModel.findUnique.mockResolvedValueOnce(paidRecord)
       mockCampaigns.findUnique.mockResolvedValueOnce({
@@ -694,6 +731,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
             status: TcrComplianceStatus.submitted,
             peerlyIdentityId: null,
             kickoffSentAt: null,
+            internalTestingAt: null,
             createdAt: { lt: expect.any(Date) },
             campaign: { isPro: true },
           },
@@ -3302,6 +3340,35 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(
+          service.retrieveCampaignVerifyToken('any-pin', tcrCompliance),
+        ).rejects.toThrow(BadRequestException)
+        // peerlyIdentityId is null on the stub, so the real guard ran.
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
+  })
+
+  it('submitCampaignVerifyToken calls Peerly in non-prod mock mode', async () => {
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
+    })
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await service.submitCampaignVerifyToken(tcrCompliance, 'token')
+        expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
+  })
+
   it('retrieveCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
     await withEnv('prod', async () => {
       await expect(
@@ -3326,6 +3393,37 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         tcrCompliance,
         'token',
       )
+    })
+  })
+
+  it('retrieveCampaignVerifyToken returns the bypass token for a synthetic row in prod without calling Peerly', async () => {
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken('any-pin', {
+        ...tcrCompliance,
+        internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+        peerlyIdentityId: 'test-mode-123',
+      })
+
+      expect(token).toBe('non-prod-bypass-cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
+    })
+  })
+
+  it("submitCampaignVerifyToken never posts a synthetic row's token to Peerly in prod", async () => {
+    await withEnv('prod', async () => {
+      const result = await service.submitCampaignVerifyToken(
+        {
+          ...tcrCompliance,
+          internalTestingAt: new Date('2026-10-01T00:00:00Z'),
+          peerlyIdentityId: 'test-mode-123',
+        },
+        'non-prod-bypass-cv-token',
+      )
+
+      expect(result).toBeUndefined()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     })
   })
 
@@ -3599,6 +3697,23 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { triggered_by: 'admin' },
       )
     })
+  })
+
+  it('does not short-circuit in non-prod mock mode: the real resend path runs', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+          UnprocessableEntityException,
+        )
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
   })
 
   it('throws UnprocessableEntityException when no Peerly identity exists yet', async () => {
@@ -4035,6 +4150,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
         peerlyCvStatus: 'VERIFIED',
+        internalTestingAt: null,
       },
     })
   })
@@ -4074,6 +4190,17 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.findMany).toHaveBeenCalledTimes(1)
     expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
+  })
+
+  it('runUnsubmittedUsecaseSweep never touches the lock and can run twice in one hour', async () => {
+    mockModel.findMany.mockResolvedValue([])
+
+    await service.runUnsubmittedUsecaseSweep()
+    await service.runUnsubmittedUsecaseSweep()
+
+    expect(mockModel.findMany).toHaveBeenCalledTimes(2)
+    expect(mockCronLock.tryClaimHourlyRun).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
   })
 
   it('does no work at all when the claim is lost', async () => {
@@ -4200,7 +4327,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     const { data } = firstOrThrow(mockModel.create.mock.calls)[0]
     expect(data.campaignId).toBe(campaign.id)
     expect(data.status).toBe(TcrComplianceStatus.approved)
-    expect(data.internalTestingApprovedAt).toBeInstanceOf(Date)
+    expect(data.internalTestingAt).toBeInstanceOf(Date)
     expect(data.email).toBe(internalUser.email)
     expect(created.status).toBe(TcrComplianceStatus.approved)
   })
@@ -4216,7 +4343,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('is idempotent when the marker row already exists', async () => {
     const existing = {
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
       status: TcrComplianceStatus.approved,
     }
     mockModel.findUnique.mockResolvedValueOnce(existing)
@@ -4230,7 +4357,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('refuses to overwrite a real compliance record', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.pending,
     })
 
@@ -4243,7 +4370,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('returns the raced marker row when a concurrent grant wins the create', async () => {
     const raced = {
       id: 'tcr-raced',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
       status: TcrComplianceStatus.approved,
     }
     mockModel.findUnique
@@ -4278,7 +4405,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('409s when a real compliance record wins the create race', async () => {
     mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
       id: 'tcr-real',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.submitted,
     })
     mockModel.create.mockRejectedValueOnce(
@@ -4296,7 +4423,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke deletes the marker row', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
     })
 
     await service.revokeInternalTestingApproval(campaign.id)
@@ -4309,7 +4436,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke resolves even when a concurrent revoke already removed the row', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: new Date(),
+      internalTestingAt: new Date(),
     })
     mockModel.deleteMany.mockResolvedValueOnce({ count: 0 })
 
@@ -4330,7 +4457,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   it('revoke refuses to delete a real compliance record', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
-      internalTestingApprovedAt: null,
+      internalTestingAt: null,
       status: TcrComplianceStatus.pending,
     })
 
@@ -4523,5 +4650,120 @@ describe('CampaignTcrComplianceService - sendComplianceCompletedSingleSend (ENG-
         peerly_identity_id: 'peerly-999',
       }),
     ).rejects.toThrow('HubSpot down')
+  })
+})
+
+describe('CampaignTcrComplianceService - checkUsecaseActivation', () => {
+  let service: CampaignTcrComplianceService
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
+  let mockAnalytics: {
+    track: ReturnType<typeof vi.fn>
+    identify: ReturnType<typeof vi.fn>
+  }
+  let mockHubspot: { sendSingleSend: ReturnType<typeof vi.fn> }
+  let mockPeerly: { getIdentityUseCases: ReturnType<typeof vi.fn> }
+
+  const recipient = { id: 42, email: 'candidate@example.com' }
+  const record = {
+    peerlyIdentityId: 'peerly-999',
+    peerlyCvStatus: 'VERIFIED',
+    internalTestingAt: null,
+    campaign: { userId: recipient.id, user: recipient },
+  }
+  const message = { peerlyIdentityId: 'peerly-999' } as TcrCompliance
+
+  beforeEach(async () => {
+    mockModel = {
+      findFirstOrThrow: vi.fn().mockResolvedValue(record),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
+    mockAnalytics = {
+      track: vi.fn().mockResolvedValue(undefined),
+      identify: vi.fn().mockResolvedValue(undefined),
+    }
+    mockHubspot = { sendSingleSend: vi.fn().mockResolvedValue(undefined) }
+    mockPeerly = {
+      getIdentityUseCases: vi
+        .fn()
+        .mockResolvedValue([{ usecase: PEERLY_USECASE, activated: true }]),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: mockAnalytics },
+        { provide: SlackService, useValue: { message: vi.fn() } },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
+        { provide: CronLockService, useValue: {} },
+        { provide: HubspotSingleSendService, useValue: mockHubspot },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('approves the record, tracks analytics and sends the single-send', async () => {
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
+      data: { status: 'approved' },
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+    expect(mockAnalytics.identify).toHaveBeenCalled()
+  })
+
+  it('acks without transitioning when the usecase is not active', async () => {
+    mockPeerly.getIdentityUseCases.mockResolvedValueOnce([])
+
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not re-track when another delivery already transitioned the record', async () => {
+    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+    expect(mockAnalytics.identify).not.toHaveBeenCalled()
+  })
+
+  it('acks and skips a record with no peerlyIdentityId', async () => {
+    const result = await service.checkUsecaseActivation({
+      peerlyIdentityId: null,
+    } as TcrCompliance)
+
+    expect(result).toBe(true)
+    expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('never throws when the single-send fails', async () => {
+    const send = vi.spyOn(service, 'sendComplianceCompletedSingleSend')
+    send.mockRejectedValueOnce(new Error('HubSpot down'))
+
+    await expect(service.checkUsecaseActivation(message)).resolves.toBe(true)
+    expect(mockAnalytics.track).toHaveBeenCalled()
   })
 })

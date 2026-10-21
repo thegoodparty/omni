@@ -20,11 +20,19 @@ import {
   testPostgresUri,
   withDatabase,
 } from './test-postgres'
-import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
+export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
+
+// Stands in for a Clerk JWT-format M2M token. The harness verifies it with
+// AUTH_SECRET instead of the Clerk JWKS; see the verifyM2MJwt stub below.
+export const signTestM2MJwt = (): string =>
+  jwt.sign({ sub: TEST_M2M_JWT_SUBJECT }, process.env.AUTH_SECRET!, {
+    expiresIn: '1h',
+    jwtid: 'm2m_test_jwt',
+  })
 
 // The reset below is a few tens of milliseconds of work. This ceiling is here
 // only to survive real pathology (a starved runner, a lock held by work that
@@ -200,21 +208,22 @@ export const useTestService = (): TestServiceContext => {
       },
     )
 
-    // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
-    // Route tests don't set GP_API_MACHINE_SECRET, so stub the token —
-    // otherwise authHeader() throws and every election-api-backed endpoint
-    // (e.g. district resolution behind contacts count) returns a 502.
-    const electionApiTokenService = app.get(ElectionApiTokenService)
-    vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
-      Authorization: 'Bearer test-election-api-token',
-    })
+    vi.spyOn(authProvider, 'verifyM2MJwt').mockImplementation(
+      async (token: string) => {
+        const decoded = jwt.verify(token, process.env.AUTH_SECRET!)
+        if (typeof decoded !== 'object' || !decoded.sub?.startsWith('mch_')) {
+          throw new UnauthorizedException('Invalid test M2M JWT')
+        }
+        return { id: decoded.jti ?? '', subject: decoded.sub }
+      },
+    )
 
-    // ...and stub the two lookups that token was only ever buying access to.
-    // Stubbing the token alone left the REQUEST live, so any suite that did not
-    // stub election-api itself was quietly reading the dev deployment. That was
-    // invisible until election-api began enforcing M2M unconditionally, at
-    // which point the 401 surfaced as a 502 on every route that resolves a
-    // district (door-knocking, phone-banking, outreach — 138 tests).
+    // Stub the two election lookups route tests reach through. These used to
+    // be HTTP calls to election-api and are now in-process reads against the
+    // election database, which no test has: ElectionDbService fails soft at
+    // boot and `.instance` throws at query time, so without these every route
+    // that resolves a district (door-knocking, phone-banking, outreach — 138
+    // tests) would fail.
     //
     // Both are only reached when the org carries the corresponding id, so this
     // cannot manufacture a district for an org that has none — the "no

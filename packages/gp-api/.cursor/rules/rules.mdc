@@ -167,7 +167,7 @@ If a catch only logs-and-rethrows the same error, delete it — you are adding n
 }
 ```
 
-Our pino config serializes any `Error` on any key — message, stack, and provider fields like Clerk's `status`/`errors[]`. Do **not** hand-extract `err.message`/`err.status` into strings; that discards the stack and structure. `@nestjs/common`'s `Logger` bypasses our serializers, redaction, and per-request context, so it must not be used.
+Our pino config serializes any `Error` on any key — message, stack, and provider fields like Clerk's `status`/`errors[]`. Do **not** hand-extract `err.message`/`err.status` into strings; that discards the stack and structure. That full serialization reaches stdout only: the OTel log bridge that feeds Loki keeps just the error's `code` (as `exception.type`), message and stack. When a provider field has to be searchable in Grafana, add it next to `err` as its own top-level field (e.g. `{ err, clerkStatus: err.status }`), never in place of `err`. `@nestjs/common`'s `Logger` bypasses our serializers, redaction, and per-request context, so it must not be used.
 
 ## Rule 4: Code Style
 

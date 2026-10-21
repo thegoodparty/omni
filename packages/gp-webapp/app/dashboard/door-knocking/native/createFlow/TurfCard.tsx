@@ -72,6 +72,12 @@ interface TurfCardProps {
   // refusal is attached to the turf it is about rather than announced
   // somewhere else on the screen.
   error?: string | null
+  // What the card calls the thing it is about. Constituent lists cut their
+  // boundary into shapes with this same card, and a shape is not a turf.
+  noun?: 'turf' | 'shape'
+  // Passed to the delete confirm, for a card rendered inside a full-screen
+  // layer that sits above the page's own dialogs.
+  dialogLayerClassName?: string
 }
 
 // One turf in the panel's list, closed to a row or open onto its settings.
@@ -97,12 +103,16 @@ export const TurfCard = ({
   onAssign,
   onRename,
   error = null,
+  noun = 'turf',
+  dialogLayerClassName,
 }: TurfCardProps) => {
   const member = team.find((option) => option.userId === assigneeId)
   // What delete calls a turf nobody has named yet. "Delete ?" is the
   // alternative, and the turf being cut can now be thrown away before it
   // has either a name or a third corner.
-  const deleteLabel = name || 'this turf'
+  const deleteLabel = name || `this ${noun}`
+  const unnamedLabel =
+    noun === 'turf' ? UNNAMED_TURF_LABEL : `Name this ${noun}...`
   // Only the open card. A closed row is for comparing turfs, and an input on
   // every one of them would put five focus targets in a list whose job is to
   // be scanned.
@@ -136,7 +146,9 @@ export const TurfCard = ({
             control. A bordered input in a list of five rows reads as a form
             to fill in; this reads as a name you can correct, which is what
             it is. The focus ring is the only affordance, and it only shows
-            once somebody is actually in it.
+            once somebody is actually in it. It is drawn on the card rather
+            than the input: an unpadded input's ring hugs the letters, and
+            the card is the turf being named.
 
             Uncontrolled via `defaultValue`, keyed on the turf, so typing
             does not round-trip through the draft on every keystroke and a
@@ -146,10 +158,11 @@ export const TurfCard = ({
           <input
             key={name}
             defaultValue={name}
-            aria-label="Turf name"
-            placeholder={UNNAMED_TURF_LABEL}
+            aria-label={noun === 'turf' ? 'Turf name' : 'Shape name'}
+            placeholder={unnamedLabel}
             maxLength={MAX_TURF_NAME_LENGTH}
-            className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground focus:ring-2 focus:ring-primary-focus"
+            data-turf-name=""
+            className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground"
             onClick={(event) => event.stopPropagation()}
             onBlur={(event) => commitRename(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -173,7 +186,7 @@ export const TurfCard = ({
               name ? 'font-medium' : 'text-muted-foreground'
             }`}
           >
-            {name || UNNAMED_TURF_LABEL}
+            {name || unnamedLabel}
           </span>
         )}
         {/* The canvasser and the count are one group, right-aligned, so the
@@ -220,8 +233,10 @@ export const TurfCard = ({
       <div
         ref={rootRef}
         data-turf-card=""
-        className={`flex flex-col overflow-clip rounded-lg border bg-background ${
-          error ? 'border-destructive' : selected ? '' : 'border-border'
+        className={`flex flex-col overflow-clip rounded-lg border bg-background has-[[data-turf-name]:focus-visible]:ring-[3px] ${
+          error
+            ? 'border-destructive has-[[data-turf-name]:focus-visible]:ring-destructive-focus'
+            : `has-[[data-turf-name]:focus-visible]:ring-components-input-focus ${selected ? '' : 'border-border'}`
         }`}
         // The open card is drawn in the turf's OWN colour rather than in the
         // brand's, so the card and the ring it is about are the same object
@@ -315,6 +330,8 @@ export const TurfCard = ({
               {onRemove && (
                 <RemoveTurfDialog
                   turfName={deleteLabel}
+                  noun={noun}
+                  layerClassName={dialogLayerClassName}
                   onRemove={onRemove}
                   open={confirmOpen}
                   onOpenChange={setConfirmOpen}
@@ -323,7 +340,12 @@ export const TurfCard = ({
             </>
           ) : (
             onRemove && (
-              <RemoveTurfDialog turfName={deleteLabel} onRemove={onRemove}>
+              <RemoveTurfDialog
+                turfName={deleteLabel}
+                noun={noun}
+                layerClassName={dialogLayerClassName}
+                onRemove={onRemove}
+              >
                 <button
                   type="button"
                   aria-label={`Delete ${deleteLabel}`}
@@ -393,7 +415,7 @@ export const TurfCard = ({
             {team.length > 0 && (
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-muted-foreground">
-                  Who walks this turf
+                  {`Who walks this ${noun}`}
                 </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -413,7 +435,9 @@ export const TurfCard = ({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="min-w-[12rem]">
-                    <DropdownMenuLabel>Who walks this turf</DropdownMenuLabel>
+                    <DropdownMenuLabel>
+                      {`Who walks this ${noun}`}
+                    </DropdownMenuLabel>
                     {team.map((option) => (
                       <DropdownMenuItem
                         key={option.userId}

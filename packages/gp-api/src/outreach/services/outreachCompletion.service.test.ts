@@ -63,6 +63,7 @@ const createOutreach = (overrides: Partial<Outreach> = {}) =>
       projectId: DEFAULT_PROJECT_ID,
       status: OutreachStatus.pending,
       date: NOW,
+      canvassRequestedAt: subDays(NOW, 1),
       ...overrides,
     },
   })
@@ -126,6 +127,82 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
         end_date: EXTENDED_END_DATE,
       }),
     )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
+  it('keeps an unbooked p2p row in_progress once its send day passes', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+      canvassRequestedAt: null,
+    })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        start_date: PAST_START_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('still ratchets an unbooked pending p2p row to in_progress past its day', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.pending,
+      canvassRequestedAt: null,
+    })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        start_date: PAST_START_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.in_progress)
+  })
+
+  // CAS sometimes books canvassers by hand in Peerly, which never stamps
+  // canvassRequestedAt; Peerly's own approval is the booking then.
+  it('completes an unbooked-in-console p2p row Peerly shows as approved', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+      canvassRequestedAt: null,
+    })
+    getJob.mockResolvedValue({
+      ...buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        start_date: PAST_START_DATE,
+      }),
+      canvassers_schedule: { approved: true },
+    } as PeerlyJob)
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
+  it('completes an unbooked-in-console p2p row Peerly reports canvassers scheduled on', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+      canvassRequestedAt: null,
+    })
+    getJob.mockResolvedValue({
+      ...buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        start_date: PAST_START_DATE,
+      }),
+      has_canvassers_scheduled: true,
+    })
 
     await completionService.sweepOutreachCompletions()
 

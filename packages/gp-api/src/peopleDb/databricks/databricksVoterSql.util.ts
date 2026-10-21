@@ -7,8 +7,18 @@ import {
   isLegacyDoorKnockingUnitKey,
   type IdOverrides,
 } from '@goodparty_org/contracts'
-import { FilterData, type FilterOperator } from '../schemas/filters.schema'
+import {
+  AFFINITY_COLUMNS,
+  type AffinityColumn,
+  DEFAULT_AFFINITY_COLUMN,
+} from '../affinityColumns.const'
+import {
+  FilterData,
+  filtersSchema,
+  type FilterOperator,
+} from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
+import { earlyVoteStatusToMart } from '../earlyVoteStatus'
 import {
   ALL_KNOWN_PARTY_VALUES,
   POLITICAL_PARTY_EXACT_VALUES,
@@ -17,14 +27,19 @@ import {
   type RuledParty,
 } from '../utils/politicalParty.rules'
 import { DOWNLOAD_COLUMNS, type ExcludableVoterColumn } from '../voter.select'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-const VOTER_TABLE_NAME = 'gp_api_voters'
+const PEOPLE_TABLE_NAMES: Record<PeopleDataset, string> = {
+  voters: 'gp_api_voters',
+  constituents: 'gp_api_constituents',
+}
 
-export const VOTER_TABLE = TABLE(VOTER_TABLE_NAME)
+export const peopleTable = (dataset: PeopleDataset): string =>
+  TABLE(PEOPLE_TABLE_NAMES[dataset])
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
@@ -67,6 +82,10 @@ const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 export const col = (name: string): string => `v.${ident(name)}`
 
+// A person's census tract: the first 11 digits of their block group GEOID.
+export const tractSql = (): string =>
+  `substr(${col('Census_Block_Group_Geoid')}, 1, 11)`
+
 // Each component COALESCE'd so a NULL doesn't void the key, TRIM'd and UPPER'd
 // so formatting differences group together, joined on a delimiter that cannot
 // occur inside a component. Columns come from contracts, so a key composed
@@ -86,7 +105,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // STRING and compares byte-exact, where Postgres compared as `uuid` and
 // normalized case — an exclude set that matches nothing silently WIDENS an
 // audience.
-const idList = (values: ReadonlyArray<string | number>): string =>
+export const idList = (values: ReadonlyArray<string | number>): string =>
   values
     .map((value) => {
       const id = String(value).toLowerCase()
@@ -107,6 +126,8 @@ const num = (value: string | number): number => {
 
 export type DbxDistrict = {
   districtId: string
+  dataset: PeopleDataset
+  table: string
   state: string
   districtType: string
   districtName: string
@@ -119,6 +140,7 @@ export type DbxScopeArgs = {
   search?: string
   idOverrides?: IdOverrides
   contactsMadeIdOverrides?: IdOverrides
+  affinityColumn?: AffinityColumn
 }
 
 const hasIdOverrides = (
@@ -288,14 +310,29 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
-// Voter_Independent_Affinity is a non-nullable BOOLEAN, so this compares
+// The experiment's columns exist only on the voter table, so a constituents
+// query always reads the default column, whatever the organization resolved.
+const affinityColumnForDataset = (
+  args: Pick<DbxScopeArgs, 'district' | 'affinityColumn'>,
+): AffinityColumn | undefined =>
+  args.district.dataset === 'constituents' ? undefined : args.affinityColumn
+
+// Every affinity column is a BOOLEAN set on every voter, so this compares
 // against a boolean literal instead of taking the presence-check path every
-// other has-* filter uses: `IS NOT NULL` there would match all 219M rows and
-// silently un-filter the request. Selecting both values is likewise no
-// constraint at all, so it returns null rather than an always-true clause.
-const buildIndependentAffinityFilter = (op?: FilterOperator): string | null => {
+// other has-* filter uses: `IS NOT NULL` there would match all 219M voters and
+// silently un-filter the request. Voter_Independent_Affinity is NULL on the
+// consumer-only rows of the constituents table, which neither literal matches.
+// Selecting both values is likewise no constraint at all, so it returns null
+// rather than an always-true clause.
+const buildIndependentAffinityFilter = (
+  op?: FilterOperator,
+  column: AffinityColumn = DEFAULT_AFFINITY_COLUMN,
+): string | null => {
   if (!op) return null
-  const target = col('Voter_Independent_Affinity')
+  if (!AFFINITY_COLUMNS.includes(column)) {
+    throw new Error(`Refusing to filter on an unknown affinity column`)
+  }
+  const target = col(column)
   const selected =
     op.operator === 'in' && op.values
       ? op.values.map(String)
@@ -462,7 +499,7 @@ const buildNumericFilter = (
 }
 
 // The whole id set is inlined rather than bound: the Statement Execution API
-// has no array parameter type. MAX_ID_FILTER_VALUES (100k per set, and
+// has no array parameter type. MAX_ID_FILTER_VALUES (200k per set, and
 // IdOverridesSchema allows that per side) is what bounds the size, and the
 // statement client enforces the API's 16 MiB ceiling on the result.
 //
@@ -506,6 +543,7 @@ export const buildVoterFiltersSql = (
   filterData: FilterData,
   idOverrides?: IdOverrides,
   contactsMadeIdOverrides?: IdOverrides,
+  affinityColumn?: AffinityColumn,
 ): string | null => {
   const { filters, filterOperators } = filterData
   const andClauses: string[] = []
@@ -596,16 +634,55 @@ export const buildVoterFiltersSql = (
         )
         break
       case 'independentAffinity':
-        sql = buildIndependentAffinityFilter(op)
+        sql = buildIndependentAffinityFilter(op, affinityColumn)
         break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
         break
       case 'voterStatus': {
-        const voterStatusClause = buildFieldFilter(bag, 'Voter_Status', op)
+        const statusClause = buildFieldFilter(bag, 'Voter_Status', op)
+        // A row with no Voter_Status at all (consumer-only constituents)
+        // is Unknown too, the same way packEncoder shades it.
+        const selectsUnknown =
+          op?.operator === 'eq'
+            ? op.value === 'Unknown'
+            : op?.operator === 'in' &&
+              !!op.values?.map(String).includes('Unknown')
+        const voterStatusClause =
+          statusClause && selectsUnknown
+            ? `(${statusClause} OR ${col('Voter_Status')} IS NULL)`
+            : statusClause
         sql = hasIdOverrides(idOverrides)
           ? composeIdOverridesClause(voterStatusClause, idOverrides)
           : voterStatusClause
+        break
+      }
+      case 'earlyVoteStatus': {
+        // Filter values arrive in the product's Title Case; the column is
+        // sentence case (earlyVoteStatus.ts).
+        const martOp: FilterOperator | undefined =
+          op?.operator === 'in'
+            ? {
+                ...op,
+                values: op.values?.map((value) =>
+                  earlyVoteStatusToMart(String(value)),
+                ),
+              }
+            : op?.operator === 'eq' && op.value !== undefined
+              ? { ...op, value: earlyVoteStatusToMart(String(op.value)) }
+              : op
+        const statusClause = buildFieldFilter(bag, 'Early_Vote_Status', martOp)
+        // Consumer-only constituents carry no score at all; they are Unknown
+        // too, as with Voter_Status above.
+        const selectsUnknown =
+          op?.operator === 'eq'
+            ? op.value === 'Unknown'
+            : op?.operator === 'in' &&
+              !!op.values?.map(String).includes('Unknown')
+        sql =
+          statusClause && selectsUnknown
+            ? `(${statusClause} OR ${col('Early_Vote_Status')} IS NULL)`
+            : statusClause
         break
       }
       case 'politicalParty':
@@ -701,6 +778,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
     filters,
     idOverrides,
     args.contactsMadeIdOverrides,
+    affinityColumnForDataset(args),
   )
   if (filterSql) parts.push(filterSql)
 
@@ -713,7 +791,7 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
     `SELECT COUNT(*) AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome` +
-    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
@@ -742,7 +820,7 @@ export const buildListDetailAggregatesSql = (
     ` COUNT_IF(${landline}) AS robocall,` +
     ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
     ` COUNT_IF(${addressPresentSql()}) AS doorKnocking` +
-    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
@@ -756,7 +834,7 @@ export const buildCountSql = (
     ? `COUNT(DISTINCT ${householdKey()})`
     : 'COUNT(*)'
   const sql =
-    `SELECT ${countExpr} AS voter_count FROM ${VOTER_TABLE} v` +
+    `SELECT ${countExpr} AS voter_count FROM ${args.district.table} v` +
     ` ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -770,12 +848,19 @@ export const buildOverlapCountSql = (
   // bare TRUE rather than being dropped from the OR; zero saved sets is the
   // union of nothing, so it becomes FALSE.
   const savedClauses = args.savedFilterSets.map(
-    (saved) => buildVoterFiltersSql(bag, saved) ?? 'TRUE',
+    (saved) =>
+      buildVoterFiltersSql(
+        bag,
+        saved,
+        undefined,
+        undefined,
+        affinityColumnForDataset(args),
+      ) ?? 'TRUE',
   )
   const savedSetsClause =
     savedClauses.length > 0 ? `(${savedClauses.join(' OR ')})` : 'FALSE'
   const sql =
-    `SELECT COUNT(*) AS overlap_count FROM ${VOTER_TABLE} v` +
+    `SELECT COUNT(*) AS overlap_count FROM ${args.district.table} v` +
     ` ${scope} AND ${savedSetsClause}`
   return { sql, params: bag.params }
 }
@@ -792,7 +877,7 @@ export const buildPersonSql = (
     .join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+    `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
     // Lowercased for the same reason idList is: this column is a STRING and
     // compares byte-exact, where the Postgres path cast to `uuid` and folded
     // case. z.guid() accepts a mixed-case guid and passes it through, so
@@ -826,10 +911,30 @@ export const buildPrecinctsSql = (args: {
   const sql =
     `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
     ` COUNT(*) AS voters` +
-    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` FROM ${args.district.table} v ${scope}` +
     ` GROUP BY ${col('County')}, ${col('Precinct')}` +
     ` ORDER BY voters DESC, county ASC, precinct ASC` +
     ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// How many of the given people are filed in each (County, Precinct): counts
+// per precinct, never a person. The civic panel's seats read it where the
+// district has no tract data.
+export const buildPrecinctMembersSql = (args: {
+  district: DbxDistrict
+  personIds: string[]
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: filtersSchema.parse({ id: { in: args.personIds } }),
+  })
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT(*) AS people` +
+    ` FROM ${args.district.table} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}`
   return { sql, params: bag.params }
 }
 
@@ -850,7 +955,7 @@ export const buildPageSql = (
   const scope = buildScopeSql(bag, args)
   if (!args.groupByHousehold) {
     const sql =
-      `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+      `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
       ` ORDER BY ${col('id')}` +
       ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
       ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
@@ -868,7 +973,7 @@ export const buildPageSql = (
     ` COUNT(*) OVER (PARTITION BY ${key}) AS ${ident('householdSize')},` +
     ` ROW_NUMBER() OVER (PARTITION BY ${key}` +
     ` ORDER BY ${col('id')}) AS rn` +
-    ` FROM ${VOTER_TABLE} v ${scope}`
+    ` FROM ${args.district.table} v ${scope}`
   const sql =
     `SELECT * EXCEPT (rn) FROM (${inner}) WHERE rn = 1` +
     ` ORDER BY ${ident('householdId')}, ${ident('id')}` +
@@ -877,17 +982,22 @@ export const buildPageSql = (
   return { sql, params: bag.params }
 }
 
+// A weighted draw's u: the seeded hash's low 32 bits over 2^32, offset
+// half a step so it is never 0 or 1.
+const HASH_UNIT_RANGE = '4294967296'
+
 // CSV export projection. Every column is cast to string and null-coalesced
 // because the Statement Execution API renders a SQL NULL as the literal text
 // `null` in CSV, where Postgres COPY writes an empty field — without this the
 // download would be full of the word "null".
 // Sampling keeps Postgres's hash pre-cut, for a different reason. There it
 // existed to keep the planner off a sequential scan; here it exists to avoid a
-// sort. Ordering the whole population by a seeded hash and taking the top N
-// measured 3-6s because it sorts every matching row, while cutting to a
-// 1/divisor slice and letting LIMIT terminate early measured a flat 2.1-2.3s
-// from a 7.8k-voter ward to a 23M-voter state. The seed rotates which slice is
-// taken, so successive calls return different people.
+// sort. Ordering the whole population by a seeded hash measured 3-6s because
+// it sorts every matching row, so the population is first cut to a 1/divisor
+// slice and only the slice is ordered. The ORDER BY is what makes the draw
+// random: without it LIMIT returns whichever slice rows Spark scans first,
+// which follows file layout, and a small pool (divisor 1) has no slice at all.
+// The id breaks a hash tie so the same seed returns the same rows.
 export const buildSampleSql = (
   args: DbxScopeArgs & {
     columns: readonly string[]
@@ -896,6 +1006,8 @@ export const buildSampleSql = (
     hashDivisor: number
     hasCellPhone?: boolean
     excludeIds?: readonly string[]
+    // Each row's draw weight, as SQL. Without it every row weighs the same.
+    weight?: (bag: Bag) => string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -913,16 +1025,24 @@ export const buildSampleSql = (
     parts.push(`AND ${col('id')} NOT IN (${idList(excludeIds)})`)
   }
 
+  const seed = bag.bind(num(args.seed), 'INT')
+  const seededHash = `xxhash64(${col('id')}, ${seed})`
   const divisor = Math.max(1, Math.trunc(num(args.hashDivisor)))
   if (divisor > 1) {
-    parts.push(
-      `AND pmod(xxhash64(${col('id')}, ${bag.bind(num(args.seed), 'INT')}),` +
-        ` ${bag.bind(divisor, 'INT')}) = 0`,
-    )
+    parts.push(`AND pmod(${seededHash}, ${bag.bind(divisor, 'INT')}) = 0`)
   }
 
+  // Weighted, the slice is ordered by -ln(u) / w, u the same hash mapped
+  // into (0, 1): the smallest n keys are a weighted draw without
+  // replacement (Efraimidis and Spirakis), and equal weights order exactly
+  // as the hash does.
+  const order = args.weight
+    ? `-ln((pmod(${seededHash}, ${HASH_UNIT_RANGE}) + 0.5)` +
+      ` / ${HASH_UNIT_RANGE}) / (${args.weight(bag)})`
+    : seededHash
   const sql =
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    `SELECT ${projection} FROM ${args.district.table} v ${parts.join(' ')}` +
+    ` ORDER BY ${order}, ${col('id')}` +
     ` LIMIT ${bag.bind(num(args.size), 'INT')}`
   return { sql, params: bag.params }
 }
@@ -940,15 +1060,14 @@ export const buildCsvSql = (
         `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(header)}`,
     )
     .join(', ')
-  const sql = `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+  const sql = `SELECT ${projection} FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
-// Unit-granularity twin of householdKey(), in Spark dialect. Cast to STRING
-// before COALESCE because two of the legacy key's columns are INT in the mart
-// (the permanently-NULL direction columns), and Spark will not COALESCE an INT
-// with ''. The Postgres builder casts for the same reason, so a legacy key
-// composed here is byte-identical to one composed there.
+// Unit-granularity twin of householdKey(), in Spark dialect. Every component
+// is cast to STRING before COALESCE, because Spark will not COALESCE a
+// non-string column with ''. The Postgres builder casts the same way, so a
+// legacy key composed here is byte-identical to one composed there.
 const unitKey = (columns: readonly string[]): string =>
   `concat_ws('|', ${columns
     .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)
@@ -982,6 +1101,8 @@ export const buildDoorKnockingEvaluateSql = (
     // interpolated dot on screen was silently uncountable. Defaults to the
     // door-knocking rule so that path is unchanged.
     requireRooftopAccuracy?: boolean
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -999,6 +1120,9 @@ export const buildDoorKnockingEvaluateSql = (
   if (excluded.length > 0) {
     parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
   }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
+  }
 
   const sql =
     `SELECT ${col('id')} AS ${ident('id')},` +
@@ -1008,10 +1132,82 @@ export const buildDoorKnockingEvaluateSql = (
     ` ${lngDouble} AS ${ident('lng')},` +
     ` ${currentUnitKey()} AS ${ident('addressKey')},` +
     ` nvl(${col('Residence_Addresses_AddressLine')}, '') AS ${ident('displayAddress')}` +
-    ` FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    ` FROM ${args.district.table} v ${parts.join(' ')}` +
     // LIMIT cap + 1 so an overflowing polygon is detected without counting.
     // The caller rejects rather than truncating.
     ` LIMIT ${bag.bind(num(args.maxPeople) + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+const METERS_PER_DEGREE_LAT = 110_540
+const METERS_PER_DEGREE_LNG_AT_EQUATOR = 111_320
+
+// About two blocks: small enough that a cell and its neighbors are a walk,
+// big enough that a suburban street still fills one.
+const WALKABLE_CELL_METERS = 200
+
+// The densest walkable cluster of households, over every eligible household
+// in scope rather than a capped first slice of rows: a LIMIT without an
+// ORDER BY returns whichever rows Spark scans first, which follows file
+// layout and can sit in one corner of a large district. Households (by unit
+// key) go into ~200m cells on a grid scaled at their mean latitude; the cell
+// whose 3x3 neighborhood holds the most households is the seed (ties to the
+// lower `cx:cy` key, compared as text), and the households nearest the
+// mean position of that neighborhood's households are taken, closest first
+// and then by key, up to `households`. Only those doors leave the
+// warehouse: a position and resident ids each, no name or address.
+export const buildWalkableAreaSql = (
+  args: DbxScopeArgs & {
+    households: number
+    excludePersonIds?: readonly string[]
+    // Only people living in this census tract (11-digit GEOID).
+    tract?: string
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const parts = [
+    buildScopeSql(bag, args),
+    `AND ${ROOFTOP_ONLY}`,
+    `AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`,
+  ]
+  const excluded = args.excludePersonIds ?? []
+  if (excluded.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(excluded)})`)
+  }
+  if (args.tract !== undefined) {
+    parts.push(`AND ${tractSql()} = ${bag.bind(args.tract)}`)
+  }
+  const cell = WALKABLE_CELL_METERS
+  const sql =
+    `WITH points AS (SELECT ${col('id')} AS id, ${latDouble} AS lat,` +
+    ` ${lngDouble} AS lng, ${currentUnitKey()} AS addressKey` +
+    ` FROM ${args.district.table} v ${parts.join(' ')}),` +
+    ` homes AS (SELECT addressKey, min(lat) AS lat, min(lng) AS lng` +
+    ` FROM points GROUP BY addressKey),` +
+    ` grid AS (SELECT ${METERS_PER_DEGREE_LNG_AT_EQUATOR}` +
+    ` * cos(radians(avg(lat))) AS lngScale FROM homes),` +
+    ` placed AS (SELECT h.addressKey, h.lng * g.lngScale AS x,` +
+    ` h.lat * ${METERS_PER_DEGREE_LAT} AS y FROM homes h CROSS JOIN grid g),` +
+    ` cells AS (SELECT floor(x / ${cell}) AS cx, floor(y / ${cell}) AS cy,` +
+    ` count(*) AS n, sum(x) AS sx, sum(y) AS sy FROM placed` +
+    ` GROUP BY floor(x / ${cell}), floor(y / ${cell})),` +
+    ` spread AS (SELECT c.cx + ox.d AS kx, c.cy + oy.d AS ky, c.n, c.sx,` +
+    ` c.sy FROM cells c CROSS JOIN (VALUES (-1), (0), (1)) AS ox(d)` +
+    ` CROSS JOIN (VALUES (-1), (0), (1)) AS oy(d)),` +
+    ` scored AS (SELECT s.kx, s.ky, sum(s.n) AS score,` +
+    ` sum(s.sx) / sum(s.n) AS centerX, sum(s.sy) / sum(s.n) AS centerY` +
+    ` FROM spread s JOIN cells c ON c.cx = s.kx AND c.cy = s.ky` +
+    ` GROUP BY s.kx, s.ky),` +
+    ` seed AS (SELECT centerX, centerY FROM scored` +
+    ` ORDER BY score DESC, concat(kx, ':', ky) LIMIT 1),` +
+    ` picked AS (SELECT p.addressKey FROM placed p CROSS JOIN seed s` +
+    ` ORDER BY hypot(p.x - s.centerX, p.y - s.centerY), p.addressKey` +
+    ` LIMIT ${bag.bind(num(args.households), 'INT')})` +
+    ` SELECT min(p.lat) AS ${ident('lat')}, min(p.lng) AS ${ident('lng')},` +
+    ` concat_ws(',', array_sort(collect_list(p.id)))` +
+    ` AS ${ident('personIds')}` +
+    ` FROM points p JOIN picked k ON k.addressKey = p.addressKey` +
+    ` GROUP BY p.addressKey ORDER BY ${ident('personIds')}`
   return { sql, params: bag.params }
 }
 
@@ -1091,7 +1287,7 @@ export const buildDoorKnockingResidentsSql = (args: {
     ` (${col('StateVoterID')} IS NOT NULL) AS ${ident('registered')},` +
     ` ${projection},` +
     ` ${key} AS ${ident('addressKey')}` +
-    ` FROM ${VOTER_TABLE} v ${scope} AND ${ROOFTOP_ONLY} AND ${match}` +
+    ` FROM ${args.district.table} v ${scope} AND ${ROOFTOP_ONLY} AND ${match}` +
     ` LIMIT ${bag.bind(num(args.residentsCap) + 1, 'INT')}`
   return { sql, params: bag.params }
 }
@@ -1173,7 +1369,7 @@ export const buildPackSql = (args: { district: DbxDistrict }): DbxStatement => {
     ` AS ${ident('hasCellPhone')},` +
     ` (${col('VoterTelephones_LandlineFormatted')} IS NOT NULL)` +
     ` AS ${ident('hasLandline')}` +
-    ` FROM ${VOTER_TABLE} v ${scope}` +
+    ` FROM ${args.district.table} v ${scope}` +
     ` AND ${ROOFTOP_ONLY}` +
     ` AND ${latDouble} IS NOT NULL AND ${lngDouble} IS NOT NULL`
   return { sql, params: bag.params }
@@ -1190,6 +1386,12 @@ export type DbxEvaluateRow = {
   lng: number
   addressKey: string
   displayAddress: string
+}
+
+export type DbxWalkableHouseholdRow = {
+  lat: number
+  lng: number
+  personIds: string[]
 }
 
 export type DbxResidentRow = {

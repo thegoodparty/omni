@@ -9,10 +9,15 @@ import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 
 import { filtersSchema } from './filters.schema'
+import { AFFINITY_COLUMNS } from '../affinityColumns.const'
 import { EXCLUDABLE_VOTER_COLUMNS } from '../voter.select'
 
 const withDistrictInput = <T extends z.ZodRawShape>(shape: T) =>
   z.object({ districtId: z.guid() }).extend(shape)
+
+// The column the independentAffinity filter reads for this campaign's
+// experiment arm. Omitted = the pre-experiment column. Set by gp-api only.
+const affinityColumnSchema = z.enum(AFFINITY_COLUMNS).optional()
 
 export const listPeopleSchema = withDistrictInput({
   filters: filtersSchema,
@@ -30,6 +35,7 @@ export const listPeopleSchema = withDistrictInput({
   // non-zero bucket" selection only — every other contacts-made selection
   // travels as a plain `filters.id` in/notIn instead.
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  affinityColumn: affinityColumnSchema,
   search: z.string().optional(),
   // resultsPerPage feeds `LIMIT ${take}` and page feeds `OFFSET ${skip}` in raw
   // SQL (people.service.ts), so this is the last line of defense against
@@ -75,6 +81,7 @@ export const downloadPeopleSchema = withDistrictInput({
   idOverrides: IdOverridesSchema.optional(),
   // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  affinityColumn: affinityColumnSchema,
   // Mirror the list endpoint: door-knocking exports one row per physical
   // household so the CSV matches the on-screen de-duplicated list.
   groupByHousehold: z.coerce.boolean().optional().default(false),
@@ -104,6 +111,7 @@ export const aggregatesSchema = withDistrictInput({
   idOverrides: IdOverridesSchema.optional(),
   // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  affinityColumn: affinityColumnSchema,
 })
 
 export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
@@ -125,14 +133,42 @@ export const overlapCountSchema = withDistrictInput({
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
   savedFilterSets: z.array(filtersSchema).max(MAX_OVERLAP_SAVED_FILTER_SETS),
+  affinityColumn: affinityColumnSchema,
 })
 
 export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
+
+const sampleWeightFactorsSchema = z.record(z.string(), z.number().positive())
+
+export const sampleWeightsSchema = z.object({
+  age: sampleWeightFactorsSchema,
+  gender: sampleWeightFactorsSchema,
+  tract: sampleWeightFactorsSchema,
+  race: sampleWeightFactorsSchema,
+  minWeight: z.number().positive(),
+  maxWeight: z.number().positive(),
+})
+export type SampleWeights = z.infer<typeof sampleWeightsSchema>
 
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
   excludeIds: z.array(z.guid()).optional(),
+  // A sample drawn within an audience rather than the whole district: the
+  // same scope a count or a list of these filters reads.
+  filters: filtersSchema.optional(),
+  idOverrides: IdOverridesSchema.optional(),
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
+  search: z.string().optional(),
+  // Names the draw, so asking again with the same key takes the same people.
+  // Without one the draw rotates every minute.
+  seedKey: z.string().min(1).optional(),
+  affinityColumn: affinityColumnSchema,
+  // Set by gp-api only (the civic panel's census steering). Each person is
+  // drawn with a weight: the product of their age band, gender and tract
+  // factors, held within [minWeight, maxWeight]. A value with no factor
+  // counts 1.
+  weights: sampleWeightsSchema.optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}

@@ -7,6 +7,7 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
+import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignsModule } from '../../campaigns/campaigns.module'
 import { OutreachModule } from '../../outreach/outreach.module'
 import { UsersModule } from '../../users/users.module'
@@ -14,6 +15,7 @@ import { GoogleModule } from '../google/google.module'
 import { SlackModule } from '../slack/slack.module'
 import { P2pController } from './p2p.controller'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
+import { PeerlyAccountService } from './services/peerlyAccount.service'
 import { PeerlyErrorHandlingService } from './services/peerlyErrorHandling.service'
 import { PeerlyHttpService } from './services/peerlyHttp.service'
 import { PeerlyIdentityService } from './services/peerlyIdentity.service'
@@ -23,6 +25,7 @@ import { PeerlyP2pJobService } from './services/peerlyP2pJob.service'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PeerlyScheduleService } from './services/peerlySchedule.service'
+import { PeerlyTestListService } from './services/peerlyTestList.service'
 
 @Module({
   imports: [
@@ -34,6 +37,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     OrganizationsModule,
     SlackModule,
     ContactInteractionModule,
+    QueueProducerModule,
     forwardRef(() => CampaignsModule),
     forwardRef(() => OutreachModule),
     forwardRef(() => ContactsModule),
@@ -44,22 +48,29 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
   providers: [
     PeerlyErrorHandlingService,
     PeerlyHttpService,
+    PeerlyAccountService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyScheduleService,
+    PeerlyTestListService,
     P2pPhoneListUploadService,
     PeerlyP2pJobService,
     PeerlyJobResultsService,
   ],
   exports: [
+    PeerlyAccountService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
     PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyP2pJobService,
     PeerlyJobResultsService,
+    PeerlyTestListService,
+    // For the queue consumer's P2P_PHONE_LIST_BUILD case, which dispatches
+    // to this service's handleQueuedBuild.
+    P2pPhoneListUploadService,
   ],
 })
 export class PeerlyModule {}

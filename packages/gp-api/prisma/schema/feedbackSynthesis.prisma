@@ -1,0 +1,121 @@
+enum SynthesisScope {
+  effort
+  organization
+  // Every send for one priority pooled, so what came back reads as one
+  // answer across texts, calls and doors.
+  priority
+}
+
+enum SynthesisRunStatus {
+  running
+  completed
+  failed
+  superseded
+}
+
+model FeedbackSynthesisRun {
+  id                String             @id @default(uuid(7))
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  completedAt       DateTime?          @map("completed_at")
+  organizationSlug  String             @map("organization_slug")
+  organization      Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  scope             SynthesisScope
+  // Set for effort scope, null for organization scope. Enforced in code,
+  // the same call the knock contract makes about its two answer vocabularies.
+  outreachId        Int?               @map("outreach_id")
+  outreach          Outreach?          @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  // Set for priority scope only.
+  priorityId        String?            @map("priority_id")
+  priority          Priority?          @relation(fields: [priorityId], references: [id], onDelete: Cascade)
+  status            SynthesisRunStatus @default(running)
+  // "<org>:<outreachId or org>", or "<org>:priority:<priorityId>", while
+  // running, null otherwise. The unique
+  // index is what makes "one run in flight per scope" true under a race
+  // between the report's button and the completion trigger.
+  activeKey         String?            @unique @map("active_key")
+  // A priority run that another send finished under while it ran. That
+  // send's answers are not in it, so the stale-run sweep starts a fresh
+  // pooled run once this one is done.
+  repoolOwed        Boolean            @default(false) @map("repool_owed")
+  // Set once each member issue was matched to at most one of its note's
+  // themes (FeedbackThemeIssue). Null while unmatched, or when matching
+  // failed: the report then counts every issue in a theme's notes.
+  issuesMatchedAt   DateTime?          @map("issues_matched_at")
+  // Denominators as of the run, so the caption cannot drift from the themes.
+  conversations     Int
+  memos             Int
+  confirmed         Int
+  engine            String
+  error             String?
+  requestedByUserId Int?               @map("requested_by_user_id")
+  requestedBy       User?              @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  themes       FeedbackTheme[]
+  tagsApplied  ConstituentFeedbackTag[]
+  tagsProposed IssueTag[]
+
+  @@index([organizationSlug, outreachId, createdAt])
+  @@index([organizationSlug, scope, createdAt])
+  @@index([organizationSlug, priorityId, createdAt])
+  @@map("feedback_synthesis_run")
+}
+
+model FeedbackTheme {
+  id        String               @id @default(uuid(7))
+  createdAt DateTime             @default(now()) @map("created_at")
+  runId     String               @map("run_id")
+  run       FeedbackSynthesisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rank      Int
+  title     String
+  summary   String               @db.Text
+  details   String               @db.Text
+  // The tag this theme matched or proposed, linked at ingest. A proposed tag
+  // becomes accepted through curation; the link does not change.
+  tagId     String?              @map("tag_id")
+  tag       IssueTag?            @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  members FeedbackThemeMember[]
+  issues  FeedbackThemeIssue[]
+
+  @@index([runId, rank])
+  @@map("feedback_theme")
+}
+
+// A memo can sit in more than one theme: the pipeline splits a compound
+// memo into fragments, and two fragments can land in two groups.
+//
+// A member is a confirmed memo or, on a text send, a constituent's reply.
+// Exactly one of feedbackId / textReplyId is set (DB CHECK
+// feedback_theme_member_source_check, migration
+// feedback_theme_member_text_reply). A surrogate id, because a composite key
+// cannot hold a nullable column; the two unique pairs are what skipDuplicates
+// keys on.
+model FeedbackThemeMember {
+  id          String                 @id @default(uuid(7))
+  themeId     String                 @map("theme_id")
+  theme       FeedbackTheme          @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  feedbackId  String?                @map("feedback_id")
+  feedback    ConstituentFeedback?   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  textReplyId String?                @map("text_reply_id")
+  textReply   PollIndividualMessage? @relation(fields: [textReplyId], references: [id], onDelete: Cascade)
+
+  @@unique([themeId, feedbackId])
+  @@unique([themeId, textReplyId])
+  @@map("feedback_theme_member")
+}
+
+// One issue a member note raised, assigned to one of that note's themes
+// after the run completes. Membership is per note, so this is what lets a
+// theme count only its own issues' stances and asks. An issue sits in at
+// most one theme of a run; that is checked when the rows are written.
+model FeedbackThemeIssue {
+  themeId String                   @map("theme_id")
+  theme   FeedbackTheme            @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  issueId String                   @map("issue_id")
+  issue   ConstituentFeedbackIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@id([themeId, issueId])
+  @@index([issueId])
+  @@map("feedback_theme_issue")
+}

@@ -1,10 +1,11 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   AxiosError,
   AxiosHeaders,
   AxiosRequestConfig,
   AxiosResponse,
 } from 'axios'
+import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
@@ -42,6 +43,7 @@ describe('PeerlyPhoneListService', () => {
   let mockLogger: PinoLogger
   let mockHttpService: {
     get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
@@ -52,6 +54,7 @@ describe('PeerlyPhoneListService', () => {
     mockLogger = createMockLogger()
     mockHttpService = {
       get: vi.fn(),
+      post: vi.fn(),
       validateResponse: vi.fn(),
     }
     mockErrorHandling = {
@@ -62,6 +65,39 @@ describe('PeerlyPhoneListService', () => {
       mockHttpService as unknown as PeerlyHttpService,
       mockErrorHandling as unknown as PeerlyErrorHandlingService,
     )
+  })
+
+  describe('addContactToPhoneList', () => {
+    it('turns a non-cell number into an expected 400', async () => {
+      const error = createAxiosError({ Error: 'Not a cell number.' }, 403)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: expect.objectContaining({
+            expectedRejection: true,
+            httpExceptionClass: BadRequestException,
+          }),
+        }),
+      )
+    })
+
+    it('keeps any other failure a warning the send will judge', async () => {
+      const error = createAxiosError({ Error: 'Internal error' }, 500)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: { expectedRejection: true },
+        }),
+      )
+    })
   })
 
   describe('checkPhoneListStatus', () => {
@@ -93,6 +129,36 @@ describe('PeerlyPhoneListService', () => {
       expect(result).toBeNull()
       expect(mockLogger.warn).toHaveBeenCalled()
       expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it.each([502, 503, 504])(
+      'returns null for a Peerly gateway %i when the caller opts in',
+      async (status) => {
+        mockHttpService.get.mockRejectedValue(
+          createAxiosError({ error: 'Bad gateway' }, status),
+        )
+
+        const result = await service.checkPhoneListStatus('test-token', {
+          gatewayErrorIsPending: true,
+        })
+
+        expect(result).toBeNull()
+        expect(mockLogger.warn).toHaveBeenCalled()
+        expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
+      },
+    )
+
+    it('still throws a Peerly gateway error for a caller that did not opt in', async () => {
+      const error = createAxiosError({ error: 'Bad gateway' }, 502)
+      mockHttpService.get.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Bad gateway'),
+      )
+
+      await expect(service.checkPhoneListStatus('test-token')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
     })
 
     it('delegates non-transient errors to handleApiError', async () => {
@@ -135,6 +201,34 @@ describe('PeerlyPhoneListService', () => {
         BadGatewayException,
       )
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+  describe('uploadTestPhoneList', () => {
+    // Peerly only texts a number that sits on a TEST list, and test mode is
+    // the one upload field that makes a list one. A list uploaded in P2P
+    // mode by mistake is accepted here and refused at send time.
+    it('uploads the number in test mode, in the campaign identity', async () => {
+      mockHttpService.post.mockResolvedValue({ data: {} })
+      mockHttpService.validateResponse.mockReturnValue({
+        Data: { token: 'upload-token' },
+      })
+
+      const token = await service.uploadTestPhoneList({
+        listName: 'GoodParty test list identity-1',
+        phone: '5551234567',
+        identityId: 'identity-1',
+      })
+
+      expect(token).toBe('upload-token')
+      const [path, form] = mockHttpService.post.mock.calls[0] as [
+        string,
+        FormData,
+      ]
+      expect(path).toBe('/phonelists')
+      const body = form.getBuffer().toString()
+      expect(body).toContain('name="suppress_cell_phones"\r\n\r\n6')
+      expect(body).toContain('name="identity_id"\r\n\r\nidentity-1')
+      expect(body).toContain('5551234567')
     })
   })
 })

@@ -73,16 +73,22 @@ const webSearchStub: LlmTool = {
   }),
 }
 
-const buildTools = (ballotData: BallotData | null): Record<string, LlmTool> => {
+const buildTools = (
+  ballotData: BallotData | null,
+  ctx: CampaignManagerContext,
+): Record<string, LlmTool> => {
   const tools: Record<string, LlmTool> = { web_search: webSearchStub }
   if (ballotData !== null) {
     // The REAL tool, so the eval exercises its real description and its
-    // noDataFound derivation, with only the upstream call stubbed.
+    // noDataFound derivation, with only the upstream call stubbed. The filing
+    // window is bound from the case's context, as the handler binds it.
     tools.get_ballot_requirements = buildGetBallotRequirementsTool({
       elections: {
         fetchFilingFeeByRaceHash: () => Promise.resolve(ballotData),
       } as unknown as Pick<ElectionsService, 'fetchFilingFeeByRaceHash'>,
       raceId: 'br-hash-springfield-ward-3',
+      filingPeriodStart: ctx.filingPeriodStart,
+      filingPeriodEnd: ctx.filingPeriodEnd,
     })
   }
   return tools
@@ -102,6 +108,7 @@ const ask = async (
     messages,
     tools: buildTools(
       c.ballotData === undefined ? BALLOT_DATA_FULL : c.ballotData,
+      ctx,
     ),
     temperature: 0,
     maxOutputTokens: 700,
@@ -223,7 +230,7 @@ const CASES: BallotEvalCase[] = [
   {
     name: 'deadline: a passed deadline is flagged, not counted down',
     userMessage: 'When is my filing deadline?',
-    ctx: { filingPeriodEnd: '2026-01-15', daysToFilingDeadline: -40 },
+    ctx: { filingPeriodEnd: '2026-01-15' },
     mustContain: [/passed|behind|already closed/i],
     custom: (r) => {
       expect(
@@ -238,7 +245,6 @@ const CASES: BallotEvalCase[] = [
     ctx: {
       filingPeriodStart: null,
       filingPeriodEnd: null,
-      daysToFilingDeadline: null,
     },
     mustNotContain: [/\b2026-\d{2}-\d{2}\b/],
     custom: (r) => {

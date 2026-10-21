@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SOCIAL_PURPOSES,
   SOCIAL_PURPOSE_LABELS,
   SOCIAL_PURPOSE_NAME_SUGGESTIONS,
   socialPurposeLabel,
   socialPurposeNameSuggestion,
 } from './socialPurposes'
+import { SMS_PURPOSES } from './sms/smsCompose.util'
+
+// "Hear from voters" asks a question, and a post or a text has nobody there
+// to hear the answer. SMS borrows these labels, so it is checked here too.
+describe('the purpose that asks a question', () => {
+  it('is not offered on social', () => {
+    expect(SOCIAL_PURPOSES.map((p) => p.id)).not.toContain('community_input')
+    expect(SOCIAL_PURPOSES.map((p) => p.label)).not.toContain(
+      'Hear from voters',
+    )
+  })
+
+  it('is not offered on SMS', () => {
+    expect(SMS_PURPOSES.map((p) => p.id)).not.toContain('community_input')
+  })
+})
 
 describe('socialPurposeLabel', () => {
   it('falls back for a slug it does not know', () => {

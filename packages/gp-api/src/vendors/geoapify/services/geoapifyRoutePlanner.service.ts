@@ -2,6 +2,11 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
+import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
+import {
+  RoutePlannerResponseSchema,
+  RoutingResponseSchema,
+} from '../schemas/geoapify.schema'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -152,9 +157,17 @@ export class GeoapifyRoutePlannerService {
     // billed call saved, and it reports as `routingWaypoints: 0` exactly as a
     // failed one does, because in both cases nothing was charged.
     fetchGeometry?: boolean
+    organizationSlug?: string
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
-    const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
+    const planner = new sdk.RoutePlanner({
+      apiKey: this.apiKey(),
+      baseUrl: vendorBaseUrl(
+        'geoapify',
+        'https://api.geoapify.com',
+        args.organizationSlug,
+      ),
+    })
     planner.setMode(args.mode)
     const agent = new sdk.Agent()
     if (args.agent.start_location) {
@@ -195,6 +208,14 @@ export class GeoapifyRoutePlannerService {
       throw new BadGatewayException('Route optimization failed')
     }
     recordGeoapifyCall('route_planner', 'success')
+
+    const parseResult = RoutePlannerResponseSchema.safeParse(result.getRaw())
+    if (!parseResult.success) {
+      this.logger.warn(
+        { err: parseResult.error },
+        'Geoapify routeplanner response failed schema validation (observe)',
+      )
+    }
 
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
@@ -285,6 +306,110 @@ export class GeoapifyRoutePlannerService {
       routingWaypoints: path.billedWaypoints,
       pathGeometry: path.geometry,
     }
+  }
+
+  // The street path through waypoints in an order we already chose, for a
+  // caller whose planner jobs are not the points it walks (door knocking
+  // plans block faces, then sequences the doors itself). Same Routing API
+  // and the same best-effort contract as fetchPathGeometry: null legs mean
+  // the call failed or came back unreadable, and the caller keeps its own.
+  async routeThrough(args: {
+    mode: 'walk' | 'drive'
+    waypoints: LngLat[]
+    organizationSlug?: string
+  }): Promise<{
+    geometry: RoutePathGeometry | null
+    legs: Array<{ seconds: number; meters: number }> | null
+    billedWaypoints: number
+  }> {
+    if (args.waypoints.length < 2) {
+      return { geometry: null, legs: null, billedWaypoints: 0 }
+    }
+    const baseUrl = vendorBaseUrl(
+      'geoapify',
+      'https://api.geoapify.com',
+      args.organizationSlug,
+    )
+    const url = new URL(`${baseUrl}/v1/routing`)
+    url.searchParams.set(
+      'waypoints',
+      args.waypoints.map(([lng, lat]) => `${lat},${lng}`).join('|'),
+    )
+    url.searchParams.set('mode', args.mode)
+    url.searchParams.set('apiKey', this.apiKey())
+
+    let body: unknown
+    try {
+      body = await raceWithDeadline<unknown>(
+        fetch(url).then((response) => {
+          if (!response.ok) {
+            throw new Error(`Routing API answered ${response.status}`)
+          }
+          return response.json()
+        }),
+        'Routing request timed out',
+      )
+    } catch (error) {
+      recordGeoapifyCall('routing', 'failed')
+      this.logger.warn(
+        { message: error instanceof Error ? error.message : String(error) },
+        'Geoapify door-order routing failed; route ships without a path',
+      )
+      return { geometry: null, legs: null, billedWaypoints: 0 }
+    }
+    recordGeoapifyCall('routing', 'success')
+    const billedWaypoints = args.waypoints.length
+
+    const routingParse = RoutingResponseSchema.safeParse(body)
+    if (!routingParse.success) {
+      this.logger.warn(
+        { err: routingParse.error },
+        'Geoapify routing response failed schema validation (observe)',
+      )
+    }
+
+    const feature =
+      typeof body === 'object' &&
+      body !== null &&
+      'features' in body &&
+      Array.isArray(body.features)
+        ? (body.features[0] as unknown)
+        : undefined
+    if (typeof feature !== 'object' || feature === null) {
+      return { geometry: null, legs: null, billedWaypoints }
+    }
+    const geometry =
+      'geometry' in feature && isRoutePathGeometry(feature.geometry)
+        ? feature.geometry
+        : null
+    const rawLegs =
+      'properties' in feature &&
+      typeof feature.properties === 'object' &&
+      feature.properties !== null &&
+      'legs' in feature.properties &&
+      Array.isArray(feature.properties.legs)
+        ? (feature.properties.legs as unknown[])
+        : []
+    const legs = rawLegs.map((leg) => ({
+      seconds:
+        typeof leg === 'object' &&
+        leg !== null &&
+        'time' in leg &&
+        typeof leg.time === 'number'
+          ? Math.round(leg.time)
+          : NaN,
+      meters:
+        typeof leg === 'object' &&
+        leg !== null &&
+        'distance' in leg &&
+        typeof leg.distance === 'number'
+          ? Math.round(leg.distance)
+          : NaN,
+    }))
+    const legsUsable =
+      legs.length === args.waypoints.length - 1 &&
+      legs.every((leg) => Number.isFinite(leg.seconds + leg.meters))
+    return { geometry, legs: legsUsable ? legs : null, billedWaypoints }
   }
 
   // Best-effort: the ordered plan is the critical artifact; a geometry

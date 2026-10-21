@@ -72,12 +72,17 @@ export const SERVE_SMS_SCHEDULE_COPY = {
 }
 
 interface ServeSmsScheduleStepProps {
-  name: string
-  onNameChange: (value: string) => void
+  // Omitted by a flow that names the row itself (polls): the field is then
+  // not rendered rather than shown and ignored.
+  name?: string
+  onNameChange?: (value: string) => void
   // Already stamped to the fixed send hour by this step's own onChange, so
   // the flow reads it as the scheduled moment without resolving a slot.
   date: Date | undefined
   onDateChange: (date: Date | undefined) => void
+  // More business days of lead than the window gives every send, for a
+  // send the server holds to a later first date (a priority's round 2).
+  minLeadBusinessDays?: number
 }
 
 export const ServeSmsScheduleStep = ({
@@ -85,6 +90,7 @@ export const ServeSmsScheduleStep = ({
   onNameChange,
   date,
   onDateChange,
+  minLeadBusinessDays,
 }: ServeSmsScheduleStepProps) => {
   // Frozen for the life of the step, matching PollScheduledDateSelector: a
   // re-render must not shift the floor under a date already picked.
@@ -107,21 +113,23 @@ export const ServeSmsScheduleStep = ({
         body={SERVE_SMS_SCHEDULE_COPY.body}
       />
 
-      <div className="space-y-2">
-        <Label htmlFor="serve-sms-name">
-          {SERVE_SMS_SCHEDULE_COPY.nameLabel}
-        </Label>
-        <Input
-          id="serve-sms-name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder={SERVE_SMS_SCHEDULE_COPY.namePlaceholder}
-          maxLength={60}
-        />
-        <p className="text-sm text-muted-foreground">
-          {SERVE_SMS_SCHEDULE_COPY.nameHint}
-        </p>
-      </div>
+      {name !== undefined && onNameChange && (
+        <div className="space-y-2">
+          <Label htmlFor="serve-sms-name">
+            {SERVE_SMS_SCHEDULE_COPY.nameLabel}
+          </Label>
+          <Input
+            id="serve-sms-name"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder={SERVE_SMS_SCHEDULE_COPY.namePlaceholder}
+            maxLength={60}
+          />
+          <p className="text-sm text-muted-foreground">
+            {SERVE_SMS_SCHEDULE_COPY.nameHint}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>{SERVE_SMS_SCHEDULE_COPY.dateLabel}</Label>
@@ -130,7 +138,11 @@ export const ServeSmsScheduleStep = ({
           onChange={(picked) =>
             onDateChange(picked ? serveSmsScheduledAt(picked) : undefined)
           }
-          disabled={(day) => getDisabledState(day, now).disabled}
+          disabled={(day) =>
+            getDisabledState(day, now).disabled ||
+            (minLeadBusinessDays !== undefined &&
+              day <= addBusinessDays(now, minLeadBusinessDays))
+          }
           startMonth={now}
           endMonth={maxDate}
         />

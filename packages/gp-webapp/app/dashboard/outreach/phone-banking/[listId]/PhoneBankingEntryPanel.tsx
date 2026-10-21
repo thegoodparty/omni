@@ -1,5 +1,6 @@
 'use client'
 
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useEffect } from 'react'
 import {
   type PhoneBankingCallResult,
@@ -32,8 +33,12 @@ import {
   cn,
 } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import PhoneBankingNotes from './PhoneBankingNotes'
-import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
+import PhoneBankingOutcomeForm, {
+  type CallDraft,
+} from './PhoneBankingOutcomeForm'
+import type { UnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
 import {
   OUTCOME_DOT_CLASS,
   hasNoLiveEnrichment,
@@ -55,7 +60,11 @@ interface PhoneBankingEntryPanelProps {
   // Passed straight through to the outcome form, which asks a different
   // engaged-call question on each surface.
   isServe: boolean
+  // The list is civic panel members only, so the form asks whether they want
+  // to stay on the panel. Passed straight through like isServe.
+  civicPanelOnly?: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
+  callDrafts?: UnsavedDrafts<CallDraft>
 }
 
 // Either surface's contact-name token: a Serve script says "[constituent
@@ -111,8 +120,14 @@ export default function PhoneBankingEntryPanel({
   open,
   onOpenChange,
   isServe,
+  civicPanelOnly = false,
   onSaved,
+  callDrafts,
 }: PhoneBankingEntryPanelProps): React.JSX.Element {
+  // The step drawer's 92dvh and handle ride issue capture's flag; off, the
+  // panel keeps main's. Read without exposure: the capture card is the
+  // treatment.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const isMobile = useIsMobile()
   const person =
     entry.persons.find((candidate) => candidate.personId === activePersonId) ??
@@ -122,6 +137,7 @@ export default function PhoneBankingEntryPanel({
   useEffect(() => {
     if (!open || !viewedPersonId) return
     trackEvent(EVENTS.Outreach.PhoneBanking.ContactViewed, {
+      product: outreachProduct(isServe),
       listId,
       contactId: viewedPersonId,
       listRank: entry.seq,
@@ -284,10 +300,13 @@ export default function PhoneBankingEntryPanel({
           entryId={entry.id}
           entrySeq={entry.seq}
           personId={person.personId}
+          personName={person.name}
           interaction={person.interaction}
           householdHasOthersUnlogged={householdHasOthersUnlogged}
           isServe={isServe}
+          civicPanelOnly={civicPanelOnly}
           onSaved={onSaved}
+          drafts={callDrafts}
         />
       </div>
     </div>
@@ -296,8 +315,16 @@ export default function PhoneBankingEntryPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="flex h-[85dvh] max-h-[85dvh] flex-col overflow-hidden p-0">
-          <DrawerHandle />
+        <DrawerContent
+          className={
+            issueCaptureOn
+              ? 'flex h-[92dvh] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:max-h-[92dvh]'
+              : 'flex h-[85dvh] max-h-[85dvh] flex-col overflow-hidden p-0'
+          }
+        >
+          <DrawerHandle
+            className={issueCaptureOn ? 'mt-3 h-1.5 w-[120px]' : undefined}
+          />
           <DrawerHeader className="sr-only">
             <DrawerTitle>{person.name}</DrawerTitle>
           </DrawerHeader>

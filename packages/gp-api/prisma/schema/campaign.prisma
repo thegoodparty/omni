@@ -45,7 +45,6 @@ model Campaign {
   campaignPositions        CampaignPosition[]
   campaignPlanVersion      CampaignPlanVersion?
   aiChats                  AiChat[]
-  ecanvasser               Ecanvasser?
   completedTaskIds         String[]                @default([]) @map("completed_task_ids")
   hasFreeTextsOffer        Boolean                 @default(false) @map("has_free_texts_offer")
   freeTextsOfferRedeemedAt DateTime?               @map("free_texts_offer_redeemed_at")
@@ -68,6 +67,7 @@ model Campaign {
   raceOpponentFieldAnalysis RaceOpponentFieldAnalysis?
   raceOpponentStandoutActions RaceOpponentStandoutAction[]
   peerlyPhoneLists          PeerlyPhoneList[]
+  experimentAssignments     CampaignExperimentAssignment[]
 
   @@index([userId])
   @@map("campaign")

@@ -4,6 +4,7 @@
 // entry into the 'use client' ratchet is needed for it.
 import { ChannelCard } from '@styleguide'
 import {
+  ClipboardListIcon,
   DoorOpenIcon,
   HeadsetIcon,
   MessageSquareIcon,
@@ -35,17 +36,10 @@ interface ServeChannelDefinition {
 // route, and the create flow lives inside it, opening itself on an org with
 // no lists.
 //
-// That route is also why its card is conditional. Win has a control arm behind
-// `native-door-knocking` — the eCanvasser dashboard, which is what the route
-// renders with the flag off — but Serve never had one: door knocking reached
-// this rail already native, so for a flag-off Serve org the card's only
-// destination is a Win-only legacy screen about an integration they have not
-// connected.
-//
-// SMS is gated too, by `serve-sms-outreach`, but differently: the page reads
-// that flag and passes a handler only once it has resolved on, so this stays
-// hookless. Both cards are hidden rather than disabled, for the same reason
-// the placeholder was removed — a dead tile reads as broken.
+// SMS is gated by `serve-sms-outreach`: the page reads that flag and passes a
+// handler only once it has resolved on, so this stays hookless. The card is
+// hidden rather than disabled, for the same reason the placeholder was
+// removed — a dead tile reads as broken.
 const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'socialMedia',
@@ -65,6 +59,14 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     icon: <MessageSquareIcon />,
     iconClassName: 'bg-info-light',
   },
+  // Behind `serve-self-serve-polls`, switched off the same way SMS is: the
+  // page passes a handler only once the flag has resolved on.
+  {
+    key: 'poll',
+    label: 'Poll / Survey',
+    icon: <ClipboardListIcon />,
+    iconClassName: 'bg-brand-bright-yellow-200',
+  },
   {
     key: 'phoneBanking',
     label: 'Phone banking',
@@ -75,7 +77,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     key: 'doorKnocking',
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconClassName: 'bg-primary-light',
+    iconClassName: 'bg-brand-halo-green-200',
   },
 ]
 
@@ -88,9 +90,8 @@ interface ServeChannelCardsProps {
   // outside the 'use client' ratchet. Undefined means "no SMS on this
   // render" — flag off, or still resolving.
   onSmsClick?: () => void
-  // Off until `native-door-knocking` resolves on, so an unsettled read shows
-  // two cards rather than a third that leads somewhere wrong.
-  showDoorKnocking: boolean
+  // Same contract for the Poll / Survey card and `serve-self-serve-polls`.
+  onPollClick?: () => void
 }
 
 const ServeChannelCards = ({
@@ -98,21 +99,19 @@ const ServeChannelCards = ({
   onPhoneBankingClick,
   onDoorKnockingClick,
   onSmsClick,
-  showDoorKnocking,
+  onPollClick,
 }: ServeChannelCardsProps): React.JSX.Element => {
   const handlers: Record<string, (() => void) | undefined> = {
     socialMedia: onSocialClick,
     sms: onSmsClick,
+    poll: onPollClick,
     phoneBanking: onPhoneBankingClick,
     doorKnocking: onDoorKnockingClick,
   }
-  // Two independent gates: a channel needs a handler at all (which is how
-  // SMS is switched off, since the page omits it until its flag resolves on),
-  // and door knocking additionally needs its own flag.
-  const channels = SERVE_CHANNELS.filter(
-    (channel) =>
-      Boolean(handlers[channel.key]) &&
-      (channel.key !== 'doorKnocking' || showDoorKnocking),
+  // One gate: a channel needs a handler at all, which is how SMS is switched
+  // off, since the page omits it until its flag resolves on.
+  const channels = SERVE_CHANNELS.filter((channel) =>
+    Boolean(handlers[channel.key]),
   )
   return (
     <section className="space-y-3">
@@ -124,20 +123,21 @@ const ServeChannelCards = ({
           Reach your constituents through these channels.
         </p>
       </div>
-      {/* One column per card, and the width cap grows with the count. Two
-          flags now move that count — SMS on, door knocking off — so it can
-          be anywhere from two to four. At `max-w-md` a third tile is
-          narrower than the ~220px the candidate grid gives, and these are
-          the same tiles; `max-w-3xl`/3 and `max-w-4xl`/4 both land near it,
-          so the tiles stay the same size whichever flags this org has. Two
-          cards keep the three-column width rather than stretching to fill
-          the cap. Both class strings are written out in full because
-          Tailwind scans source text and never sees an interpolated one. */}
+      {/* One column per card, and the width cap grows with the count. One
+          flag moves that count — SMS on or off — so it is three or four. At
+          `max-w-md` a third tile is narrower than the ~220px the candidate
+          grid gives, and these are the same tiles; `max-w-3xl`/3 and
+          `max-w-4xl`/4 both land near it, so the tiles stay the same size
+          whichever way that flag resolves. Both class strings are written
+          out in full because Tailwind scans source text and never sees an
+          interpolated one. */}
       <div
         className={
-          channels.length > 3
-            ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
-            : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
+          channels.length > 4
+            ? 'grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-5'
+            : channels.length > 3
+              ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
+              : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
         }
       >
         {channels.map((channel) => (

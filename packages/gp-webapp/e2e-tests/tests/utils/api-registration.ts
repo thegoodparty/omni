@@ -113,16 +113,24 @@ const bootstrapTestUser = async (
   options?: TestUserOptions,
 ): Promise<BootstrappedUser> => {
   if (!options?.isolated && cachedUser) {
+    // The user is cached per worker, but every test gets a fresh browser
+    // context with no Clerk session. Without signing this page in, the
+    // middleware's Clerk handshake bounces the first dashboard navigation to
+    // /login, so only the first cached-user test on each worker was ever
+    // authenticated. The user is already provisioned, so the ordering
+    // contract below still holds.
+    await signInUser(page, cachedUser.user.email)
     return cachedUser
   }
 
   const generated = TestDataHelper.generateTestUserData()
+  const email = options?.user?.email ?? generated.email
   const password = `Test${randomUUID()}!`
   const zip = options?.race?.zip || generated.zipCode
 
   const clerkUser = await clerkThrottle(() =>
     clerkBackend.users.createUser({
-      emailAddress: [generated.email],
+      emailAddress: [email],
       password,
       firstName: generated.firstName,
       lastName: generated.lastName,
@@ -174,7 +182,7 @@ const bootstrapTestUser = async (
   }
 
   if (options?.skipCampaignCreation) {
-    await signInUser(page, generated.email)
+    await signInUser(page, email)
     if (!options?.isolated) {
       cachedUser = result
     }
@@ -259,7 +267,7 @@ const bootstrapTestUser = async (
     client.post('/v1/campaigns/launch', {}),
   )
 
-  await signInUser(page, generated.email)
+  await signInUser(page, email)
 
   return result
 }
@@ -307,6 +315,16 @@ export const authenticateTestUser = async (
     {
       name: 'user',
       value: JSON.stringify(user),
+      domain: COOKIE_DOMAIN,
+      path: '/',
+      sameSite: 'Lax',
+    },
+    // The cookie notice floats above the dashboard's chat dock and intercepts
+    // clicks on whatever page control sits under it. It reads this cookie
+    // once on mount, so seeding it keeps the notice from ever rendering.
+    {
+      name: 'cookiesAccepted',
+      value: 'true',
       domain: COOKIE_DOMAIN,
       path: '/',
       sameSite: 'Lax',

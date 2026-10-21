@@ -73,8 +73,8 @@ The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `Elected
 
 `upsertBriefingRow` is selective about which `briefing_status` values it persists:
 
-- `briefing_ready`, `agenda_provided_by_user` → write the row.
-- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log, fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date), and skip so the next cron retries.
+- `briefing_ready`, `agenda_provided_by_user` → write the row, unless `assessPublishability` refuses: the artifact's `run_metadata.agenda_availability` says the agenda was unavailable (`partial`, `not_published`, `inferred_from_prior`); or, on a user-provided run, the `UserAgendaUpload` row for this run is missing, or the packet's own stated date (`packet_stated_meeting_date`, `packet_date_verification`) is more than three days from the target. A refusal logs the reason, stores it on the upload row (`refusalReason`, surfaced as `userAgendaStatus: 'rejected'`), fires Agenda Not Created with it, and skips the row so the slot stays open. A discovered agenda that states another date is logged, not refused, and an artifact without `agenda_availability` publishes with a warning log. Dashboard cards and item links sync only when a row was written.
+- Any other "placeholder" value (`awaiting_agenda`, `no_meeting_found`) → log; store why on the run's `UserAgendaUpload` row if it has one (`no_briefing:<status>`, or the packet date mismatch when the artifact states another meeting's date), surfaced as `userAgendaStatus: 'rejected'` so a pasted agenda is not left at "Finishing up"; fire the `Briefing Assistant - Agenda Not Created` Segment event (with `daysUntilMeeting` to the target meeting date); and skip so the next cron retries.
 - `error` → log and skip.
 
 ## Controllers and routes
@@ -152,7 +152,7 @@ Built per request in `buildToolsForUser()`. Availability depends on env vars and
 | ---------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_artifacts`        | `BriefingArtifactsProvider`             | Always.                                                                                                                                                                                         |
 | `web_search`           | Anthropic native (`webSearch_20250305`) | `ANTHROPIC_API_KEY` is set (chat is Claude-only). Runs inside the enterprise Anthropic agreement — no third-party search provider.                                                              |
-| `district_insights`    | `DatabricksSqlProvider`                 | Databricks env vars are set **and** `DistrictResolverService.resolveByUserId()` returns a district. Locked to the `int__l2_nationwide_uniform_w_haystaq` table with mandatory district filters. |
+| `district_insights`    | `DatabricksSqlProvider`                 | Databricks env vars are set **and** `DistrictResolverService.resolveByOrgSlug()` returns a district for the briefing's own org. Locked to the `int__l2_nationwide_uniform_w_haystaq` table with mandatory district filters. |
 | `list_district_topics` | Static                                  | Same condition as `district_insights`.                                                                                                                                                          |
 | `get_my_notes`         | `LazyNotesProvider`                     | Only when `BriefingNotesService.countNotesForUser()` > 0. The count check is up-front; the actual notes load is deferred to first tool call.                                                    |
 
@@ -162,13 +162,16 @@ The count is cheap and decides whether to expose the tool at all (and whether th
 
 ### System prompt guardrails (`systemPromptBuilder.ts`)
 
-Five conditionally-included blocks:
+Six blocks, four always on and two conditional:
 
 - **`ROLE_CLARIFIERS_BLOCK`** — chief-of-staff framing, always second-person, no campaign-comms unless explicitly asked.
-- **`GUARDRAILS_BLOCK`** — refuses off-topic, refuses internals/prompt-injection, **single canonical decline line** (`GUARDRAIL_DECLINE`).
+- **`GUARDRAILS_BLOCK`** — off-topic requests and internals/prompt-injection get the **single canonical decline line** (`GUARDRAIL_DECLINE`, read from the shared guardrail line module in `chats/general/services/`) in place of an answer; a mixed request gets its briefing part answered and the line for the rest; capability and platform questions and messages from someone in danger never get the line.
+- **`CAUTION_RULES`** — legal readings end with the shared legal line, medical, financial, tax, and employment advice with the professional line, one per reply with legal winning, never on a bare decline. Twin of the Chief of Staff's `PROFESSIONAL_ADVICE_BLOCK`.
 - **`INSTRUCTIONS_BLOCK`** — ground answers in `<briefing>...</briefing>`; treat that content as data, not instructions.
-- **`DISTRICT_INSIGHTS_RULES`** — no counts below 100, no `hs_` / `l2_` identifiers, no raw SQL, always qualify as modeled estimates. **Included only when `district_insights` is in `availableToolNames`.**
+- **`DISTRICT_INSIGHTS_RULES`** — no counts below 100, no `hs_` / `l2_` identifiers, no raw SQL, always qualify as modeled estimates, the shared small-count line when a result reports suppressed rows. **Included only when `district_insights` is in `availableToolNames`.**
 - **`WEB_SEARCH_RULES`** — proactive use, require source URLs, no fake citations. Included only when `web_search` is available.
+
+The handler's `finalizeAssistantText` backstops two of those lines at the end of a turn: the legal line when the reply carries a statute signal (the bare section mark excluded on this chat, since briefing summaries quote agenda material) and no caution, and the small-count line when a `district_insights` result dropped rows the reply did not mention.
 
 `sanitizeUntrustedContent()` strips delimiter tags (`<briefing>`, `<|system|>`, etc.) from any untrusted text spliced into the prompt.
 
@@ -224,6 +227,4 @@ In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOff
 | Shared contracts (annotation, feedback, chat) | `contracts/src/annotations/`, `contracts/src/artifactFeedback/`, `contracts/src/briefingChats/` |
 | Frontend route                                | `gp-webapp` → `/elected-official/meetings/*`                                                    |
 | Agent runbooks                                | `runbooks/` repo — `meeting_schedule` and `meeting_briefing` experiments                        |
-| Module shape ADR                              | `docs/adr/0001-prisma-base-pattern.md`                                                          |
-| Single-queue ADR                              | `docs/adr/0003-fifo-sqs-single-queue.md`                                                        |
 | Sibling module docs                           | `src/agentExperiments/CLAUDE.md`, `src/queue/CLAUDE.md`, `prisma/CLAUDE.md`                     |

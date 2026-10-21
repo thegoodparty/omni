@@ -48,10 +48,15 @@ The unique constraint is the lock: the first insert wins, the losers get a uniqu
 violation and skip. Durable and pooling-safe — unlike a session advisory lock it
 cannot leak and block a future slot.
 
-| Slot     | Claim               | Complete              | Stale window |
-| -------- | ------------------- | --------------------- | ------------ |
-| UTC day  | `tryClaimDailyRun`  | `markCompleted`       | 6h           |
-| UTC hour | `tryClaimHourlyRun` | `markHourlyCompleted` | 30m          |
+| Slot            | Claim                  | Complete                 | Stale window |
+| --------------- | ---------------------- | ------------------------ | ------------ |
+| UTC day         | `tryClaimDailyRun`     | `markCompleted`          | 6h           |
+| UTC hour        | `tryClaimHourlyRun`    | `markHourlyCompleted`    | 30m          |
+| UTC ten minutes | `tryClaimTenMinuteRun` | `markTenMinuteCompleted` | 5m           |
+| UTC minute      | `tryClaimMinuteRun`    | `markMinuteCompleted`    | 30s          |
+
+Every claim is a `cron_run` row. A job that fires every minute and is
+usually idle should check for work first and claim only when there is some.
 
 **Match the claim to the schedule.** Wrapping a sub-daily `@Cron` in
 `tryClaimDailyRun` silently throttles the job to one run per UTC day — the extra
@@ -67,6 +72,17 @@ Reference implementations, all clean examples of the shape below:
   flag and a `finally`-sealed claim
 - `communityIssues/services/communityIssueDispatch.service.ts` — two job names
   off two crons in one service
+- `constituentFeedback/services/synthesisStaleRunSweep.service.ts`
+  (`feedbackSynthesisStaleRuns`, `*/10`): ten-minute slot; fails issue
+  capture synthesis runs stuck `running` for 30 minutes. No deploy
+  allowlist: one update against the deploy's own database, no vendor call
+- `constituentFeedback/services/pendingTranscription.service.ts`
+  (`feedbackPendingTranscription`, every minute): minute slot, claimed only
+  when an offline memo is waiting on its transcript or a live memo's
+  confirm step was abandoned two hours ago; starts, polls or restarts the
+  batch Transcribe job, extracts and confirms the result, and confirms the
+  abandoned memos. No deploy allowlist: it calls Transcribe only for memos
+  recorded on the deploy's own database
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
@@ -163,6 +179,15 @@ async sweepUnsubmittedUsecases() {
   }
 }
 ```
+
+### Extracted bodies and the test-fixtures run-job
+
+The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
+the non-prod test-fixtures run-job endpoint can call it without the lock. Keep
+the claim and `markHourlyCompleted` in the `@Cron` wrapper; only the fixture
+path may skip it. Same idea for queue-driven jobs: `checkUsecaseActivation`
+(the `TCR_COMPLIANCE_STATUS_CHECK` body) and `cvStatusPoll.runFreshScan` are
+public so run-job can call them synchronously, scoped to the caller's campaign.
 
 ## Checklist for a new job
 

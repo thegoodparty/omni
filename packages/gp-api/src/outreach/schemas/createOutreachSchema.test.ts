@@ -8,6 +8,7 @@ const base = {
   outreachType: OutreachType.p2p,
   phoneListId: 10,
   date: '2026-08-02T04:00:00.000Z',
+  draft: true,
 }
 
 describe('CreateOutreachSchema script newline normalization', () => {
@@ -32,5 +33,24 @@ describe('CreateOutreachSchema script newline normalization', () => {
     expect(() =>
       CreateOutreachSchema.schema.parse({ ...base, script }),
     ).toThrow()
+  })
+})
+
+describe('CreateOutreachSchema p2p phoneListId requirement (Win SMS hold)', () => {
+  // A valid p2p draft body minus phoneListId. The schema itself never
+  // requires phoneListId (it has no user to evaluate the per-user
+  // win_sms_hold_billing flag against) — OutreachService.create is the
+  // single enforcement point; see outreach.service.test.ts.
+  const draftBody = {
+    campaignId: 1,
+    outreachType: OutreachType.p2p,
+    script: 'Hi {first_name}, Reply STOP to opt out. Paid for by X.',
+    date: '2026-08-02T04:00:00.000Z',
+    draft: true,
+  }
+
+  it('accepts a p2p draft with no phoneListId (pay before build)', () => {
+    const parsed = CreateOutreachSchema.schema.parse(draftBody)
+    expect(parsed.phoneListId).toBeUndefined()
   })
 })

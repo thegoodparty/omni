@@ -96,8 +96,8 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
 // The order the walk states its outcomes in — the canvas's `PROGRESS_ORDER`
 // (line 681 of `Voter Outreach.dc.html`): the two answers a door can give
 // first, then still-to-knock, then the ways a door can fail to answer.
-// `not_a_voter` is ours (ADR 0008) and has no canvas position, so it goes last,
-// beside the other outcomes that are not a stance.
+// `not_a_voter` is ours and has no canvas position, so it goes last, beside the
+// other outcomes that are not a stance.
 export const PROGRESS_LEGEND_ORDER: DoorKnockStatus[] = [
   'supporter',
   'non_supporter',
@@ -279,12 +279,13 @@ const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
 // The one place a stop's color is decided, so the walk list and the map pins
 // can't drift apart.
 //
-// ADR 0007 and 0008. Flagged residents are left out because `unknown` outranks
-// every other status above: one do-not-knock or moved-away neighbor would
-// otherwise hold the stop on the grey "still to knock" color however much of the
-// household had been logged. A stop with nobody left to knock rolls up from an
-// empty list, so it stays `unknown` — every surface pairs the color with the
-// marker below, which is what tells those two cases apart.
+// Do-not-knock and not-a-voter. Flagged residents are left out because
+// `unknown` outranks every other status above: one do-not-knock or moved-away
+// neighbor would otherwise hold the stop on the grey "still to knock" color
+// however much of the household had been logged. A stop with nobody left to
+// knock rolls up from an empty list, so it stays `unknown` — every surface
+// pairs the color with the marker below, which is what tells those two cases
+// apart.
 export const rollupStopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
   rollupStatuses(
     stop.addresses.flatMap((address) =>
@@ -313,12 +314,12 @@ export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
 // makes the same argument about for doors.
 //
 // The denominator is `knockableTargets`, like every people figure in this
-// feature: ADR 0007 do-not-knock and ADR 0008 not-a-voter residents are dropped,
-// so these sum to the People stat rather than to a wider population, and the
-// non-`unknown` buckets sum to the people-logged figure. Every status is
-// present at zero, because the vocabulary is fixed and "nobody refused" is an
-// answer — a bucket that vanishes when it empties would make the table's own
-// shape a fact about the list.
+// feature: do-not-knock and not-a-voter residents are dropped, so these sum to
+// the People stat rather than to a wider population, and the non-`unknown`
+// buckets sum to the people-logged figure. Every status is present at zero,
+// because the vocabulary is fixed and "nobody refused" is an answer — a bucket
+// that vanishes when it empties would make the table's own shape a fact about
+// the list.
 //
 // It buckets the WHOLE vocabulary, both surfaces' — nine now rather than seven
 // — while each surface renders the seven its own order names. That is not a
@@ -329,14 +330,14 @@ export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
 // `progressLegendOrder`), which is the same handful of doors named there.
 //
 // `not_a_voter` is the one bucket whose membership is partial, and deliberately
-// so. ADR 0008's follow-up is optional, so a resident logged not-a-voter at the
-// door carries the status immediately and a `notAVoterReason` only once someone
-// answers "what happened?" — which is what removes them from `knockableTargets`
-// entirely. So this bucket counts exactly the doors where that outcome was
-// recorded and the reason has not been given yet, and answering it moves that
-// resident out of the whole table rather than into another row. Reporting them
-// anywhere else would need a second, wider denominator on a surface whose point
-// is that one denominator holds.
+// so. The not-a-voter follow-up is optional, so a resident logged not-a-voter
+// at the door carries the status immediately and a `notAVoterReason` only once
+// someone answers "what happened?" — which is what removes them from
+// `knockableTargets` entirely. So this bucket counts exactly the doors where
+// that outcome was recorded and the reason has not been given yet, and
+// answering it moves that resident out of the whole table rather than into
+// another row. Reporting them anywhere else would need a second, wider
+// denominator on a surface whose point is that one denominator holds.
 //
 // Nothing here re-derives a status. `knockStatus` arrives already
 // override-aware from gp-api's `doorKnockingStatus.service.ts`; a client twin of
@@ -353,7 +354,7 @@ export const knockStatusCounts = (
   return counts
 }
 
-// ADR 0008. The one-line instruction paper carries, worded apart on purpose.
+// Not-a-voter. The one-line instruction paper carries, worded apart on purpose.
 // "Moved away" is about an address, so it only has to explain why the door is
 // dropped; "deceased" is about a person at a door the rest of the household
 // still answers, so it has to say what not to do and not merely what happened.
@@ -364,13 +365,13 @@ const NOT_A_VOTER_INSTRUCTIONS: Record<NotAVoterReason, string> = {
   deceased: 'Deceased — skip this resident, and do not ask for them by name',
 }
 
-// ADR 0007 and 0008. What paper prints where the tick-boxes would go. Both
-// paper surfaces read this one function: they freeze at print time and are the
-// only surfaces used without the app, so a flagged resident has to carry the
-// instruction on the page rather than be quietly dropped from it — and the two
-// formats cannot afford to say it differently. Do-not-knock is checked first
-// because it is about the door, so it outranks a reason about one of the people
-// behind it.
+// Do-not-knock and not-a-voter. What paper prints where the tick-boxes would
+// go. Both paper surfaces read this one function: they freeze at print time and
+// are the only surfaces used without the app, so a flagged resident has to
+// carry the instruction on the page rather than be quietly dropped from it —
+// and the two formats cannot afford to say it differently. Do-not-knock is
+// checked first because it is about the door, so it outranks a reason about one
+// of the people behind it.
 export const skipInstruction = (target: RoutePayloadTarget): string | null =>
   target.doNotKnock
     ? 'Do not knock — skip this door'
@@ -380,11 +381,11 @@ export const skipInstruction = (target: RoutePayloadTarget): string | null =>
 
 // The short marker a flagged resident carries wherever they are listed beside
 // other people — the stop rows, the resident switcher, the household roster.
-// ADR 0007 and 0008: it REPLACES the knock status rather than sitting beside
-// it, because a flagged resident knocked before the flag was set still carries
-// a status, and "Do not knock" next to "Support unknown" reads as two different
-// answers to the same question. Do-not-knock wins a tie: it is an instruction
-// about the door, not a fact about the person behind it.
+// Do-not-knock and not-a-voter: it REPLACES the knock status rather than
+// sitting beside it, because a flagged resident knocked before the flag was set
+// still carries a status, and "Do not knock" next to "Support unknown" reads as
+// two different answers to the same question. Do-not-knock wins a tie: it is an
+// instruction about the door, not a fact about the person behind it.
 //
 // `NOT_A_VOTER_LABELS` is the CRM activity feed's vocabulary, reused here on
 // purpose — the same flag should not be called two things in one product.

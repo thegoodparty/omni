@@ -4,18 +4,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Button,
+  IconButton,
   Sheet,
   SheetBody,
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
   Skeleton,
 } from '@styleguide'
-import { ListChecksIcon } from '@styleguide/components/ui/icons'
+import Link from 'next/link'
 import {
+  ArrowLeftIcon,
+  ChartColumnIcon,
+  ListChecksIcon,
+  ListIcon,
+} from '@styleguide/components/ui/icons'
+import {
+  GET_ANSWERS_MESSAGE,
+  isGetAnswersMessage,
+  isReportBackMessage,
+  isToolRefusal,
   parsePriorityStatus,
+  reportBackMessage,
   type ChatAnchor,
+  type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import {
@@ -25,27 +37,66 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsTextLength } from '../../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../../shared/agent-chat/turnBlocks'
+import {
+  createWidgetRegistry,
+  type WidgetInstance,
+} from '../../../shared/agent-chat/widgetRegistry'
+import {
+  cardWidgetTools,
+  type CardWidgetContext,
+} from '../../../shared/agent-chat/cards/cardWidgets'
+import {
+  ProposalFlowsProvider,
+  useOnProposalSent,
+} from '../../../shared/agent-chat/cards/proposalFlows'
+import {
+  isProposalSentMessage,
+  proposalSentMessage,
+} from '../../../shared/agent-chat/cards/proposalPresentation'
+import {
+  CardDetailProvider,
+  CardDetailSheetHost,
+} from '../../../shared/agent-chat/cards/cardDetail'
+import {
+  CLARIFY_TOOL,
+  clarifyWidgetTool,
+  type ClarifyWidgetContext,
+} from '../../../shared/agent-chat/clarifyWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackChatMessageSent } from '../../../shared/agent-chat/chatAnalytics'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { toChatCard } from '../data/cards'
-import { fetchPriorityStatus } from '../data/priority-api'
-import { replayStatusMarkers } from '../data/statusReplay'
+import {
+  fetchPriorityReadStatus,
+  fetchPriorityStatus,
+} from '../data/priority-api'
+import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
 import {
   STATUS_TOOL,
   applyStatusUpdate,
   parseStatusToolResult,
   parseStatusUpdate,
+  type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
-import { PriorityStatusRail } from './PriorityStatusRail'
 import {
-  TurnBlocks,
-  liveTurnBlocks,
-  persistedTurnBlocks,
-  type PositionedExtra,
-} from './turnBlocks'
+  AUTHORITY_TOOL,
+  COMPARABLES_TOOL,
+  CURRENT_LAW_TOOL,
+  findingWidgetTools,
+} from '../../../ordinances/components/stepWidgets'
+import { PriorityStatusRail } from './PriorityStatusRail'
+import { StatusChangeMarker } from './StatusChangeMarker'
+import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -53,22 +104,125 @@ import {
 const KICKOFF =
   "Let's begin. Tell me where this stands and what we should work on first."
 
+// While the model is still writing a card's arguments (tool_input_start, before
+// the call lands), name what it is working on. Contact, outreach and list work
+// can take a while, and with text already on screen the chat otherwise looks
+// stalled. Same signal the ordinance chat uses; tools that end as a pill fall
+// back to their pill label.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Preparing your question...',
+  present_outside_contact: 'Looking up who to contact...',
+  present_outreach_proposal: 'Building the outreach...',
+  present_constituents: 'Pulling the list...',
+  present_contacts: 'Pulling the list...',
+  present_past_outreach: "Checking what you've sent...",
+  [STATUS_TOOL]: 'Updating where this stands...',
+  web_search: 'Searching the web...',
+  [COMPARABLES_TOOL]: 'Looking at what other places did...',
+  [CURRENT_LAW_TOOL]: 'Reading the current code...',
+  [AUTHORITY_TOOL]: 'Checking what you can do here...',
+}
+
+const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
+
+// Leaving mid-turn aborts the stream, but the server finishes and saves the
+// reply anyway. Coming back before it lands loads a transcript that ends on the
+// official's turn, and no turn here is running to wait for it. Same budget as
+// the shared engine's doneless commit poll: a turn can write for minutes.
+const REPLY_POLL_MS = 2_000
+const REPLY_POLL_MAX_TRIES = 90
+
 type Phase = 'loading' | 'ready' | 'error'
 
-export const PriorityWorkspace = ({
+type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
+
+const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
+  ...cardWidgetTools,
+  ...findingWidgetTools,
+  clarifyWidgetTool,
+])
+
+// A status move is not a registry widget: what it shows is the change the
+// rail went through, which lives in the surface's replay, not in the tool args.
+const statusMarker = (
+  changes: StepChange[],
+): WidgetInstance<PriorityWidgetContext> => ({
+  toolName: STATUS_TOOL,
+  render: () => <StatusChangeMarker changes={changes} />,
+})
+
+const RAIL_TITLE = 'Where this stands'
+const RESULTS_LINK = 'What we heard'
+const BACK_TO_PRIORITIES = 'Back to priorities'
+
+// Hidden turns the app sends, never something the official typed.
+const isAppTurn = (content: string): boolean =>
+  content === KICKOFF ||
+  isProposalSentMessage(content) ||
+  isReportBackMessage(content) ||
+  isGetAnswersMessage(content)
+
+const ResultsLink = ({
   priorityId,
-  title,
-  description,
-  initialStatus,
-  initialNextAction,
 }: {
+  priorityId: string
+}): React.JSX.Element | null => {
+  const { enabled } = useServeCitizenPanelsFlag()
+  if (!enabled) return null
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="small"
+      className="mt-3 w-full gap-1.5"
+    >
+      <Link
+        href={`/dashboard/priorities/${encodeURIComponent(priorityId)}/results`}
+      >
+        <ChartColumnIcon className="size-4" aria-hidden />
+        {RESULTS_LINK}
+      </Link>
+    </Button>
+  )
+}
+
+type PriorityWorkspaceProps = {
   priorityId: string
   title: string
   description: string
   initialStatus: PriorityStatus
   initialNextAction: string | null
-}): React.JSX.Element => {
+  initialCurrentStep: string | null
+  // The send a "Report back" card opened this priority on, if one did.
+  reportBackOutreachId?: number | null
+  // Answers against a good read; null with serve-citizen-panels off.
+  initialReadStatus?: PriorityReadStatus | null
+  // The results page's Get answers opened this priority.
+  getAnswersOnOpen?: boolean
+}
+
+const PriorityWorkspaceBody = ({
+  priorityId,
+  title,
+  description,
+  initialStatus,
+  initialNextAction,
+  initialCurrentStep,
+  reportBackOutreachId = null,
+  initialReadStatus = null,
+  getAnswersOnOpen = false,
+}: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
+  const { enabled: panelsOn } = useServeCitizenPanelsFlag()
+  // Read once: the param is dropped from the address after the turn is
+  // queued, so a reload never asks twice.
+  const reportBackRef = useRef(reportBackOutreachId)
+  const getAnswersRef = useRef(getAnswersOnOpen)
+  const openedReadRef = useRef(initialReadStatus)
+  const [readStatus, setReadStatus] = useState<PriorityReadStatus | null>(
+    initialReadStatus,
+  )
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>('loading')
   const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -88,9 +242,17 @@ export const PriorityWorkspace = ({
     },
     [],
   )
-  const [liveExtras, setLiveExtras] = useState<PositionedExtra[]>([])
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<PriorityWidgetContext>[]
+  >([])
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
+  const [streamDone, setStreamDone] = useState(false)
+  const [awaitingReply, setAwaitingReply] = useState(false)
+  // A finding card can be the last thing in a turn, so the shimmer stays off
+  // right after one lands and comes back with the agent's next tool.
+  const [afterFinding, setAfterFinding] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -102,34 +264,59 @@ export const PriorityWorkspace = ({
   // against what the server actually stored — so an interrupted turn cannot
   // leave the rail claiming a move that was never written.
   const reconcile = useCallback(async (): Promise<void> => {
+    if (panelsOn) {
+      void fetchPriorityReadStatus(priorityId).then((read) => {
+        if (read) setReadStatus(read)
+      })
+    }
     const persisted = await fetchPriorityStatus(priorityId)
     if (!persisted) return
     commitStatus(persisted.status, persisted.nextAction)
-  }, [priorityId, commitStatus])
-
-  const conversationIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    conversationIdRef.current = conversationId
-  }, [conversationId])
+  }, [priorityId, commitStatus, panelsOn])
 
   const {
     messages,
     setMessages,
     visibleSegments,
+    liveSegments,
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
     toolLabel: priorityToolLabel,
     onTurnStart: () => {
       setStreamError(null)
-      setLiveExtras([])
+      setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
     },
     onTurnSettle: () => {
-      setLiveExtras([])
+      setLiveWidgets([])
+      setGeneratingTool(null)
+      setStreamDone(false)
+      setAfterFinding(false)
       void reconcile()
     },
     onError: (message) => setStreamError(message),
-    onEvent: (event, { textLength }) => {
+    onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (
+        event.type === 'tool_result' &&
+        event.toolCallId &&
+        isToolRefusal(event.result)
+      ) {
+        const key = `${event.toolName}-${event.toolCallId}`
+        setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+      }
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        setAfterFinding(false)
+        return true
+      }
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+      }
+      if (event.type === 'done') setStreamDone(true)
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
         const update = parseStatusUpdate(event.args)
         if (!update) return true
@@ -139,11 +326,11 @@ export const PriorityWorkspace = ({
         commitStatus(applied.status, applied.nextAction)
         if (applied.changes.length > 0) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
               key: `status-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'status', changes: applied.changes },
+              instance: statusMarker(applied.changes),
               appearAfter: at,
             },
           ])
@@ -155,25 +342,31 @@ export const PriorityWorkspace = ({
         if (settled) commitStatus(settled.status, settled.nextAction)
         return true
       }
-      if (event.type === 'tool_call') {
-        const card = toChatCard({
-          toolName: event.toolName,
-          args: event.args,
-          toolCallId: event.toolCallId,
-          conversationId: conversationIdRef.current ?? '',
-        })
-        if (card) {
+      if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
+        const instance = priorityWidgets.resolve(
+          {
+            toolName: event.toolName,
+            conversationId: turnConversationId,
+            toolCallId: event.toolCallId ?? null,
+          },
+          event.args,
+        )
+        if (instance) {
           const at = textLength()
-          setLiveExtras((prev) => [
+          setLiveWidgets((prev) => [
             ...prev,
             {
-              key: `card-${event.toolCallId ?? prev.length}`,
-              extra: { kind: 'card', card },
+              key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+              instance,
               appearAfter: at,
             },
           ])
           return true
         }
+        // read_past_outreach is only sometimes a card; unparsed, it is a pill.
+        return (
+          priorityWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
+        )
       }
       // Everything else — counts, saved lists, web search — falls through to
       // the shared pill treatment the other chats use.
@@ -181,18 +374,92 @@ export const PriorityWorkspace = ({
     },
   })
 
+  // Whether the turn in flight answers Get answers. A hidden turn is not in
+  // `messages` until the turn settles, so the live cards read it from here.
+  const [liveTurnGetsAnswers, setLiveTurnGetsAnswers] = useState(false)
+  // A Get answers turn queued behind whatever is in flight, not started yet.
+  const [getAnswersQueued, setGetAnswersQueued] = useState(false)
   const send = useCallback(
     (content: string, opts?: { hidden?: boolean; idOverride?: string }) => {
       const id = opts?.idOverride ?? conversationId
       if (!id) return
+      const getsAnswers = isGetAnswersMessage(content)
+      setLiveTurnGetsAnswers(getsAnswers)
+      if (getsAnswers) setGetAnswersQueued(false)
       void sendTurn(id, content, { hidden: opts?.hidden })
     },
     [conversationId, sendTurn],
+  )
+  // An answer is input to the conversation, nothing more: it goes back as an
+  // ordinary user turn, and the agent decides for itself whether it settles a
+  // step and calls update_priority_status.
+  const answerClarify = useCallback(
+    (answer: string): void => {
+      trackChatMessageSent({
+        agent: 'priority_flow',
+        surface: 'priority_workspace',
+        via: 'clarify',
+        priorityId,
+      })
+      send(answer)
+    },
+    [send, priorityId],
   )
   const sendRef = useRef(send)
   useEffect(() => {
     sendRef.current = send
   }, [send])
+
+  // Outreach a card opened was just sent. The server has already moved its
+  // check to out, so the rail refetches; the agent hears it through a hidden
+  // turn, sent once per proposal (the key it ends on survives a reload) and
+  // held until any turn in flight is done.
+  const pendingSent = useRef<string[]>([])
+  const toldKeys = useRef(new Set<string>())
+  const [sentTick, setSentTick] = useState(0)
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useOnProposalSent(
+    useCallback(
+      (proposal) => {
+        void reconcile()
+        const content = proposalSentMessage(proposal)
+        const told =
+          toldKeys.current.has(proposal.proposalKey) ||
+          messagesRef.current.some((m) =>
+            m.content.includes(proposal.proposalKey),
+          )
+        if (told) return
+        toldKeys.current.add(proposal.proposalKey)
+        pendingSent.current.push(content)
+        setSentTick((tick) => tick + 1)
+      },
+      [reconcile],
+    ),
+  )
+  useEffect(() => {
+    if (sending || awaitingReply || phase !== 'ready' || !conversationId) {
+      return
+    }
+    const next = pendingSent.current.shift()
+    if (next) send(next, { hidden: true })
+  }, [sending, awaitingReply, phase, conversationId, sentTick, send])
+
+  // Get answers asks the agent for a proposal; the official sends it from
+  // the card, so this never sends anything to constituents itself.
+  const requestAnswers = useCallback(
+    (source: 'strip' | 'rail'): void => {
+      // A second click before the button disables would queue it twice.
+      if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
+      trackEvent(EVENTS.Priorities.GetAnswersClicked, { priorityId, source })
+      pendingSent.current.push(GET_ANSWERS_MESSAGE)
+      setGetAnswersQueued(true)
+      setSentTick((tick) => tick + 1)
+    },
+    [priorityId],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -208,12 +475,109 @@ export const PriorityWorkspace = ({
           await priorityFlowChatApi.createConversation(anchor)
         const history = await priorityFlowChatApi.listMessages(id)
         if (cancelled) return
-        conversationIdRef.current = id
         setConversationId(id)
         setMessages(history)
         setPhase('ready')
+        trackEvent(EVENTS.Priorities.PriorityViewed, {
+          priorityId,
+          currentStep: initialCurrentStep,
+          isNewConversation: history.length === 0,
+          entry:
+            reportBackRef.current !== null
+              ? 'report_back'
+              : getAnswersRef.current
+                ? 'get_answers'
+                : 'direct',
+          ...(openedReadRef.current
+            ? {
+                goodRead: openedReadRef.current.good,
+                answers: openedReadRef.current.answers,
+                answersFloor: openedReadRef.current.needed,
+                groupsHeard: openedReadRef.current.groupsHeard,
+                groupsTotal: openedReadRef.current.groupsTotal,
+              }
+            : {}),
+        })
+        // A report back card's turn is the opener on a fresh thread, and
+        // otherwise waits its turn behind anything in flight, once per send.
+        const reportBackId = reportBackRef.current
+        reportBackRef.current = null
+        const getAnswers = getAnswersRef.current
+        getAnswersRef.current = false
+        // Dropped in place, not with router.replace: a navigation re-renders
+        // the page under a new search-param key and remounts this workspace
+        // while this open is still settling, which reopened a report back
+        // on the error screen.
+        if (reportBackId !== null || getAnswers) {
+          window.history.replaceState(
+            null,
+            '',
+            `/dashboard/priorities/${encodeURIComponent(priorityId)}`,
+          )
+        }
+        const reportBackTurn =
+          reportBackId === null ? null : reportBackMessage(reportBackId)
+        const getAnswersTurn = getAnswers ? GET_ANSWERS_MESSAGE : null
+        const trackGetAnswers = () => {
+          trackEvent(EVENTS.Priorities.GetAnswersClicked, {
+            priorityId,
+            source: 'results_page',
+          })
+        }
         if (history.length === 0) {
-          sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          if (reportBackTurn === null && getAnswersTurn !== null) {
+            trackGetAnswers()
+          }
+          sendRef.current(reportBackTurn ?? getAnswersTurn ?? KICKOFF, {
+            hidden: true,
+            idOverride: id,
+          })
+          return
+        }
+        if (
+          reportBackTurn !== null &&
+          !history.some((m) => m.content === reportBackTurn)
+        ) {
+          pendingSent.current.push(reportBackTurn)
+          setSentTick((tick) => tick + 1)
+        }
+        // The message never changes, and asking again later is the point,
+        // so a reload that kept the param is caught by the turn already
+        // being in the thread since the official last typed anything.
+        const sinceOfficial = history.slice(
+          history.findLastIndex(
+            (m) => m.role === 'user' && !isAppTurn(m.content),
+          ) + 1,
+        )
+        if (
+          getAnswersTurn !== null &&
+          !sinceOfficial.some((m) => m.content === getAnswersTurn)
+        ) {
+          trackGetAnswers()
+          pendingSent.current.push(getAnswersTurn)
+          setGetAnswersQueued(true)
+          setSentTick((tick) => tick + 1)
+        }
+        if (history[history.length - 1]?.role !== 'user') return
+        setAwaitingReply(true)
+        let latest = history
+        try {
+          for (
+            let tries = 0;
+            tries < REPLY_POLL_MAX_TRIES &&
+            latest[latest.length - 1]?.role === 'user';
+            tries++
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, REPLY_POLL_MS))
+            if (cancelled) return
+            latest = await priorityFlowChatApi.listMessages(id)
+            if (cancelled) return
+          }
+          setMessages(latest)
+        } catch {
+          // The transcript already on screen stays; the composer reopens.
+        } finally {
+          if (!cancelled) setAwaitingReply(false)
         }
       } catch {
         if (!cancelled) setPhase('error')
@@ -223,26 +587,104 @@ export const PriorityWorkspace = ({
     return () => {
       cancelled = true
     }
-  }, [priorityId, title, description, setMessages, retryNonce])
+  }, [
+    priorityId,
+    title,
+    description,
+    initialCurrentStep,
+    setMessages,
+    retryNonce,
+    router,
+  ])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
+  // The question still waiting on an answer: the last assistant turn that
+  // asked one, and only while nothing has been said since. An answer is an
+  // ordinary user turn, so a user turn after the question is the answer.
+  const activeClarifyId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (!message) continue
+      if (message.role === 'user') return null
+      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return message.id
+      }
+    }
+    return null
+  }, [messages])
+  // Priorities keeps no separate answer record: an answer is the next thing the
+  // official said, so derive it from the transcript. Without this, a question
+  // answered in an earlier session reloads locked with nothing highlighted.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    messages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = messages
+        .slice(index + 1)
+        .find((later) => later.role === 'user' && !isAppTurn(later.content))
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [messages])
   const visibleMessages = useMemo(
-    () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
+    () => messages.filter((m) => !(m.role === 'user' && isAppTurn(m.content))),
     [messages],
   )
+  // The replies to a Get answers turn, read from the user turn before each,
+  // so a card in one still launches as expand_panel after a reload.
+  const getAnswersReplyIds = useMemo(() => {
+    const ids = new Set<string>()
+    let lastUserTurn: string | null = null
+    for (const message of messages) {
+      if (message.role === 'user') lastUserTurn = message.content
+      else if (lastUserTurn !== null && isGetAnswersMessage(lastUserTurn)) {
+        ids.add(message.id)
+      }
+    }
+    return ids
+  }, [messages])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
     visibleSegments,
-    liveExtras,
+    liveWidgets,
   ])
 
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const blocks = liveTurnBlocks(visibleSegments, liveExtras, revealedTextLength)
+  const blocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    revealedTextLength,
+  )
   // Hold the shimmer until something has actually painted, so there is no
-  // empty flash between "Thinking..." and the first word.
-  const working = sending && blocks.length === 0
-  const railTitle = 'Where this stands'
+  // empty flash between "Thinking..." and the first word. After that it
+  // comes back whenever the agent is working with nothing moving on screen:
+  // between tool calls, and while a card's arguments stream in. Gated on the
+  // reveal catching up so it never sits under text still typing out, off
+  // while a tool's own pill is shimmering, and off once the stream is done:
+  // the turn can stay sending while it commits, and a shimmer under a
+  // finished question reads as more coming.
+  const revealDone = revealedTextLength >= segmentsTextLength(liveSegments)
+  const pillRunning = liveSegments.some(
+    (segment) => segment.kind === 'tool' && segment.running,
+  )
+  // A question card ends the turn, so nothing more is coming once it is up.
+  const clarifyLive = liveWidgets.some(
+    (widget) => widget.instance.toolName === CLARIFY_TOOL,
+  )
+  const working =
+    awaitingReply ||
+    (sending &&
+      !clarifyLive &&
+      !afterFinding &&
+      (blocks.length === 0 || (revealDone && !pillRunning && !streamDone)))
+  const pillLabel = generatingTool ? priorityToolLabel(generatingTool) : null
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) ||
+    (pillLabel ? `${pillLabel}...` : 'Thinking...')
 
   if (phase === 'error') {
     return (
@@ -274,42 +716,95 @@ export const PriorityWorkspace = ({
     )
   }
 
-  return (
-    <div className="flex h-[calc(100dvh-4rem)] w-full bg-background lg:h-dvh">
+  // Get answers queues behind any turn in flight, so only its own request
+  // holds it. Holding it for every open turn left it looking disabled while
+  // the chat looked idle: on load, while a reply was awaited, and through
+  // hidden app turns.
+  const getAnswersDisabled =
+    getAnswersQueued || (sending && liveTurnGetsAnswers)
+
+  const workspace = (
+    <div className="flex min-h-0 w-full flex-1 bg-background">
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="bottom" className="max-h-[85dvh]">
+          <SheetHeader>
+            <SheetTitle>{RAIL_TITLE}</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <PriorityStatusRail
+              status={status}
+              nextAction={nextAction}
+              className="border-0 shadow-none"
+            />
+            <ResultsLink priorityId={priorityId} />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
+        {panelsOn ? (
+          // Phone, behind serve-citizen-panels: a short bar that stays put
+          // while the conversation scrolls under it.
+          <div
+            data-testid="priority-phone-bar"
+            className="shrink-0 border-b border-border bg-background lg:hidden"
+          >
+            <div className="flex items-center gap-1 px-1 pt-1">
+              <IconButton asChild variant="ghost" size="medium">
+                <Link
+                  href="/dashboard/priorities"
+                  aria-label={BACK_TO_PRIORITIES}
+                >
+                  <ArrowLeftIcon className="size-5" aria-hidden />
+                </Link>
+              </IconButton>
+              <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
+                {title}
+              </h1>
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="medium"
+                aria-label={RAIL_TITLE}
+                onClick={() => setSheetOpen(true)}
+              >
+                <ListIcon className="size-5" aria-hidden />
+              </IconButton>
+            </div>
+            {readStatus ? (
+              <ReadStatusStrip
+                priorityId={priorityId}
+                readStatus={readStatus}
+                onGetAnswers={() => requestAnswers('strip')}
+                getAnswersDisabled={getAnswersDisabled}
+              />
+            ) : (
+              <div className="h-1.5" />
+            )}
+          </div>
+        ) : null}
         <div
           ref={scrollRef}
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
-            <header className="flex items-start justify-between gap-3">
-              <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="small"
-                    className="shrink-0 gap-1.5 lg:hidden"
-                  >
-                    <ListChecksIcon className="size-4" aria-hidden />
-                    {railTitle}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="bottom" className="max-h-[85dvh]">
-                  <SheetHeader>
-                    <SheetTitle>{railTitle}</SheetTitle>
-                  </SheetHeader>
-                  <SheetBody>
-                    <PriorityStatusRail
-                      status={status}
-                      nextAction={nextAction}
-                      className="border-0 shadow-none"
-                    />
-                  </SheetBody>
-                </SheetContent>
-              </Sheet>
-            </header>
+            {panelsOn ? null : (
+              <header className="flex items-start justify-between gap-3">
+                <h1 className="text-xl font-semibold text-foreground">
+                  {title}
+                </h1>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  className="shrink-0 gap-1.5 lg:hidden"
+                  onClick={() => setSheetOpen(true)}
+                >
+                  <ListChecksIcon className="size-4" aria-hidden />
+                  {RAIL_TITLE}
+                </Button>
+              </header>
+            )}
 
             {phase === 'loading' ? (
               <div className="flex flex-col gap-3" aria-busy="true">
@@ -331,14 +826,32 @@ export const PriorityWorkspace = ({
                     <AssistantRow key={message.id} fullWidth>
                       <TurnBlocks
                         blocks={persistedTurnBlocks({
+                          registry: priorityWidgets,
                           messageId: message.id,
                           segments: message.segments ?? [],
                           content: message.content,
                           conversationId: conversationId ?? '',
-                          markers,
+                          surfaceWidget: (segment, index) => {
+                            if (segment.toolName !== STATUS_TOOL) return null
+                            const changes = markers.get(
+                              segmentKey(message.id, index),
+                            )
+                            return changes && changes.length > 0
+                              ? statusMarker(changes)
+                              : null
+                          },
                         })}
-                        priorityId={priorityId}
-                        conversationId={conversationId ?? ''}
+                        toolLabel={priorityToolLabel}
+                        context={{
+                          priorityId,
+                          ...(getAnswersReplyIds.has(message.id) && {
+                            launchSource: 'expand_panel' as const,
+                          }),
+                          clarifyInteractive:
+                            message.id === activeClarifyId && !sending,
+                          clarifyAnswer: clarifyAnswerById[message.id],
+                          onClarifyAnswer: answerClarify,
+                        }}
                       />
                     </AssistantRow>
                   ),
@@ -348,10 +861,17 @@ export const PriorityWorkspace = ({
                   <AssistantRow fullWidth>
                     <TurnBlocks
                       blocks={blocks}
-                      priorityId={priorityId}
-                      conversationId={conversationId ?? ''}
+                      toolLabel={priorityToolLabel}
+                      context={{
+                        priorityId,
+                        ...(liveTurnGetsAnswers && {
+                          launchSource: 'expand_panel' as const,
+                        }),
+                        clarifyInteractive: false,
+                        onClarifyAnswer: answerClarify,
+                      }}
                     />
-                    {working ? <ThinkingRow /> : null}
+                    {working ? <ThinkingRow label={workingLabel} /> : null}
                   </AssistantRow>
                 ) : null}
 
@@ -371,9 +891,15 @@ export const PriorityWorkspace = ({
               onSubmit={() => {
                 const text = composer
                 setComposer('')
+                trackChatMessageSent({
+                  agent: 'priority_flow',
+                  surface: 'priority_workspace',
+                  via: 'composer',
+                  priorityId,
+                })
                 send(text)
               }}
-              disabled={sending || phase !== 'ready'}
+              disabled={sending || awaitingReply || phase !== 'ready'}
               placeholder="Ask about this priority, or tell me what changed..."
               ariaLabel="Message about this priority"
               dictation={dictation}
@@ -383,8 +909,60 @@ export const PriorityWorkspace = ({
       </div>
 
       <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border p-4 lg:block">
-        <PriorityStatusRail status={status} nextAction={nextAction} />
+        {panelsOn && readStatus ? (
+          <div className="flex flex-col gap-4">
+            <ReadStatusRailBlock
+              priorityId={priorityId}
+              readStatus={readStatus}
+              onGetAnswers={() => requestAnswers('rail')}
+              getAnswersDisabled={getAnswersDisabled}
+            />
+            <h2 className="text-base font-semibold text-foreground">
+              {RAIL_TITLE}
+            </h2>
+            <PriorityStatusRail status={status} nextAction={nextAction} />
+          </div>
+        ) : (
+          <>
+            <PriorityStatusRail status={status} nextAction={nextAction} />
+            <ResultsLink priorityId={priorityId} />
+          </>
+        )}
       </aside>
+      <CardDetailSheetHost />
+    </div>
+  )
+
+  return (
+    <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
+      {panelsOn ? (
+        // Desktop, behind serve-citizen-panels: the title in a bar across the
+        // chat and the rail, so it stays put while the conversation scrolls.
+        <div
+          data-testid="priority-desktop-bar"
+          className="hidden h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 lg:flex"
+        >
+          <IconButton asChild variant="ghost" size="medium">
+            <Link href="/dashboard/priorities" aria-label={BACK_TO_PRIORITIES}>
+              <ArrowLeftIcon className="size-5" aria-hidden />
+            </Link>
+          </IconButton>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-foreground">
+            {title}
+          </h1>
+        </div>
+      ) : null}
+      {workspace}
     </div>
   )
 }
+
+export const PriorityWorkspace = (
+  props: PriorityWorkspaceProps,
+): React.JSX.Element => (
+  <CardDetailProvider>
+    <ProposalFlowsProvider>
+      <PriorityWorkspaceBody {...props} />
+    </ProposalFlowsProvider>
+  </CardDetailProvider>
+)

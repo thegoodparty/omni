@@ -56,7 +56,7 @@ The pipeline uses an Application Load Balancer (ALB) for HTTP-triggered executio
 **Bucket**: `serve-analyze-data-{environment}`
 **Event**: `s3:ObjectCreated:*`
 **Filter**:
-- Prefix: `input/`
+- Prefix: `input/` (poll runs) or `feedback-input/` (gp-api's issue-capture memos, run as `SOURCE_TYPE=constituent_feedback` with the filename as `SOURCE_ID`)
 - Suffix: `.csv`
 
 **Example trigger path**:
@@ -88,7 +88,7 @@ terraform apply
 ```
 
 **What gets created**:
-- ✅ S3 bucket notification for `input/*.csv` files
+- ✅ S3 bucket notifications for `input/*.csv` and `feedback-input/*.csv` files
 - ✅ Lambda permission for S3 to invoke function
 - ✅ Updated Lambda handler with dual event support
 
@@ -280,7 +280,7 @@ aws lambda get-policy \
 ```
 
 3. **Check file matches filter**:
-   - Must be in `input/` prefix
+   - Must be in the `input/` or `feedback-input/` prefix
    - Must have `.csv` suffix
 
 ### Lambda Invoked But No Task Started

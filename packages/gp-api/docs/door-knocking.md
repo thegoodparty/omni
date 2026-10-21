@@ -62,6 +62,11 @@ first turf it buys becomes the anchor every later one points at, and until
 this field existed the client had just paid for that anchor and had no way to
 name it.
 
+It also carries `priorityId`: the priority whose chat card opened the
+campaign, read off the turf's own envelope or, for a sibling, its anchor's
+(a card's link is written to the anchor only). Null when no card opened it.
+The client puts it on the door-knocking `Outreach - Campaign Completed`.
+
 ### A campaign is a grouping, not a row
 
 Many turfs make one campaign, and the campaign has no table. The anchor's
@@ -100,8 +105,15 @@ it makes, narrowest first:
 
 - A turf **joining** an existing campaign inherits that campaign's title,
   read off the anchor row the create already fetches to validate the scope.
-  A late "Add another turf" therefore cannot rename a campaign it is only
-  joining, whatever it sends.
+  A late "Add turf" therefore cannot rename a campaign it is only
+  joining, whatever it sends. It inherits the rest of what the campaign
+  settled before its map too: the audience (`voterFileFilterId`), the
+  purpose, the community-input question and the talking points
+  (`Outreach.script`), all read off the anchor in `withCampaignSettings`.
+  The drawer's "Add turf" opens straight onto the drawing surface
+  and asks none of them. A campaign whose every turf is done is refused
+  (400), matching the drawer, which hides Add turf on a done campaign; one
+  whose anchor alone is done still takes turfs, since its siblings are live.
 - A turf **starting** one takes `campaignName`.
 - A client that sends neither is the single-turf flow, where the turf's name
   IS the campaign's.
@@ -113,13 +125,13 @@ the failure this avoids.
 
 ## Tables (all in this package's Prisma schema)
 
-| Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Always has exactly one route and one envelope. `deletedAt` is its only lifecycle column, and it is always a tombstone — see below                                                                                                                                                                                                                                                                     |
-| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE. Written in the create transaction and never mutated after                                                                                                                                                                                                                                                                                                                                                                     |
-| `door_knocking_stop`             | One per building (lat/lng snapped to ~1m), in walk order              | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze; `seq` is serpentine by block face, not the vendor's tour order — see § Why the vendor does not order the doors                                                                                                                                                                                                                                 |
-| `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
-| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
+| Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Always has exactly one route and one envelope. `deletedAt` is its only lifecycle column, and it is always a tombstone — see below                                                                                                                                                                                                                                                                                                                                                                                                |
+| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE. Written in the create transaction and never mutated after                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `door_knocking_stop`             | One per building (lat/lng snapped to ~1m), in walk order              | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze; `seq` is serpentine by block face, not the vendor's tour order — see § Why the vendor does not order the doors                                                                                                                                                                                                                                                                                                                                                            |
+| `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped, `outreachId` = the turf's envelope (the same lookup that authorizes the write; null on knocks recorded before the column). The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
 ### `addressKey` — the unit key, and the format that came before it
 
@@ -148,7 +160,7 @@ follow the `ContactInteraction*` convention (`occurredAt`, idempotency
 unique, feed branch) rather than the shape this doc previously sketched.
 
 Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
-`doorKnocking` rows are the old CSV/eCanvasser drafts, 1,076 eternally
+`doorKnocking` rows are the old CSV-import drafts, 1,076 eternally
 `pending` in prod; never mix them) and two nullable unique pointers on
 `Outreach` — the per-channel pointer idiom, like `phoneListId`.
 `doorKnockingTurfId` is the authoritative one and the one the `CHECK`
@@ -217,7 +229,7 @@ on `deletedAt`, and the completed CTE reads `status`).
 drawer repaints from the mutation rather than refetching. There is no campaign
 status field on it: the badge is `every(turf => turf.completed)`, the same
 predicate `collapseDoorKnockingCampaigns` applies, and a second copy of one
-number is the failure ADR 0010 wrote the rule against.
+number breaks the rule that one quantity gets one number.
 
 **A write 404s where the read returns `[]`.** The read withholds existence from
 a caller not entitled to it; a write has to fail visibly, and a 404 leaks no
@@ -348,7 +360,7 @@ used to resolve through `doorKnockingRouteId` and the route's own `@unique`
 **The counts are the rail's, not a second set.** The block calls
 `DoorKnockingTurfCountsService.forRoutes`, the same aggregate
 `GET /v1/door-knocking/turfs` uses, so doors are addresses paired with their
-stop, people exclude ADR 0007 / ADR 0008 residents, and logged is the subset of
+stop, people exclude do-not-knock and not-a-voter residents, and logged is the subset of
 those people with a recorded status. **A fourth figure, `stopCount`, rides the
 turf** (not this block): a stop is a COORDINATE with addresses behind it, so a
 multi-unit building is one stop with many doors, and the two are different
@@ -356,8 +368,8 @@ numbers wherever a card prints both. It is counted over the same targets as the
 doors rather than as a `_count` on the turf's stop rows, so the pair can never
 disagree about which stops the list actually reaches, and the routes test
 asserts it against the route payload's own stop count. Deriving any of the three here instead
-would put a second denominator on a second surface for one quantity, which is
-the failure ADR 0010 wrote the standing rule against — and the counts service's
+would put a second denominator on a second surface for one quantity, which
+breaks the standing rule of one quantity, one number — and the counts service's
 own header explains why its door key is a `(stopId, addressKey)` pair rather
 than a `COUNT(DISTINCT address_key)`. Anything added to this block takes its
 numbers from there.
@@ -421,7 +433,7 @@ table is the plain-language version CS reads.
 | `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
 | `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
-| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked |
+| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked      |
 
 The edges worth knowing:
 
@@ -475,7 +487,7 @@ The edges worth knowing:
   `uniqueDoorsKnocked`.
 
 `bad address count` from the source doc is **not** here. Nothing in the product
-records it, and the `not_a_voter` reason (moved / deceased, ADR 0008) is a
+records it, and the `not_a_voter` reason (moved / deceased) is a
 different claim about a different thing.
 
 ### What else rides the payload
@@ -580,7 +592,7 @@ The steps:
    org's suppressed people — do-not-knock plus not-a-voter — are read
    _before_ the transaction and passed as one deduped `excludePersonIds`
    (see "Do-not-knock" and "'Not a voter'").
-5. Group the stops into **block faces** — one side of one street, by house
+4. Group the stops into **block faces** — one side of one street, by house
    number parity — in `blockFace.util.ts`. Then one Geoapify Route Planner
    call to order those faces (coords + opaque job ids only — no PII leaves;
    loop → start=end anchor at the first face by address order; open →
@@ -616,7 +628,8 @@ The steps:
    **A walk spanning more than 100 km is refused before the call.** Geoapify
    rejects one with a 400 the client would re-raise as a 502, blaming the
    vendor for a request that was ours. Walk only: driving has no such ceiling.
-6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
+
+5. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the
    freeze below it succeeds — reading spend off the frozen stop rows instead
@@ -629,7 +642,7 @@ The steps:
    was introduced (`20260813170000_backfill_...`), so the table describes every
    route the vendor has ever billed us for rather than only those since it
    landed.
-7. Create the route (when one was bought), then the stops and stop targets,
+6. Create the route (when one was bought), then the stops and stop targets,
    then the `Outreach` envelope. The stops are written whether or not a route
    was bought — they are the turf — and carry the walk order already when one
    was. They go AFTER the vendor call on purpose: a failure writing them must
@@ -697,9 +710,11 @@ walk.
 **Nothing rations this press, by decision.** There was a per-organization
 cap — five campaigns a rolling day — and it existed because creating a turf
 bought a route. Creating turfs is free now, so pacing it rationed nothing,
-and it was removed rather than moved here. What bounds door-knocking spend
-is the account-wide tiered alerting over the ledger (§ Spend visibility),
-which is the only thing that ever bounded the shared credit pool.
+and it was removed rather than moved here. What watches door-knocking spend
+is the account-wide tiered alerting over the ledger (§ Spend visibility) — and
+watching is all it does: those rules page, they do not refuse. Nothing in the
+code stops one organization spending the whole day's shared pool, which is why
+the pages have to be readable by somebody who has not read this file.
 
 **Two of the three failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
@@ -835,19 +850,47 @@ fires and someone has to say which organization caused it.
 What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
 one transcription of [Geoapify's cost
 calculator](https://www.geoapify.com/pricing-details/), and it is neither flat
-nor linear. A create makes **one** billed call: the Route Planner
-optimization, charged per location — every **block face** plus the agent's
-start and end anchors, squared rather than multiplied when there are fewer than
-ten of them. `fetchPathGeometry`'s Routing request was a second billed call and
-is no longer made, because a polyline through face representatives traces a
-route nobody walks; the code path survives behind `fetchGeometry` for a caller
-that wants it.
+nor linear. A route buy makes **two** billed calls:
 
-Faces are the unit that matters for money, and there are far fewer of them than
-stops — a 150-stop turf on a grid is a couple of dozen faces. So a stop no
-longer has a stable price, and the old rule of thumb (about eleven credits a
-stop, ~1,650 for a full turf) is now an upper bound rather than an estimate.
-Read cost off the face count, which is what the vendor was actually sent.
+- the **Route Planner** optimization, charged per location — every **block
+  face** plus the agent's start and end anchors, squared rather than multiplied
+  when there are fewer than ten of them, so ten credits a face at any realistic
+  size. The planner's own polyline is still not bought (`fetchGeometry: false`
+  in `orderFaces`), because a line threading face representatives traces a
+  route nobody walks.
+- the **Routing** request through the doors in walk order, one credit per door,
+  which `planStops` buys once that order is known (restored 2026-09-30 in
+  `094f34419`: without it the map drew the walk as straight lines through
+  buildings and water).
+
+So the price is roughly `10 × faces + doors`, and the second term is not small:
+`geoapify_credits_total` split the 2026-10-01 burst 7,563 planner credits to
+5,487 routing ones, so 42% of the bill was the street path. (The spend log
+makes the same burst 14,033 credits; the Prometheus counter reads a few percent
+lower because it resets on deploy and `increase()` estimates across the gap —
+read the log for a total and the counter for the split.) A route therefore
+costs about 70% more than it did before that commit, which is worth saying out
+loud because nothing else was re-calibrated for it: the pool buys ~340 average
+lists a day now rather than ~600.
+
+Faces are still the unit that dominates, and there are far fewer of them than
+stops — a 150-stop turf on a grid is a couple of dozen faces. A stop therefore
+has no stable price, but it has a usable average: **about two credits a door,
+~145 credits a list** (measured on 2026-10-01: 13,588 credits over 94 lists and
+6,046 doors). The pre-grouping rule of thumb (about eleven credits a stop,
+~1,650 for a full turf) is now a long way above reality — a full 150-door list
+is nearer 400. Read cost off the face count plus the door count, which is what
+the vendor was actually sent.
+
+**What a big campaign costs, and that nothing refuses it.** One press of Create
+campaign can save ~100 lists; buying a route for each of them is ~14,000
+credits, a quarter of the daily pool, and no cap in the code stands in the way
+(see § The account-wide budget). That is not hypothetical — it is incident 99,
+2026-10-01, where one campaign did exactly that between 02:20Z and 05:30Z and
+the 6h ceiling paged. Routes are bought one press at a time by whoever is about
+to walk the turf, so there is no single press that spends it and no screen that
+shows the total; the spend ledger and these alerts are the only places it
+appears.
 
 **`waypoints` is not credits divided by anything**: it counts stops, while
 credits are priced off faces, so the two convert into each other even less
@@ -866,7 +909,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
-6h across all orgs, `#dev-alerts`, `@win-bugs`), the **daily credit budget**
+6h across all orgs, `#dev-alerts`), the **daily credit budget**
 tiers below it, and the `≥ 500` route alerts on this controller — including the
 502 for a missing `GEOAPIFY_API_KEY`. The empty/oversized-turf 400s and the
 `VOTER_DATA_UNAVAILABLE` 400 deliberately do not (see gp-api
@@ -937,7 +980,7 @@ server excludes, and the candidate drew over dots that really are there.
 One user hit this six times in 62 seconds — redrawing the boundary, which
 is what the message asks for and what cannot help.
 
-**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, which is the review ADR 0007 deferred. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
+**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock and not-a-voter ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, so it avoids the filter-catalog review that was deferred when do-not-knock shipped. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
 
 **Precinct is fixed** (format revision 6): the pack carries a `precinct`
 dim keyed on `encodePrecinctPair`'s `county|precinct`, the same strings
@@ -980,7 +1023,7 @@ Route Planner, none had ever fired in prod, and all three used to surface as
 the same 502 and the same "try again in a moment" — advice that is wrong for
 every one of them, because each is deterministic.
 
-**The refusal rule is narrower than it looks.** A request fails when *every*
+**The refusal rule is narrower than it looks.** A request fails when _every_
 location in it — both anchors and all jobs — is a single coordinate. Two
 identical jobs with the anchor on them fails and names both; move the anchor
 somewhere else and the same two jobs plan fine. That is why the single-face
@@ -989,7 +1032,7 @@ short-circuit above is a complete fix rather than a patch: stops dedupe on a
 coordinates, and one face always carries exactly one.
 
 **An unreachable stop** — a geocode in open water, a parcel with no way to it
-— comes back as a plan that covers every *other* face, with the bad one in
+— comes back as a plan that covers every _other_ face, with the bad one in
 `issues.unassigned_jobs`, in under a second. `planRoute` reconciles requested
 against planned and raises `RoutePlanRejectedError` carrying the job ids it
 could not place; the create service maps those back to the faces'
@@ -1001,13 +1044,13 @@ the only coordinate the vendor was ever shown.
 in step 5 comes from. An agent anchored on a coordinate the network cannot
 reach is the worst input this API takes: it holds the request for 120s before
 its own gateway 504s (3 of 3 attempts), well past the 30s `PLAN_TIMEOUT_MS`,
-and when it does answer it marks *every* job unassigned — so the one broken
+and when it does answer it marks _every_ job unassigned — so the one broken
 address becomes indistinguishable from an unwalkable turf. On an 8-face turf
 with one bad stop, the far-edge anchor returns no plan and all 9 jobs
 unassigned; the central anchor returns 8 planned and `unassigned_jobs: [8]`.
 
 **A walk spanning over 100 km** is a 400 from the vendor, not a routing
-failure: *"Distance should not exceed 100000 meters for a regular API call"*.
+failure: _"Distance should not exceed 100000 meters for a regular API call"_.
 99 km plans, 101 km does not. `orderFaces` checks the max pairwise distance
 across the face representatives before spending anything. Walk only — 120 km
 plans normally in drive mode.
@@ -1140,33 +1183,41 @@ fork the district cache. `PACK_FORMAT_REVISION` does not move.
 
 ### The talking-points card
 
-The payload carries `talkingPoints` when the list has one: the card the
-candidate wrote in the wizard, read at every door on the walk. It is one
-string, four sections newline-separated, off `Outreach.script` — the column
-every other outreach channel already keeps its script in, which is why this
-feature added no column of its own. `ROUTE_INCLUDE` selects it beside the
-envelope id the volunteer assignment check already needed, so it costs no
-query. The field is **optional and never `''`**: absent means a list frozen
-before this shipped or a candidate who skipped the step, and the door script
-falls back to the static build for both, so absent and empty must not be
-distinguishable.
+The payload carries `talkingPoints` when the list has one: the talking points
+the candidate wrote in the wizard, read at every door on the walk. It is one
+free-text string off `Outreach.script`, the column every other outreach
+channel already keeps its script in, which is why this feature added no column
+of its own. `ROUTE_INCLUDE` selects it beside the envelope id the volunteer
+assignment check already needed, so it costs no query. The field is
+**optional and never `''`**: absent means a list frozen before this shipped or
+a candidate who skipped the step, and the door script falls back to the static
+build for both, so absent and empty must not be distinguishable.
 
-**The card is five sections and only three of them were written by a model.**
-Sections 1a (the identity clause — "Hi, I'm Jane Doe, running for City
-Council") and 5 (the thank-you) are composed at RENDER time by the webapp,
-because they depend on who is reading the card rather than on which list it
-is: a candidate freezing a list on a laptop cannot write the opener a
-volunteer will speak at a door three weeks later. Section 3 (the call to
-action) is composed at CREATE time from `campaign.details.website` and stored,
-because it is real data a model asked to phrase it could equally well invent.
-Sections 1b (the engagement question), 2 (context) and 4 (the ask) are the
-generated ones. `POST /v1/outreach/door-knocking/draft` and its `serve/`
-sibling return exactly those three; the wizard stores four (those plus the
-composed CTA) in card order.
+**The text is the candidate's, and the server never reshapes it.** A line that
+starts with contracts `DOOR_KNOCKING_BULLET` reads as a bullet at the door, any
+other line reads as written. Lists frozen before free text hold exactly four
+plain lines (question, context, a call to action that may be empty, ask) and
+are not migrated; the webapp's walk reader recognizes that shape and keeps
+reading it the old way.
+
+**The model writes the whole card, from the opening to the close.** The first
+bullet is how to open and the last is how to close (where the ask goes), both
+as notes rather than a scripted greeting. The candidate is named by first name
+(a Serve official by full name) in the third person and never as "I", so the card reads correctly whether the
+candidate or a volunteer is holding it; the webapp shows every stored card as written,
+with no composed introduction or thank-you around it. `POST /v1/outreach/door-knocking/draft` and its
+`serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
+action each, about the campaign's (or the office's) goal rather than the
+person at the door, assembled server-side so every line starts with the bullet marker. An
+Improve is a light polish that keeps whatever shape the candidate wrote. For
+one release the response also carries the optional `engagementQuestion`,
+`context` and `ask` filled from the draft's lines, so a tab open across the
+deploy keeps working.
 
 **The list's purpose and its audience are the whole prompt input that is
-specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine
-slugs phone banking uses, and the audience reaches the prompt through
+specific to this channel.** `DoorKnockingTurf.purpose` takes the same ten
+slugs phone banking uses (Serve's include `build_citizens_panel`, the civic
+panel invite, offered behind `serve-citizen-panels`), and the audience reaches the prompt through
 `describeFilterForTalkingPoints` (`src/contacts/utils/describeFilter.util.ts`)
 rather than as raw filter columns — an allowlist of conversational dimensions,
 which is how **party never reaches the prompt** on either rail. The filters
@@ -1257,9 +1308,8 @@ evening, since returning to a door is the whole point of a follow-up.
 ## Previous outreach, at the door
 
 Each target carries `history`: its own recent outreach, newest first, capped
-at five rows — see [ADR 0009](adr/0009-activity-feed-on-the-route-payload.md)
-for why this rides the route payload instead of a per-person fetch. Short
-version: the walk is frozen and fetched once so it survives bad signal, and a
+at five rows. It rides the route payload instead of a per-person fetch
+because the walk is frozen and fetched once so it survives bad signal, and a
 round trip at the moment a canvasser is standing at a door fails exactly where
 the product is most valuable. Capped at five, a 100-stop payload grows 24.4 KB
 → 42.9 KB gzip worst case (~29 KB at realistic coverage); uncapped it passes
@@ -1302,34 +1352,34 @@ silent: the knock is already saved, so the feed keeps showing what it was
 served with.
 
 **The `not_a_voter` door is refreshed on a delay rather than not at all**
-(PR #1310, which closed the residual ADR 0009 recorded). Its sheet is held open
-across its own knock so the ADR 0008 follow-up can be answered, so neither
-trigger above ever fires for that resident — and refreshing on the knock is the
-thing the ADR ruled out, because the arriving serve rebuilds `NotAVoterControl`
-underneath the question. The refresh therefore waits for the follow-up to
+(PR #1310, which closed the gap the activity feed shipped with). Its sheet is
+held open across its own knock so the moved / deceased follow-up can be
+answered, so neither trigger above ever fires for that resident — and
+refreshing on the knock is ruled out, because the arriving serve rebuilds
+`NotAVoterControl` underneath the question. The refresh therefore waits for the follow-up to
 _resolve_: `WalkView` asks for one when the answer lands (after the status patch,
 which cancels in-flight serves) and, if the canvasser walks away from the
 question instead, on sheet close — gated on a `not_a_voter` status with no reason
 yet. That gate is load-bearing rather than tidy: an answered resident already
 paid for a serve and an ordinary door pays none, so this stays one serve per
-held-open sheet and does not become the per-door refetch ADR 0009 rejected the
-per-person endpoint to avoid.
+held-open sheet and does not become a per-door refetch, the round trip at the
+door that putting `history` on the payload exists to avoid.
 
 ## Notes, at the door
 
 Each target also carries `notes`: that resident's saved `ContactNote` rows,
-newest first, capped at three, as `{ entries, total }` — see
-[ADR 0011](adr/0011-contact-notes-on-the-route-payload.md). It rides the
-payload for the reason `history` does, and this section is only the parts that
-differ.
+newest first by `createdAt`, capped at three, as `{ entries, total }`. It
+rides the payload for the reason `history` does, and this section is only the
+parts that differ.
 
 **The cap is three rather than five because free text is not priced like an
-activity row.** On ADR 0009's own rig, one 140-character note per target costs
+activity row.** On the 100-stop route used to size `history`, one
+140-character note per target costs
 about what all five activity rows cost together (+14.3 KB gzip against
 +24.1 KB), because an activity row is a handful of short fields gzip has
 already seen 142 times and a note is prose nobody has written before. Five
-notes per target would be +60 KB, more than double the feature ADR 0009 argued
-was worth 18 KB. At three, the worst case is +37 KB and realistic 25% coverage
+notes per target would be +60 KB, more than double the 18 KB the activity feed
+was judged worth. At three, the worst case is +37 KB and realistic 25% coverage
 is +11 KB.
 
 **`total` is the resident's real note count, and it is on the wire on
@@ -1378,8 +1428,7 @@ the two suppression writes below, this opens no ungated surface.
 
 ## Do-not-knock
 
-`POST /v1/door-knocking/do-not-knock` — see
-[ADR 0007](adr/0007-do-not-knock.md) for why this is its own
+`POST /v1/door-knocking/do-not-knock` records do-not-knock as its own
 `ContactStatusField` (`do_not_knock`, values `active` / `cleared`) rather
 than a `support_status` override: a refusal is an observation, an
 instruction not to return is not, and the two would otherwise share one
@@ -1401,8 +1450,7 @@ button, so the instruction outlives the entitlement.
 
 ## "Not a voter" — the reason, captured
 
-`POST /v1/door-knocking/not-a-voter` — see
-[ADR 0008](adr/0008-not-a-voter-reason.md). The follow-up question behind a
+`POST /v1/door-knocking/not-a-voter`. The follow-up question behind a
 `not_a_voter` outcome ("What happened?", answered **Moved** or **Deceased**)
 lands as a fourth `ContactStatusField`, `not_a_voter`, values
 `moved` / `deceased` / `cleared`. One field rather than two, because they
@@ -1459,8 +1507,8 @@ membership. There is no single set of "the age bands" to invert.
 Nor can the pack approximate. The map shades from these buckets while knock
 time evaluates the real ranges, so a bucket that is a near-miss for a key gives
 a map whose count disagrees with the list it is previewing — the
-two-denominator failure [ADR 0010](adr/0010-draw-time-address-preview.md)
-forbids. The old buckets did this twice: `age50_64` shaded `50_plus` (every 65+
+two-denominator failure: two different numbers for one quantity. The old
+buckets did this twice: `age50_64` shaded `50_plus` (every 65+
 door the list would skip) and `age65Plus` had nowhere to map at all, so
 neither key narrowed the preview at all.
 
@@ -1488,9 +1536,10 @@ from both sides.
 either way and nine values is nowhere near the 256 a byte holds; only the
 manifest's value list grew. **`PACK_FORMAT_REVISION` moved to 2** because the
 meaning of the shared district build changed, while the manifest's `version`
-stays at 1 because its framing did not — see
-[ADR 0014](adr/0014-the-voter-pack-has-two-versions.md) for why those are two
-different numbers.
+stays at 1 because its framing did not. Those are two different numbers:
+`version` is the wire framing, a `z.literal` so an old client refuses a new
+framing, while `PACK_FORMAT_REVISION` is a server-side contracts constant for
+the district-dim vocabulary and is not on the wire.
 
 **`PACK_FORMAT_REVISION` is now 3**, for the language plane. Byte 0 used to be
 `Other` and double as the no-data slot, so a person with no `Language_Code`
@@ -1597,8 +1646,9 @@ campaign's own outreach rather than by the district — usually a rounding error
 against 611,000 rows.
 
 **Past `PACK_CONTACTS_MADE_MAX` the plane is omitted, not truncated.** The cap
-is `MAX_RESOLVED_ID_SET_SIZE` (100,000), deliberately the same number at which
-resolving a contacts-made filter for a real query gives up: above it the
+is 100,000, deliberately no larger than `MAX_RESOLVED_ID_SET_SIZE` (200,000
+since ENG-11424), the point at which resolving a contacts-made filter for a
+real query gives up: above the resolver's cap the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never
@@ -1670,6 +1720,18 @@ Three consequences worth knowing before changing this:
   `DoorKnockingPackBuildFailed` log line, and that log line is what pages —
   the per-route status alert sees a 200. A response that ends with no pack
   frame makes the decoder throw rather than render an empty district.
+- **So anything decidable about the request runs in front of the envelope.**
+  `DoorKnockingPackService.stream` awaits `resolveEligibleDistrict` — the
+  district resolve and the voter-data eligibility gate — and only then opens the
+  stream, handing the resolved `districtId` to the build. An org with no
+  district is not a failed build, it is a request that was never answerable, and
+  it gets the same 400 every other voter-data read gives it; the alert above
+  stays reserved for builds that really did die after the first byte. On 2026-09-30
+  it was the other way round and one ineligible campaign paged `@win-bugs` four
+  times in three seconds. The cost is the resolve's own latency ahead of the
+  head — ~32ms in prod, two election-api position reads and two small Postgres
+  reads — against a ~120s gateway ceiling, so it buys the status code back for
+  a fraction of the gap the envelope exists to close.
 - **The client's disconnect now cancels the build.** Destroying the response
   aborts the signal the drain checks between chunks, which relies on Fastify
   destroying the stream it is sending when the socket goes away. It does, and
@@ -1779,10 +1841,10 @@ opinion that can drift from it.
 `contact_current_status` and the four `contact_interaction_*` tables, so unlike
 the address preview below there is no people-db scan to pay for and no district
 to resolve first. That is what lets it fire on a list pick rather than on an
-explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
-preview explicit because each firing costs a scan, and moving the emptiness check
+explicit press: the address preview is explicit because each firing costs a
+scan, and moving the emptiness check
 earlier would have moved that cost earlier with it if it were answered the same
-way. It deliberately skips `resolveEligibleDistrictId` for the same reason — an
+way. It deliberately skips `resolveEligibleDistrict` for the same reason — an
 election-api round trip to find a district nothing here scans. An org with no
 resolvable district meets that problem at the draw step, where
 `districtUnavailable` already says so.
@@ -1805,17 +1867,16 @@ a list that cannot be cut at all.
 ## The address preview (draw step)
 
 `POST /v1/door-knocking/address-preview` answers "which houses are inside this
-shape?" **before** anything is bought — see
-[ADR 0010](adr/0010-draw-time-address-preview.md). The pack above carries no
+shape?" **before** anything is bought. The pack above carries no
 address at all, so it cannot; this runs the knock's own evaluation instead.
 
 `DoorKnockingPreviewService` repeats what
 [`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
 does right up to the vendor call and then stops:
-`resolveEligibleDistrictId`, `resolveSavedFilterForQuery` on the **unsaved**
+`resolveEligibleDistrict`, `resolveSavedFilterForQuery` on the **unsaved**
 filter draft (so activity conditions, support status, contacts-made and the
 voter-likelihood overrides are applied, exactly as they will be at knock time),
-ADR 0007 + ADR 0008 exclusions deduped into one `excludePersonIds`, then
+do-not-knock + not-a-voter exclusions deduped into one `excludePersonIds`, then
 `evaluate` over the polygon's bbox with an in-process ray-cast. Nothing is
 written, nothing is frozen and no Geoapify credit is spent.
 
@@ -1826,7 +1887,7 @@ Three things about it are load-bearing:
   estimate rather than beside it. The two count different audiences at different
   granularities — the pack's household key is `AddressLine`-level, this is
   unit-level like the freeze — so printing both is the two-denominator failure
-  the feature has a standing rule against. ADR 0010 is the whole argument.
+  the feature has a standing rule against: one quantity, one number.
 - **One request per explicit press.** The ring changes with every vertex, so
   nothing is fetched by drawing: the candidate asks, and a shape edited
   afterwards makes the answer _stale_ rather than triggering another scan. A
@@ -1870,8 +1931,8 @@ one moment the condition is cheap to state, before anything is bought.
 **Not yet surfaced in the UI.** Nothing on the draw step consumes
 `audienceEmpty` today: `DoorsPanel` was removed in a design change, and with it
 the only caller of `onShowAddresses`, so the address-preview request never
-fires. Wiring this up means either reviving that request path (ADR 0010 rejected
-firing it automatically — it bills a people-db scan per shape) or, better,
+fires. Wiring this up means either reviving that request path (firing it
+automatically was rejected — it bills a people-db scan per shape) or, better,
 asking the question where it actually belongs: emptiness depends only on the
 list's filters, needs no polygon, and is answerable from Postgres alone, so the
 **who** step could check it before a boundary is ever drawn. The
@@ -1915,28 +1976,28 @@ So: resolving the filter correctly (step 3 above) is necessary but not
 sufficient. `contactsMade0` covers the common intent — "only doors I haven't
 been to" — and is now offered in the create flow because evaluate finally
 applies it. Suppressing refusals specifically needs the do-not-knock field,
-which is a separate instruction from an observed refusal and gets its own ADR.
+which is a separate instruction from an observed refusal and gets its own
+status field (see "Do-not-knock").
 
 ## Scope guardrails (v1)
 
 **Still out.** There is no **top-issue or district filter**:
 `voterFilterBaseSchema` carries neither, and a district is _resolved_ from the
-organization (`resolveEligibleDistrictId`) rather than chosen, so the one
+organization (`resolveEligibleDistrict`) rather than chosen, so the one
 sub-district cut that exists — precinct — narrows the district an official
 already serves instead of picking a different one. No **voter record
 mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues
 anything but a `SELECT` against the people database, and `not_a_voter` is the
 near-exception that proves it — it captures a reason and suppresses the person
-from future evaluation (ADR 0008), but that write lands in our own Postgres and
+from future evaluation, but that write lands in our own Postgres and
 no person, address or L2-derived field is ever deleted or edited. No **sharable
 URLs**: the deep links that exist (`?listId=`, `?walkTurfId=`,
 `/volunteer/door-knocking/[turfId]`) are authenticated in-app routes, not
 tokens. No **tagging**, and no **arbitrary questions at a native knock** —
 `RecordDoorKnockInteractionSchema` is `.strict()` over a closed outcome and
-answer vocabulary, and the question designer under `door-knocking/surveys/`
-belongs to the eCanvasser arm, which the flag-on arm redirects away from. No
-**UI turf-splitting**: the schema has supported N turfs per audience since the
-start (`voterFileFilterId` is deliberately not unique), but nothing divides a
+answer vocabulary. No **UI turf-splitting**: the schema has supported N turfs
+per audience since the start (`voterFileFilterId` is deliberately not unique),
+but nothing divides a
 polygon, and an over-cap shape is refused rather than split.
 
 **Since shipped**, and listed here rather than deleted because their absence was
@@ -1952,15 +2013,13 @@ an assigned volunteer knocks six `@AllowVolunteer()` routes scoped to their own
 knocked. See § Volunteer access to the walk (ENG-11051), which this line used to
 contradict.
 
-**The flag line has drifted on both halves.** `native-door-knocking` still gates
-the dashboard surfaces and still demands the variant be literally `on`, but it
-does not gate _all_ of them: the volunteer walk is gated on `win-team-accounts`
-instead (`activeOrgVolunteer.server.ts`), so the two arms of this feature sit
-behind two different flags and can be turned on independently. And the backend
-no longer lands dark — gp-api checks no flag anywhere, `DoorKnockingModule` is
-registered unconditionally, and the routes are held by the Pro gate
-(`assertProAccess`) and by role. The figures in § Spend visibility are
-production measurements, not projections.
+**The flag line has drifted.** `native-door-knocking` still gates the
+dashboard surfaces and still demands the variant be literally `on`, but it
+does not gate _all_ of them: the volunteer walk (`activeOrgVolunteer.server.ts`)
+carries no flag of its own. And the backend no longer lands dark — gp-api
+checks no flag anywhere, `DoorKnockingModule` is registered unconditionally,
+and the routes are held by the Pro gate (`assertProAccess`) and by role. The
+figures in § Spend visibility are production measurements, not projections.
 
 ## Phones at the door
 
@@ -2011,11 +2070,6 @@ change: `deploy/index.ts` maps `Object.keys(secret)` into the task definition,
 so any key added to the `GP_API_<ENV>` secret JSON is injected on the next
 deploy. A missing server key is the gentlest failure of the four — the client
 validates lazily, so the environment boots and only the knock endpoint 502s.
-
-**The flag variant must be the literal string `on`.** `useFlagOn` tests
-`v?.value === 'on'`, so a variant named anything else — `true`, `enabled`,
-`treatment` — reads as off and silently serves the legacy eCanvasser dashboard
-instead. That is the failure most likely to be mistaken for a broken deploy.
 
 **Pro and a resolvable district.** Pilot campaigns need `isPro` (admin-settable)
 or an elected-office org, per the Pro gate below, and the district must have
@@ -2075,28 +2129,22 @@ load-bearing for us, so it should be on file rather than inferred.
 
 ## Access and eligibility
 
-Two products live at `/dashboard/door-knocking`. `DoorKnockingPageGate` picks
-between them: the native voter map when `native-door-knocking` is on, the
-legacy eCanvasser dashboard when it is off or unsettled. The sidebar entry in
-`DashboardMenu` mirrors that same branch, so the link and the landing page
-always agree — flag on requires a resolvable district (every pack and turf read
-resolves one server-side and 400s without it) **and Pro**, flag off requires an
-eCanvasser integration record, which is the only thing the legacy dashboard can
-render.
+`/dashboard/door-knocking` serves the native voter map, behind
+`DoorKnockingPageGate`. The sidebar entry in `DashboardMenu` mirrors that same
+gate, so the link and the landing page always agree: both require a resolvable
+district (every pack and turf read resolves one server-side and 400s without
+it) **and Pro**.
 
 Both sides read the CRM's `canUseProFeatures` (`isPro || electedOffice`), which
 is the frontend spelling of the `assertProAccess` predicate below, so the nav is
-never stricter than the API. A flag-on non-Pro candidate who reaches the URL
-anyway — a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
+never stricter than the API. A non-Pro candidate who reaches the URL anyway —
+a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
 card rather than a map that draws and then 400s. Unlike Know Your Opponent,
 whose nav entry is deliberately shown to non-Pro candidates as an upsell, this
 entry is hidden: creating a list spends vendor routing credits, so the pitch
 does not belong in a nav row. That makes the locked card a safety net rather than a
 funnel step, which is why it is deliberately shorter than
 `OpponentProLockedView` and fires no exposure event.
-
-**Control is untouched.** The flag-off eCanvasser dashboard was never Pro-gated
-and still isn't, on either the nav or the page.
 
 ## The Pro gate (ENG-10888)
 
@@ -2106,7 +2154,7 @@ The reads (`GET /turfs`, `GET /pack`, `POST /audience-check`) opened with
 outreach-pro-gating-v2: a free campaign can list, draw and shape a list
 behind the create flow's in-flow gate, and the two Geoapify spends —
 `POST /turfs` and `POST /turfs/:id/route` — are where it is refused. `POST /address-preview` stays gated because it
-returns addresses (ADR 0010). The gate is `ContactsService.assertProAccess(organization)`, called at
+returns addresses. The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
@@ -2149,7 +2197,7 @@ Reads are gated alongside the writes on purpose: a map that opens and then
 fails on the first turf is a worse answer than an upgrade prompt, and creating
 a list spends real Geoapify credits.
 
-The two holes are ADR 0007 and ADR 0008, and they are the point rather than an
+The two holes are do-not-knock and not-a-voter, and they are the point rather than an
 oversight — see "Do-not-knock" and "'Not a voter'" below. If an org lapses
 mid-pilot the walk it was on becomes unreachable, but a canvasser standing at a
 door that asked not to be revisited can still record that, and a door reported

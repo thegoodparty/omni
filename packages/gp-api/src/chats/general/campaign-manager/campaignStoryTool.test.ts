@@ -1,10 +1,8 @@
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { buildCampaignStoryTool } from './campaignStoryTool'
-import {
-  CampaignStoryIntakeService,
-  StoryState,
-} from './campaignStoryIntake.service'
+import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type { StoryState } from '@/campaignStory/services/campaignStoryState.service'
 
 const STORY: StoryState = {
   why: null,

@@ -47,6 +47,7 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PREVIEW_IDLE_DAYS: ${{ vars.PREVIEW_IDLE_DAYS || 21 }}
         run: |
           pulumi login s3://goodparty-iac-state
           npx tsx scripts/find-stale-preview-stacks.ts /tmp/stale-stacks.json
@@ -56,6 +57,12 @@ jobs:
     needs: discover-stale-stacks
     if: needs.discover-stale-stacks.outputs.stacks != '[]'
     runs-on: ubuntu-latest
+    # Job-level permissions replace the workflow's, so repeat the ones the
+    # destroy needs; pull-requests: write is only for the inactivity comment.
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
     # Serialize on the preview stack name (shared with the deploy job in
     # gp-api.yml and gp-api-teardown-preview.yml) so this never runs `pulumi
     # cancel`/`destroy` against a stack a PR-close teardown is already
@@ -92,6 +99,26 @@ jobs:
         with:
           stack-name: ${{ matrix.stack }}
           working-directory: ${{ env.WORKSPACE }}/deploy
+
+      # A stack whose PR is still open was retired for inactivity, not because
+      # the PR closed, so tell the author how to get it back. A failed comment
+      # must not mark the leg failed and page Slack about a destroy that worked.
+      - name: Comment on the PR if it is still open
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STACK: ${{ matrix.stack }}
+          IDLE_DAYS: ${{ vars.PREVIEW_IDLE_DAYS || 21 }}
+        run: |
+          PR="${STACK#gp-api-pr-}"
+          STATE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" \
+            --json state --jq .state)
+          if [ "$STATE" != "OPEN" ]; then
+            echo "PR #$PR is $STATE; not commenting."
+            exit 0
+          fi
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body \
+            "Preview stack retired after ${IDLE_DAYS} days without activity. Push a commit to bring it back."
 
       # fail-fast: false already lets the other matrix legs finish, but a
       # failed destroy is otherwise only visible to whoever opens the run.

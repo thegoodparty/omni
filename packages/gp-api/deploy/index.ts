@@ -7,9 +7,14 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import {
+  createPreviewSharedAlb,
+  PREVIEW_SHARED_ALB_NAME,
+} from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
+import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
 
 export = async () => {
@@ -20,10 +25,6 @@ export = async () => {
     | 'preview'
     | 'dev'
     | 'prod'
-  const imageUri = config.require('imageUri')
-
-  const prNumber =
-    environment === 'preview' ? config.require('prNumber') : undefined
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -33,6 +34,14 @@ export = async () => {
     private: ['subnet-053357b931f0524d4', 'subnet-0bb591861f72dcb7f'],
   }
   const vpcSecurityGroupIds = ['sg-01de8d67b0f0ec787']
+
+  const previewCertificateArn =
+    'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
+
+  const imageUri = config.require('imageUri')
+
+  const prNumber =
+    environment === 'preview' ? config.require('prNumber') : undefined
 
   const stage = {
     preview: `pr-${prNumber}`,
@@ -46,6 +55,10 @@ export = async () => {
   // Production deploy manages the VPC. The actual VPC details are hard-coded above as individual variables.
   if (environment === 'prod') {
     createVpc()
+    // One global bucket serving prod sitemaps, so only the prod stack
+    // creates it (same single-owner pattern as the preview shared cluster
+    // on the dev stack).
+    createSitemapsBucket()
   }
 
   const secretName = select({
@@ -72,14 +85,22 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
+  // The task role and task definition below name these queues by string
+  // rather than through the resources' outputs. An SQS create waits ~25s for
+  // its attributes to settle, and the DLQ-then-queue chain put ~50s in front
+  // of the ECS service on every new preview. Nothing in the task needs the
+  // queues until it has booted, by which time they exist.
+  const dlqName = `${stage}-DLQ.fifo`
+  const queueName = `${stage}-Queue.fifo`
+
   const dlq = new aws.sqs.Queue('main-dlq', {
-    name: `${stage}-DLQ.fifo`,
+    name: dlqName,
     fifoQueue: true,
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
   })
 
-  const queue = new aws.sqs.Queue('main-queue', {
-    name: `${stage}-Queue.fifo`,
+  new aws.sqs.Queue('main-queue', {
+    name: queueName,
     fifoQueue: true,
     visibilityTimeoutSeconds: 300, // 5 minutes
     messageRetentionSeconds: 7 * 24 * 60 * 60, // 7 days
@@ -327,6 +348,12 @@ export = async () => {
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
   if (environment === 'dev') {
+    createPreviewSharedAlb({
+      vpcId,
+      publicSubnetIds: vpcSubnetIds.public,
+      hostedZoneId,
+      certificateArn: previewCertificateArn,
+    })
     createPreviewSharedCluster({
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
@@ -334,6 +361,18 @@ export = async () => {
       dbPassword: secret.DB_PASSWORD,
     })
   }
+
+  // Falls back to a per-PR ALB while the shared one does not exist (until
+  // the dev stack has deployed it), so previews keep deploying.
+  const sharedPreviewListener =
+    environment === 'preview'
+      ? await aws.lb
+          .getLoadBalancer({ name: PREVIEW_SHARED_ALB_NAME })
+          .then((lb) =>
+            aws.lb.getListener({ loadBalancerArn: lb.arn, port: 443 }),
+          )
+          .catch(() => undefined)
+      : undefined
 
   const sharedPreviewCluster = skipPerPrRds
     ? await aws.rds.getCluster({
@@ -401,6 +440,15 @@ export = async () => {
   // but not write/delete. The agent-artifacts bucket is written by the agent
   // runner (gp-ai); gp-api only reads results in
   // onExperimentRunCompleted.
+  //
+  // The Universal Judge also uses this bucket, under its own reserved
+  // top-level prefix, to cache baseline agent outputs between runs. No write
+  // is granted here on purpose: a judge run is a CI job that checks out the PR
+  // head and its base side by side, so whatever writes those objects
+  // authenticates as the shared CI OIDC role (`vars.AWS_ROLE_ARN`), never as
+  // this ECS task. The bucket is not Pulumi-owned either — gp-ai Terraform
+  // creates it in `modules/pmf-engine-control-plane` — and the read below is
+  // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
   ]
@@ -411,27 +459,64 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
-  const campaignPlanInputQueueName = select({
-    preview: '',
-    dev: 'campaign-plan-input-dev.fifo',
-    // IAM grant provisioned ahead of the (currently disabled) prod
-    // CAMPAIGN_PLAN_INPUT_QUEUE_URL env var so enabling prod later doesn't
-    // 403 on SQS. An Allow on an unused queue ARN is harmless.
-    prod: 'campaign-plan-input-prod.fifo',
-  })
+  // The Universal Judge's background runner also sends to this queue, but as a
+  // GitHub Actions job under the CI OIDC role rather than as a task, so it is
+  // out of this role's scope. The sqs:SendMessage grant below already covers
+  // every message gp-api itself sends here; it needs no judge-specific copy.
   const agentDispatchQueueName = select({
     preview: '',
     dev: 'agent-dispatch-dev.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
-  const staticQueueArns = [campaignPlanInputQueueName, agentDispatchQueueName]
-    .filter((name): name is string => name !== '')
+  const taskRoleQueueArns = [queueName, dlqName, agentDispatchQueueName]
+    .filter((name) => name !== '')
     .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
-  const taskRoleQueueArns: pulumi.Input<string>[] = [
-    queue.arn,
-    dlq.arn,
-    ...staticQueueArns,
-  ]
+
+  // The curated local-dev bundle POST /v1/dev-env/bundle vends. Dev only:
+  // preview and prod never get the id, so the endpoint stays dark there even
+  // though preview passes the IS_NON_PROD_DEPLOY gate. The ARN is built by
+  // hand rather than looked up (`-*` covers the suffix Secrets Manager adds)
+  // so the stack still deploys before the secret is created.
+  const localDevEnvSecretId = select({
+    preview: '',
+    dev: 'LOCAL_DEV_ENV',
+    prod: '',
+  })
+  const localDevEnvSecretArns =
+    localDevEnvSecretId === ''
+      ? []
+      : [
+          `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
+        ]
+
+  // The local election seed POST /v1/dev-env/election-seed presigns: the
+  // slice of the dev election database local setup loads into `electiondb`.
+  // Restricted data, so private and dev only; refresh.sh uploads it.
+  const localElectionSeedBucket =
+    environment === 'dev'
+      ? new aws.s3.BucketV2('local-election-seed-bucket', {
+          bucket: 'gp-local-election-seed-dev',
+        })
+      : undefined
+  if (localElectionSeedBucket) {
+    new aws.s3.BucketPublicAccessBlock('local-election-seed-pab', {
+      bucket: localElectionSeedBucket.id,
+      blockPublicAcls: true,
+      blockPublicPolicy: true,
+      ignorePublicAcls: true,
+      restrictPublicBuckets: true,
+    })
+  }
+
+  const containerSecrets: Record<
+    string,
+    pulumi.Output<string>
+  > = Object.fromEntries(
+    Object.keys(secret).map((key) => [
+      key,
+      pulumi.interpolate`${secretInfo.arn}:${key}::`,
+    ]),
+  )
 
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
@@ -444,25 +529,59 @@ export = async () => {
     privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain,
+    sharedPreviewListenerArn: sharedPreviewListener?.arn,
     certificateArn: select({
-      preview:
-        'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786',
+      preview: previewCertificateArn,
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
-    secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretInfo.arn}:${key}::`,
-      ]),
-    ),
+    secrets: containerSecrets,
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // Explicit so the running value is visible in the task definition
+      // and rollback is a one-line diff (set dev to 'live').
+      VENDOR_MODE: select({
+        preview: 'mock',
+        dev: 'mock',
+        prod: 'live',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      // Clerk instance public key, so tokens verify without fetching Clerk's
+      // JWKS on the request path. Public, so it lives here and not in the
+      // secret. Previews use the dev Clerk instance.
+      CLERK_JWT_KEY: select({
+        preview: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        dev: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        prod: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7mX9LgkMjP5eeqaufE/
+gKslsuuKY8rRVlYfLiIGHFo6UbB8Nm3ZY4VDHNGCP8ewE0CrEuY5LaRbYaIuDeB5
+9dWfgTIbieUBHPr2lmA1crMyRKVQEkYNHFGyvoR6wF3m8FUbiT03gEsnTsmKdeFl
+rmbyjAacxbn75BLOwZZm1abvRxPXj6/MwbahCKVSvtrBdsjhQBxxOv5+9UFhQ14p
+WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
+4RFIVMAkgqfj2C8dnFR2sQS2NkR9DqQabf6aY4Yme2/RRT5489atX1kUFh1Tt167
+jwIDAQAB
+-----END PUBLIC KEY-----`,
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
@@ -481,7 +600,7 @@ export = async () => {
       }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
-      SQS_QUEUE: queue.name,
+      SQS_QUEUE: queueName,
       // Where the per-send button in a fulfilment Slack message points. Not
       // select()-ed by environment on purpose: gp-admin is a single
       // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
@@ -489,13 +608,6 @@ export = async () => {
       // and prod all send staff to the same console.
       GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
-      CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
-        preview: '',
-        dev: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-dev.fifo',
-        // prod disabled until we're ready to generate events in prod
-        // prod: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-prod.fifo',
-        prod: '',
-      }),
       CAMPAIGN_PLAN_RESULTS_BUCKET: select({
         preview: '',
         dev: 'campaign-plan-results-dev',
@@ -522,6 +634,28 @@ export = async () => {
         dev: '',
         prod: 'true',
       }),
+      // Dev and previews write to prod's HubSpot portal, so the Office Holder
+      // sync and its ids are prod only.
+      HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
+        preview: '',
+        dev: '',
+        prod: 'true',
+      }),
+      HUBSPOT_OFFICE_HOLDER_OBJECT_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '2-65502604',
+      }),
+      HUBSPOT_OFFICE_HOLDER_CONTACT_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '76',
+      }),
+      HUBSPOT_OFFICE_HOLDER_COMPANY_ASSOCIATION_TYPE_ID: select({
+        preview: '',
+        dev: '',
+        prod: '73',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
@@ -532,6 +666,10 @@ export = async () => {
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
+      LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
+      LOCAL_ELECTION_SEED_BUCKET: localElectionSeedBucket
+        ? localElectionSeedBucket.bucket
+        : '',
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -541,16 +679,8 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      SECRET_NAMES: Object.keys(secret).join(','),
-      ...(environment === 'preview'
-        ? {
-            IS_PREVIEW: 'true',
-            ADMIN_EMAIL: process.env.ADMIN_EMAIL,
-            ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
-            CANDIDATE_EMAIL: process.env.CANDIDATE_EMAIL,
-            CANDIDATE_PASSWORD: process.env.CANDIDATE_PASSWORD,
-          }
-        : {}),
+      SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
+      ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
     },
     permissions: [
       {
@@ -643,6 +773,32 @@ export = async () => {
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(localDevEnvSecretArns.length > 0
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
+      ...(localElectionSeedBucket
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['s3:GetObject'],
+              Resource: [pulumi.interpolate`${localElectionSeedBucket.arn}/*`],
+            },
+            {
+              // Without ListBucket, S3 answers a HeadObject for a key that
+              // does not exist with 403 rather than 404, and the endpoint
+              // could not tell "not uploaded yet" from a real denial.
+              Effect: 'Allow' as const,
+              Action: ['s3:ListBucket'],
+              Resource: [localElectionSeedBucket.arn],
+            },
+          ]
+        : []),
     ],
   })
 

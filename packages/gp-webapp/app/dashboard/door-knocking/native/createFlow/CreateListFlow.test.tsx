@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -13,6 +14,18 @@ import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
+import { DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH } from '@goodparty_org/contracts'
+
+// The success screen's turf cards carry the assignee menu, which reads the
+// viewer's organization; these tests render without an OrganizationProvider,
+// whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => undefined,
+  useOrganizationRole: () => undefined,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -55,6 +68,7 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
 
 const FREE_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: 'pro',
   twoStep: false,
   membership: {
@@ -68,6 +82,7 @@ const FREE_GATE: OutreachGateState = {
 
 const PRO_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: {
@@ -122,6 +137,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  source: 'outreach_page' as const,
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   districtHouseholdsPending: false,
@@ -181,6 +197,7 @@ const savedTurf = {
   loggedCount: 0,
   knockedDoorCount: 0,
   routeSeconds: 1860,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),
@@ -389,6 +406,7 @@ describe('CreateListFlow', () => {
     // it: nothing here chooses one any more, and a default reported as a
     // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      product: 'win',
       stops: 14,
       people: 22,
       filterCount: 1,
@@ -621,6 +639,356 @@ describe('CreateListFlow', () => {
     // is merely still in flight fails this rather than passing it.
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
     expect(filterPosts).toBe(0)
+  })
+
+  // A Regenerate reply can land after the candidate has started editing the
+  // talking points. `onTextChange` bumps `draftRequestRef` and resets the
+  // pending draft mutation so that edit wins rather than being overwritten by
+  // the stale reply.
+  it('keeps a talking point typed while a reply is still in flight', async () => {
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: { draft: DRAFT } }
+      }
+      await held
+      answered.done = true
+      return { status: 200, data: { draft: 'The AI reply.' } }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
+    await waitFor(() =>
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    act(() => {
+      const { editor } = field()
+      // One short of the doc's end, which is inside the last paragraph: the
+      // doc boundary itself would open a new one.
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(field().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${DRAFT} Sarah Chen said the roads need work too.`,
+    )
+    expect(field().editor.getText({ blockSeparator: '\n' })).not.toContain(
+      'The AI reply.',
+    )
+  })
+
+  // A call the candidate edited past can still fail. Its error must not
+  // come back over words they already fixed.
+  it("keeps the candidate's words when a superseded call fails late", async () => {
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const answered = { done: false }
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      if (body.previousDraft === undefined) {
+        return { status: 200, data: { draft: DRAFT } }
+      }
+      await held
+      answered.done = true
+      return {
+        status: 502,
+        data: { message: 'Door-knocking draft generation failed' },
+      }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
+    await waitFor(() =>
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    // Edit only once the call is actually pending, same as the candidate
+    // editing mid-flight. The Regenerate button's own spinner is the signal.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Regenerate/ })).toBeDisabled(),
+    )
+    act(() => {
+      const { editor } = field()
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size - 1,
+        ' Sarah Chen said the roads need work too.',
+      )
+    })
+
+    release()
+    await waitFor(() => expect(answered.done).toBe(true))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+    expect(field().editor.getText({ blockSeparator: '\n' })).toBe(
+      `${DRAFT} Sarah Chen said the roads need work too.`,
+    )
+  })
+
+  // Typing is the candidate taking over from the failed draft, as in the
+  // other flows, so the card goes.
+  it('clears the draft error once the candidate types a talking point', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    act(() => {
+      const { editor } = screen.getByLabelText(
+        'Talking points',
+      ) as HTMLElement & {
+        editor: Editor
+      }
+      editor.commands.insertContent('Sarah Chen wants safer streets.')
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/We couldn.t write your talking points/),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  // Custom never drafts, so switching to it is the only other takeover that
+  // can clear a stale error: the candidate never types a replacement, they
+  // just say they'll write their own.
+  it('clears the draft error when switching to a custom purpose', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    // Back to the purpose step: points -> who -> purpose. The first Back
+    // leaves `filters`, which the page syncs back as a step prop; the second
+    // is a stage change inside `filters` and needs no rerender.
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    await screen.findByRole('button', { name: 'Something else' })
+
+    // Pick the write-my-own purpose and return to points. The who step's own
+    // audience pick survives the purpose change, so Continue is already live.
+    fireEvent.click(screen.getByRole('button', { name: 'Something else' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      screen.queryByText(/We couldn.t write your talking points/),
+    ).not.toBeInTheDocument()
+  })
+
+  // Picking the same purpose again re-drafts nothing on arrival, so its
+  // failed draft keeps the error card and its Try again.
+  it('keeps the draft error when the same purpose is picked again', async () => {
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 502,
+      data: { message: 'Door-knocking draft generation failed' },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Back'))
+    rerender(<CreateListFlow {...baseProps} step="filters" />)
+    await screen.findByRole('combobox', { name: 'All lists' })
+    fireEvent.click(screen.getByLabelText('Back'))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+  })
+
+  // Try again has to repeat the call that failed rather than guessing from
+  // the purpose. An Improve carries the candidate's own edited words as
+  // `currentDraft`, so a Try again that fell back to a fresh draft would
+  // throw those words away rather than retrying what they asked for.
+  it('Try again repeats an Improve that failed', async () => {
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
+    const bodies: Array<{ currentDraft?: string; instructions?: string }> = []
+    api.mock('POST /v1/outreach/door-knocking/draft', async ({ body }) => {
+      bodies.push(body)
+      // First call is the initial draft on arrival. Second is the Improve
+      // the candidate presses, which fails. Third is Try again's retry.
+      if (bodies.length === 1) return { status: 200, data: { draft: DRAFT } }
+      if (bodies.length === 2) {
+        return {
+          status: 502,
+          data: { message: 'Door-knocking draft generation failed' },
+        }
+      }
+      return {
+        status: 200,
+        data: { draft: 'Edited by the retry.' },
+      }
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
+    await waitFor(() =>
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
+    )
+
+    const edited = 'Sarah Chen wants a real plan for the roads.'
+    act(() => {
+      field().editor.commands.setContent(edited)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    await waitFor(() => expect(bodies).toHaveLength(2))
+    // The first draft was fresh, with no prior words to carry.
+    expect(bodies[0]).not.toHaveProperty('currentDraft')
+    // The Improve carried the candidate's edited words.
+    expect(bodies[1]?.currentDraft).toContain(edited)
+
+    expect(
+      await screen.findByText(/We couldn.t write your talking points/),
+    ).toBeInTheDocument()
+
+    // Instructions written after the failure ride the retry.
+    fireEvent.change(screen.getByLabelText('Instructions for the AI'), {
+      target: { value: 'mention the school levy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    // The retry is the same Improve request, not a fresh draft: the
+    // candidate's edited words ride along again rather than being dropped.
+    await waitFor(() => expect(bodies).toHaveLength(3))
+    expect(bodies[2]?.currentDraft).toBe(bodies[1]?.currentDraft)
+    expect(bodies[2]?.instructions).toBe('mention the school levy')
+    expect(bodies[2]?.currentDraft).toContain(edited)
+  })
+
+  // A field with a hard limit warns before it is reached rather than
+  // silently refusing keystrokes, and says so plainly once it is reached.
+  it('warns as the field nears its length limit and says when it reaches it', async () => {
+    const DRAFT = [
+      '• Ask what they would fix around here first',
+      '• Fix our roads with a real maintenance plan',
+    ].join('\n')
+    api.mock('POST /v1/outreach/door-knocking/draft', {
+      status: 200,
+      data: { draft: DRAFT },
+    })
+
+    const { rerender } = await renderAtWho()
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+
+    const field = () =>
+      screen.getByLabelText('Talking points') as HTMLElement & {
+        editor: Editor
+      }
+    await waitFor(() =>
+      expect(field().editor.getText({ blockSeparator: '\n' })).toBe(DRAFT),
+    )
+
+    const max = DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH
+
+    // Below 90%: neither the warning nor the limit message shows.
+    act(() => {
+      field().editor.commands.setContent('a'.repeat(Math.floor(max * 0.5)))
+    })
+    expect(screen.queryByText(/characters left/)).toBeNull()
+    expect(screen.queryByText(/character limit/)).toBeNull()
+
+    // 90%+ of the limit: the warning shows, naming how many are left.
+    const nearLimit = Math.ceil(max * 0.95)
+    act(() => {
+      field().editor.commands.setContent('a'.repeat(nearLimit))
+    })
+    expect(
+      screen.getByText(`${(max - nearLimit).toLocaleString()} characters left`),
+    ).toBeInTheDocument()
+
+    // Exactly the limit: the warning is replaced by the reached message.
+    act(() => {
+      field().editor.commands.setContent('a'.repeat(max))
+    })
+    expect(
+      screen.getByText(
+        `You've reached the ${max.toLocaleString()}-character limit.`,
+      ),
+    ).toBeInTheDocument()
   })
 
   // The regression this line shipped with: two counts side by side, one
@@ -1707,6 +2075,60 @@ describe('CreateListFlow preselected list', () => {
     expect(audiencePicker()).not.toHaveTextContent('Super voters')
   })
 
+  // A civic panel plan's door step settles the purpose and its frozen list,
+  // so the flow goes straight on to the talking points, drafted for it.
+  it('lands a plan step on the talking points, with the list and the invite', async () => {
+    const draftBodies: unknown[] = []
+    api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
+      draftBodies.push(body)
+      return { status: 200, data: { draft: '• Ask them to join' } }
+    })
+    const onStepChange = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      initialPurpose: 'build_citizens_panel' as const,
+      onStepChange,
+    }
+
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="points" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+  })
+
+  it('stays on the who step with the invite when the plan list is not yours', async () => {
+    const onStepChange = vi.fn()
+    render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow
+          {...baseProps}
+          savedLists={savedLists}
+          preselectedListId={12_345}
+          initialPurpose="build_citizens_panel"
+          onStepChange={onStepChange}
+          step="filters"
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(
+      await screen.findByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
+    expect(onStepChange).not.toHaveBeenCalledWith('points')
+  })
+
   // The whole point of carrying it: the turf attaches to the list the
   // candidate arrived with, rather than to a near-identical copy of it.
   it('attaches the turf to the carried list without copying it', async () => {
@@ -1776,6 +2198,70 @@ describe('CreateListFlow purpose step', () => {
     expect(screen.queryByText('Persuade undecided voters')).toBeNull()
     expect(screen.queryByText('Encourage early voting')).toBeNull()
     expect(screen.queryByText('Turn out my supporters')).toBeNull()
+  })
+
+  // The community-input purpose is the only one that asks a question, and it
+  // is the one the door's issue capture reads as the context for every memo.
+  it('asks what the campaign wants to learn, and holds Continue until it does', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'Would you compost?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Win's question-asking goal is the same slug as Serve's, under the Win
+  // label, and it takes the same extra step.
+  it('asks a candidate what they want to learn after Hear from voters', async () => {
+    renderPurpose(false)
+
+    fireEvent.click(screen.getByText('Hear from voters'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(
+      screen.getByRole('heading', {
+        level: 3,
+        name: 'What do you want to learn?',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'How about the road bond?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Continue only guards emptiness, so a question left over from an earlier
+  // pick would ship as this campaign's rather than tripping the guard.
+  it('does not carry a question over to a later purpose pick', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: 'Would you compost?' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByText('Ask for community input'))
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  // Every channel offers the community feedback goal, as texts always have.
+  it.each([
+    [false, 'Hear from voters'],
+    [true, 'Ask for community input'],
+  ])('offers the community feedback goal (serve: %s)', (serveMode, label) => {
+    renderPurpose(serveMode)
+    expect(screen.getByText(label)).toBeInTheDocument()
   })
 
   // The per-card second line is gone with the bespoke card: no other channel
@@ -2156,6 +2642,74 @@ describe('CreateListFlow multi-turf save', () => {
     expect(created[1]?.[1]).toMatchObject({ stops: 40, people: 80 })
   })
 
+  const cardLink = {
+    proposalKey: '3f6c1b2a-8d4e-5f70-9a1b-2c3d4e5f6a7b',
+    priorityId: 'priority-7',
+  }
+
+  it('sends a Win card’s key on the anchor only, and its priority on every creation event', async () => {
+    const { turfs } = mockBatch()
+
+    await buildRoutes({ ...twoTurfs, proposalLink: cardLink })
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+
+    expect(turfs[0]).toMatchObject({ proposalKey: cardLink.proposalKey })
+    expect(turfs[0]).not.toHaveProperty('priorityId')
+    expect(turfs[1]).not.toHaveProperty('proposalKey')
+
+    const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0] === EVENTS.Dashboard.VoterContact.CampaignCreated,
+    )
+    expect(created).toHaveLength(2)
+    for (const call of created) {
+      expect(call[1]).toMatchObject({ priorityId: 'priority-7' })
+    }
+  })
+
+  it('sends a Serve card’s whole link on the anchor, so the walk counts toward the priority', async () => {
+    const turfs: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77 },
+    })
+    api.mock('POST /v1/door-knocking/serve/turfs', ({ body }) => {
+      turfs.push(body as Record<string, unknown>)
+      return {
+        status: 200 as const,
+        data: {
+          ...savedTurf,
+          id: 100 + turfs.length,
+          outreachId: 900 + turfs.length,
+          name: String((body as Record<string, unknown>).name),
+        },
+      }
+    })
+    const props = { ...twoTurfs, proposalLink: cardLink }
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} {...props} step="name" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    advanceToDraw(
+      (ui) =>
+        rerender(
+          <DoorKnockingSurfaceProvider value>{ui}</DoorKnockingSurfaceProvider>,
+        ),
+      props,
+      'Fall canvass',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+
+    expect(turfs[0]).toMatchObject(cardLink)
+    expect(turfs[1]).not.toHaveProperty('proposalKey')
+    expect(turfs[1]).not.toHaveProperty('priorityId')
+  })
+
   it('assigns each turf after its route, against its own envelope', async () => {
     const { assignments } = mockBatch()
 
@@ -2239,20 +2793,141 @@ describe('CreateListFlow multi-turf save', () => {
     expect(screen.getByText('Turf 2')).toBeInTheDocument()
   })
 
-  it('joins an existing campaign without buying an anchor of its own', async () => {
-    const { turfs } = mockBatch()
+  // "Add turf" opens on the drawing surface, and the drawing surface is the
+  // whole flow: the panel's Save writes from the map and goes back to the
+  // campaign's drawer, with no draw step or success screen in between.
+  const joinProps = {
+    ...twoTurfs,
+    campaignOutreachId: 555,
+    siblingTurfs: [savedTurf],
+  }
+  const renderOnMap = (
+    props: Partial<ComponentProps<typeof CreateListFlow>>,
+  ) => {
+    const onJoinSaveStateChange = vi.fn()
+    const { rerender, container, unmount } = render(
+      <CreateListFlow
+        {...baseProps}
+        {...props}
+        step="draw"
+        drawFullScreen
+        onJoinSaveStateChange={onJoinSaveStateChange}
+      />,
+    )
+    const pressSave = () =>
+      rerender(
+        <CreateListFlow
+          {...baseProps}
+          {...props}
+          step="draw"
+          drawFullScreen
+          joinSaveRequest={1}
+          onJoinSaveStateChange={onJoinSaveStateChange}
+        />,
+      )
+    const leaveMap = () =>
+      rerender(
+        <CreateListFlow
+          {...baseProps}
+          {...props}
+          step="draw"
+          drawFullScreen={false}
+          onJoinSaveStateChange={onJoinSaveStateChange}
+        />,
+      )
+    return { pressSave, leaveMap, onJoinSaveStateChange, container, unmount }
+  }
 
-    await buildRoutes({
-      ...twoTurfs,
-      // "Add another turf" arrives with the campaign already anchored.
-      campaignOutreachId: 555,
+  it('joins an existing campaign when its drawing surface is saved', async () => {
+    const { turfs } = mockBatch()
+    const { pressSave, container } = renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() => expect(baseProps.onClose).toHaveBeenCalled())
+
+    // Both are siblings of the campaign, attached to its audience, and
+    // neither names it: the campaign owns its name, and the server reads
+    // its audience, purpose and card off the anchor.
+    expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+    expect(turfs.map((body) => body.voterFileFilterId)).toEqual([21, 21])
+    for (const body of turfs) expect(body).not.toHaveProperty('campaignName')
+    expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
+    // Nothing of the flow's own sheet is ever drawn over the map.
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('stays on the map and reports why when a turf fails to save', async () => {
+    mockBatch({ failSecond: true })
+    const { pressSave, onJoinSaveStateChange, container } =
+      renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() =>
+      expect(onJoinSaveStateChange).toHaveBeenLastCalledWith({
+        pending: false,
+        error: expect.stringContaining('Press Save to try the rest.'),
+      }),
+    )
+    expect(baseProps.onClose).not.toHaveBeenCalled()
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('never deletes the campaign’s list when a save fails and is left', async () => {
+    mockBatch({ failSecond: true })
+    const deletes = vi.fn()
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', () => {
+      deletes()
+      return { status: 200, data: {} }
     })
+    const { pressSave, onJoinSaveStateChange, unmount } = renderOnMap(joinProps)
+
+    pressSave()
+    await waitFor(() =>
+      expect(onJoinSaveStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      ),
+    )
+    unmount()
+    // The cleanup's request is fire-and-forget, so give it time to land.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(deletes).not.toHaveBeenCalled()
+  })
+
+  it('goes back to the campaign when its drawing surface closes', () => {
+    const { turfs } = mockBatch()
+    const { leaveMap } = renderOnMap({ ...joinProps, turfDrafts: [] })
+
+    leaveMap()
+
+    expect(baseProps.onClose).toHaveBeenCalled()
+    expect(turfs).toHaveLength(0)
+  })
+
+  // Closing a walk started here reopens the campaign's details drawer, and
+  // that drawer is keyed on the anchor. Handing over a sibling's own envelope
+  // would open a drawer for a campaign of one, or none.
+  it('starts a walk carrying the anchor, whichever turf is pressed', async () => {
+    mockBatch()
+    const props = { ...twoTurfs }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
     await waitFor(() =>
       expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
     )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
 
-    // Both are siblings, and neither renames the campaign they are joining
-    // — the server reads the anchor's own name over anything on the wire.
-    expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+    await screen.findByText('Turf 2')
+    const starts = screen.getAllByRole('button', { name: 'Start knocking' })
+    expect(starts).toHaveLength(2)
+    fireEvent.click(starts[1]!)
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
+      901,
+    )
   })
 })

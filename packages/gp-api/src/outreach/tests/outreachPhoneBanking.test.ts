@@ -58,6 +58,19 @@ const mockDraft = (draft: string) =>
     model: 'claude-test',
   })
 
+// The lines `withField` adds to `without`, asserting that adding them is the
+// ONLY difference — so a request without the field is byte-identical to one
+// that never knew the field existed.
+const addedLines = (without: string, withField: string): string[] => {
+  const before = without.split('\n')
+  const after = withField.split('\n')
+  let start = 0
+  while (start < before.length && before[start] === after[start]) start++
+  const count = after.length - before.length
+  expect(after.slice(start + count)).toEqual(before.slice(start))
+  return after.slice(start, start + count)
+}
+
 describe('POST /v1/outreach/phone-banking/draft', () => {
   it('returns the generated script grounded in office and campaign story', async () => {
     mockDraft('Hi, my name is [your name], a volunteer for Jane Doe.')
@@ -250,6 +263,38 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       )
     },
   )
+
+  it('writes an event invite from the details the flow sent', async () => {
+    mockDraft('A script.')
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      event: { date: '2026-10-17', time: '09:00', location: 'Town Hall' },
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Date: Saturday, October 17')
+    expect(userPrompt).toContain('Time: 9:00 AM')
+    expect(userPrompt).toContain('Location: Town Hall')
+    expect(userPrompt).not.toMatch(/\[(date|time|location)\]/i)
+  })
+
+  it('tells an event invite with no details to leave the logistics out', async () => {
+    mockDraft('A script.')
+
+    await postDraft({ purpose: 'event_invite', tone: 'warm' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('No event date, time or place was given.')
+  })
 
   it('includes the election date for the election_day_turnout purpose', async () => {
     await service.prisma.campaign.update({
@@ -652,5 +697,73 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     )
 
     expect(res.status).toBe(HttpStatus.CREATED)
+  })
+
+  // "Hear from voters" asks one question, and the script is built around it
+  // the way Serve's community-input script is — in Win's own nouns.
+  describe('the hear-from-voters question', () => {
+    const question = 'How do you feel about the road bond?'
+
+    const promptsOf = () => {
+      const call = jsonCompletion.mock.calls[0]?.[0] as {
+        messages: { role: string; content: string }[]
+      }
+      const of = (role: string) =>
+        call.messages.find((m) => m.role === role)?.content ?? ''
+      return { system: of('system'), user: of('user') }
+    }
+
+    it('adds the fenced question and its rule, and nothing else', async () => {
+      mockDraft('You: Hi.')
+      await postDraft({ purpose: 'community_input', tone: 'warm' })
+      const baseline = promptsOf()
+
+      jsonCompletion.mockClear()
+      mockDraft('You: Hi.')
+      const res = await postDraft({
+        purpose: 'community_input',
+        tone: 'warm',
+        communityInputQuestion: question,
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const prompts = promptsOf()
+      expect(prompts.system).toBe(baseline.system)
+      expect(addedLines(baseline.user, prompts.user)).toEqual([
+        'The question this effort is trying to answer:',
+        '"""',
+        question,
+        '"""',
+        expect.stringContaining('the question it must put to the voter'),
+      ])
+    })
+
+    it('writes a call to a voter, never a constituent', async () => {
+      mockDraft('You: Hi.')
+
+      await postDraft({
+        purpose: 'community_input',
+        tone: 'warm',
+        communityInputQuestion: question,
+      })
+
+      const { system, user } = promptsOf()
+      expect(user).toContain(
+        WIN_PHONE_BANKING_VOICE.purposePrompts.community_input,
+      )
+      expect(`${system}${user}`).toContain('You:/Voter:')
+      expect(`${system}${user}`).not.toMatch(/constituent/i)
+    })
+
+    it('refuses a question on a purpose that asks none', async () => {
+      const res = await postDraft({
+        purpose: 'event_invite',
+        tone: 'warm',
+        communityInputQuestion: question,
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
   })
 })

@@ -28,9 +28,12 @@
     "sync:repo": "bash scripts/sync-repo.sh",
     "migrate:pr": "bash scripts/migrate-pr.sh",
     "generate:prisma": "npm run generate:prisma:gp-api && npm run generate:prisma:election-api",
-    "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema",
+    "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema && npx prisma generate --schema=packages/gp-api/prisma-election/schema",
     "generate:prisma:election-api": "npx prisma generate --schema=packages/election-api/prisma/schema",
     "dev": "bash scripts/dev.sh",
+    "setup": "bash scripts/setup.sh",
+    "seed:activity": "npx tsx scripts/setup/lib/cli.ts seed-activity",
+    "seed:election": "bash scripts/setup/election-db.sh --fetch --reload",
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
     "prepare": "husky || true",
@@ -44,6 +47,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.0.0",
-    "typescript": "^5.9.3"
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }

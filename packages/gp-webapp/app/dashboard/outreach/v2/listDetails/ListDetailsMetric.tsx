@@ -121,13 +121,23 @@ export const FilterGroup = ({
 
 export const DetailsSection = ({
   title,
+  action,
   children,
 }: {
   title: string
+  // A control about the whole section, on the overline's own line.
+  action?: ReactNode
   children: ReactNode
 }) => (
   <section className="space-y-3">
-    <Overline>{title}</Overline>
+    {action ? (
+      <div className="flex items-center justify-between gap-2">
+        <Overline>{title}</Overline>
+        {action}
+      </div>
+    ) : (
+      <Overline>{title}</Overline>
+    )}
     {children}
   </section>
 )

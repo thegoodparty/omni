@@ -28,6 +28,7 @@ import isURL from 'validator/es/lib/isURL'
 import isMobilePhone from 'validator/es/lib/isMobilePhone'
 import isEmail from 'validator/es/lib/isEmail'
 import isFilled from '@shared/inputs/IsFilled'
+import { isPlaceholderCommitteeName } from '@goodparty_org/contracts'
 import AddressAutocomplete from '@shared/AddressAutocomplete'
 import TextingComplianceFooter from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceFooter'
 import { Button } from '@styleguide'
@@ -102,7 +103,7 @@ export const getValidationMessage = (
         ? 'Must be from FEC.gov (e.g., https://fec.gov/data/committee/C00123456)'
         : 'Enter a valid URL with a path (e.g., https://example.com/candidates)',
     campaignCommitteeName:
-      'Your official committee name (e.g., "Smith for Council")',
+      'Your official committee name (e.g., "Smith for Council"). Placeholders like "N/A" are not accepted.',
     candidateName:
       "The candidate's own name, as it appears on the election filing",
     officeLevel: 'Select an option',
@@ -356,18 +357,22 @@ export const validateRegistrationForm = (
     committeeType,
   } = data
 
-  const electionFilingLinkValue = getStringValue(electionFilingLink)
+  // A filing URL or email pasted from a PDF or an email client often carries a
+  // stray space, and validator's isURL/isEmail reject any whitespace — so the
+  // form refused a correct link with "Enter a valid URL" and the candidate
+  // could not see why. Validate what toRegistrationFormData will submit.
+  const electionFilingLinkValue = getStringValue(electionFilingLink).trim()
   const campaignCommitteeNameValue = getStringValue(campaignCommitteeName)
   const candidateNameValue = getStringValue(candidateName)
   const officeLevelValue = getStringValue(officeLevel)
-  const einValue = getStringValue(ein)
-  const phoneValue = getStringValue(phone)
+  const einValue = getStringValue(ein).trim()
+  const phoneValue = getStringValue(phone).trim()
   const addressValue = isAddressValue(address) ? address : null
   const manualAddressValue = isManualAddressValue(manualAddress)
     ? manualAddress
     : null
-  const websiteValue = getStringValue(website)
-  const emailValue = getStringValue(email)
+  const websiteValue = getStringValue(website).trim()
+  const emailValue = getStringValue(email).trim()
   const fecCommitteeIdValue = getStringValue(fecCommitteeId)
   const committeeTypeValue = getStringValue(committeeType)
 
@@ -383,7 +388,9 @@ export const validateRegistrationForm = (
     electionFilingLink:
       isURL(electionFilingLinkValue) &&
       urlIncludesPath(electionFilingLinkValue),
-    campaignCommitteeName: isFilled(campaignCommitteeNameValue),
+    campaignCommitteeName:
+      isFilled(campaignCommitteeNameValue) &&
+      !isPlaceholderCommitteeName(campaignCommitteeNameValue),
     candidateName: isFilled(candidateNameValue.trim()),
     officeLevel: ['federal', 'state', 'local'].includes(officeLevelValue),
     ein: checkEinSanity(einValue).valid,
@@ -473,6 +480,9 @@ interface TextingComplianceRegistrationFormProps {
   variant?: FormVariant
   // The 'verification' variant's inline footer Back.
   onBack?: () => void
+  // The 'verification' variant's footer submit. The Pro wizard passes
+  // Continue so the step reads like the rest of the flow.
+  submitLabel?: string
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -489,6 +499,7 @@ const TextingComplianceRegistrationForm = ({
   contactCaption,
   variant = 'default',
   onBack,
+  submitLabel = 'Submit for verification',
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
   const design = variant === 'verification'
   const { formData, handleChange } = useFormData()
@@ -894,7 +905,7 @@ const TextingComplianceRegistrationForm = ({
             loading={loading}
             onClick={handleOnSubmit}
           >
-            Submit for verification
+            {submitLabel}
           </Button>
         </StepFooter>
       ) : (

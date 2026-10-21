@@ -23,6 +23,10 @@ interface RemoveTurfDialogProps {
   children?: ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  noun?: 'turf' | 'shape'
+  // Raises the confirm and its scrim, for a caller that renders this card
+  // inside a layer above the page's own dialogs.
+  layerClassName?: string
 }
 
 // The confirm in front of removing an unbought turf, shared by the two
@@ -49,10 +53,15 @@ export const RemoveTurfDialog = ({
   children,
   open,
   onOpenChange,
+  noun = 'turf',
+  layerClassName,
 }: RemoveTurfDialogProps) => (
   <AlertDialog open={open} onOpenChange={onOpenChange}>
     {children && <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>}
-    <AlertDialogContent>
+    <AlertDialogContent
+      className={layerClassName}
+      overlayClassName={layerClassName}
+    >
       <AlertDialogHeader>
         <AlertDialogTitle>Delete {turfName}?</AlertDialogTitle>
         {/* Says what is lost, in the candidate's own terms, and nothing
@@ -62,11 +71,11 @@ export const RemoveTurfDialog = ({
             told them about our billing to do it. What they actually lose is
             the drawing. */}
         <AlertDialogDescription>
-          You will have to draw this turf again if you change your mind.
+          {`You will have to draw this ${noun} again if you change your mind.`}
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
-        <AlertDialogCancel>Keep turf</AlertDialogCancel>
+        <AlertDialogCancel>{`Keep ${noun}`}</AlertDialogCancel>
         {/* `variant`, never a className. `AlertDialogAction` defaults to the
             `default` variant, which sets a background AND a matching border;
             a caller-side `bg-destructive` overrides the first and loses to

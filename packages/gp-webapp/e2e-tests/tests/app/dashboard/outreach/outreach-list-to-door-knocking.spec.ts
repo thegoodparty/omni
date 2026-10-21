@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   crmSheet,
   gotoCrmContacts,
@@ -12,7 +11,7 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
 // on a voter list and pick door knocking: Voter Data → the "Choose a channel"
-// sheet → `/dashboard/door-knocking?create=1&listId=` → the create flow's who
+// sheet → `/dashboard/door-knocking?create=1&source=voter_data&listId=` → the create flow's who
 // step, opened on the list they came from.
 //
 // It pins the answer to "does Send outreach create a saved list in door
@@ -40,14 +39,6 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 test.describe('outreach list handoff to door knocking', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // Force native-door-knocking on via the override cookie, before auth and
-    // navigation so the first SSR render already sees it (flag resolution is
-    // server-side). win-crm (Win CRM is unconditional, ENG-11009) and
-    // voter-outreach-v2 (the outreach hub is unconditional, ENG-11007) are
-    // both gone — no override needed for either on this Win spec.
-    await setFlagOverrides(page, {
-      'native-door-knocking': 'on',
-    })
   })
 
   test('a voter list sent to door knocking arrives preselected, and creates no saved list on its own', async ({
@@ -92,7 +83,7 @@ test.describe('outreach list handoff to door knocking', () => {
     // than as a missing preselection a navigation later.
     await expect(doorKnocking).toHaveAttribute(
       'href',
-      `/dashboard/door-knocking?create=1&listId=${list.id}`,
+      `/dashboard/door-knocking?create=1&source=voter_data&listId=${list.id}`,
     )
     await doorKnocking.click()
 

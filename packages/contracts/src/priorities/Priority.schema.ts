@@ -8,7 +8,6 @@ export const PrioritySchema = z.object({
   description: z.string(),
   source: PrioritySourceSchema,
   sourceCampaignPositionId: z.number().int().nullable(),
-  targetDate: z.string().nullable(),
   currentStep: z.string().nullable(),
   nextAction: z.string().nullable(),
   createdAt: z.string(),
@@ -20,7 +19,6 @@ export type Priority = z.infer<typeof PrioritySchema>
 export const CreatePriorityInputSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
-  targetDate: z.string().date().nullish(),
 })
 
 export type CreatePriorityInput = z.infer<typeof CreatePriorityInputSchema>
@@ -28,7 +26,6 @@ export type CreatePriorityInput = z.infer<typeof CreatePriorityInputSchema>
 export const UpdatePriorityInputSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
-  targetDate: z.string().date().nullish(),
 })
 
 export type UpdatePriorityInput = z.infer<typeof UpdatePriorityInputSchema>

@@ -33,10 +33,9 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
 | `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
 | `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
-| `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
+| `packages/gp-admin`        | Internal staff admin console                                      | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client                           | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
 
@@ -64,6 +63,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
+| **Changing or making an architecture decision** | **`docs/adr/`** (see below) |
 
 `packages/gp-api/AGENTS.md` is the gold-standard for nested-doc style — pointer
 tables and terse, high-signal sections. Each app and most feature folders carry one.
@@ -74,6 +74,24 @@ Top-level agent docs load at launch; nested ones load only when you open files i
 their directory. So: when you start work in an area, open its nearest `AGENTS.md`
 and follow its pointers. Don't try to hold the whole monorepo in context to make one
 change. Read what the task touches.
+
+## Architecture decisions (`docs/adr/`)
+
+`docs/adr/` records technical architecture decisions, so the next person or agent
+does not quietly undo them. What qualifies and the format: `docs/adr/AGENTS.md`.
+
+- **Check before you change.** List `docs/adr/` and read any active record whose
+  title or `scope` covers what you are changing. If your change would reverse or
+  weaken one, supersede it with a new record and name both in the PR body. If a
+  human decided the old one, stop first and tell the human you are working with:
+  name the record, who decided it, and what your change undoes. Continue only if
+  they confirm.
+- **Record every decision, without asking.** When your change makes a choice
+  that meets the bar in `docs/adr/AGENTS.md`, add the record in the same PR. Do
+  not ask for approval or show a draft first. Use the handle of the human you
+  are working with if they made the call, and `[agent]` if you did.
+- **Never put words in a human's mouth.** Do not attribute a decision to a person
+  from code, or from a PR body or commit message an agent wrote.
 
 ## Keep docs current (required)
 
@@ -112,6 +130,12 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 
 - **TypeScript style:** no semicolons, single quotes, trailing commas. Arrow
   functions over `function` declarations. No `any` (and avoid `unknown`) in new code.
+- **TypeScript 7:** `tsc` is TypeScript 7 (the native Go compiler, root
+  devDependency `@typescript/native`). It has no JS API, so the `typescript`
+  package is aliased to `@typescript/typescript6` for tools that import it
+  (typescript-eslint, Next.js, tsup). Type-check with `tsc`, never `tsc6`.
+  Don't "fix" the alias back to a plain `typescript` version, and don't add
+  `baseUrl` or `ignoreDeprecations` to a tsconfig: TS 7 rejects both.
 - **Comments:** default to none. Add one only for a non-obvious WHY (a hidden
   constraint, a subtle invariant, a workaround). Never explain WHAT the code does.
   Never remove existing comments unless asked.
@@ -133,7 +157,9 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api).
+  (gp-api, election-api). gp-api's `src/electionDb/` mirrors this with
+  `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only
+  Prisma client for the election database.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the

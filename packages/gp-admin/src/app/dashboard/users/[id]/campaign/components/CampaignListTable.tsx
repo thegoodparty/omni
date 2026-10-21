@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Table, Text, Badge } from '@radix-ui/themes'
-import type { CampaignWithPositionName } from '@goodparty_org/sdk'
+import type { CampaignWithPositionName } from '@/shared/gpApi'
 
 interface CampaignListTableProps {
   campaigns: CampaignWithPositionName[]

@@ -24,6 +24,28 @@ import {
   deriveComplianceStage,
 } from './complianceState.service'
 
+// NON_PROD_LIVE_VENDOR_BYPASS is a module constant (non-prod AND live mode), so
+// a test can't flip it through process.env alone. Mirror its definition off the
+// per-test OTEL_SERVICE_ENVIRONMENT, and default to live mode: the bypass tests
+// below assert dev's live-mode behavior; the mock-mode tests set `appEnv.mode`.
+const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return appEnv.mode
+    },
+    get NON_PROD_LIVE_VENDOR_BYPASS() {
+      return (
+        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
+        appEnv.mode === 'live'
+      )
+    },
+  }
+})
+
 const mockCampaign = (
   overrides?: Partial<Pick<Campaign, 'formattedAddress'>>,
 ): Pick<Campaign, 'formattedAddress'> => ({
@@ -52,20 +74,17 @@ const mockTcr = (
       TcrCompliance,
       | 'status'
       | 'peerlyIdentityId'
-      | 'internalTestingApprovedAt'
+      | 'internalTestingAt'
       | 'cvValidationFailedAt'
     >
   >,
 ): Pick<
   TcrCompliance,
-  | 'status'
-  | 'peerlyIdentityId'
-  | 'internalTestingApprovedAt'
-  | 'cvValidationFailedAt'
+  'status' | 'peerlyIdentityId' | 'internalTestingAt' | 'cvValidationFailedAt'
 > => ({
   status: TcrComplianceStatus.submitted,
   peerlyIdentityId: null,
-  internalTestingApprovedAt: null,
+  internalTestingAt: null,
   cvValidationFailedAt: null,
   ...overrides,
 })
@@ -280,7 +299,7 @@ describe('deriveComplianceStage', () => {
         null,
         mockTcr({
           status: TcrComplianceStatus.approved,
-          internalTestingApprovedAt: new Date(),
+          internalTestingAt: new Date(),
         }),
       ),
     ).toBe(ComplianceStage.tcr_approved)
@@ -510,7 +529,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.pinDelivery).toBeNull()
   })
 
-  it('short-circuits to APPROVED with null PIN delivery in non-prod', async () => {
+  it('short-circuits to APPROVED with null PIN delivery in non-prod live mode', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
 
@@ -519,6 +538,25 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
     expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()
+  })
+
+  it('reports the CV status from Peerly, not a hardcoded APPROVED, in non-prod mock mode', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+    appEnv.mode = 'mock'
+    try {
+      mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+      mockRetrieveCv.mockResolvedValue({
+        status: PeerlyCvVerificationStatus.IN_REVIEW,
+        pinDelivery: null,
+      })
+
+      const result = await service.findStateForCampaign(42)
+
+      expect(mockRetrieveCv).toHaveBeenCalled()
+      expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
+    } finally {
+      appEnv.mode = 'live'
+    }
   })
 
   it('surfaces the hold details at filing_review_hold', async () => {

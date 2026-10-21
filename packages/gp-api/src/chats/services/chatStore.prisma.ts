@@ -47,11 +47,12 @@ export class ChatStoreService extends createPrismaBase(
   async listRecentMessagesByConversation(
     conversationId: string,
     limit: number,
-  ): Promise<ChatMessage[]> {
+  ): Promise<ChatMessageWithSegments[]> {
     const rows = await this.client.chatMessage.findMany({
       where: { conversationId, conversation: { deletedAt: null } },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: limit,
+      include: { segments: { orderBy: { ordinal: Prisma.SortOrder.asc } } },
     })
     return rows.reverse()
   }
@@ -62,8 +63,20 @@ export class ChatStoreService extends createPrismaBase(
     content: string
     clientMessageId?: string
     segments?: PersistedSegment[]
+    inputTokens?: number
+    outputTokens?: number
   }): Promise<ChatMessage> {
     return appendMessageIdempotent(this.client, args)
+  }
+
+  async recordAssistantUsage(
+    messageId: string,
+    usage: { model: string; inputTokens: number; outputTokens: number },
+  ): Promise<void> {
+    await this.client.chatMessage.update({
+      where: { id: messageId },
+      data: usage,
+    })
   }
 
   async softDeleteConversation(id: string, ownerUserId: number): Promise<void> {
@@ -110,9 +123,19 @@ const appendMessageIdempotent = async (
     content: string
     clientMessageId?: string
     segments?: PersistedSegment[]
+    inputTokens?: number
+    outputTokens?: number
   },
 ): Promise<ChatMessage> => {
-  const { conversationId, role, content, clientMessageId, segments } = args
+  const {
+    conversationId,
+    role,
+    content,
+    clientMessageId,
+    segments,
+    inputTokens,
+    outputTokens,
+  } = args
   // Segments only ride on the server-internal (no clientMessageId) assistant
   // write; user messages never carry them.
   if (clientMessageId === undefined) {
@@ -121,6 +144,8 @@ const appendMessageIdempotent = async (
         conversationId,
         role,
         content,
+        inputTokens,
+        outputTokens,
         ...(segments && segments.length > 0
           ? {
               segments: {
@@ -129,6 +154,7 @@ const appendMessageIdempotent = async (
                   kind: s.kind,
                   text: s.text ?? null,
                   toolName: s.toolName ?? null,
+                  toolCallId: s.toolCallId ?? null,
                   ...(s.payload != null && { payload: s.payload }),
                 })),
               },
@@ -153,6 +179,8 @@ const appendMessageIdempotent = async (
     role,
     content,
     clientMessageId,
+    inputTokens,
+    outputTokens,
   })
 }
 
@@ -163,6 +191,8 @@ const createOrReturnRaced = async (
     role: ChatMessageRole
     content: string
     clientMessageId: string
+    inputTokens?: number
+    outputTokens?: number
   },
 ): Promise<ChatMessage> => {
   const { conversationId, role, content, clientMessageId } = args

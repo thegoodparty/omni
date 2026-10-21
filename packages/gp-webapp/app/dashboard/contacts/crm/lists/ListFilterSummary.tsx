@@ -2,6 +2,11 @@ import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
   ANY_PHONE_FIELD,
+  CIVIC_PANEL_FILTER_KEY,
+  CIVIC_PANEL_JOINED_WHEN_FIELD,
+  type DayRangeField,
+  LAST_ASKED_RANGE_FIELD,
+  NOT_CONTACTED_RECENTLY_FILTER_KEY,
   RECOMMENDED_LIST_FILTER_FIELDS,
   WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
@@ -48,6 +53,43 @@ const CONTACTS_MADE_FIELD = filterSections
 
 const isTrue = (value: unknown): value is true => value === true
 
+const CIVIC_PANEL_STATUS_PHRASES: Array<[string, string]> = [
+  [CIVIC_PANEL_FILTER_KEY, 'On your civic panel'],
+  ['civicPanelLeft', 'Left your civic panel'],
+  ['civicPanelNeverInvited', 'Never invited to your civic panel'],
+]
+
+const CIVIC_PANEL_JOINED_BY_PHRASES: Array<[string, string]> = [
+  ['civicPanelJoinedByText', 'by text'],
+  ['civicPanelJoinedByDoor', 'at the door'],
+  ['civicPanelJoinedByPhone', 'on a call'],
+  ['civicPanelJoinedByHand', 'by you'],
+]
+
+// A saved YYYY-MM-DD day as "Oct 2, 2026", read in UTC like the filter.
+const formatDay = (day: string): string =>
+  new Date(`${day.slice(0, 10)}T00:00:00.000Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+
+const daySpanClause = (
+  segment: SegmentResponse,
+  field: DayRangeField,
+  prefix: string,
+): string | null => {
+  const from = segment[field.fromKey]
+  const to = segment[field.toKey]
+  const fromDay = typeof from === 'string' && from ? formatDay(from) : null
+  const toDay = typeof to === 'string' && to ? formatDay(to) : null
+  if (fromDay && toDay) return `${prefix} between ${fromDay} and ${toDay}`
+  if (fromDay) return `${prefix} on or after ${fromDay}`
+  if (toDay) return `${prefix} on or before ${toDay}`
+  return null
+}
+
 // The Lovable summary reads as one plain sentence ("Age 18-25 or 35-50,
 // Income ranges include Under $50k, and Support status Supporter."), so the
 // clauses join with commas and a final "and" instead of the old
@@ -70,6 +112,26 @@ export const buildFilterSummary = (
 ): string => {
   const clauses: string[] = []
 
+  if (isElectedOfficial) {
+    const statuses = CIVIC_PANEL_STATUS_PHRASES.filter(([key]) =>
+      isTrue(segment[key]),
+    ).map(([, phrase]) => phrase)
+    if (statuses.length > 0) clauses.push(statuses.join(' or '))
+    const joinedBy = CIVIC_PANEL_JOINED_BY_PHRASES.filter(([key]) =>
+      isTrue(segment[key]),
+    ).map(([, phrase]) => phrase)
+    if (joinedBy.length > 0) clauses.push(`Joined ${joinedBy.join(' or ')}`)
+    for (const clause of [
+      daySpanClause(segment, CIVIC_PANEL_JOINED_WHEN_FIELD, 'Joined'),
+      daySpanClause(segment, LAST_ASKED_RANGE_FIELD, 'Last asked'),
+    ]) {
+      if (clause) clauses.push(clause)
+    }
+  }
+  if (isTrue(segment[NOT_CONTACTED_RECENTLY_FILTER_KEY])) {
+    clauses.push('Not contacted in the last 30 days')
+  }
+
   // Read side covers every dimension the wizard can write, including the
   // recommended-list groups the outreach builders never render.
   const summarizedFields = [
@@ -87,6 +149,7 @@ export const buildFilterSummary = (
       isElectedOfficial &&
       (field.key === 'political_party' ||
         field.key === 'voter_likely' ||
+        field.key === 'early_vote' ||
         WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
     )
       continue

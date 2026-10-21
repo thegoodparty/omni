@@ -1,3 +1,4 @@
+import { recommendedSampleSize } from '@goodparty_org/contracts'
 import { orderBy } from 'es-toolkit'
 import { useState } from 'react'
 import { MAX_CONSTITUENTS_PER_RUN, PRICE_PER_POLL_TEXT } from './constants'
@@ -52,15 +53,11 @@ export const calculateRecommendedPollSize = (params: {
     params.totalConstituentsWithCellPhone - params.alreadySent,
   )
   // originally designed here: https://goodparty.clickup.com/t/90132012119/ENG-4825
-  let recommendedSendCount =
-    (83 - params.responsesAlreadyReceived) / params.expectedResponseRate
-
-  // cap the total remaining constituents at the usable total constituents
-  // so that we don't recommend sending to more constituents than we can
-  if (recommendedSendCount > totalRemainingUsableConstituents) {
-    recommendedSendCount = totalRemainingUsableConstituents
-  }
-  recommendedSendCount = Math.ceil(recommendedSendCount)
+  const recommendedSendCount = recommendedSampleSize({
+    audience: totalRemainingUsableConstituents,
+    replyRate: params.expectedResponseRate,
+    repliesAlready: params.responsesAlreadyReceived,
+  })
 
   return {
     recommendedSendCount,

@@ -8,6 +8,7 @@ import {
 } from '@/shared/schemas/activityCondition.schema'
 import {
   AUDIENCE_VOTER_STATUS_VALUES,
+  EARLY_VOTE_STATUS_VALUES,
   CONTACTS_MADE_BUCKET_FIELDS,
   INCOME_RANGE_MAPPING,
   LANGUAGE_CODE_TO_LABEL,
@@ -75,6 +76,7 @@ export const FILTER_DIMENSION_PROVENANCE_RULES = `DIMENSION PROVENANCE (every di
   - Whenever you report a count, share, ranking, or "largest group" built from a modeled dimension, say it is modeled or estimated IN THE SAME SENTENCE as the number ("an estimated 1,200 ...", "modeled data puts the largest group at ..."). A caveat trailing after the claim does not count. This constrains how you FRAME the result — it does not license explaining which field, column, or model produced it.
   - The count itself is an exact count of matching RECORDS. What is uncertain is the ATTRIBUTE and the COVERAGE: on a modeled dimension with no negative value, a positive count is a FLOOR on how many people have the trait, never a total — most such dimensions are mostly null.
   - "Unknown" is a real, reportable segment on most dimensions and is often large. State its size rather than dropping it, and never fold it into another value.
+  - A dimension that carries a \`note\` says there where its mark comes from.
   - A dimension with NO provenance field has not been classified yet, not confirmed as a plain fact. Treat it exactly like "modeled": hedge any claim built from it rather than stating it as fact.`
 
 export interface FilterDimensionValue {
@@ -91,6 +93,10 @@ interface FilterDimensionBase {
   label: string
   modes: FilterDimensionMode
   provenance?: FilterDimensionProvenance
+  // One sentence beside the mark for a dimension whose provenance depends
+  // on the organization's state; set by ContactsService.getFilterDimensions,
+  // never in the static catalog.
+  note?: string
 }
 
 // boolean-group: each value key is a voterFilterBaseSchema boolean field set
@@ -114,10 +120,19 @@ export interface ActivityFilterDimension extends FilterDimensionBase {
   values: ActivityChannelValue[]
 }
 
+// date-range: two voterFilterBaseSchema string fields, `fromKey` and
+// `toKey`, each an inclusive YYYY-MM-DD day (UTC). Set either or both.
+export interface DateRangeFilterDimension extends FilterDimensionBase {
+  kind: 'date-range'
+  fromKey: string
+  toKey: string
+}
+
 export type FilterDimension =
   | BooleanGroupFilterDimension
   | MultiValueFilterDimension
   | ActivityFilterDimension
+  | DateRangeFilterDimension
 
 const ACTIVITY_CHANNEL_LABELS: Record<ActivityConditionChannel, string> = {
   text: 'Text',
@@ -183,6 +198,16 @@ const activityChannelValue = (
   })),
 })
 
+// Behind serve-citizen-panels: getFilterDimensions leaves these out while the
+// flag is off for the user.
+export const CITIZEN_PANEL_DIMENSION_KEYS: ReadonlySet<string> = new Set([
+  'civicPanel',
+  'civicPanelJoinedBy',
+  'civicPanelJoinedWhen',
+  'lastAsked',
+  'contactHistory',
+])
+
 export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     key: 'audience',
@@ -196,6 +221,27 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     })),
   },
   {
+    // Voting before Election Day, early in person or by mail. Built from
+    // within-state percentiles, so each bucket is relative to the state.
+    // Win only: an official does not target constituents by how they vote,
+    // and every UI surface already hides it for an eo- org. Stricter than
+    // 'audience' above on purpose; nothing on the backend rejects the filter
+    // for Serve, so this mark is what keeps the assistant from offering it.
+    key: 'earlyVote',
+    label: 'Early Vote Likelihood',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'modeled',
+    values: EARLY_VOTE_STATUS_VALUES.map(({ field, value }) => ({
+      key: field,
+      label: value,
+    })),
+  },
+  {
+    // Observed where the state registers voters by party. In the states
+    // where L2 assigns it from primary ballots or models it,
+    // ContactsService.getFilterDimensions re-marks it modeled and adds the
+    // note (peopleDb/partySource.ts).
     key: 'party',
     label: 'Political Party',
     kind: 'boolean-group',
@@ -233,6 +279,77 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     modes: 'serve',
     provenance: 'observed',
     values: [{ key: 'followUpRequested', label: 'Asked For Follow-Up' }],
+  },
+  {
+    // The standing civic panel status. Values OR together. Member: joined
+    // (by replying JOIN, at a door, on a call, or on their contact card) and
+    // has not left. Left: was a member and left. Never invited: no send ever
+    // asked them, nobody asked at a door or on a call, and they were never
+    // on it. Serve-only, `observed` for the same reason as follow-up.
+    key: 'civicPanel',
+    label: 'Civic panel',
+    kind: 'boolean-group',
+    modes: 'serve',
+    provenance: 'observed',
+    values: [
+      { key: 'civicPanelMember', label: 'On your civic panel' },
+      { key: 'civicPanelLeft', label: 'Left' },
+      { key: 'civicPanelNeverInvited', label: 'Never invited' },
+    ],
+  },
+  {
+    // How a CURRENT member last joined (the source of the event that most
+    // recently made them a member). Values OR together; only members match.
+    key: 'civicPanelJoinedBy',
+    label: 'How they joined',
+    kind: 'boolean-group',
+    modes: 'serve',
+    provenance: 'observed',
+    values: [
+      { key: 'civicPanelJoinedByText', label: 'By text' },
+      { key: 'civicPanelJoinedByDoor', label: 'At the door' },
+      { key: 'civicPanelJoinedByPhone', label: 'On a call' },
+      { key: 'civicPanelJoinedByHand', label: 'Added by you' },
+    ],
+  },
+  {
+    // When a current member last joined, on that same event.
+    key: 'civicPanelJoinedWhen',
+    label: 'When they joined',
+    kind: 'date-range',
+    modes: 'serve',
+    provenance: 'observed',
+    fromKey: 'civicPanelJoinedFrom',
+    toKey: 'civicPanelJoinedTo',
+  },
+  {
+    // When the office last reached the person on any channel: the rule the
+    // 30-day rest window and the panel's "can be asked now" count use, so
+    // "not asked in 30 days" is contactHistory's notContactedRecently.
+    key: 'lastAsked',
+    label: 'Last asked',
+    kind: 'date-range',
+    modes: 'serve',
+    provenance: 'observed',
+    fromKey: 'lastReachedFrom',
+    toKey: 'lastReachedTo',
+  },
+  {
+    // A rest window, not a trait: anyone the office reached on any channel
+    // in the last 30 days is left out, so a panel ask or a check does not
+    // land on the same people twice in a month. `observed`: it reads what the
+    // office actually sent.
+    key: 'contactHistory',
+    label: 'Contact History',
+    kind: 'boolean-group',
+    modes: 'both',
+    provenance: 'observed',
+    values: [
+      {
+        key: 'notContactedRecently',
+        label: 'Not Contacted In The Last 30 Days',
+      },
+    ],
   },
   {
     key: 'age',

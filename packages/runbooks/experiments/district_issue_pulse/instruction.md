@@ -5,13 +5,13 @@ Given a state + district, produce the top 5 issues voters there care about and p
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/district_issue_pulse.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## TODO CHECKLIST
-1. Read PARAMS_JSON. Capture `state`, `city`, `l2DistrictType`, `l2DistrictName`.
+1. Read PARAMS_FILE. Capture `state`, `city`, `l2DistrictType`, `l2DistrictName`.
 2. Discover candidate `hs_*` issue columns via `information_schema.columns`.
 3. Run a distribution check on 3 sample `hs_*` columns to confirm they are 0-100 continuous scores (not binary).
 4. Run ONE batched aggregation query that returns `total_active` plus per-candidate `SUM(CASE WHEN >= 50 THEN 1 ELSE 0 END)` for ~10-12 candidate columns.
@@ -73,7 +73,7 @@ Given a state + district, produce the top 5 issues voters there care about and p
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 STATE = PARAMS["state"]
 CITY = PARAMS["city"]
 L2_TYPE = PARAMS["l2DistrictType"]
@@ -188,7 +188,7 @@ If validation fails, read the error, fix the artifact, re-run. Do NOT declare su
 
 Validator-passing JSON can still be garbage. Before declaring success, manually verify:
 
-- **`total_active_voters` plausibly matches one district, not the whole city.** If the number looks like a city-wide voter count, the L2 district WHERE clause matched zero rows and the broker's auto-injected city scope is the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_JSON` and that you backtick-quoted the column.
+- **`total_active_voters` plausibly matches one district, not the whole city.** If the number looks like a city-wide voter count, the L2 district WHERE clause matched zero rows and the broker's auto-injected city scope is the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_FILE` and that you backtick-quoted the column.
 - **No top-5 entry has `voter_percentage` < 5%.** If any entry shows near-zero, first check whether that column has null coverage in this state (~51 columns exist only in the 12-state December 2025 delivery; they are null elsewhere). A null-only column returns 0% with the correct `>= 50` threshold — exclude it and re-run Step 4. Only if coverage is confirmed (`max > 0` in Step 3) does near-zero mean you used `= 1` instead of `>= 50`; re-do the distribution check in Step 3 in that case.
 - **No two top-5 entries are from the same policy area.** If the top 5 is ["police_trust_yes", "violent_crime_very_worried", "crime_too_lax", ...], your candidate list in Step 2 was too narrow — broaden it and re-run Step 4.
 - **Every news URL loads AND mentions the issue.** Don't trust search snippets blindly; you already `pmf_runtime.http.get`'d in Step 5, but re-confirm any URL where the summary feels generic.
@@ -202,7 +202,7 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 | `Voters_Active = 1` returns 0 rows | `Voters_Active` is a STRING | Use `Voters_Active = 'A'` |
 | All top-5 percentages < 5% | Used `= 1` instead of `>= 50` (binary inference from suffix) | Re-run Step 3 distribution check, then Step 4 |
 | One entry at exactly 0% | Column is null in this state (~51 columns exist only in the 12-state December 2025 delivery) — 0% even with a correct `>= 50` | Exclude the column and re-run Step 4; a null `max` in Step 3 confirms no coverage |
-| `total_active_voters` looks like the whole city | Backtick-quoted L2 column wrong, or `L2_NAME` mismatched | Re-confirm L2_TYPE/L2_NAME from PARAMS_JSON; check column name spelling |
+| `total_active_voters` looks like the whole city | Backtick-quoted L2 column wrong, or `L2_NAME` mismatched | Re-confirm L2_TYPE/L2_NAME from PARAMS_FILE; check column name spelling |
 | Bare `SELECT 1` rejected | Every query must reference the allowlisted table | Add `FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq` |
 | Positional `?` placeholder errors | Databricks requires named placeholders | Use `:name` and pass `{"name": value}` |
 | News URL 404s or doesn't mention the issue | Trusted search snippet without `http.get` confirmation | `pmf_runtime.http.get` each URL; pick a different result if it doesn't load or doesn't mention the issue |

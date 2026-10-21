@@ -24,14 +24,14 @@ export class DoorKnockingAudienceCheckService {
     organization: Organization,
     input: DoorKnockingAudienceCheck,
   ): Promise<DoorKnockingAudienceCheckResponse> {
-    // Deliberately not preceded by `resolveEligibleDistrictId`, which every
+    // Deliberately not preceded by `resolveEligibleDistrict`, which every
     // other read in this feature opens with. That call reaches election-api
     // to find the district the voter data will be scanned from, and nothing
     // here is scanned: the resolution below intersects person-id sets out of
     // our own tables and never asks the people database anything. Paying an
     // election-api round trip — and inheriting its failure modes — to answer
-    // a question that does not use its answer would put this endpoint's cost
-    // back where ADR 0010 took it out of.
+    // a question that does not use its answer would give this endpoint, which
+    // fires on every list pick, the cost it exists to avoid.
     //
     // The consequence is that an org with no resolvable district still gets a
     // real answer here and meets that problem at the draw step instead, which

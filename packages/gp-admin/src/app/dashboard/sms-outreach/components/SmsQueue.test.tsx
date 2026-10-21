@@ -101,6 +101,22 @@ describe('SmsQueue', () => {
               canvassRequestedAt: new Date(),
             }),
             item({
+              id: 45,
+              name: 'Sent send',
+              approvalStatus: 'sent',
+              approvedAt: new Date('2026-09-01T00:00:00Z'),
+              canvassRequestedAt: new Date('2026-09-01T00:00:00Z'),
+              sendAt: new Date('2026-09-03T15:00:00Z'),
+              scheduledLocalDate: '2026-09-03',
+              job: {
+                status: 'paused',
+                deliverabilityCheckError: null,
+                hasCanvassersScheduled: true,
+                peerlyApproved: true,
+                leadsRemaining: 0,
+              },
+            }),
+            item({
               id: 43,
               name: 'Denied send',
               approvalStatus: 'denied',
@@ -144,6 +160,12 @@ describe('SmsQueue', () => {
     expect(screen.getByText('Send booked')).toBeInTheDocument()
     // Booked + active job reads Active, not the pre-approval Ready.
     expect(screen.getByText('Active')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: /Sent \(1\)/ }))
+    expect(screen.getByText('Sent send')).toBeInTheDocument()
+    // The send is over: a paused vendor job is not something to act on.
+    expect(screen.queryByText('Needs activation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: /Denied \(1\)/ }))
     expect(screen.getByText('Denied send')).toBeInTheDocument()

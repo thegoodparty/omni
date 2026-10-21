@@ -539,4 +539,64 @@ describe('GET /v1/meetings userAgendaStatus derivation', () => {
     expect(byDate.get(iso(inDays(2)))).toBe('failed')
     expect(byDate.get(iso(inDays(3)))).toBe('completed')
   })
+
+  it('surfaces rejected with the reason when gp-api declined the finished run', async () => {
+    const orgSlug = `gm-rejected-${Date.now()}`
+    const eo = await seedOrgAndElectedOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey: 'schedule.json',
+      },
+    })
+    vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(
+      JSON.stringify({
+        status: 'found',
+        rrule: 'FREQ=DAILY',
+        time: '19:00',
+        timezone: 'America/Chicago',
+        duration_minutes: 120,
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [],
+        generated_at: new Date().toISOString(),
+        human: 'Daily',
+      }),
+    )
+    const date = new Date()
+    date.setUTCDate(date.getUTCDate() + 1)
+    date.setUTCHours(0, 0, 0, 0)
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.userAgendaUpload.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: date,
+        source: UserAgendaSource.URL,
+        sourceUrl: 'https://example.gov/other-meeting.pdf',
+        uploadedByUserId: service.user.id,
+        experimentRunId: run.runId,
+        refusalReason: `packet_date_mismatch:2026-05-25:${date.toISOString().slice(0, 10)}`,
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', orgHeader(orgSlug))
+    expect(result.status).toBe(200)
+    const iso = date.toISOString().slice(0, 10)
+    const meeting = result.data.meetings.find(
+      (m: { meetingDate: string }) => m.meetingDate === iso,
+    )
+    expect(meeting?.userAgendaStatus).toBe('rejected')
+    expect(meeting?.userAgendaReason).toBe(
+      `packet_date_mismatch:2026-05-25:${iso}`,
+    )
+  })
 })

@@ -59,9 +59,15 @@ export interface ColdJudgeInput {
 // structurally (service.app.get(LlmService) in the real-Claude eval); a fake
 // satisfies it in unit tests, so the scaffold never drags in the app graph.
 export interface JsonJudgeModel {
-  jsonCompletion<T>(
-    options: LlmJsonCompletionOptions<T>,
-  ): Promise<{ object: T; tokens: number; model: string }>
+  jsonCompletion<T>(options: LlmJsonCompletionOptions<T>): Promise<{
+    object: T
+    tokens: number
+    // Optional so a fake need not invent them. The Universal Judge prices
+    // its panel from these; LlmService returns both.
+    inputTokens?: number
+    outputTokens?: number
+    model: string
+  }>
 }
 
 export interface JudgePanelResult {

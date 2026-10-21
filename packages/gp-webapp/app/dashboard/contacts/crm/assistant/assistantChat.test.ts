@@ -13,6 +13,13 @@ describe('getAssistantChat', () => {
     expect(binding.historyKey).toBe(CAMPAIGN_MANAGER_HISTORY_KEY)
     expect(binding.scope).toBe('campaign_assistant')
     expect(binding.agentName).toBe('Campaign manager')
+    expect(binding.defaultIntro[0]).toBe("Hi, I'm your Campaign Manager.")
+  })
+
+  it("greets a Win candidate by first name, as the Campaign Manager's own chat does", () => {
+    expect(getAssistantChat(true, 'Renee').defaultIntro[0]).toBe(
+      "Hi Renee, I'm your Campaign Manager.",
+    )
   })
 
   it('binds Serve to the chief_of_staff client and its history key', () => {
@@ -21,6 +28,14 @@ describe('getAssistantChat', () => {
     expect(binding.historyKey).toBe(HISTORY_KEY)
     expect(binding.scope).toBe('chief_of_staff')
     expect(binding.agentName).toBe('Chief of Staff')
+    expect(binding.defaultIntro).toEqual([
+      "Hi, I'm your Chief of Staff.",
+      'I can find the constituents you want to reach and save them as a list.',
+      'Who are you looking for?',
+    ])
+    expect(getAssistantChat(false, 'Jordan').defaultIntro[0]).toBe(
+      "Hi Jordan, I'm your Chief of Staff.",
+    )
   })
 })
 
@@ -39,5 +54,13 @@ describe('the shared tool labels cover the list tools', () => {
 
   it('still covers the other scope tools', () => {
     expect(toolDisplayName('web_search')).toBe('Searching the web')
+  })
+
+  it("labels the Campaign Manager's own tools", () => {
+    expect(toolDisplayName('size_outreach_sample')).toBe('Sizing a sample')
+    expect(toolDisplayName('search_help_center')).toBe(
+      'Searching the help center',
+    )
+    expect(toolDisplayName('campaign_story')).toBe('Working on your story')
   })
 })

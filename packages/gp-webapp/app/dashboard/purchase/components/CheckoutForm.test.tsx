@@ -79,6 +79,24 @@ describe('CheckoutForm', () => {
     expect(onSuccess).not.toHaveBeenCalled()
   })
 
+  it('reports the total Stripe is charging, not the pre-discount one, to the parent', async () => {
+    // After a promo code applies, Stripe's total is the only live figure; the
+    // parent's own session amount is the pre-discount price.
+    const onTotalChange = vi.fn()
+    checkoutValue.total.total.minorUnitsAmount = 84742
+
+    render(
+      <CheckoutForm
+        onSuccess={vi.fn()}
+        sessionId="cs_one_time"
+        onTotalChange={onTotalChange}
+      />,
+    )
+
+    await waitFor(() => expect(onTotalChange).toHaveBeenCalledWith(847.42))
+    checkoutValue.total.total.minorUnitsAmount = 1000
+  })
+
   it('fails before charging when a one-time session has no id and no onConfirmed fallback', async () => {
     // Guards the regression the type change opened up: confirming first would
     // charge the card and then silently skip fulfillment.

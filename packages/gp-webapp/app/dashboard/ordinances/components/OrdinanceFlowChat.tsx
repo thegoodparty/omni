@@ -24,30 +24,38 @@ import {
   ThinkingRow,
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
+import { isInterruptedTurn } from '../../shared/agent-chat/chatHelpers'
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
+import {
+  TurnBlocks,
+  dropTrailingQuestion,
+  liveTurnBlocks,
+  persistedTurnBlocks,
+  type PositionedWidget,
+} from '../../shared/agent-chat/turnBlocks'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
+import {
+  fetchOrdinanceBySlug,
+  saveClarifyAnswer,
+  updateOrdinance,
+} from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
   ORDINANCE_NEXT_STEP_CTA,
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
-import ClarifyQuestionWidget from './ClarifyQuestionWidget'
+import ClarifyQuestionWidget from '../../shared/agent-chat/ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
   DRAFT_TOOL,
-  TurnBlocks,
-  isStepWidgetTool,
-  liveTurnBlocks,
-  parseStepWidget,
-  persistedTurnBlocks,
-  type PositionedWidget,
+  ordinanceWidgets,
+  type OrdinanceWidgetContext,
 } from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
@@ -108,6 +116,13 @@ const kickoffFor = (step: string): string => KICKOFFS[step] ?? CLARIFY_KICKOFF
 // Reload filter must hide every kickoff variant, or an old conversation's
 // opener resurfaces as a visible user message after the text changes.
 const KICKOFF_TEXTS = new Set([CLARIFY_KICKOFF, ...Object.values(KICKOFFS)])
+
+// A step reopened while its reply is still being written shows only the turn
+// that asked for it: the browser's cancel stops at the web app's proxy, so the
+// server keeps generating and saves the reply when it finishes. Poll for that
+// reply before offering a retry; a research step can run a few minutes.
+const PENDING_REPLY_POLL_MS = 3000
+const PENDING_REPLY_MAX_POLLS = 60
 
 type Phase = 'loading' | 'ready' | 'error'
 
@@ -181,7 +196,9 @@ export default function OrdinanceFlowChat({
   // Each live widget records how much turn text preceded its tool call, so it
   // appears only after that text has typed out — and, unlike a turn-global
   // revealDone gate, never unmounts when later text in the same turn streams.
-  const [liveWidgets, setLiveWidgets] = useState<PositionedWidget[]>([])
+  const [liveWidgets, setLiveWidgets] = useState<
+    PositionedWidget<OrdinanceWidgetContext>[]
+  >([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -192,10 +209,23 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
+  // The cut-off marker whose retry is in flight, so its notice stays hidden
+  // through the settle window; cleared when the turn settles.
+  const [retryingMarkerId, setRetryingMarkerId] = useState<string | null>(null)
+  // The user turn found unanswered when the step loaded, and whether the wait
+  // for its reply ran out. Only a reload sets it; turns sent from this page
+  // are the engine's to wait on.
+  const [pendingReply, setPendingReply] = useState<{
+    userMessageId: string
+    timedOut: boolean
+  } | null>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
   const answeringRef = useRef(false)
+  // Position saves go out one at a time, so a slow save for a step already
+  // left can never land after the save for the step now on screen.
+  const positionSaveRef = useRef<Promise<void>>(Promise.resolve())
   const router = useRouter()
 
   // The shared streaming-turn driver owns the mechanical turn: optimistic push,
@@ -217,12 +247,14 @@ export default function OrdinanceFlowChat({
       setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setPendingReply(null)
     },
     onTurnSettle: () => {
       setLiveClarify(null)
       setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setRetryingMarkerId(null)
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength }) => {
@@ -241,8 +273,14 @@ export default function OrdinanceFlowChat({
           setLiveOffer(parseOffer(event.args) ?? {})
           return true
         }
-        if (isStepWidgetTool(event.toolName)) {
-          const widget = parseStepWidget(event.toolName, event.args)
+        if (ordinanceWidgets.has(event.toolName)) {
+          const widget = ordinanceWidgets.resolve(
+            {
+              toolName: event.toolName,
+              toolCallId: event.toolCallId ?? null,
+            },
+            event.args,
+          )
           if (widget) {
             // Live tool call only — a reloaded transcript re-renders the same
             // widget from its persisted segment without passing through here,
@@ -366,7 +404,26 @@ export default function OrdinanceFlowChat({
           (ordinance.clarifyAnswers ?? []).map(toRecordedAnswer),
         )
         setMessages(history)
+        const lastLoaded = history[history.length - 1]
+        setPendingReply(
+          lastLoaded !== undefined && lastLoaded.role === 'user'
+            ? { userMessageId: lastLoaded.id, timedOut: false }
+            : null,
+        )
         setPhase('ready')
+        // Only in-progress rows resume by step; drafted ones open their
+        // document. Best effort: a failed save never blocks the step.
+        if (
+          ordinance.status === 'in_progress' &&
+          ordinance.lastViewedStep !== stepValue
+        ) {
+          positionSaveRef.current = positionSaveRef.current.then(() =>
+            updateOrdinance(slug, { lastViewedStep: stepValue }).then(
+              () => undefined,
+              () => undefined,
+            ),
+          )
+        }
         // Brand-new conversation: let the agent take the first turn.
         if (history.length === 0) {
           void sendRef.current(kickoffFor(step), {
@@ -383,6 +440,35 @@ export default function OrdinanceFlowChat({
       cancelled = true
     }
   }, [slug, stepValue, retryNonce])
+
+  useEffect(() => {
+    if (!pendingReply || pendingReply.timedOut || !conversationId) return
+    const { userMessageId } = pendingReply
+    let polls = 0
+    let cancelled = false
+    const timer = setInterval(() => {
+      polls += 1
+      if (polls > PENDING_REPLY_MAX_POLLS) {
+        clearInterval(timer)
+        setPendingReply({ userMessageId, timedOut: true })
+        return
+      }
+      void ordinanceFlowChatApi
+        .listMessages(conversationId)
+        .then((history) => {
+          if (cancelled) return
+          if (history[history.length - 1]?.id === userMessageId) return
+          clearInterval(timer)
+          setMessages(history)
+          setPendingReply(null)
+        })
+        .catch(() => undefined)
+    }, PENDING_REPLY_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [pendingReply, conversationId, setMessages])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
@@ -501,10 +587,63 @@ export default function OrdinanceFlowChat({
       )
     if (turn) hiddenIds.add(turn.id)
   })
+  // Only a trailing cut-off marker is actionable; a later turn superseded an
+  // earlier one. The resend is the user turn right before the marker, or the
+  // step opener when the marker is the conversation's first message. An
+  // unanswered turn whose wait ran out is resent as is.
+  const lastIndex = messages.length - 1
+  const lastMessage = messages[lastIndex]
+  const interruptedId =
+    lastMessage !== undefined && isInterruptedTurn(lastMessage)
+      ? lastMessage.id
+      : null
+  const priorTurn = lastIndex > 0 ? messages[lastIndex - 1] : undefined
+  const awaitingReply =
+    pendingReply !== null && !pendingReply.timedOut && !sending
+  const retryContentFor = (): string | null => {
+    if (
+      pendingReply?.timedOut &&
+      lastMessage?.role === 'user' &&
+      lastMessage.id === pendingReply.userMessageId
+    ) {
+      return lastMessage.content
+    }
+    if (interruptedId === null) return null
+    if (priorTurn === undefined) return kickoffFor(step)
+    return priorTurn.role === 'user' ? priorTurn.content : null
+  }
+  const retryContent = retryContentFor()
+  const retryInFlight =
+    retryingMarkerId !== null && retryingMarkerId === interruptedId
+  const showInterrupted = retryContent !== null && !sending && !retryInFlight
+  const retryInterrupted = (): void => {
+    if (!conversationId || sending || retryContent === null) return
+    // The marker row stays in local state: the engine's commit poll treats any
+    // assistant row it did not already know as the finished turn, so dropping
+    // the marker would end that poll on the old row. Hidden so the transcript
+    // keeps its single copy of the turn.
+    setRetryingMarkerId(interruptedId)
+    void send(retryContent, { hidden: true })
+  }
+  // The server persists a resent turn again, so hide the copy that repeats
+  // the user turn before it, across the marker it replaced if there was one,
+  // and keep the original.
+  const isRetryEcho = (i: number): boolean => {
+    const m = messages[i]
+    if (m?.role !== 'user') return false
+    const before = messages[i - 1]
+    const original =
+      before !== undefined && isInterruptedTurn(before)
+        ? messages[i - 2]
+        : before
+    return original?.role === 'user' && original.content === m.content
+  }
   const visibleMessages = messages.filter(
-    (m) =>
+    (m, i) =>
       !(m.role === 'user' && KICKOFF_TEXTS.has(m.content)) &&
-      !hiddenIds.has(m.id),
+      !hiddenIds.has(m.id) &&
+      !isInterruptedTurn(m) &&
+      !isRetryEcho(i),
   )
   // Only the most recent clarify question is interactive; earlier ones render
   // read-only in place.
@@ -521,11 +660,13 @@ export default function OrdinanceFlowChat({
   // fired: the lead-in text types out, the card appears there and stays, and any
   // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const turnBlocks = liveTurnBlocks(
+  const liveBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
     revealedTextLength,
   )
+  const turnBlocks =
+    liveClarify && revealDone ? dropTrailingQuestion(liveBlocks) : liveBlocks
   const showWidgets = liveWidgets.some(
     (w) => revealedTextLength >= w.appearAfter,
   )
@@ -590,15 +731,20 @@ export default function OrdinanceFlowChat({
               ),
             )}
 
+            {showInterrupted ? (
+              <InterruptedTurn onRetry={retryInterrupted} />
+            ) : null}
+
             {(visibleSegments.length > 0 ||
               showClarify ||
               showWidgets ||
-              working) && (
+              working ||
+              awaitingReply) && (
               <AssistantRow>
                 {turnBlocks.length > 0 ? (
                   <TurnBlocks
                     blocks={turnBlocks}
-                    slug={slug}
+                    context={{ slug }}
                     toolLabel={ordinanceToolLabel}
                   />
                 ) : null}
@@ -609,7 +755,9 @@ export default function OrdinanceFlowChat({
                     onAnswer={() => undefined}
                   />
                 ) : null}
-                {working ? <ThinkingRow label={workingLabel} /> : null}
+                {working || awaitingReply ? (
+                  <ThinkingRow label={workingLabel} />
+                ) : null}
               </AssistantRow>
             )}
 
@@ -669,6 +817,28 @@ function NextStepButton({
   )
 }
 
+function InterruptedTurn({
+  onRetry,
+}: {
+  onRetry: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+      <span className="text-muted-foreground">
+        The last reply was cut off before it finished.
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onRetry}
+        className="rounded-full"
+      >
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 function AssistantMessage({
   message,
   slug,
@@ -694,14 +864,21 @@ function AssistantMessage({
   const clarify = clarifyFromSegments(segments)
   // Same interleaved model as the live turn: text, tool pills, and step cards in
   // stream order, so a reloaded turn reads identically to how it streamed.
-  const blocks = persistedTurnBlocks(segments, message.content ?? '')
+  const turnBlocks = persistedTurnBlocks({
+    registry: ordinanceWidgets,
+    segments,
+    content: message.content ?? '',
+    messageId: message.id,
+    conversationId: message.conversationId,
+  })
+  const blocks = clarify ? dropTrailingQuestion(turnBlocks) : turnBlocks
 
   return (
     <>
       <AssistantRow>
         <TurnBlocks
           blocks={blocks}
-          slug={slug}
+          context={{ slug }}
           toolLabel={ordinanceToolLabel}
         />
         {clarify ? (

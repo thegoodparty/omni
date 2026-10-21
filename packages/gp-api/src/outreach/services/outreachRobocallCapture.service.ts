@@ -14,7 +14,6 @@ import {
 } from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
-import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -54,7 +53,6 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
-    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
     private readonly notification: OutreachNotificationService,
   ) {
     super()
@@ -71,7 +69,10 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   })
   async sweepCaptures(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runCapture()
+  }
 
+  async runCapture(): Promise<void> {
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse
     // uncaptured. A settling row always carries the authorization + count, but
@@ -286,10 +287,10 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         )
         return
       }
-      this.logger.error(
+      this.logger.warn(
         { outreachId, intentStatus: intent.status },
-        'CRITICAL robocall capture: hold not capturable at capture time; ' +
-          'parked uncollectable, delivered run uncharged',
+        'robocall capture: hold not capturable at capture time; ' +
+          'parked uncollectable for fresh-charge recovery',
       )
       await this.transitionFromCapturing(
         outreachId,
@@ -340,10 +341,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     try {
       // Stable idempotency key (amount is deterministic per outreach — the count
       // is frozen), so a retried capture replays instead of double-charging.
+      // Keyed on the hold, not the outreach: PR previews share one Stripe
+      // account and repeat outreach ids, and Stripe refused the second
+      // preview's robocall-capture-4 (2026-10-20).
       await this.stripe.capturePaymentIntent(
         authorizationIntentId,
         captureAmount,
-        `robocall-capture-${outreachId}`,
+        `robocall-capture-${authorizationIntentId}`,
       )
     } catch (err) {
       // Capture failed. No commit yet, so revert to settling and retry next
@@ -515,18 +519,5 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         'robocall receipt milestone emit failed',
       )
     }
-
-    // Single-send email leg (ENG-11035) — best-effort, never throws; see
-    // OutreachRobocallSingleSendService. A HubSpot failure here must never
-    // fail the capture that already moved money.
-    await this.robocallSingleSend.send(
-      EVENTS.Robocall.Receipt,
-      userId,
-      outreachId,
-      {
-        outreach_id: String(outreachId),
-        captured_amount_dollars: String(capturedAmountInDollars),
-      },
-    )
   }
 }

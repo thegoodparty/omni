@@ -43,10 +43,8 @@ import {
  * Who to reach. The product resolves its own audience; delivery owns what
  * happens to it.
  *
- * The sample branch exists on day one even though only polls will pass one,
- * and nothing calls it that way yet. That is deliberate: if the sample branch
- * does not work, the layer is not actually shared, and we would not find out
- * until polls tried to move onto it.
+ * The sample branch is what a self-serve poll passes when it asks for a random
+ * sample of the district instead of a saved list.
  */
 export type TextDeliveryAudience =
   | { kind: 'savedFilter'; voterFileFilterId: number }
@@ -175,10 +173,13 @@ const resolveBucket = (): string => {
  * was canceled, is already sending, or was never paid for, and none of those
  * may reach fulfilment.
  *
- * An expansion (`sendSeq > 1`) is its own trigger's problem: it has to return
- * the row to `pending` before enqueueing, the way the purchase handler does.
+ * An expansion (`sendSeq > 1`) is a follow-on to a send that already moved
+ * the spine, so it claims its own `OutreachPollExpansion` row, the same
+ * `pending → in_progress`, and never writes the spine.
  */
 const SENDABLE_STATUS = OutreachStatus.pending
+
+const FIRST_SEND_SEQ = 1
 
 type ResolvedRecipient = {
   personId: string
@@ -290,15 +291,18 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // Serve row carries no phone list, so `pending` renders "In review" —
       // it would tell the official a human is working a send that can never
       // go out. `failed` already renders "Couldn't send".
-      await this.client.outreach.updateMany({
-        where: {
-          id: outreachId,
-          status: {
-            in: [OutreachStatus.pending, OutreachStatus.in_progress],
-          },
-        },
-        data: { status: OutreachStatus.failed },
-      })
+      const inFlight = {
+        in: [OutreachStatus.pending, OutreachStatus.in_progress],
+      }
+      await (sendSeq > FIRST_SEND_SEQ
+        ? this.client.outreachPollExpansion.updateMany({
+            where: { outreachId, sendSeq, status: inFlight },
+            data: { status: OutreachStatus.failed },
+          })
+        : this.client.outreach.updateMany({
+            where: { id: outreachId, status: inFlight },
+            data: { status: OutreachStatus.failed },
+          }))
       this.logger.error(
         { outreachId, sendSeq, sendKey, err: error },
         'Text send failed permanently; the row is now failed. It is already ' +
@@ -330,16 +334,22 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // the end. A read would not be enough and the trailing CAS was not
     // enough: a candidate can cancel between the check and the handoff, and
     // by then a human has the CSV and will send it. Claiming closes that
-    // window, because `cancelOutreach` is `pending`-only — once this row
-    // reads `in_progress` a cancel is refused rather than racing the send.
+    // window, because `cancelOutreach` refuses an `in_progress` text send
+    // (only a p2p row cancels from there) — once this row reads
+    // `in_progress` a cancel is refused rather than racing the send.
     //
     // The claim IS the spine advance; there is no separate "claimed" state to
     // add. A redelivered message, or a message for a canceled / unpaid /
     // already-sent row, matches nothing and does no work.
-    const claimed = await this.client.outreach.updateMany({
-      where: { id: outreachId, status: SENDABLE_STATUS },
-      data: { status: OutreachStatus.in_progress },
-    })
+    const claimed = await (sendSeq > FIRST_SEND_SEQ
+      ? this.client.outreachPollExpansion.updateMany({
+          where: { outreachId, sendSeq, status: SENDABLE_STATUS },
+          data: { status: OutreachStatus.in_progress },
+        })
+      : this.client.outreach.updateMany({
+          where: { id: outreachId, status: SENDABLE_STATUS },
+          data: { status: OutreachStatus.in_progress },
+        }))
     if (claimed.count === 0) {
       this.logger.warn(
         { outreachId, sendSeq },
@@ -369,10 +379,19 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // outreach serialize, and a cancel cannot have landed while the row
       // was claimed. `requestSend` decides whether the retry actually
       // happens or the row goes to `failed` instead.
-      await this.client.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.in_progress },
-        data: { status: SENDABLE_STATUS },
-      })
+      await (sendSeq > FIRST_SEND_SEQ
+        ? this.client.outreachPollExpansion.updateMany({
+            where: {
+              outreachId,
+              sendSeq,
+              status: OutreachStatus.in_progress,
+            },
+            data: { status: SENDABLE_STATUS },
+          })
+        : this.client.outreach.updateMany({
+            where: { id: outreachId, status: OutreachStatus.in_progress },
+            data: { status: SENDABLE_STATUS },
+          }))
       throw error
     }
   }
@@ -415,6 +434,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         audience,
         organization,
         excludePersonIds,
+        outreachId,
       )
       if (resolved.recipients.length === 0) {
         // Nothing is written and nothing is handed off. A 4xx, so
@@ -594,6 +614,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     audience: TextDeliveryAudience,
     organization: Organization,
     excludePersonIds: Set<string>,
+    outreachId: number,
   ): Promise<ResolvedAudience> {
     return audience.kind === 'savedFilter'
       ? this.resolveSavedFilterAudience(
@@ -601,7 +622,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
           organization,
           excludePersonIds,
         )
-      : this.resolveSampleAudience(audience, organization, excludePersonIds)
+      : this.resolveSampleAudience(
+          audience,
+          organization,
+          excludePersonIds,
+          outreachId,
+        )
   }
 
   /** SMS today, polls later. */
@@ -630,6 +656,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     const resolution = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
+      dataset: await this.contactsService.resolvePeopleDataset(organization),
       // Empty on purpose, with the scrub applied through `isEligible`
       // instead. Handing the ids to people-api as an exclusion filter means
       // those rows never come back, so the layer can only ever report how
@@ -641,9 +668,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // warns about. The cost is that opted-out rows are paged over before
       // being discarded.
       excludePersonIds: new Set(),
-      // No deadline on this path: the send is already paid for and running off
-      // a queue, so the page-1 pre-flight's speed-for-precision trade is the
-      // wrong way round here. It reads the MATCHED count, and this caller's
+      // No deadline on this path — neither guard: no timeBudgetMs is passed
+      // (nothing is waiting for a response, so a resolution that takes four
+      // minutes is fine) and the pre-flight cap is off. The send is already
+      // paid for and running off a queue, so the page-1 pre-flight's
+      // speed-for-precision trade is the wrong way round here. It reads the MATCHED count, and this caller's
       // matched-minus-resolved gap is routinely the size of the org's opt-out
       // set (scrubbed below rather than in the query), so the pre-flight would
       // refuse sends that resolve well under the cap and complete fine — and a
@@ -677,14 +706,14 @@ export class OutreachTextDeliveryService extends createPrismaBase(
 
   /**
    * District-wide random sample, with `hasCellPhone` forced inside
-   * `sampleContacts`. Nothing calls this yet — polls needs it when it moves
-   * onto this layer, and a branch that is never exercised is a branch that
-   * does not work.
+   * `sampleContacts`. Polls are the caller: a self-serve poll that asks for a
+   * random sample of the district rather than a saved list.
    */
   private async resolveSampleAudience(
     audience: Extract<TextDeliveryAudience, { kind: 'sample' }>,
     organization: Organization,
     excludePersonIds: Set<string>,
+    outreachId: number,
   ): Promise<ResolvedAudience> {
     // The sample branch keeps sending exclusions UPSTREAM, unlike the filter
     // branch. A sample is a request for N people, so the scrub has to narrow
@@ -692,16 +721,52 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // fewer than N. That makes `excludedOptedOutCount` 0 here and correct: a
     // caller asking for N still gets N, so this audience lost nobody.
     //
-    // It does mean this branch inherits people-api's id-filter cap on the
-    // exclusion list, which the filter branch no longer has. Polls has to
-    // resolve that when it adopts this layer; nothing calls it today.
+    // The exclusion list rides to people-api as an id filter, which caps it
+    // at `MAX_ID_FILTER_VALUES`; a poll's org will not reach that.
     const excludeIds = [
       ...new Set([...excludePersonIds, ...(audience.excludePersonIds ?? [])]),
     ]
+
+    // The upstream draw throws when the pool minus the exclusions is smaller
+    // than the size asked for, and a throw here lands a PAID send in
+    // `failed`. A poll sized to the whole pool hits it whenever somebody
+    // opts out while it sits in review, so ask for what is still reachable.
+    // Same arithmetic as `samplePeople`, so the two cannot disagree.
+    const { totalConstituentsWithCellPhone } =
+      await this.contactsService.getDistrictStats(organization)
+    const remaining =
+      totalConstituentsWithCellPhone -
+      Math.min(excludeIds.length, totalConstituentsWithCellPhone)
+    const size = Math.min(audience.size, remaining)
+    if (size < audience.size) {
+      this.logger.warn(
+        { outreachId, requested: audience.size, delivered: size },
+        'Sample pool shrank since checkout; sending to what is still ' +
+          'reachable, so the send is short of what was paid for',
+      )
+    }
+    if (size < 1) {
+      return {
+        recipients: [],
+        excludedDuplicateCount: 0,
+        excludedOptedOutCount: 0,
+      }
+    }
+
     const sample = await this.contactsService.sampleContacts(
-      { size: audience.size, excludeIds },
+      { size, excludeIds },
       organization,
     )
+
+    const alreadyAsked = new Set(audience.excludePersonIds)
+    const overlap = sample.filter((person) => alreadyAsked.has(person.id))
+    if (overlap.length > 0) {
+      this.logger.error(
+        { outreachId, overlapCount: overlap.length },
+        'Sample drew people an earlier send already reached; the exclusion ' +
+          'did not hold',
+      )
+    }
 
     // Dedupe by phone here too, for the same reason the filter branch does:
     // the capture row is a phone-to-person map, and two people on one number

@@ -662,7 +662,10 @@ describe('new onboarding flow shell', () => {
     expect(prewarm).not.toHaveBeenCalled()
   })
 
-  it('does not fire generation when skipping the story', async () => {
+  // The story sharpens a plan, it does not qualify a candidate for one: a
+  // candidate who skips these steps used to finish signup with nothing
+  // generated, then had to press a button on the plan tab to get started.
+  it('fires generation even when the whole story is skipped', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -680,7 +683,7 @@ describe('new onboarding flow shell', () => {
     await skipThroughStorySteps()
 
     expect(await findSignupGoalStep()).toBeInTheDocument()
-    expect(prewarm).not.toHaveBeenCalled()
+    expect(prewarm).toHaveBeenCalledTimes(1)
     // Nothing was answered, so persist writes nothing.
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
   })
@@ -884,7 +887,9 @@ describe('new onboarding flow shell', () => {
       EVENTS.OnboardingV2.OnboardingSkipped,
       expect.objectContaining({ step: 'What Issues Do You Want To Solve' }),
     )
-    expect(prewarm).not.toHaveBeenCalled()
+    // Generation no longer waits for a complete story — leaving the block is
+    // the trigger.
+    expect(prewarm).toHaveBeenCalledTimes(1)
 
     // Back returns to the issues step (why + background still answered), add a
     // policy to complete the story, then Continue.
@@ -903,7 +908,7 @@ describe('new onboarding flow shell', () => {
     expect(issuesCompletedCalls).toHaveLength(1)
   })
 
-  it('does not fire generation when a returning candidate skips a fully-seeded story', async () => {
+  it('fires generation when a returning candidate skips a fully-seeded story', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -940,7 +945,9 @@ describe('new onboarding flow shell', () => {
     await skipThroughStorySteps()
 
     expect(await findSignupGoalStep()).toBeInTheDocument()
-    expect(prewarm).not.toHaveBeenCalled()
+    // The seeded story is already complete, so this candidate gets a plan for
+    // the same reason a skipper does: leaving the block is the trigger.
+    expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.OnboardingSkipped,
       expect.objectContaining({ step: 'Why Are You Running' }),

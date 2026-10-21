@@ -13,8 +13,13 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 }))
 
 vi.mock('helpers/createP2pPhoneList', () => ({
-  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
-  getP2pPhoneListStatus: vi.fn(async () => ({
+  createP2pPhoneList: vi.fn(async () => ({
+    ok: true,
+    token: 'tok-1',
+    buildId: 'build-1',
+  })),
+  getP2pPhoneListBuildStatus: vi.fn(async () => ({
+    buildStatus: 'ready',
     phoneListId: 77,
     leadsLoaded: 19000,
     excludedOptedOutCount: 0,
@@ -89,7 +94,14 @@ const acceptedCalls = () =>
 const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      source="outreach_page"
+      open
+      onClose={onClose}
+      onScheduled={onScheduled}
+    />,
+  )
   await userEvent.click(screen.getByText('Introduce myself to voters'))
   expect(
     (await screen.findAllByText('Who do you want to reach?')).length,
@@ -134,6 +146,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -248,6 +261,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -286,6 +300,7 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     })
     render(
       <SmsFlow
+        source="outreach_page"
         open
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
@@ -363,6 +378,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
@@ -419,6 +435,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeUndecided',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
@@ -517,7 +534,7 @@ describe('SmsFlow — recommended lists', () => {
     releaseListDetail?.()
     await waitFor(() => expect(retry).toBeEnabled())
     await userEvent.click(retry as HTMLButtonElement)
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(created).toHaveLength(1)
     expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
     expect(vi.mocked(createP2pPhoneList).mock.calls[1]?.[1]).toBe(88)
@@ -525,7 +542,7 @@ describe('SmsFlow — recommended lists', () => {
 
   // The drawer path must reset the phone-list token the way onSelect does.
   // Otherwise a token from a list picked earlier survives the failed upload,
-  // and "Try again" short-circuits to schedule with that list's audience.
+  // and "Try again" short-circuits to compose with that list's audience.
   it("does not reuse an earlier list's phone list when the drawer upload fails", async () => {
     const LIST_A = { id: 501, name: 'Undecided persuadables' }
     const created: { id: number; name: string }[] = []
@@ -558,7 +575,11 @@ describe('SmsFlow — recommended lists', () => {
       return { status: 200, data: row }
     })
     vi.mocked(createP2pPhoneList)
-      .mockResolvedValueOnce({ ok: true, token: 'tok-list-a' })
+      .mockResolvedValueOnce({
+        ok: true,
+        token: 'tok-list-a',
+        buildId: 'build-list-a',
+      })
       .mockResolvedValueOnce({ ok: false, status: 400 })
     await openToAudience()
 
@@ -568,7 +589,7 @@ describe('SmsFlow — recommended lists', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue/ }),
     )
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(vi.mocked(createP2pPhoneList).mock.calls[0]?.[1]).toBe(501)
 
     // Back to the audience, accept the recommendation, upload fails.
@@ -588,7 +609,7 @@ describe('SmsFlow — recommended lists', () => {
     const retry = (await screen.findByText('Try again')).closest('button')
     await waitFor(() => expect(retry).toBeEnabled())
     await userEvent.click(retry as HTMLButtonElement)
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
     expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(3)
     expect(vi.mocked(createP2pPhoneList).mock.calls[2]?.[1]).toBe(88)
     expect(created).toHaveLength(1)
@@ -645,7 +666,7 @@ describe('SmsFlow — recommended lists', () => {
   // The flow host stays mounted with `open` never going false between steps,
   // so without an active/mode gate this warehouse-backed query kept
   // refetching on window focus for screens that don't show it at all
-  // (schedule/compose/review) — caught by a live reviewer mutation test on
+  // (compose/schedule/review) — caught by a live reviewer mutation test on
   // the first round, now pinned here.
   it('stops refetching recommendations once the audience step is left behind', async () => {
     let requestCount = 0
@@ -679,7 +700,7 @@ describe('SmsFlow — recommended lists', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /Continue/ }),
     )
-    await screen.findByText('When do you want to send it?')
+    await screen.findByRole('textbox', { name: 'Message body' })
 
     window.dispatchEvent(new Event('visibilitychange'))
     window.dispatchEvent(new Event('focus'))

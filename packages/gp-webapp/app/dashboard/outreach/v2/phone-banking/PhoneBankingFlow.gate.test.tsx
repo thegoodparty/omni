@@ -1,12 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { Editor } from '@tiptap/react'
 import type { PhoneBankingCreate } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PhoneBankingFlow } from './PhoneBankingFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import { gateRef } from '../gate/testing/mockReactiveGate'
+
+// The script field is a TokenField: its text lives in the editor TipTap
+// hangs on the textbox, not in a `value`.
+const scriptEditor = () =>
+  (
+    screen.getByRole('textbox', { name: 'Call script' }) as HTMLElement & {
+      editor: Editor
+    }
+  ).editor
+const scriptText = () => scriptEditor().getText({ blockSeparator: '\n' })
 
 // Same convention as the other flow tests: the gate's own flag/membership
 // plumbing has its own tests, so the hook is driven directly through the
@@ -63,6 +74,7 @@ vi.mock('@shared/organization-picker', () => ({
 
 const FREE_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: 'pro',
   twoStep: false,
   membership: {
@@ -76,6 +88,7 @@ const FREE_GATE: OutreachGateState = {
 
 const PRO_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: {
@@ -120,9 +133,7 @@ const advanceToSheets = async () => {
     await screen.findByRole('button', { name: /Continue \([\d,]+\)/ }),
   )
   await screen.findAllByText('Write your call script')
-  await waitFor(() =>
-    expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-  )
+  await waitFor(() => expect(scriptText()).not.toBe(''))
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findAllByText(
     'How many call sheets would you like me to create?',
@@ -172,7 +183,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
 
   it('shows the gate banner on every step for a free candidate', async () => {
     gateRef.set(FREE_GATE)
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
 
     expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
 
@@ -186,7 +197,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   it('free candidate: the sheets Continue previews the ready screen, whose Continue opens the gate', async () => {
     gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -206,7 +217,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   it('free candidate: the preview download opens the gate instead of a file', async () => {
     gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
     await advanceToSheets()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Your call sheet is ready')
@@ -226,7 +237,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   it('free candidate: the requirement clearing mid-upgrade leaves the gate up, and its completion creates the list', async () => {
     gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
     await advanceToSheets()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Your call sheet is ready')
@@ -250,7 +261,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   it('free candidate: leaving the gate lands back on the ready screen', async () => {
     gateRef.set(FREE_GATE)
     const onClose = vi.fn()
-    render(<PhoneBankingFlow open onClose={onClose} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={onClose} />)
     await advanceToSheets()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Your call sheet is ready')
@@ -272,7 +283,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   it('free candidate: upgrading from the banner creates nothing and keeps the step', async () => {
     gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
 
     // Stop on the script step: the audience is picked, so a create fired
     // from here would really post — the purpose step would have thrown
@@ -301,7 +312,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
 
   it('Pro candidate: the sheets Continue creates the list, with no banner', async () => {
     const createCalls = mockCreateList()
-    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    render(<PhoneBankingFlow source="outreach_page" open onClose={vi.fn()} />)
     await advanceToSheets()
 
     expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()

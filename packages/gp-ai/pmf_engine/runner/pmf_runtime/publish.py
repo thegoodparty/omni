@@ -46,18 +46,23 @@ def _with_retry(call_name: str, fn):
 def publish(
     artifact: dict,
     duration_seconds: float = 0,
-    cost_usd: float = 0,
+    cost_usd: float | None = None,
     qa_verdict: dict | None = None,
     qa_raw_output: str | None = None,
     qa_eval_transcript: str | None = None,
 ) -> dict:
     from .config import get_config
 
-    body = {
+    body: dict = {
         "artifact": artifact,
         "duration_seconds": duration_seconds,
-        "cost_usd": cost_usd,
     }
+    # OMITTED WHEN UNKNOWN, the same way `report_status` below does it and the
+    # same way the qa fields here already do. The runner withholds a cost it
+    # could not measure, and sending `"cost_usd": null` would be a third
+    # spelling of that — one this payload has never had.
+    if cost_usd is not None:
+        body["cost_usd"] = cost_usd
     # PMF QA gate (contract D): additive optional field. Omit the key entirely
     # when no gate ran (no qa folder / pre-gate runner) so the payload is
     # byte-identical to today; the broker forwards a present verdict verbatim

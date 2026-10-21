@@ -6,6 +6,7 @@ import { AuthProvider } from '@/authentication/interfaces/auth-provider.interfac
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { TRANSCRIBE_STREAM_PATH } from '@/speech/ws/speechToText.gateway'
+import { IS_PUBLIC_KEY } from '@/authentication/decorators/PublicAccess.decorator'
 import { SessionGuard } from './Session.guard'
 
 const baseUser: User = {
@@ -72,6 +73,8 @@ describe('SessionGuard — impersonating flag', () => {
       isM2MToken: vi.fn().mockReturnValue(false),
       verifySessionToken: vi.fn(),
       verifyM2MToken: vi.fn(),
+      isM2MJwt: vi.fn().mockReturnValue(false),
+      verifyM2MJwt: vi.fn(),
       getUser: vi.fn(),
     }
 
@@ -95,6 +98,32 @@ describe('SessionGuard — impersonating flag', () => {
     const req = buildRequest(undefined, `${TRANSCRIBE_STREAM_PATH}?ticket=abc`)
     await expect(guard.canActivate(buildContext(req))).resolves.toBe(true)
     expect(authProvider.verifySessionToken).not.toHaveBeenCalled()
+  })
+
+  it('does not read a vendor client key as a session on a vendor mock', async () => {
+    const req = {
+      url: '/v1/vendor-mocks/callhub/v1/numbers/rent/',
+      headers: { authorization: 'Token mock-key' },
+    } as unknown as IncomingRequest
+    const publicHandler = () => undefined
+    Reflect.defineMetadata(IS_PUBLIC_KEY, true, publicHandler)
+    const context = {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => publicHandler,
+      getClass: () => ({}),
+    } as unknown as ExecutionContext
+    await expect(guard.canActivate(context)).resolves.toBe(true)
+    expect(authProvider.verifySessionToken).not.toHaveBeenCalled()
+  })
+
+  it('still rejects a non-public vendor mock route', async () => {
+    const req = {
+      url: '/v1/vendor-mocks/callhub/v1/numbers/rent/',
+      headers: { authorization: 'Token mock-key' },
+    } as unknown as IncomingRequest
+    await expect(guard.canActivate(buildContext(req))).rejects.toThrow(
+      UnauthorizedException,
+    )
   })
 
   it('still rejects a protected route with no token', async () => {

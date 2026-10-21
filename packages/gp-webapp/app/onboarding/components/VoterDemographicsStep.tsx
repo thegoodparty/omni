@@ -4,6 +4,7 @@ import { useQuery, queryOptions } from '@tanstack/react-query'
 import { UsersRound } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { NumberInsight } from 'app/polls/onboarding/components/NumberInsight'
 import { DataVisualizationInsight } from 'app/polls/onboarding/components/DataVisualizationInsight'
 import { mapContactsStatsToCharts } from 'app/polls/onboarding/utils/mapContactsStatsToCharts'
@@ -54,20 +55,14 @@ interface VoterDemographicsStepProps {
   office?: string
   showLocalNewsSources?: boolean
   headingsAsSubsections?: boolean
-  // Copy overrides for non-candidate contexts (e.g. the elected-official
-  // "serve" flow, which addresses constituents rather than voters). Each
-  // defaults to the Win/candidate wording so existing call sites are unchanged.
-  demographicsHeading?: string
-  totalLabel?: string
-  ageDistributionDescription?: string
-  topIssuesHeading?: string
-  topIssuesDescription?: string
 }
 
-const DEFAULT_DEMOGRAPHICS_HEADING = 'Voter Demographics'
-const DEFAULT_TOTAL_LABEL = 'Total Voters'
-const DEFAULT_AGE_DISTRIBUTION_DESCRIPTION =
+const DEMOGRAPHICS_HEADING = 'Voter Demographics'
+const TOTAL_LABEL = 'Total Voters'
+const AGE_DISTRIBUTION_DESCRIPTION =
   "We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger voters, and prioritizing mail and door-knocks for older ones."
+const AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED =
+  "We'll help you tailor your outreach mix to each age group, leaning into social for younger voters and prioritizing mail and door-knocks for older ones."
 
 export const VoterDemographicsStep = ({
   ballotReadyPositionId,
@@ -78,12 +73,9 @@ export const VoterDemographicsStep = ({
   office,
   showLocalNewsSources = true,
   headingsAsSubsections = false,
-  demographicsHeading = DEFAULT_DEMOGRAPHICS_HEADING,
-  totalLabel = DEFAULT_TOTAL_LABEL,
-  ageDistributionDescription = DEFAULT_AGE_DISTRIBUTION_DESCRIPTION,
-  topIssuesHeading,
-  topIssuesDescription,
 }: VoterDemographicsStepProps): React.JSX.Element => {
+  const { smsCompliance } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
   const query = useQuery(
     onboardingDistrictStatsQueryOptions({
       ballotReadyPositionId,
@@ -130,7 +122,7 @@ export const VoterDemographicsStep = ({
   return (
     <div className="flex w-full flex-col items-stretch gap-6 text-left">
       <div className="space-y-2">
-        <HeadingTag className={headingClass}>{demographicsHeading}</HeadingTag>
+        <HeadingTag className={headingClass}>{DEMOGRAPHICS_HEADING}</HeadingTag>
         {locationLabel ? (
           <p className="text-sm leading-6 text-muted-foreground">
             A snapshot of who lives, votes, and pays attention in{' '}
@@ -143,7 +135,7 @@ export const VoterDemographicsStep = ({
       </div>
 
       <NumberInsight
-        title={totalLabel}
+        title={TOTAL_LABEL}
         value={chartData.totalConstituents || 0}
         icon={<UsersRound />}
         isLoading={isLoading}
@@ -155,7 +147,11 @@ export const VoterDemographicsStep = ({
         chartType="barList"
         percentage={true}
         title="Age Distribution"
-        description={ageDistributionDescription}
+        description={
+          smsClosed
+            ? AGE_DISTRIBUTION_DESCRIPTION_SMS_CLOSED
+            : AGE_DISTRIBUTION_DESCRIPTION
+        }
         data={chartData.ageDistribution}
         isLoading={isLoading}
         error={error}
@@ -185,7 +181,11 @@ export const VoterDemographicsStep = ({
         chartType="barList"
         percentage={true}
         title="Estimated Income Range"
-        description="We'll help you frame your economic messaging across SMS, email, and canvassing scripts so it lands with each income segment."
+        description={
+          smsClosed
+            ? "We'll help you frame your economic messaging across email and canvassing scripts so it lands with each income segment."
+            : "We'll help you frame your economic messaging across SMS, email, and canvassing scripts so it lands with each income segment."
+        }
         data={chartData.estimatedIncomeRange}
         isLoading={isLoading}
         error={error}
@@ -195,7 +195,11 @@ export const VoterDemographicsStep = ({
         chartType="barList"
         percentage={true}
         title="Education"
-        description="We'll help you tune the depth and channel of your outreach (SMS, email, literature drops) to match how each education segment consumes information."
+        description={
+          smsClosed
+            ? "We'll help you tune the depth and channel of your outreach (email, literature drops) to match how each education segment consumes information."
+            : "We'll help you tune the depth and channel of your outreach (SMS, email, literature drops) to match how each education segment consumes information."
+        }
         data={chartData.education}
         isLoading={isLoading}
         error={error}
@@ -208,8 +212,6 @@ export const VoterDemographicsStep = ({
         state={state}
         office={office}
         headingsAsSubsections={headingsAsSubsections}
-        heading={topIssuesHeading}
-        description={topIssuesDescription}
       />
 
       {showLocalNewsSources ? (

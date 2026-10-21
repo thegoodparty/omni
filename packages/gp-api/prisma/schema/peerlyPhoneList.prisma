@@ -1,18 +1,71 @@
+enum PhoneListBuildStatus {
+  queued
+  building
+  processing
+  ready
+  failed
+}
+
 model PeerlyPhoneList {
   id                          String                     @id @default(uuid(7))
   createdAt                   DateTime                   @default(now()) @map("created_at")
+  // Bumped on every write, including the claim CAS (queued -> building) —
+  // the stale-building reaper's staleness predicate (claimForBuild /
+  // reclaimStaleBuilding / failStaleBuilding) reads this to tell an
+  // abandoned claim from one that's merely slow.
+  updatedAt                   DateTime                   @updatedAt @map("updated_at")
   organizationSlug            String                     @map("organization_slug")
   organization                Organization               @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   campaign                    Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId                  Int                        @map("campaign_id")
   // The Peerly upload token returned by /phonelists on create — the only
   // handle available until the status endpoint resolves a numeric list id.
-  token                       String                     @unique
+  // Nullable because the build is moving off the request into a background
+  // job: a row can exist in `queued`/`building` before a token is ever
+  // obtained.
+  token                       String?                    @unique @map("token")
   // Stamped by the status endpoint the first time Peerly reports the list
   // ready (task 03 looks this row up by peerlyListId, which equals
   // Outreach.phoneListId).
   peerlyListId                Int?                       @unique @map("peerly_list_id")
   voterFileFilterId           Int?                       @map("voter_file_filter_id")
+  buildStatus                 PhoneListBuildStatus       @default(queued) @map("build_status")
+  buildError                  String?                    @map("build_error")
+  // The validated POST body (voter filter fields + list name), captured at
+  // accept time so the async build handler (Voter Outreach 2.0, kill-switch
+  // gated) can redo filter resolution + CSV generation without the HTTP
+  // request around to ask again. Re-validated through the same Zod schema on
+  // read rather than trusted as already-shaped. Nullable because a row from
+  // before this column existed has none — such a row can never be retried by
+  // the async handler, only by a fresh POST.
+  requestSnapshot              Json?                      @map("request_snapshot") @db.JsonB
+  // The `leads_loaded` value observed on the previous ACTIVE status poll
+  // (either route). A large list keeps loading after Peerly reports ACTIVE,
+  // so `ready` is only stamped once this matches the current read (or the
+  // list is already fully loaded) — see stampPeerlyListId callers.
+  lastSeenLeadsLoaded          Int?                       @map("last_seen_leads_loaded")
+  // The stable `leads_loaded` count observed when the list was stamped
+  // `ready` — the durable billable count the Win SMS hold-capture bills
+  // against, so capture never re-fetches a vendor count that could read a
+  // still-loading list. Null on rows stamped ready before this column
+  // existed, and on any row not yet ready.
+  leadsLoaded                  Int?                       @map("leads_loaded")
+  // The HARD Win SMS send cap (team decision 2 — never oversend): the largest
+  // text count the hold authorized for THIS build covers
+  // (`maxTextsForAmountInCents(holdAmount)`). Persisted at checkout-session
+  // creation (when the hold amount is computed, slice D2b) — i.e. BEFORE the
+  // payment webhook links the hold — so the build-upload reads it regardless of
+  // whether the resolve runs before or after the hold link, closing the
+  // oversend race D2a's satellite-link cap could not (the link lands at the
+  // webhook, which can follow the resolve). `buildPhoneList` truncates the
+  // uploaded recipients to it, so a filter that re-resolves larger than the
+  // pre-pay estimate can never upload/send more than was billed. Null when the
+  // flag is off or no paid hold is expected (a free/sub-50c send places none).
+  sendCapTexts                 Int?                       @map("send_cap_texts")
+  // How many times the async build handler has claimed this row (queued ->
+  // building). The stale-building reaper uses this to stop retrying and
+  // park the row `failed` instead of re-queuing it forever.
+  buildAttempts                Int                        @default(0) @map("build_attempts")
   // Count of org-opted-out contacts screened out of this build's filter
   // resolution (ENG-10800). Zero also covers "the scrub was skipped" (over
   // the people-api id-filter cap) — the send proceeds unscrubbed either way,
@@ -25,6 +78,7 @@ model PeerlyPhoneList {
   // excludedOptedOutCount, for ENG-10808's UI to read.
   excludedDuplicatePhoneCount Int                        @default(0) @map("excluded_duplicate_phone_count")
   recipients                  PeerlyPhoneListRecipient[]
+  p2pSmsSettlements           OutreachP2pSms[]
 
   @@map("peerly_phone_list")
 }

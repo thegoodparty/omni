@@ -1,11 +1,13 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
+import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
+  OutreachType,
   Poll,
+  PollAudienceKind,
   PollIndividualMessageSender,
   Prisma,
-  TcrComplianceStatus,
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
@@ -58,10 +60,12 @@ import {
   ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
   PeerlyVendorEscalationMessageSchema,
+  CampaignStoryCompletedMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
+  P2pPhoneListBuildMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -87,12 +91,22 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachService } from '@/outreach/services/outreach.service'
-import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
+import {
+  OutreachTextDeliveryService,
+  TextDeliveryAudience,
+} from '@/outreach/services/outreachTextDelivery.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
+import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
+import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
+
+const INITIAL_POLL_SEND_SEQ = 1
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 
@@ -180,7 +194,10 @@ export class QueueConsumerService {
     private readonly chatAttachments: ChatAttachmentsService,
     private readonly outreachService: OutreachService,
     private readonly outreachTextDelivery: OutreachTextDeliveryService,
+    private readonly pollExpansion: OutreachServePollExpansionService,
+    private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
+    private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -383,6 +400,32 @@ export class QueueConsumerService {
         const pollAnalysisCompleteEvent =
           PollAnalysisCompleteEventSchema.parse(queueMessage)
         return await this.handlePollAnalysisComplete(pollAnalysisCompleteEvent)
+      case QueueType.FEEDBACK_SYNTHESIS_COMPLETE: {
+        this.logger.info('received feedbackSynthesisComplete message')
+        // A malformed event can never become valid, and requeueing it would
+        // hold its FIFO group until the DLQ limit. Ack-drop it, logged; the
+        // run it names is failed by the stale-run sweep. An ingest error
+        // escapes to the requeue path: the run is still running, so a
+        // redelivery retries it, and the ingest's claim makes that safe.
+        const event =
+          FeedbackSynthesisCompleteEventSchema.safeParse(queueMessage)
+        if (!event.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: event.error },
+            'malformed feedbackSynthesisComplete message, discarding',
+          )
+          return true
+        }
+        const { sourceType, sourceId, promptSource } = event.data.data
+        if (promptSource === 'fallback') {
+          this.logger.warn(
+            { sourceType, sourceId },
+            'Synthesis run used the in-repo theme prompt',
+          )
+        }
+        await this.feedbackSynthesisIngest.handle(event.data)
+        return true
+      }
       case QueueType.POLL_CREATION:
         this.logger.info('received pollCreation message')
         const pollCreationEvent = PollCreationEventSchema.parse(queueMessage)
@@ -418,6 +461,15 @@ export class QueueConsumerService {
           await this.weeklyTasksDigestHandler.handleWeeklyTasksDigest(
             digestData,
           )
+          return true
+        })
+      case QueueType.CAMPAIGN_STORY_COMPLETED:
+        this.logger.info('received campaignStoryCompleted message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const { campaignId } = CampaignStoryCompletedMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.campaignStrategy.regenerateOnStoryComplete(campaignId)
           return true
         })
       case QueueType.NIGHTLY_10DLC_REPORT:
@@ -500,6 +552,16 @@ export class QueueConsumerService {
         const { data } = OutreachTextSendEventSchema.parse(queueMessage)
         return await this.handleOutreachTextSend(data)
       }
+      case QueueType.P2P_PHONE_LIST_BUILD: {
+        this.logger.info('received p2pPhoneListBuild message')
+        // A malformed payload is our own producer's bug (the message only
+        // ever carries a buildId) — let it throw and age to the DLQ rather
+        // than ack-dropping it.
+        const { buildId } = P2pPhoneListBuildMessageSchema.parse(
+          queueMessage.data,
+        )
+        return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
+      }
 
       default:
         this.logger.warn(
@@ -537,12 +599,16 @@ export class QueueConsumerService {
     const outreach = await this.outreachService.model.findUnique({
       where: { id: outreachId },
       select: {
+        outreachType: true,
+        approvedAt: true,
         message: true,
         imageUrl: true,
         scheduledLocalDate: true,
         voterFileFilterId: true,
         billableTextCount: true,
         textCount: true,
+        pollDetails: { select: { audienceKind: true } },
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
       },
     })
 
@@ -550,6 +616,38 @@ export class QueueConsumerService {
       this.logger.error(
         { outreachId, sendSeq },
         'outreachTextSend: no such outreach; acking, retrying cannot help',
+      )
+      return true
+    }
+
+    const isPoll = outreach.outreachType === OutreachType.poll
+    if (isPoll && !outreach.approvedAt) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: a poll reached delivery without approval, which ' +
+          'should never happen; acking without sending',
+      )
+      return true
+    }
+    // A round 2 text is enqueued by its draw, never before: its list holds
+    // nobody until then.
+    if (isUndrawnSample(outreach.voterFileFilter)) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: a round 2 text reached delivery before its draw, ' +
+          'which should never happen; acking without sending',
+      )
+      return true
+    }
+    const expansion =
+      isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
+        ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
+        : null
+    if (isPoll && sendSeq > INITIAL_POLL_SEND_SEQ && !expansion) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: an expansion reached delivery without an ' +
+          'approved row, which should never happen; acking without sending',
       )
       return true
     }
@@ -563,7 +661,23 @@ export class QueueConsumerService {
       textCount,
     } = outreach
 
-    if (!message || !scheduledLocalDate || !voterFileFilterId) {
+    const isSamplePoll =
+      isPoll && outreach.pollDetails?.audienceKind === PollAudienceKind.sample
+    const audience: TextDeliveryAudience | null = expansion
+      ? {
+          kind: 'sample',
+          size: expansion.textCount,
+          excludePersonIds: expansion.excludePersonIds,
+        }
+      : isSamplePoll
+        ? textCount
+          ? { kind: 'sample', size: textCount }
+          : null
+        : voterFileFilterId
+          ? { kind: 'savedFilter', voterFileFilterId }
+          : null
+
+    if (!message || !scheduledLocalDate || !audience) {
       this.logger.error(
         {
           outreachId,
@@ -581,7 +695,7 @@ export class QueueConsumerService {
     const result = await this.outreachTextDelivery.requestSend({
       outreachId,
       sendSeq,
-      audience: { kind: 'savedFilter', voterFileFilterId },
+      audience,
       message,
       imageUrl: imageUrl ?? undefined,
       scheduledLocalDate,
@@ -591,7 +705,7 @@ export class QueueConsumerService {
       // allowance, so a send fully covered by the offer carries 0. Capping
       // on that would truncate a legitimate send to nobody and hand
       // fulfilment an empty file.
-      paidRecipientCap: textCount ?? undefined,
+      paidRecipientCap: expansion?.textCount ?? textCount ?? undefined,
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.
@@ -648,111 +762,7 @@ export class QueueConsumerService {
   private async handleTcrComplianceCheckMessage({
     tcrCompliance,
   }: TcrComplianceStatusCheckMessage) {
-    const { peerlyIdentityId } = tcrCompliance
-    if (!peerlyIdentityId) {
-      this.logger.error(
-        { tcrCompliance },
-        'No peerlyIdentityId found on TcrCompliance provided, skipping:',
-      )
-      return true // remove message from the queue
-    }
-
-    const record = await this.tcrComplianceService.findFirstOrThrow({
-      include: {
-        campaign: { include: { user: true } },
-      },
-      where: { peerlyIdentityId },
-    })
-    const { userId } = record.campaign
-
-    // A `pending` record's CV is VERIFIED by definition (the usecase was
-    // submitted post-PIN), so the persisted mirror the CV status scan and
-    // PIN-entry path stamp is authoritative here — this used to be a live
-    // retrieve_cv read, part of the call volume Peerly flagged (2026-08-17).
-    const cvTokenStatus = record.peerlyCvStatus
-
-    cvTokenStatus &&
-      (await this.analytics.track(
-        userId,
-        EVENTS.Outreach.CampaignVerifyTokenStatusUpdate,
-        {
-          cvTokenStatus,
-        },
-      ))
-
-    const registrationStatus =
-      await this.tcrComplianceService.checkTcrRegistrationStatus(
-        peerlyIdentityId,
-      )
-
-    if (!registrationStatus) {
-      this.logger.debug(
-        { tcrCompliance },
-        'TCR Registration is not active at this time:',
-      )
-      return true // delete from the queue
-    }
-
-    this.logger.debug(
-      `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
-    )
-
-    // Atomic status-guarded claim (not a plain update): bootstrapTcrComplianceCheck
-    // re-queries every `pending` record and re-enqueues this message twice
-    // daily, so a backlog or a slow-handler redelivery can land two of these
-    // messages for the same record while it's still `pending`. Without a
-    // claim, both would pass the registrationStatus check above and both
-    // would fire the notification below — a real double-send, not a
-    // theoretical race (ENG-11035 review). Only the caller that actually
-    // transitions the status fires the notification.
-    const transitionClaim = await this.tcrComplianceService.model.updateMany({
-      where: {
-        peerlyIdentityId,
-        status: { not: TcrComplianceStatus.approved },
-      },
-      data: {
-        status: TcrComplianceStatus.approved,
-      },
-    })
-
-    if (transitionClaim.count === 0) {
-      return true
-    }
-
-    try {
-      await this.analytics.track(userId, EVENTS.Outreach.ComplianceCompleted)
-      await this.analytics.identify(userId, {
-        '10DLC_compliant': true,
-      })
-    } catch (analyticsError) {
-      this.logger.error(
-        { analyticsError },
-        `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
-      )
-    }
-
-    // No acting user on this consumer path — resolve the account email off
-    // the same campaign relation the Segment event's target `userId` above
-    // came from, never a HubSpot contact (ENG-11035). Own try/catch so a
-    // single-send failure can never throw out of an SQS handler (infinite
-    // redelivery — src/queue/AGENTS.md) or affect the ack below.
-    const recipientEmail = record.campaign.user?.email
-    if (recipientEmail) {
-      try {
-        await this.tcrComplianceService.sendComplianceCompletedSingleSend(
-          recipientEmail,
-          { peerly_identity_id: peerlyIdentityId },
-        )
-      } catch (singleSendError) {
-        this.logger.error(
-          { singleSendError, peerlyIdentityId },
-          'HubSpot single-send failed for 10DLC Compliance Completed; the ' +
-            'workflow email path still fires from the Segment event',
-        )
-      }
-    }
-
-    return true
+    return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
   }
 
   private async handleDomainEmailForwardingMessage({
@@ -792,8 +802,15 @@ export class QueueConsumerService {
   private async handlePollAnalysisComplete(
     event: PollAnalysisCompleteEvent,
   ): Promise<boolean> {
-    const { pollId, totalResponses, responsesLocation, issues } = event.data
+    const { pollId, totalResponses, responsesLocation, issues, promptSource } =
+      event.data
     this.logger.info(`Handling poll analysis complete event for poll ${pollId}`)
+    if (promptSource === 'fallback') {
+      this.logger.warn(
+        { pollId },
+        'Synthesis run used the in-repo theme prompt',
+      )
+    }
     const data = await this.getPollAndOrganization(pollId)
     if (!data) {
       this.logger.info('Poll not found, ignoring event')
@@ -831,13 +848,11 @@ export class QueueConsumerService {
 
     let highConfidence = false
     if (constituency.pagination.totalResults) {
-      // High confidence is EITHER:
-      //  - 75 total responses
-      //  - responses from >=10%
       // This was last decided here: https://goodparty.clickup.com/t/90132012119/ENG-4771
-      highConfidence =
-        totalResponses > 75 ||
-        totalResponses / constituency.pagination.totalResults >= 0.1
+      highConfidence = isHighConfidence({
+        replies: totalResponses,
+        population: constituency.pagination.totalResults,
+      })
     }
 
     await this.pollIssuesService.model.deleteMany({
@@ -913,8 +928,10 @@ export class QueueConsumerService {
       // so resolve it once instead of letting every findPersonByPhone re-query
       // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
       // large poll can't burst hundreds of simultaneous requests at People-API.
-      const proAccess =
-        await this.contactsService.resolveProAccess(organization)
+      const [proAccess, dataset] = await Promise.all([
+        this.contactsService.resolveProAccess(organization),
+        this.contactsService.resolvePeopleDataset(organization),
+      ])
       const lookups = await pmap(
         unmappedPhones,
         async (normalized) => {
@@ -924,6 +941,7 @@ export class QueueConsumerService {
               digitsOnly,
               organization,
               proAccess,
+              dataset,
             )
             return { phone: normalized, personId: person?.id ?? null }
           } catch (err) {
@@ -1462,26 +1480,32 @@ export class QueueConsumerService {
     this.logger.info(`${params.pollId} Created individual poll messages`)
 
     // 3. Send CSV file to Slack for Tevyn
-    await sendTevynAPIPollMessage(this.slackService.client, {
-      message: poll.messageContent,
-      pollId: poll.id,
-      scheduledDate: isBefore(poll.scheduledDate, new Date())
-        ? 'Now'
-        : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
-          ' ET',
-      csv: {
-        fileContent: Buffer.from(csv),
-        filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
-      },
-      imageUrl: poll.imageUrl || undefined,
-      userInfo: {
-        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-        email: user.email,
-        phone: user.phone || undefined,
-      },
-      isExpansion: params.isExpansion,
-    })
-    this.logger.info(`${params.pollId} Slack message sent`)
+    if (!this.slackService.isConfigured) {
+      this.logger.warn(
+        `${params.pollId} Slack not configured, skipping Tevyn poll message`,
+      )
+    } else {
+      await sendTevynAPIPollMessage(this.slackService.client, {
+        message: poll.messageContent,
+        pollId: poll.id,
+        scheduledDate: isBefore(poll.scheduledDate, new Date())
+          ? 'Now'
+          : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
+            ' ET',
+        csv: {
+          fileContent: Buffer.from(csv),
+          filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
+        },
+        imageUrl: poll.imageUrl || undefined,
+        userInfo: {
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+          email: user.email,
+          phone: user.phone || undefined,
+        },
+        isExpansion: params.isExpansion,
+      })
+      this.logger.info(`${params.pollId} Slack message sent`)
+    }
 
     return true
   }

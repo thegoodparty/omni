@@ -39,7 +39,7 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/top_community_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
@@ -54,8 +54,8 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 
 ## TODO CHECKLIST
 
-1. Read PARAMS_JSON. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
-2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs, titles, categories.
+1. Read PARAMS_FILE. Capture `organization_slug`, `state`, `office`, `district_descriptor`.
+2. Call `GET_community_issues` with `query: { list: "top_community" }` to retrieve the current issue list. Record existing issue IDs, titles, categories.
 3. `WebSearch` the **local civic news + letters/op-eds** for the jurisdiction. Identify candidate named issues residents are raising, with dollars/dates/locations.
 4. `WebSearch` the **community advocacy groups** (associations, BIAs, neighborhood councils, coalitions). Record each group's name and any party affiliation; prefer nonpartisan; pull the issues they are pushing.
 5. `WebSearch` **petitions / organized campaigns**, then **311 / service requests** and a **resident survey** if discoverable. Flag any layer not found.
@@ -86,7 +86,7 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 
 **Existing issue feed**:
 
-- Call `GET_community_issues` FIRST, before any research. The API returns the complete current issue list for the organization.
+- Call `GET_community_issues` FIRST, before any research, with `query: { list: "top_community" }`. The API returns the complete current issue list for the organization.
 - When an output issue corresponds to an issue already in the feed, set `existing_issue_id` to that issue's ID. Never drop a prioritized existing issue unless it is clearly resolved.
 - Prefer carrying an existing ID over creating a net-new issue for the same underlying concern.
 - A 404 means no feed yet — treat as empty, set no `existing_issue_id`, and state "feed empty/404" in `data_quality_reason`.
@@ -184,7 +184,7 @@ direction. Grouped into 9 topics:
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 ORG_SLUG = PARAMS["organization_slug"]
 STATE = PARAMS["state"]
 OFFICE = PARAMS["office"]
@@ -200,7 +200,7 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 **Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
 
-Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
+Call `GET_community_issues` with `query: { list: "top_community" }`; the tool requires `list` and rejects a call without it, and the organization comes from the run's auth context (ORG_SLUG). Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
 
 ### Step 3 — Resident-demand discovery (the salience signal)
 

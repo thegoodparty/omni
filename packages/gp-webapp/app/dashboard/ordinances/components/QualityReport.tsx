@@ -20,7 +20,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { fetchQualityRun, startQualityReport } from '../data/ordinances-api'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 type StatusMeta = {
   label: string

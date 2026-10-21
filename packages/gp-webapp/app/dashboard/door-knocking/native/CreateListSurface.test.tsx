@@ -6,6 +6,7 @@ import type {
   SegmentResponse,
   SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { ProposalLink } from '@goodparty_org/contracts'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
 import type { PolygonRing } from './VoterMapCanvas'
 import CreateListSurface, {
@@ -24,6 +25,7 @@ const flowProps: {
     audienceEmpty: boolean
     savedLists: { id: number; name: string; households: number | null }[]
     allContactsHouseholds: number | null
+    proposalLink?: ProposalLink
   } | null
 } = { current: null }
 vi.mock('./createFlow/CreateListFlow', () => ({
@@ -177,6 +179,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     }}
     onStepChange={onStepChange}
     onClose={vi.fn()}
+    source="outreach_page"
     districtBounds={null}
     districtHouseholds={0}
     districtHouseholdsPending={false}
@@ -459,6 +462,18 @@ describe('CreateListSurface seam', () => {
   // from. Both reads are the page's own query keys, which is the point: the
   // saved lists are already warm and the pack is emphatically not this
   // surface's to fetch.
+  it('hands a chat card’s link to the flow that creates the walk', async () => {
+    const proposalLink = {
+      proposalKey: '3f6c1b2a-8d4e-5f70-9a1b-2c3d4e5f6a7b',
+      priorityId: 'priority-7',
+    }
+    render(surface({ proposalLink }))
+
+    await waitFor(() =>
+      expect(flowProps.current?.proposalLink).toEqual(proposalLink),
+    )
+  })
+
   it('counts the saved lists off the pack the page already holds', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,

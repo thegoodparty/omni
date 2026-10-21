@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import type { ProUpgradeAttribution } from '../proUpgradeAttribution'
 import {
   PRO_UPGRADE_STEP,
   PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
@@ -25,6 +27,9 @@ export interface ProUpgradeFlowPosition {
 interface ProUpgradeFlowProps {
   initialStep: ProUpgradeStep
   channel?: ProUpgradeLaunchChannel
+  // Where the candidate came from, for `Pro Upgrade - Flow Started`. The
+  // route wizard reads the same thing off its URL; this flow has none.
+  attribution?: ProUpgradeAttribution
   onExit: () => void
   onComplete: () => void
   // Where the wizard is, for a host that draws the stepper in its own
@@ -38,11 +43,20 @@ interface ProUpgradeFlowProps {
 export const ProUpgradeFlow = ({
   initialStep,
   channel,
+  attribution,
   onExit,
   onComplete,
   onPositionChange,
 }: ProUpgradeFlowProps): React.JSX.Element => {
   const [currentStep, setCurrentStep] = useState<ProUpgradeStep>(initialStep)
+
+  // One start per mount: the host mounts this flow once per gate open.
+  const flowStartedRef = useRef(false)
+  useEffect(() => {
+    if (!attribution || flowStartedRef.current) return
+    flowStartedRef.current = true
+    trackEvent(EVENTS.ProUpgrade.Compliance.FlowStarted, attribution)
+  }, [attribution])
   const stepOrder = proUpgradeStepOrder(true)
   const orderIndex = stepOrder.indexOf(currentStep)
 

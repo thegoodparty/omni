@@ -5,7 +5,7 @@ description: Add or change a Zod schema in the @goodparty_org/contracts package 
 
 # Update a contract
 
-`contracts/` is an npm workspace package (`@goodparty_org/contracts`) that holds the Zod schemas + inferred types shared across gp-api and gp-webapp. Reference: `docs/contracts.md`, ADR `docs/adr/0005-contracts-package.md`.
+`contracts/` is an npm workspace package (`@goodparty_org/contracts`) that holds the Zod schemas + inferred types shared across gp-api and gp-webapp. Reference: `docs/contracts.md`.
 
 ## 1. Decide if the shape belongs in contracts
 
@@ -25,7 +25,7 @@ No (keep in the feature module's `schemas/`) if:
 ```
 contracts/src/
 ├── campaigns/
-├── ecanvasser/
+├── doorKnocking/
 ├── shared/
 ├── users/
 ├── generated/    # do not edit by hand — Prisma-derived types

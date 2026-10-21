@@ -9,6 +9,8 @@ import {
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 interface NotAVoterControlProps {
   target: RoutePayloadTarget
@@ -37,14 +39,15 @@ const MARKER_DETAIL: Record<NotAVoterReason, string> = {
     'This person is marked as deceased. Someone else in the household may answer — do not ask for them by name. They stay off new lists.',
 }
 
-// ADR 0008. Two states, one component: the marker a flagged resident carries on
-// an already-frozen route, and the follow-up question behind a `not_a_voter`
-// outcome. Both write the same field, and answering the question turns the
-// prompt into the marker.
+// Not-a-voter reason. Two states, one component: the marker a flagged
+// resident carries on an already-frozen route, and the follow-up question
+// behind a `not_a_voter` outcome. Both write the same field, and answering the
+// question turns the prompt into the marker.
 export default function NotAVoterControl({
   target,
   onChanged,
 }: NotAVoterControlProps) {
+  const serveMode = useDoorKnockingServeMode()
   const set = useMutation({
     mutationFn: (value: NotAVoterReason | 'cleared') =>
       clientRequest('POST /v1/door-knocking/not-a-voter', {
@@ -57,10 +60,13 @@ export default function NotAVoterControl({
       // resident was flagged — or un-flagged — when they weren't.
       if (data.notAVoterReason) {
         trackEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, {
+          product: outreachProduct(serveMode),
           reason: data.notAVoterReason,
         })
       } else {
-        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared)
+        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared, {
+          product: outreachProduct(serveMode),
+        })
       }
       onChanged(data.personId, data.notAVoterReason)
     },

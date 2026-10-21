@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { setupElectedOfficeUser } from '../../../src/helpers/organizations'
 import { NavigationHelper } from '../../../src/helpers/navigation.helper'
 import { WaitHelper } from '../../../src/helpers/wait.helper'
+import { setFlagOverrides } from '../../../src/helpers/campaignStory.helper'
 
 // End-to-end coverage for the Serve "Community Issues" feature. Issues are
 // normally produced by an async AI agent run (slow, non-deterministic, spends
@@ -90,6 +91,11 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
 }) => {
   test.setTimeout(180_000)
 
+  // Adding a priority opens its conversation only where Priorities is on.
+  await setFlagOverrides(page, {
+    'serve-priorities': 'on',
+    'serve-self-serve-polls': 'on',
+  })
   const { client } = await setupElectedOfficeUser(page)
 
   const { data: seeded } = await client.post<{
@@ -182,8 +188,23 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   await addButton.click()
   const prioritizeRes = await prioritizeResponse
   expect(prioritizeRes.ok()).toBeTruthy()
+  const { id: priorityId } = (await prioritizeRes.json()) as { id: string }
 
-  // Header flips to the confirmation + pill; re-adding is no longer offered.
+  // Adding it is the start of working it, so the page opens its conversation.
+  await page.waitForURL(`**/dashboard/priorities/${priorityId}`)
+
+  // Server-side confirmation: the issue now reads prioritized.
+  const { data: detailAfter } = await client.get<{ prioritized: boolean }>(
+    `/v1/community-issues/${housingId}`,
+  )
+  expect(detailAfter.prioritized).toBe(true)
+
+  // Back on the issue, the header shows the confirmation + pill instead.
+  await page.goto(`/dashboard/community-issues/${housingId}`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await NavigationHelper.dismissOverlays(page)
+  await WaitHelper.waitForPageReady(page)
   await expect(page.getByRole('button', { name: 'Added' })).toBeVisible()
   await expect(page.getByText('My priority')).toBeVisible()
   await expect(addButton).toHaveCount(0)
@@ -191,12 +212,6 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   // The detail bar must not jump height (the prior layout-shift bug).
   const barHeightAfter = (await detailBar.boundingBox())?.height ?? 0
   expect(Math.abs(barHeightAfter - barHeightBefore)).toBeLessThanOrEqual(1)
-
-  // Server-side confirmation: the issue now reads prioritized.
-  const { data: detailAfter } = await client.get<{ prioritized: boolean }>(
-    `/v1/community-issues/${housingId}`,
-  )
-  expect(detailAfter.prioritized).toBe(true)
 
   // --- Scenario 3: AI chat ("leaving AI comments") ---------------------------
   // Footer chat bar opens the Chief of Staff surface.
@@ -257,7 +272,10 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
 
   const pollLink = page.getByRole('link', { name: 'Run a poll on this issue' })
   // The ?issue= param was intentionally dropped — assert the bare path.
-  await expect(pollLink).toHaveAttribute('href', '/dashboard/polls/create')
+  await expect(pollLink).toHaveAttribute(
+    'href',
+    '/dashboard/constituent-outreach?compose=poll',
+  )
   const briefingLink = page.getByRole('link', {
     name: 'Review the related meeting briefing',
   })
@@ -267,7 +285,7 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   )
 
   await pollLink.click()
-  await page.waitForURL('**/dashboard/polls/create')
+  await page.waitForURL('**/dashboard/constituent-outreach**')
 
   await page.goto(`/dashboard/community-issues/${housingId}`, {
     waitUntil: 'domcontentloaded',

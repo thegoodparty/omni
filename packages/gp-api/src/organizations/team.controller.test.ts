@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EmailService } from '@/email/email.service'
 import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
@@ -8,6 +7,7 @@ import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
+import { BadGatewayException } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
@@ -99,7 +99,6 @@ const mockInviteState = (
     metadata,
     verifiedEmails,
   })
-const stubFeatures = () => service.app.get(FeaturesService)
 const stubEmail = () => service.app.get(EmailService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
 const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
@@ -147,6 +146,26 @@ describe('GET /v1/organizations/team', () => {
         email: service.user.email,
       }),
     ])
+    expect(result.data.pendingInvites).toEqual([])
+  })
+
+  it('still lists members when Clerk cannot list pending invites', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'member@example.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockRejectedValue(
+      new BadGatewayException('Failed to list team invitations'),
+    )
+
+    const result = await service.client.get(TEAM_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.members).toHaveLength(2)
     expect(result.data.pendingInvites).toEqual([])
   })
 
@@ -222,19 +241,6 @@ describe('GET /v1/organizations/team', () => {
 describe('POST /v1/organizations/team/invites', () => {
   const INVITES_PATH = `${TEAM_PATH}/invites`
 
-  it('404s when the flag is disabled, even for the owner', async () => {
-    await createOrg()
-    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
-
-    const result = await service.client.post(
-      INVITES_PATH,
-      { email: 'new@example.com', name: 'New Person', role: 'campaignAdmin' },
-      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
-    )
-
-    expect(result.status).toBe(404)
-  })
-
   // ENG-11058: a general volunteer invite (no outreach) is legal — the
   // outreach drawer's list-scoped invite (ENG-11049) is a second, optional
   // entry point, not a requirement.
@@ -297,25 +303,6 @@ describe('POST /v1/organizations/team/invites', () => {
     )
 
     expect(result.status).toBe(400)
-  })
-
-  it('404s when the flag is disabled for a volunteer invite too', async () => {
-    await createOrg()
-    const outreach = await createOutreachForOrg()
-    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
-
-    const result = await service.client.post(
-      INVITES_PATH,
-      {
-        email: 'new@example.com',
-        name: 'New Person',
-        role: 'volunteer',
-        outreachId: outreach.id,
-      },
-      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
-    )
-
-    expect(result.status).toBe(404)
   })
 
   it("rejects a volunteer invite pointing at another org's outreach, persisting nothing and never reaching Clerk", async () => {
@@ -1933,6 +1920,22 @@ describe('GET /v1/organizations/team/invites/mine', () => {
 
     const result = await service.client.get(MINE_PATH, {
       headers: authHeaderFor('user_mine_3'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({ invite: null })
+  })
+
+  it('returns null instead of a 502 when Clerk is unavailable', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-clerk-down@x.com', clerkId: 'user_mine_4' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockRejectedValue(
+      new BadGatewayException('Failed to fetch Clerk user'),
+    )
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_4'),
     })
 
     expect(result.status).toBe(200)

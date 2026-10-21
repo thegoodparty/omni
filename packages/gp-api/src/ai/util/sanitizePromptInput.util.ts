@@ -14,6 +14,17 @@ const DELIMITER_PATTERNS: RegExp[] = [
   /<\/?prior_steps\s*>?/gi,
   /<\/?scratchpad\s*>?/gi,
   /<\/?current_step\s*>?/gi,
+  // Chief of Staff and the priority flow frame their data in these, and a
+  // check written by one agent is read by the other, so a closing tag in that
+  // text would end the data section early. \b keeps <priority from eating
+  // <priorities.
+  /<\/?priorities\b\s*>?/gi,
+  /<\/?priority\b\s*>?/gi,
+  /<\/?office_context\b\s*>?/gi,
+  /<\/?anchored_issue\b\s*>?/gi,
+  /<\/?product_map\b\s*>?/gi,
+  /<\/?status\b\s*>?/gi,
+  /<\/?thread\b\s*>?/gi,
   /<\/?system\s*>?/gi,
   /<\/?instructions\s*>?/gi,
   /<\|im_start\|>/gi,

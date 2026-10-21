@@ -47,20 +47,20 @@ export const isManualAddressValue = (
 export const toRegistrationFormData = (
   formData: FormDataState,
 ): RegistrationFormData => ({
-  electionFilingLink: String(formData.electionFilingLink || ''),
-  campaignCommitteeName: String(formData.campaignCommitteeName || ''),
-  candidateName: String(formData.candidateName || ''),
+  electionFilingLink: String(formData.electionFilingLink || '').trim(),
+  campaignCommitteeName: String(formData.campaignCommitteeName || '').trim(),
+  candidateName: String(formData.candidateName || '').trim(),
   officeLevel: String(formData.officeLevel || ''),
-  ein: String(formData.ein || ''),
-  phone: String(formData.phone || ''),
+  ein: String(formData.ein || '').trim(),
+  phone: String(formData.phone || '').trim(),
   address: isAddressValue(formData.address)
     ? formData.address
     : { formatted_address: '', place_id: '' },
   manualAddress: isManualAddressValue(formData.manualAddress)
     ? formData.manualAddress
     : undefined,
-  website: String(formData.website || ''),
-  email: String(formData.email || ''),
+  website: String(formData.website || '').trim(),
+  email: String(formData.email || '').trim(),
   fecCommitteeId: formData.fecCommitteeId
     ? String(formData.fecCommitteeId)
     : undefined,

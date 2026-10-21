@@ -9,28 +9,39 @@ import {
   VerifiedSession,
 } from '@/authentication/interfaces/auth-provider.interface'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
-import { M2M_TOKEN_PREFIX } from '@/vendors/clerk/clerk.consts'
+import {
+  M2M_JWT_SUBJECT_PREFIX,
+  M2M_TOKEN_PREFIX,
+} from '@/vendors/clerk/clerk.consts'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 const {
   CLERK_SECRET_KEY,
+  CLERK_JWT_KEY,
   GP_API_MACHINE_SECRET,
   CLERK_AUTHORIZED_PARTIES,
   AGENT_MCP_TOKEN_SECRET,
 } = process.env
 
 if (!CLERK_SECRET_KEY) {
-  throw new Error('CLERK_SECRET_KEY is required for application startup')
+  throw new Error(
+    'CLERK_SECRET_KEY is required for application startup — run ' +
+      '`npm run setup`',
+  )
 }
 
 if (!GP_API_MACHINE_SECRET) {
   throw new Error(
-    'GP_API_MACHINE_SECRET must be set in the environment variables',
+    'GP_API_MACHINE_SECRET must be set in the environment variables — run ' +
+      '`npm run setup`',
   )
 }
 
 if (!AGENT_MCP_TOKEN_SECRET && process.env.NODE_ENV !== 'test') {
-  throw new Error('AGENT_MCP_TOKEN_SECRET must be set in the environment')
+  throw new Error(
+    'AGENT_MCP_TOKEN_SECRET must be set in the environment — run ' +
+      '`npm run setup`',
+  )
 }
 
 const authorizedParties = CLERK_AUTHORIZED_PARTIES
@@ -119,6 +130,7 @@ export class ClerkAuthService implements AuthProvider {
     const payload = await clerkCall('verifyToken', {}, () =>
       verifyToken(token, {
         secretKey: CLERK_SECRET_KEY,
+        jwtKey: CLERK_JWT_KEY || undefined,
         authorizedParties,
       }),
     ).catch(() => {
@@ -155,6 +167,34 @@ export class ClerkAuthService implements AuthProvider {
 
   isM2MToken(token: string): boolean {
     return token.startsWith(M2M_TOKEN_PREFIX)
+  }
+
+  async verifyM2MJwt(token: string): Promise<VerifiedM2MToken> {
+    try {
+      const { id, subject, expired } = await clerkCall('m2m.verify', {}, () =>
+        this.clerkClient.m2m.verify({ token }),
+      )
+      if (expired) {
+        throw new Error('M2M JWT is expired')
+      }
+      return { id, subject }
+    } catch (err) {
+      this.logger.warn({ err }, 'M2M JWT verification failed')
+      throw new UnauthorizedException('M2M JWT verification failed')
+    }
+  }
+
+  isM2MJwt(token: string): boolean {
+    if (token.split('.').length !== 3) {
+      return false
+    }
+    const unverified = jwt.decode(token)
+    return (
+      typeof unverified === 'object' &&
+      unverified !== null &&
+      typeof unverified.sub === 'string' &&
+      unverified.sub.startsWith(M2M_JWT_SUBJECT_PREFIX)
+    )
   }
 
   async getUser(externalUserId: string): Promise<{

@@ -1,51 +1,16 @@
-import {
-  addDays,
-  addWeeks,
-  differenceInCalendarWeeks,
-  startOfDay,
-  subDays,
-  subWeeks,
-} from 'date-fns'
+import { differenceInCalendarWeeks } from 'date-fns'
 import {
   BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_STORY_CATEGORY,
   CAMPAIGN_TASK_CATALOG,
-  TaskTiming,
+  campaignPhaseWindows,
+  resolveTrackerTaskDate,
+  TEXT_SEND_ROBOCALL_SWAPS,
 } from '@goodparty_org/contracts'
-import { Campaign, Prisma } from '../../../generated/prisma'
+import { Campaign, CampaignTaskType, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
-
-// Resolve a catalog task's structured timing to a concrete date. The column is
-// NOT NULL, so undated kinds (jurisdiction/recurring/perItem) anchor to `start`
-// until the plan timeline supplies real dates.
-const resolveTaskDate = (
-  timing: TaskTiming,
-  start: Date,
-  electionDate: Date | null,
-): Date => {
-  switch (timing.kind) {
-    case 'asap':
-    case 'onboardingWeek':
-      return start
-    case 'preLaunch':
-      return addDays(start, 7)
-    case 'launch':
-      return addDays(start, 14)
-    case 'electionRelative':
-      if (!electionDate) return start
-      return timing.unit === 'weeks'
-        ? subWeeks(electionDate, timing.offset)
-        : subDays(electionDate, timing.offset)
-    case 'electionDay':
-      return electionDate ?? start
-    case 'afterElection':
-      return electionDate ? addWeeks(electionDate, timing.weeks) : start
-    case 'jurisdiction':
-    case 'recurring':
-    case 'perItem':
-      return start
-  }
-}
+import { getMidnightForDate } from 'src/shared/util/date.util'
 
 // The only outreach the tracker ever suggests is the campaign plan's fixed
 // contact schedule: the 7 text/robocall sends (intro/persuasion/early-vote/
@@ -60,7 +25,13 @@ const toRow = (
   electionDate: Date | null,
   task: (typeof CAMPAIGN_TASK_CATALOG)[number],
 ): Prisma.CampaignTrackerTaskCreateManyInput => {
-  const date = startOfDay(resolveTaskDate(task.timing, start, electionDate))
+  // Dated on the campaign's timeline (contracts' CampaignTimeline), so a
+  // task's date falls in the window of the phase it belongs to.
+  // UTC midnight, the naive calendar day every tracker date is stored as; a
+  // local startOfDay would shift it a day on a server west of UTC.
+  const date = getMidnightForDate(
+    resolveTrackerTaskDate(task, campaignPhaseWindows(start, electionDate)),
+  )
   return {
     campaignId,
     title: task.title,
@@ -103,8 +74,40 @@ export const buildStaticTrackerTaskRows = (
   CAMPAIGN_TASK_CATALOG.filter(
     (task) =>
       task.type === 'static' &&
-      (includeBallotAccess || task.category !== BALLOT_ACCESS_CATEGORY),
+      (includeBallotAccess || task.category !== BALLOT_ACCESS_CATEGORY) &&
+      // The story row is built separately: it is dated to today rather than
+      // the shared Monday anchor, and it carries a link and CTA the catalog
+      // schema has no fields for.
+      task.category !== CAMPAIGN_STORY_CATEGORY,
   ).map((task) => toRow(campaignId, start, electionDate, task))
+
+// Same handle-by-title arrangement as ballot access, for the one story row.
+export const CAMPAIGN_STORY_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
+  (task) => task.category === CAMPAIGN_STORY_CATEGORY,
+).map((task) => task.title)
+
+// Where the story task sends the candidate. The manager auto-launches the
+// story intake chat flow on this param, the same deep link the manager's own
+// story card uses.
+const CAMPAIGN_STORY_LINK = '/dashboard?personalize=1'
+
+// The campaign-story row. Built separately from the rest of the static catalog
+// only because it carries the link/CTA columns, which the catalog schema does
+// not model; its date comes from the same anchor its pre-launch siblings use,
+// so it lands at the end of that block rather than off on its own.
+export const buildCampaignStoryTrackerTaskRows = (
+  campaignId: number,
+  start: Date,
+  electionDate: Date | null,
+): Prisma.CampaignTrackerTaskCreateManyInput[] =>
+  CAMPAIGN_TASK_CATALOG.filter(
+    (task) =>
+      task.type === 'static' && task.category === CAMPAIGN_STORY_CATEGORY,
+  ).map((task) => ({
+    ...toRow(campaignId, getMidnightForDate(start), electionDate, task),
+    link: CAMPAIGN_STORY_LINK,
+    cta: 'Add your story',
+  }))
 
 // Just the ballot-access rows, for adding them back when a candidate's ballot
 // status changes after the one-shot static materialization.
@@ -123,15 +126,45 @@ export const buildBallotAccessTrackerTaskRows = (
 // the tracker must never suggest further texts/robocalls (gated on the
 // HubSpot-sourced `campaign.primaryResult`) — and none without an upcoming
 // election to anchor to, since every send is election-relative and a `start`
-// fallback would schedule the whole contact program for next week.
+// fallback would schedule the whole contact program for next week. With
+// texting closed, each text send is swapped for a robocall on its date, or
+// dropped when a robocall already lands there.
 export const buildOutreachTrackerTaskRows = (
   campaignId: number,
   start: Date,
   electionDate: Date | null,
   primaryLost: boolean,
-): Prisma.CampaignTrackerTaskCreateManyInput[] =>
-  primaryLost || !electionDate
-    ? []
-    : CAMPAIGN_TASK_CATALOG.filter((task) =>
-        OUTREACH_CHANNELS.has(task.channel),
-      ).map((task) => toRow(campaignId, start, electionDate, task))
+  smsClosed: boolean,
+): Prisma.CampaignTrackerTaskCreateManyInput[] => {
+  if (primaryLost || !electionDate) return []
+  const sends = CAMPAIGN_TASK_CATALOG.filter((task) =>
+    OUTREACH_CHANNELS.has(task.channel),
+  ).map((task) => ({
+    task,
+    row: toRow(campaignId, start, electionDate, task),
+  }))
+  if (!smsClosed) return sends.map(({ row }) => row)
+
+  const robocallDates = new Set(
+    sends
+      .filter(({ task }) => task.channel === 'robocall')
+      .map(({ row }) => new Date(row.date).getTime()),
+  )
+  return sends.flatMap(({ task, row }) => {
+    if (task.channel !== 'text') return [row]
+    const swap = TEXT_SEND_ROBOCALL_SWAPS.find(
+      (candidate) => candidate.catalogId === task.id,
+    )
+    const date = new Date(row.date).getTime()
+    if (!swap || robocallDates.has(date)) return []
+    robocallDates.add(date)
+    return [
+      {
+        ...row,
+        title: swap.title,
+        description: swap.description,
+        flowType: CampaignTaskType.robocall,
+      },
+    ]
+  })
+}

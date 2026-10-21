@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChannelCard } from '@styleguide'
+import { MessageSquareOff } from 'lucide-react'
+import {
+  ChannelCard,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  cn,
+} from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import {
@@ -11,7 +18,6 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
-import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -19,6 +25,11 @@ import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -52,6 +63,8 @@ const preselectKey = (
   recommendedVariant: RecommendedListVariant | undefined,
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
+const SMS_TILE_CLOSED_COPY = 'Not available for this race'
+
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
 // pricing server-side.
@@ -78,14 +91,16 @@ export const ChannelTileGrid = ({
   const { isPro } = campaign || {}
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  // gp-api's texting window, read off the campaign on both sides of the
+  // flag: once it is closed the text tile only explains why, in a tooltip,
+  // and opens neither the flow, the Pro wizard nor the compliance modal.
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
   // exposure — pressing a tile is not the treatment surface.
   const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
-  // Read only to decide whether the district download below is worth starting.
-  // The door-knocking page gate is the treatment surface, so no exposure here.
-  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
@@ -129,6 +144,9 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
+    // Not a create: the tooltip is the whole answer, and the carried
+    // audience is left for the channel the candidate picks instead.
+    if (type === OUTREACH_TYPES.text && smsClosed) return
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -228,21 +246,13 @@ export const ChannelTileGrid = ({
       // Prefetch and not fetch: a district this org cannot resolve answers 400
       // and the page's own `isUnresolvable` branch already speaks for that
       // case, so a rejection here must not surface as anything.
-      //
-      // Only for the arm that lands on the native page. A control-arm campaign
-      // gets the eCanvasser dashboard, which has no pack in it, and tens of
-      // megabytes of district for a map they will never be shown is a worse
-      // deal than the dead Continue this exists to avoid. The flag is read
-      // without exposure here — pressing a tile is not the treatment.
-      if (nativeDoorKnocking.enabled) {
-        void queryClient.prefetchQuery(voterPackQueryOptions)
-      }
+      void queryClient.prefetchQuery(voterPackQueryOptions)
       router.push(
         preselect?.listId !== undefined
-          ? `/dashboard/door-knocking?create=1&listId=${preselect.listId}`
+          ? `/dashboard/door-knocking?create=1&source=outreach_page&listId=${preselect.listId}`
           : preselect?.recommendedVariant !== undefined
-            ? `/dashboard/door-knocking?create=1&recommended=${preselect.recommendedVariant}`
-            : '/dashboard/door-knocking?create=1',
+            ? `/dashboard/door-knocking?create=1&source=outreach_page&recommended=${preselect.recommendedVariant}`
+            : '/dashboard/door-knocking?create=1&source=outreach_page',
       )
       return
     }
@@ -270,13 +280,30 @@ export const ChannelTileGrid = ({
               type === OUTREACH_TYPES.robocall ||
               type === OUTREACH_TYPES.phoneBanking ||
               type === OUTREACH_TYPES.doorKnocking)
-          return (
+          const isText = type === OUTREACH_TYPES.text
+          const textClosed = isText && smsClosed
+          const card = (
             <ChannelCard
               key={type}
-              icon={meta.icon}
-              iconClassName={meta.iconTint}
+              icon={textClosed ? <MessageSquareOff /> : meta.icon}
+              iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
               label={meta.label}
+              subCopy={
+                textClosed
+                  ? SMS_TILE_CLOSED_COPY
+                  : isText && smsCompliance === 'closing' && smsCutoffDate
+                    ? SMS_CUTOFF_COPY.countdownChip(
+                        formatSmsCutoffDate(smsCutoffDate),
+                      )
+                    : undefined
+              }
+              aria-disabled={textClosed || undefined}
+              className={cn(
+                textClosed &&
+                  'cursor-default bg-muted opacity-70 hover:border-border',
+              )}
               locked={
+                !textClosed &&
                 !gatedInFlow &&
                 Boolean(
                   option?.requiresPro &&
@@ -287,6 +314,18 @@ export const ChannelTileGrid = ({
               }
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
+          )
+          return textClosed ? (
+            <Tooltip key={type} openOnClick>
+              <TooltipTrigger asChild>{card}</TooltipTrigger>
+              <TooltipContent>
+                {SMS_CUTOFF_COPY.closedReason(
+                  smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+                )}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            card
           )
         })}
       </div>

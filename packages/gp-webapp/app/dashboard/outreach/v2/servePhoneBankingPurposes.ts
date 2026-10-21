@@ -10,6 +10,7 @@ export const SERVE_PHONE_BANKING_PURPOSE_LABELS: Record<
   ServePhoneBankingPurpose,
   string
 > = {
+  build_citizens_panel: 'Invite to your civic panel',
   introduce_myself: 'Introduce myself to constituents',
   explain_decision: 'Explain a recent decision',
   event_invite: 'Invite constituents to a local event',
@@ -30,6 +31,7 @@ export const SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS: Record<
   ServePhoneBankingPurpose,
   string
 > = {
+  build_citizens_panel: 'Civic panel calls',
   introduce_myself: 'Introduction calls',
   explain_decision: 'Decision update calls',
   event_invite: 'Event invite calls',

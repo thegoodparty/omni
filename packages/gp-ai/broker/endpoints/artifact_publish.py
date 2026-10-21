@@ -111,7 +111,11 @@ _FENCE_BREAKOUT_RE = re.compile(r"</?untrusted_web_content\b", re.IGNORECASE)
 class PublishRequest(BaseModel):
     artifact: dict
     duration_seconds: float = 0
-    cost_usd: float = 0
+    # `None`, not `0`, for an omitted cost — the same rule /run-status follows.
+    # A non-optional `= 0` default coerces the omission at the model layer
+    # instead of at the call site, but the result is the same unmeasured-cost
+    # zero, and the handler forwards this value verbatim onto the callback.
+    cost_usd: float | None = None
     # PMF QA gate (contract D, v1 observe-only). The runner attaches the
     # gate's verdict here on the success path so the broker can write it
     # durably to S3 (`<exp>/<run>/qa/verdict.json`) — the verdict's system of
@@ -411,25 +415,44 @@ def artifact_publish(
                     ),
                 ) from None
             raise
-        try:
-            s3_client.put_object(
-                Bucket=bucket,
-                Key=latest_key,
-                Body=artifact_json,
-                ContentType="application/json",
-            )
-        except Exception as latest_err:
-            logger.warning(
-                "latest.json update failed run_id=%s experiment_id=%s key=%s bucket=%s: %s. "
-                "Archive write succeeded; callback carries run-scoped key. latest.json is "
-                "a best-effort convenience pointer and is eventually consistent.",
+        # An eval run never touches the mutable pointer. `latest.json` is the
+        # org's CURRENT artifact for this experiment: `artifact_read` serves it
+        # on its legacy no-pin path, so a judge run — which may be executing
+        # unpublished candidate-branch bytes — would replace a real
+        # organization's product artifact and then be handed to the next
+        # product run that reads a prior without a pin. The suppressed results
+        # callback would make it silent. The immutable per-run archive above is
+        # what the judge reads, and it is enough. This is also the reason the
+        # invariant reads "never what it is allowed to touch": an override that
+        # cannot widen the Databricks scope but can overwrite the artifact
+        # pointer would still have written into product data.
+        if ticket.is_eval:
+            logger.info(
+                "latest_pointer_skipped reason=eval_run run_id=%s experiment_id=%s key=%s",
                 ticket.run_id,
                 ticket.experiment_id,
                 latest_key,
-                bucket,
-                latest_err,
-                exc_info=True,
             )
+        else:
+            try:
+                s3_client.put_object(
+                    Bucket=bucket,
+                    Key=latest_key,
+                    Body=artifact_json,
+                    ContentType="application/json",
+                )
+            except Exception as latest_err:
+                logger.warning(
+                    "latest.json update failed run_id=%s experiment_id=%s key=%s bucket=%s: %s. "
+                    "Archive write succeeded; callback carries run-scoped key. latest.json is "
+                    "a best-effort convenience pointer and is eventually consistent.",
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    latest_key,
+                    bucket,
+                    latest_err,
+                    exc_info=True,
+                )
     except HTTPException:
         raise
     except Exception:
@@ -585,16 +608,33 @@ def artifact_publish(
     # verdict consumer (its callback schema strips it). The verdict's system of
     # record is the durable S3 verdict.json write above plus the runner's
     # Braintrust span.
-    callback_sender.send_result(
-        run_id=ticket.run_id,
-        organization_slug=ticket.organization_slug,
-        experiment_id=ticket.experiment_id,
-        status="success",
-        artifact_key=run_key,
-        artifact_bucket=bucket,
-        duration_seconds=req.duration_seconds,
-        cost_usd=req.cost_usd,
-    )
+    # An eval run has no `experiment_run` row in gp-api — the judge dispatches
+    # straight to SQS — so the callback has nowhere to land. Sending it anyway
+    # makes gp-api's consumer log `Experiment run not found` once per run, i.e.
+    # twenty errors into our error rate and alerting per sweep. Suppress the
+    # send rather than muting the log, because a missing row for a real product
+    # run is still a genuine error worth seeing. Minting real rows instead is
+    # not an option: the completion path fires `onExperimentRunCompleted`, and
+    # the product services hooked to it (communityIssues, raceOpponentPersist,
+    # raceOpponentResearchPersist, campaignStrategy) would write the eval's
+    # test artifact into a real org's product data.
+    if ticket.is_eval:
+        logger.info(
+            "results_callback_suppressed reason=eval_run run_id=%s experiment_id=%s status=success",
+            ticket.run_id,
+            ticket.experiment_id,
+        )
+    else:
+        callback_sender.send_result(
+            run_id=ticket.run_id,
+            organization_slug=ticket.organization_slug,
+            experiment_id=ticket.experiment_id,
+            status="success",
+            artifact_key=run_key,
+            artifact_bucket=bucket,
+            duration_seconds=req.duration_seconds,
+            cost_usd=req.cost_usd,
+        )
 
     try:
         store.delete_ticket_and_run_lock(broker_token, ticket.run_id)
@@ -622,5 +662,8 @@ def artifact_publish(
     return PublishResponse(
         artifact_key=run_key,
         artifact_bucket=bucket,
-        callback_sent=True,
+        # Nothing reads this field today (the runner tracks its own send), but
+        # reporting True for a suppressed eval run would be a plain lie to any
+        # future reader.
+        callback_sent=not ticket.is_eval,
     )

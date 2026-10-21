@@ -59,6 +59,7 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: null,
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,
@@ -181,6 +182,40 @@ describe('phone banking routes', () => {
         campaignId: campaign.id,
         voterFileFilterId: filter.id,
       })
+    })
+
+    // "Hear from voters" asks one question, kept on the list so issue capture
+    // can read every memo from these calls against it.
+    it('keeps the hear-from-voters question on the list', async () => {
+      mockPeoplePage([fakePerson({ id: randomUUID() })])
+
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({
+          purpose: 'community_input',
+          communityInputQuestion: 'How do you feel about the road bond?',
+        }),
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      const list = await service.prisma.phoneBankingList.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(list.purpose).toBe('community_input')
+      expect(list.communityInputQuestion).toBe(
+        'How do you feel about the road bond?',
+      )
+    })
+
+    it('refuses hear-from-voters with no question to ask', async () => {
+      const res = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ purpose: 'community_input' }),
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(400)
     })
 
     it('falls back to the landline when the cell number is org-suppressed, and drops a person with no usable number left', async () => {
@@ -783,6 +818,47 @@ describe('phone banking routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.outreachId).toBeNull()
       expect(await service.prisma.outreach.count()).toBe(0)
+    })
+
+    it("links a Campaign Manager card's key and hands back the first list on a repeat", async () => {
+      const proposalKey = randomUUID()
+      mockPeoplePage([fakePerson({ cellPhone: '3075770003' })])
+
+      const first = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey }),
+        orgHeaders(),
+      )
+      const second = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey, name: 'Again' }),
+        orgHeaders(),
+      )
+
+      expect(first.status).toBe(201)
+      expect(second.data).toMatchObject({
+        id: first.data.id,
+        outreachId: first.data.outreachId,
+      })
+      expect(
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { proposalKey },
+        }),
+      ).toMatchObject({
+        id: first.data.outreachId,
+        campaignId: campaign.id,
+        priorityId: null,
+      })
+    })
+
+    it('refuses a priority link on the Win create', async () => {
+      const result = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ proposalKey: randomUUID(), priorityId: 'priority-1' }),
+        orgHeaders(),
+      )
+
+      expect(result.status).toBe(400)
     })
 
     it('400s an empty resolved audience and persists nothing', async () => {

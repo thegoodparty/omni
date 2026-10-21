@@ -10,9 +10,9 @@ internet-facing path. It validates, hands the parsed event to itself via an
 async self-invoke, and answers ClickUp in milliseconds.
 
 Unlike clickup_bot, there is no synchronous fallback path here: route_event
-only ever runs from the async branch (see enqueue_async_processing), and the
-webhook secret is a plain env var rather than a Secrets Manager lookup, so
-there is no secrets-outage degrade mode to reproduce either.
+only ever runs from the async branch (see enqueue_async_processing). The
+signing secrets come from ai_secrets.py; a Secrets Manager failure reads as an
+unconfigured secret, so the request 401s like any other unverifiable one.
 """
 
 import hashlib
@@ -56,6 +56,7 @@ def _load_sibling_module(stem: str) -> Any:
     return module
 
 
+ai_secrets = _load_sibling_module("ai_secrets")
 router = _load_sibling_module("router")
 dispatch = _load_sibling_module("dispatch")
 
@@ -198,7 +199,7 @@ def get_header_case_insensitive(headers: dict, name: str, default: str = "") -> 
 
 
 def verify_webhook_signature(body: str, signature: str) -> bool:
-    secret = os.environ.get("AUTOPILOT_CLICKUP_WEBHOOK_SECRET", "")
+    secret = ai_secrets.secret("AUTOPILOT_CLICKUP_WEBHOOK_SECRET")
     if not secret:
         print("ERROR: No AUTOPILOT_CLICKUP_WEBHOOK_SECRET configured, rejecting request")
         return False
@@ -231,7 +232,7 @@ SLACK_SIGNATURE_TOLERANCE_SECONDS = 5 * 60
 
 
 def verify_slack_signature(raw_body: str, timestamp: str, signature: str) -> bool:
-    secret = os.environ.get("AUTOPILOT_SLACK_SIGNING_SECRET", "")
+    secret = ai_secrets.secret("AUTOPILOT_SLACK_SIGNING_SECRET")
     if not secret:
         print("ERROR: No AUTOPILOT_SLACK_SIGNING_SECRET configured, rejecting request")
         return False

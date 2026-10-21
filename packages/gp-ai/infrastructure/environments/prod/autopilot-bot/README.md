@@ -36,16 +36,16 @@ Order matters — each step assumes the ones before it.
    `taskCreated`, `taskCommentPosted` (recipe in the dev README; scope to the
    folder). Capture `.webhook.secret` IMMEDIATELY into `AI_SECRETS_PROD` as
    `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`.
-4. **Prod secrets, one apply.** The Lambda bakes secret values into its env
-   at apply time, so the secret keys and the terraform apply that bakes them
-   must land together: add `AUTOPILOT_CLICKUP_API_KEY` (the current bot
-   identity token, matching dev) and the webhook secret from step 3 to
-   `AI_SECRETS_PROD`; verify `AMPLITUDE_MANAGEMENT_API_KEY`,
-   `AUTOPILOT_MACHINE_SECRET`, and (for Slack) `AUTOPILOT_SLACK_BOT_TOKEN`
-   plus `AUTOPILOT_SLACK_SIGNING_SECRET` (both from the dedicated
-   "GP Autopilot" app, same values as dev) are present; then set
-   `autopilot_list_ids` in `terraform.auto.tfvars` to the prod board list and
-   apply this root once.
+4. **Prod secrets, then one apply.** The Lambda reads its credentials from
+   `AI_SECRETS_PROD` at runtime, so the secret writes need no apply of their
+   own: add `AUTOPILOT_CLICKUP_API_KEY` (the current bot identity token,
+   matching dev) and the webhook secret from step 3 to `AI_SECRETS_PROD`;
+   verify `AMPLITUDE_MANAGEMENT_API_KEY`, `AUTOPILOT_MACHINE_SECRET`, and (for
+   Slack) `AUTOPILOT_SLACK_BOT_TOKEN` plus `AUTOPILOT_SLACK_SIGNING_SECRET`
+   (both from the dedicated "GP Autopilot" app, same values as dev) are
+   present; then set `autopilot_list_ids` in `terraform.auto.tfvars` to the
+   prod board list and apply this root once (the apply also starts fresh
+   containers, so they load the new keys).
 5. **Enable the no-deliveries alarm**: flip `no_deliveries_alarm_enabled`
    in `main.tf` back to true (or delete the line — the module default is
    true) in the same PR that sets `autopilot_list_ids`. Verify the ECS

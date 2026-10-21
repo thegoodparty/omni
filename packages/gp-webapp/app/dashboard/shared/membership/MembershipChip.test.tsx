@@ -18,6 +18,23 @@ const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
   }),
 )
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    } as {
+      smsCompliance: string
+      smsCutoffDate: string | null
+      generalElectionDate: string | null
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
@@ -71,6 +88,11 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('MembershipChip', () => {
@@ -99,7 +121,7 @@ describe('MembershipChip', () => {
   it('does not expose the flag when the surface is hidden', () => {
     for (const state of [
       membership({ isElectedOffice: true }),
-      membership({ texting: 'cleared' }),
+      membership({ texting: 'closed' }),
     ]) {
       setup({ state })
 
@@ -126,8 +148,8 @@ describe('MembershipChip', () => {
 
     expect(screen.getByText('pitch:true')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.ChipClicked,
-      { action: 'pitch' },
+      EVENTS.ProUpgrade.Membership.BannerClicked,
+      { path: '/' },
     )
   })
 
@@ -157,8 +179,8 @@ describe('MembershipChip', () => {
 
     expect(screen.getByText('pin:true')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ProUpgrade.Membership.ChipClicked,
-      { action: 'pin' },
+      EVENTS.ProUpgrade.Membership.PinBannerClicked,
+      { path: '/' },
     )
   })
 
@@ -171,10 +193,47 @@ describe('MembershipChip', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('renders nothing once a Pro campaign is cleared to text', () => {
-    setup({ state: membership({ texting: 'cleared' }) })
+  it('counts down to the cutoff while the window is closing', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup()
+
+    expect(screen.getByRole('button')).toHaveTextContent(
+      'Verify to send SMS by Oct. 15',
+    )
+  })
+
+  it('renders nothing once texting is closed for a Pro campaign', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'closed' }) })
 
     expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('sends a Pro campaign cleared to text to schedule its text', async () => {
+    const user = userEvent.setup()
+    setup({ state: membership({ texting: 'cleared' }) })
+
+    expect(screen.getByText(MEMBERSHIP_COPY.chip.cleared)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach?compose=text&source=navigation',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.ScheduleBannerClicked,
+      { path: '/' },
+    )
   })
 
   it('renders nothing for an elected-office organization', () => {

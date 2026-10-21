@@ -117,11 +117,16 @@ describe('PrioritiesService CRUD', () => {
       officeId,
       { title: 'Transit', description: 'More buses' },
       PrioritySource.user_stated,
+      'priorities_page',
     )
 
     expect(await priorities.listActive(officeId)).toHaveLength(1)
 
-    const archived = await priorities.archive(created.id, officeId)
+    const archived = await priorities.archive(
+      created.id,
+      officeId,
+      'priorities_page',
+    )
     expect(archived).toBe(true)
     expect(await priorities.listActive(officeId)).toHaveLength(0)
   })
@@ -132,6 +137,7 @@ describe('PrioritiesService CRUD', () => {
       officeId,
       { title: 'Original', description: 'desc' },
       PrioritySource.user_stated,
+      'priorities_page',
     )
 
     const otherOfficeId = uuidv7()

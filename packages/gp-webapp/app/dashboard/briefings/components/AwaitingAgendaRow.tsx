@@ -63,7 +63,7 @@ export default function AwaitingAgendaRow({
           {meetingName}
         </span>
 
-        <AgendaStatusPill status={status} />
+        <AgendaStatusPill status={status} reason={summary.userAgendaReason} />
 
         <ChevronRightIcon
           aria-hidden

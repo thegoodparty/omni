@@ -1,27 +1,111 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { Prisma, PhoneListBuildStatus } from '@/generated/prisma'
 
 @Injectable()
 export class PeerlyPhoneListCaptureService extends createPrismaBase(
   MODELS.PeerlyPhoneList,
 ) {
-  // Writes the parent capture row and its recipient rows together so a list
-  // Peerly never received can never gain capture rows — callers only invoke
-  // this after the Peerly upload has already succeeded.
-  async recordUpload(params: {
+  // The build is moving off the HTTP request into a background job
+  // (Voter Outreach 2.0): a row needs to exist — and be pollable — before a
+  // Peerly token is ever minted. Created `queued` (the schema default),
+  // with no token; `recordUpload` advances this same row rather than
+  // inserting a second one. `requestSnapshot` is the validated POST body —
+  // persisted so the async build handler can redo filter resolution without
+  // the HTTP request around to ask again (it is unused on the synchronous
+  // path, but captured unconditionally so a later switch-flip doesn't need
+  // a backfill).
+  createQueuedBuild(params: {
     organizationSlug: string
     campaignId: number
-    token: string
     voterFileFilterId: number | null
+    requestSnapshot: Prisma.InputJsonValue
+  }) {
+    const { organizationSlug, campaignId, voterFileFilterId, requestSnapshot } =
+      params
+    return this.model.create({
+      data: {
+        organizationSlug,
+        campaignId,
+        voterFileFilterId,
+        requestSnapshot,
+      },
+    })
+  }
+
+  // Single-owner CAS: elects exactly one handler to build a given row.
+  // count 0 means a concurrent delivery already owns it, or it has already
+  // advanced past `queued` (processing/ready/failed) — the caller treats
+  // either as an idempotent no-op. Bumps buildAttempts so the stale-building
+  // reaper can tell a row that keeps failing from one on its first try.
+  async claimForBuild(buildId: string): Promise<boolean> {
+    const claim = await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.queued },
+      data: {
+        buildStatus: PhoneListBuildStatus.building,
+        buildAttempts: { increment: 1 },
+      },
+    })
+    return claim.count > 0
+  }
+
+  // Stamped the moment Peerly accepts the upload, BEFORE the (slower)
+  // recipients write — so a crash between the two leaves a `building` row
+  // that still carries proof Peerly already has this exact list. The queued-
+  // build handler checks this first and skips a second upload rather than
+  // ever sending the same list to Peerly twice.
+  async stampBuildToken(buildId: string, token: string): Promise<void> {
+    await this.model.update({ where: { id: buildId }, data: { token } })
+  }
+
+  // HARD send cap (Win SMS hold, slice D2b — never oversend). Persists the paid
+  // text count the hold covers (`maxTextsForAmountInCents(holdAmount)`) onto the
+  // build at checkout-session time — when the hold amount is first computed,
+  // BEFORE the payment webhook links the hold. The build-upload reads this field
+  // (not the satellite link, which only exists post-webhook), so the cap binds
+  // whether the resolve runs before or after the hold link.
+  //
+  // RATCHETS DOWN ONLY (money-safety): writes the new value only when it is
+  // LOWER than what is stored (or nothing is stored). calculateAmount runs on
+  // EVERY checkout-session creation, and two sessions for the same build need
+  // not price identically — the pre-build estimate re-reads a live people-db
+  // count that can grow, and the ready path (leads_loaded) differs from the
+  // estimate. A later, higher-priced session that is NEVER paid must not raise
+  // the cap above the hold that WAS authorized, or resolveSendCapForBuild would
+  // hand the upload a cap larger than the paid count. Taking the minimum keeps
+  // the persisted cap <= `maxTextsForAmountInCents` of the smallest priced
+  // session, which is <= that of whichever session is actually paid — so the
+  // upload can never exceed the paid count, whichever session paid. A cap that
+  // ends up below the paid hold only UNDER-sends (capture bills the actual
+  // uploaded count, clamped to the hold, so never an overcharge). `updateMany`
+  // (no throw on a missing/deleted build) guarded on id + the lower-or-null
+  // predicate, so the write is a single idempotent statement.
+  async persistSendCap(buildId: string, sendCapTexts: number): Promise<void> {
+    await this.model.updateMany({
+      where: {
+        id: buildId,
+        OR: [{ sendCapTexts: null }, { sendCapTexts: { gt: sendCapTexts } }],
+      },
+      data: { sendCapTexts },
+    })
+  }
+
+  // Advances the pre-created `queued` row to `processing` with the Peerly
+  // token and the two exclusion counts, and writes the recipient rows —
+  // together, so a list Peerly never received can never gain recipient rows
+  // (callers only invoke this after the Peerly upload has already
+  // succeeded). Updates, not inserts: the row from `createQueuedBuild`
+  // already exists by `buildId`.
+  async recordUpload(params: {
+    buildId: string
+    token: string
     recipients: { personId: string; phone: string }[]
     excludedOptedOutCount: number
     excludedDuplicatePhoneCount: number
   }): Promise<void> {
     const {
-      organizationSlug,
-      campaignId,
+      buildId,
       token,
-      voterFileFilterId,
       recipients,
       excludedOptedOutCount,
       excludedDuplicatePhoneCount,
@@ -29,19 +113,18 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
 
     await this.client.$transaction(
       async (tx) => {
-        const phoneList = await tx.peerlyPhoneList.create({
+        await tx.peerlyPhoneList.update({
+          where: { id: buildId },
           data: {
-            organizationSlug,
-            campaignId,
             token,
-            voterFileFilterId,
             excludedOptedOutCount,
             excludedDuplicatePhoneCount,
+            buildStatus: PhoneListBuildStatus.processing,
           },
         })
         await tx.peerlyPhoneListRecipient.createMany({
           data: recipients.map(({ personId, phone }) => ({
-            peerlyPhoneListId: phoneList.id,
+            peerlyPhoneListId: buildId,
             personId,
             phone,
           })),
@@ -56,13 +139,65 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     )
   }
 
-  // Stamps the numeric Peerly list id the first time the status endpoint
-  // reports the list ready. Guarded on peerlyListId IS NULL so a repeat poll
-  // after the first success is a no-op rather than a re-write.
-  async stampPeerlyListId(token: string, peerlyListId: number): Promise<void> {
+  // The synchronous build/upload threw (empty audience, Peerly error) —
+  // park the row rather than leaving it orphaned at `queued`/`building`
+  // forever. `buildError` is a short message, not a stack trace: this is a
+  // status a future poller reads, not a log.
+  async markBuildFailed(buildId: string, buildError: string): Promise<void> {
+    await this.model.update({
+      where: { id: buildId },
+      data: { buildStatus: PhoneListBuildStatus.failed, buildError },
+    })
+  }
+
+  // Stamps the numeric Peerly list id and advances the row to `ready` the
+  // first time the status endpoint (either route — token or buildId) sees
+  // the list ACTIVE. Guarded on peerlyListId IS NULL so a repeat poll after
+  // the first success is a no-op rather than a re-write. `leadsLoaded` is the
+  // stable count observed at this ready transition — the durable billable
+  // count the Win SMS hold-capture reads so it never re-fetches a vendor
+  // count that could read a still-loading list.
+  async stampPeerlyListId(
+    token: string,
+    peerlyListId: number,
+    leadsLoaded: number,
+  ): Promise<void> {
     await this.model.updateMany({
       where: { token, peerlyListId: null },
-      data: { peerlyListId },
+      data: {
+        peerlyListId,
+        leadsLoaded,
+        buildStatus: PhoneListBuildStatus.ready,
+      },
+    })
+  }
+
+  // Candidates for the server-side build finisher: a row Peerly has already
+  // accepted (`processing`, token minted) that no browser poll has advanced
+  // to `ready`, and that has sat untouched past `staleCutoff`. peerlyListId is
+  // always null for a `processing` row (stampPeerlyListId sets the id and
+  // `ready` together), but it is filtered explicitly so the finisher never
+  // re-reads an already-stamped list. token is always set on a `processing`
+  // row (recordUpload writes token + status together); the `not: null` filter
+  // lets the caller treat it as present. The `updatedAt` floor targets
+  // genuinely-stranded rows and keeps the finisher off rows a live browser is
+  // still polling — a still-loading list under active poll keeps a fresh
+  // updatedAt (isLeadsLoadedStable writes each unstable read). Oldest first
+  // and capped at `take` so one sweep issues a bounded number of Peerly reads.
+  findUnfinishedProcessing(params: {
+    staleCutoff: Date
+    take: number
+  }): Promise<{ id: string; token: string | null }[]> {
+    return this.model.findMany({
+      where: {
+        buildStatus: PhoneListBuildStatus.processing,
+        peerlyListId: null,
+        token: { not: null },
+        updatedAt: { lt: params.staleCutoff },
+      },
+      select: { id: true, token: true },
+      orderBy: { updatedAt: 'asc' },
+      take: params.take,
     })
   }
 
@@ -100,6 +235,119 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
   countRecipients(peerlyPhoneListId: string): Promise<number> {
     return this.client.peerlyPhoneListRecipient.count({
       where: { peerlyPhoneListId },
+    })
+  }
+
+  // Peerly flips a list to ACTIVE as soon as it accepts the upload, but a
+  // large list keeps loading leads after that — `leads_loaded` climbs for a
+  // while before settling. Stamping `ready` on the first ACTIVE read
+  // overstates how many leads actually landed for a still-loading list, so a
+  // list is only "ready" once `leads_loaded` is either already fully loaded
+  // (equal to what Peerly says we supplied) or has read the SAME value twice
+  // in a row across separate polls. A small list satisfies the first test on
+  // its very first read — it stabilizes immediately, exactly like before
+  // this guard — so only a still-climbing large list ever waits.
+  //
+  // Called from either status route (token or buildId) — both resolve to the
+  // same row, so comparing/persisting by buildId lets the two routes share
+  // one observation history instead of racing separate ones.
+  async isLeadsLoadedStable(params: {
+    buildId: string
+    leadsLoaded: number
+    leadsSupplied: number
+  }): Promise<boolean> {
+    const { buildId, leadsLoaded, leadsSupplied } = params
+
+    // Observability only, never blocking: leads_supplied SHOULD equal what
+    // we told Peerly we were sending. A mismatch doesn't change the
+    // stability verdict — it's logged in case it ever points at a real
+    // discrepancy (e.g. a filter re-run between upload and this poll).
+    const recipientCount = await this.countRecipients(buildId)
+    if (leadsSupplied !== recipientCount) {
+      this.logger.warn(
+        { buildId, leadsSupplied, recipientCount },
+        "Peerly's leads_supplied does not match our uploaded recipient count",
+      )
+    }
+
+    if (leadsLoaded === leadsSupplied) return true
+
+    const row = await this.model.findUnique({
+      where: { id: buildId },
+      select: { lastSeenLeadsLoaded: true },
+    })
+    if (row?.lastSeenLeadsLoaded === leadsLoaded) return true
+
+    // Not stable yet — record this read so the NEXT poll (either route) can
+    // compare against it. A no-op write failure here just means the next
+    // poll compares against an older value, which only delays stabilizing a
+    // large list; it never wrongly stamps ready.
+    await this.model.updateMany({
+      where: { id: buildId },
+      data: { lastSeenLeadsLoaded: leadsLoaded },
+    })
+    return false
+  }
+
+  // Candidates for the stale-building reaper: a row claimed (queued ->
+  // building) by some handler invocation that never finished — crashed,
+  // OOM-killed, or lost its SQS message — older than `staleCutoff`.
+  findStaleBuilding(staleCutoff: Date): Promise<{ id: string }[]> {
+    return this.model.findMany({
+      where: {
+        buildStatus: PhoneListBuildStatus.building,
+        updatedAt: { lt: staleCutoff },
+      },
+      select: { id: true },
+    })
+  }
+
+  // Reaper's permanent-failure arm: a row that has already exhausted its
+  // retry budget. The same staleness CAS as the retry arm (buildStatus +
+  // updatedAt), so a healthy in-flight run (fresh updatedAt) or a row
+  // another reaper replica already moved can't be double-handled.
+  async failStaleBuilding(
+    buildId: string,
+    staleCutoff: Date,
+    buildError: string,
+  ): Promise<boolean> {
+    const result = await this.model.updateMany({
+      where: {
+        id: buildId,
+        buildStatus: PhoneListBuildStatus.building,
+        updatedAt: { lt: staleCutoff },
+      },
+      data: { buildStatus: PhoneListBuildStatus.failed, buildError },
+    })
+    return result.count > 0
+  }
+
+  // Reaper's retry arm: releases a stranded `building` claim back to
+  // `queued` so it becomes claimable again (by claimForBuild, via a fresh
+  // enqueue). Same CAS reasoning as failStaleBuilding.
+  async reclaimStaleBuilding(
+    buildId: string,
+    staleCutoff: Date,
+  ): Promise<boolean> {
+    const result = await this.model.updateMany({
+      where: {
+        id: buildId,
+        buildStatus: PhoneListBuildStatus.building,
+        updatedAt: { lt: staleCutoff },
+      },
+      data: { buildStatus: PhoneListBuildStatus.queued },
+    })
+    return result.count > 0
+  }
+
+  // Undoes reclaimStaleBuilding when the re-enqueue itself fails, so the row
+  // doesn't strand at `queued` with no message ever coming to claim it — the
+  // reaper only looks at `building` rows, so a `queued` row with a dead
+  // enqueue would otherwise sit forever.
+  async revertReclaimedBuilding(buildId: string): Promise<void> {
+    await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.queued },
+      data: { buildStatus: PhoneListBuildStatus.building },
     })
   }
 }

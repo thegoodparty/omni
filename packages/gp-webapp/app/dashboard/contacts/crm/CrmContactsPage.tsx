@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, PlusIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
-import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
+import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganization } from '@shared/organization-picker'
+import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import {
   getContactsLabels,
   WIN_UNIVERSE_STAT_LABELS,
@@ -23,6 +24,7 @@ import { ChannelPickerProvider } from './shared/channelPicker/ChannelPickerProvi
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
+import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -40,6 +42,12 @@ export const CrmContactsPage = () => {
   } = useContactsTable()
   const organization = useOrganization()
   const labels = getContactsLabels(isWinContext)
+  // gp-api's PeopleDatasetService reads the same key: with it on, a Serve
+  // org's records include residents who are not registered to vote, so the
+  // record count is the district figure and the census row is redundant.
+  const { on: serveConsumerDataOn } = useFlagOn('serve-consumer-data', {
+    trackExposure: false,
+  })
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
@@ -108,6 +116,10 @@ export const CrmContactsPage = () => {
     <ContactProModalProvider value={setShowProModal}>
       <ChannelPickerProvider>
         <DashboardLayout
+          // The contacts assistant below is this page's chat entry and opens
+          // the same Campaign Manager on Win, so the layout's dock would stack
+          // a second bar on top of it.
+          hideChatDock={!voterDataUnavailable}
           // The header title is mode copy, so it rides the same
           // isWinContextReady gate as the rest of the page (ENG-10448).
           navHeader={
@@ -171,11 +183,16 @@ export const CrmContactsPage = () => {
                     <DistrictStatCard
                       className="mt-4"
                       label={labels.districtTotalLabel}
-                      populationLabel={labels.districtPopulationLabel}
+                      populationLabel={
+                        serveConsumerDataOn
+                          ? undefined
+                          : labels.districtPopulationLabel
+                      }
                       additionalRows={universeMetricRows}
                     />
                   </div>
 
+                  <CitizensPanelSection />
                   <RecommendedListsSection />
                   <ListsIndex />
                 </>
@@ -212,12 +229,11 @@ export const CrmContactsPage = () => {
         </DashboardLayout>
       </ChannelPickerProvider>
       {campaign && (
-        <ProUpgradeModal
-          variant={VARIANTS.Second_NonViable}
+        <ProPitchDialog
           open={showProModal}
-          onClose={() => setShowProModal(false)}
-          onUpgradeLinkClick={() => setShowProModal(false)}
-          defaultTrackingEnabled
+          onOpenChange={setShowProModal}
+          source="contacts"
+          channel="voter-data"
         />
       )}
     </ContactProModalProvider>

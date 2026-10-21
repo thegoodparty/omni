@@ -63,6 +63,7 @@ const FIXTURE_PERSON: PersonOutput = {
   registeredVoter: 'Yes',
   estimatedIncomeAmount: 50000,
   voterStatus: 'Super',
+  earlyVoteStatus: null,
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,
@@ -144,6 +145,9 @@ describe('ContactsService — people-db (sole path)', () => {
   let mockStatsService: {
     findStats: ReturnType<typeof vi.fn>
   }
+  let mockPeopleDatasetService: {
+    resolve: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     mockVoterFileFilterService = {
@@ -189,16 +193,21 @@ describe('ContactsService — people-db (sole path)', () => {
     mockStatsService = {
       findStats: vi.fn(),
     }
+    mockPeopleDatasetService = {
+      resolve: vi.fn().mockResolvedValue('constituents'),
+    }
     const mockContactStatusService = {
       currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
       changeStatus: vi.fn(),
     }
     const mockContactsMadeResolutionService = {
       resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+      lastReachedAt: vi.fn().mockResolvedValue(null),
     }
 
     service = new ContactsService(
       mockVoterFileFilterService as never,
+      {} as never,
       {} as never,
       mockElectionsService as never,
       mockCampaignsService as never,
@@ -212,7 +221,12 @@ describe('ContactsService — people-db (sole path)', () => {
       mockVoterDownloadService as never,
       {} as never,
       mockStatsService as never,
+      mockPeopleDatasetService as never,
       mockContactsMadeResolutionService as never,
+      { latestEvent: vi.fn().mockResolvedValue(null) } as never,
+      {
+        resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+      } as never,
       createMockLogger(),
     )
   })
@@ -234,6 +248,7 @@ describe('ContactsService — people-db (sole path)', () => {
           resultsPerPage: 10,
           page: 1,
         }),
+        'constituents',
       )
       expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
     })
@@ -255,6 +270,7 @@ describe('ContactsService — people-db (sole path)', () => {
           resultsPerPage: 1,
           page: 1,
         }),
+        'constituents',
       )
     })
   })
@@ -276,6 +292,7 @@ describe('ContactsService — people-db (sole path)', () => {
           resultsPerPage: 25,
           page: 2,
         }),
+        'constituents',
       )
       expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
     })
@@ -300,6 +317,7 @@ describe('ContactsService — people-db (sole path)', () => {
         mockVoterQueryService.getListDetailAggregates,
       ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+        'constituents',
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
         true,
@@ -323,6 +341,7 @@ describe('ContactsService — people-db (sole path)', () => {
           size: 25,
           hasCellPhone: true,
         }),
+        'constituents',
       )
       expect(z.array(PersonSchema).safeParse(result).success).toBe(true)
     })
@@ -338,6 +357,7 @@ describe('ContactsService — people-db (sole path)', () => {
       expect(mockVoterQueryService.findPerson).toHaveBeenCalledWith(
         'person-1',
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+        'constituents',
       )
       expect(PersonSchema.safeParse(result).success).toBe(true)
     })
@@ -369,6 +389,7 @@ describe('ContactsService — people-db (sole path)', () => {
           // history columns via projection (ENG-10830).
           excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
         }),
+        'constituents',
         res,
         expect.objectContaining({
           filename: 'contacts.csv',
@@ -402,7 +423,51 @@ describe('ContactsService — people-db (sole path)', () => {
           groupByHousehold: false,
           filters: expect.objectContaining({ filters: ['hasCellPhone'] }),
         }),
+        'constituents',
       )
+    })
+  })
+
+  // The people table is decided once per call from the organization and
+  // handed to every read; a batch caller that already resolved it skips the
+  // flag evaluation entirely.
+  describe('people dataset', () => {
+    it('resolves the dataset from the organization once per call', async () => {
+      const org = makeOrganization()
+      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
+
+      await service.countContacts({}, org)
+
+      expect(mockPeopleDatasetService.resolve).toHaveBeenCalledOnce()
+      expect(mockPeopleDatasetService.resolve).toHaveBeenCalledWith(org)
+    })
+
+    it('uses a pre-resolved dataset without resolving it again', async () => {
+      const org = makeOrganization()
+      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
+
+      await service.findContactsForFilter(
+        {},
+        { resultsPerPage: 25, page: 1 },
+        org,
+        undefined,
+        'voters',
+      )
+
+      expect(mockPeopleDatasetService.resolve).not.toHaveBeenCalled()
+      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
+        expect.anything(),
+        'voters',
+      )
+    })
+
+    it('hands the eligible district back with its dataset', async () => {
+      const org = makeOrganization()
+
+      await expect(service.resolveEligibleDistrict(org)).resolves.toEqual({
+        districtId: OVERRIDE_DISTRICT_ID,
+        dataset: 'constituents',
+      })
     })
   })
 
@@ -410,10 +475,14 @@ describe('ContactsService — people-db (sole path)', () => {
     it('calls StatsService.findStats', async () => {
       mockStatsService.findStats.mockResolvedValue(FIXTURE_STATS)
 
-      const result = await service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID)
+      const result = await service.fetchStatsByDistrictId(
+        OVERRIDE_DISTRICT_ID,
+        'constituents',
+      )
 
       expect(mockStatsService.findStats).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
+        'constituents',
       )
       expect(result).toEqual(FIXTURE_STATS)
     })
@@ -422,7 +491,7 @@ describe('ContactsService — people-db (sole path)', () => {
       mockStatsService.findStats.mockResolvedValue(null)
 
       await expect(
-        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID),
+        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID, 'constituents'),
       ).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
         response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },

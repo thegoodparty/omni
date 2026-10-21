@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -40,24 +41,17 @@ vi.mock('helpers/analyticsHelper', async (orig) => ({
   trackEvent: (...args: unknown[]) => trackEventMock(...args),
 }))
 
-// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
-// them on without flipping the flag under every other test in this file.
-// The mock respects scope so the paperclip scope regression tests work without
-// touching the real GrowthBook client.
-let attachmentsOn = false
-vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: (scope: string) => ({
-    ready: true,
-    enabled: attachmentsOn && scope === 'chief_of_staff',
-  }),
-}))
-
 const uploadAttachmentMock = vi.fn()
+const linkAttachmentMock = vi.fn()
 const downloadAttachmentMock = vi.fn()
 const trackEventMock = vi.fn()
 // Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
 // toast is asserted through the call, not the DOM. Hoisted because the barrel
 // factory reads it eagerly, before this module's consts initialize.
+const chatSends = () =>
+  trackEventMock.mock.calls.filter(
+    ([event]) => event === EVENTS.AIChat.MessageSent,
+  )
 const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
 vi.mock('@styleguide', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -66,6 +60,7 @@ vi.mock('@styleguide', async (importOriginal) => ({
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  linkChatAttachment: (...args: unknown[]) => linkAttachmentMock(...args),
   downloadChatAttachment: (...args: unknown[]) =>
     downloadAttachmentMock(...args),
 }))
@@ -166,8 +161,8 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
-  attachmentsOn = false
   uploadAttachmentMock.mockReset()
+  linkAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
   toastMock.mockReset()
@@ -394,7 +389,6 @@ describe('<ChiefOfStaffChatBody>', () => {
   })
 
   it('fires CitationOpened when a citation chip is clicked', async () => {
-    attachmentsOn = true
     listMessagesMock.mockResolvedValue([
       msg('assistant', 'Per the resolution [1], the budget is set.', {
         id: 'a-cite',
@@ -423,7 +417,51 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.ChiefOfStaff.CitationOpened,
-        { documentId: 'att-42', pageNumber: 3 },
+        { documentId: 'att-42', pageNumber: 3, scope: 'chief_of_staff' },
+      ),
+    )
+    openSpy.mockRestore()
+  })
+
+  // ENG-11219: Win's Campaign Manager mounts this same body under
+  // campaign_assistant, so citation events must carry that scope rather than
+  // the chief_of_staff default.
+  it('fires CitationOpened with scope campaign_assistant for the Campaign Manager', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite-win',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-77',
+            page: 1,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_cite_win"
+        scope="campaign_assistant"
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-77', pageNumber: 1, scope: 'campaign_assistant' },
       ),
     )
     openSpy.mockRestore()
@@ -754,8 +792,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
   })
 
-  it('reports every visible send through onMessageSent, and no hidden one', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a visible send as AI Chat - Message Sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_m' })
     streamMessageMock.mockReturnValue(
@@ -767,18 +804,23 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
-    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toEqual({
+      agent: 'chief_of_staff',
+      surface: 'contacts_assistant',
+      via: 'assistant_bar',
+      product: 'serve',
+    })
   })
 
   // The funnel event has to mean "delivered", not "attempted": the callback
   // exists to measure open-to-send, so a send that never reached a
   // conversation must not inflate it.
   it('does not report a send whose conversation create failed', async () => {
-    const onMessageSent = vi.fn()
     listConversationsMock.mockResolvedValue([])
     createMock.mockRejectedValue(new Error('network down'))
     listMessagesMock.mockResolvedValue([])
@@ -787,7 +829,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
@@ -799,11 +841,34 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).toBeInTheDocument(),
     )
     expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
-  it('does not report a hidden kickoff through onMessageSent', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a retried assistant bar message as sent from the bar', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue({ conversationId: 'conv_r' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        analyticsSurface="contacts_assistant"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toMatchObject({ via: 'assistant_bar' })
+  })
+
+  it('does not report a hidden kickoff as a message sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_h' })
     streamMessageMock.mockReturnValue(
@@ -818,7 +883,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingKickoff="__kickoff__"
-        onMessageSent={onMessageSent}
+        analyticsSurface="chief_of_staff_page"
       />,
     )
 
@@ -827,7 +892,7 @@ describe('<ChiefOfStaffChatBody>', () => {
         expect.objectContaining({ content: '__kickoff__' }),
       ),
     )
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
@@ -1132,6 +1197,151 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(streamMessageMock).not.toHaveBeenCalled()
   })
 
+  it('sends a suggestion with `message` as the user’s own visible turn', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_msg' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Your next meeting is Tuesday.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'Help me get ready for my next meeting.'),
+      msg('assistant', 'Your next meeting is Tuesday.', { id: 'a1' }),
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Get ready for your next meeting',
+            description: 'Walk in knowing what is on the agenda.',
+            message: 'Help me get ready for my next meeting.',
+          },
+        ]}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Get ready for your next meeting/,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Help me get ready for my next meeting.',
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText('Help me get ready for my next meeting.'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Get ready for your next meeting/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  describe('showSuggestionsAfterKickoff', () => {
+    const EXPLAIN = '[Explain] What is it?'
+    const BUILD = '[Build] Build it.'
+    const REPLY = 'It is a group of residents. Do you want to build yours?'
+
+    beforeEach(() => {
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_explain' })
+      streamMessageMock
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: REPLY },
+            { type: 'done', assistantMessageId: 'a1' },
+          ]),
+        )
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: 'Here is the math.' },
+            { type: 'done', assistantMessageId: 'a2' },
+          ]),
+        )
+      listMessagesMock
+        .mockResolvedValueOnce([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+        ])
+        .mockResolvedValue([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+          msg('user', BUILD),
+          msg('assistant', 'Here is the math.', { id: 'a2' }),
+        ])
+    })
+
+    it('shows the step under the kickoff’s reply, and sends it into the same conversation', async () => {
+      const user = userEvent.setup()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[{ label: 'Build my panel', kickoff: BUILD }]}
+        />,
+      )
+
+      // Never on the empty transcript before the kickoff has answered.
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+
+      const cta = await screen.findByRole(
+        'button',
+        { name: 'Build my panel' },
+        { timeout: 5000 },
+      )
+      expect(screen.getByText(REPLY)).toBeInTheDocument()
+
+      await user.click(cta)
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            conversationId: 'conv_explain',
+            content: BUILD,
+          }),
+        ),
+      )
+      expect(createMock).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.getByText('Here is the math.')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(BUILD)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when the kickoff has no next step', async () => {
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[]}
+        />,
+      )
+      await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument())
+      // Not the built-in starter chips either.
+      expect(
+        screen.queryByRole('button', { name: "What's most urgent this week?" }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
@@ -1333,6 +1543,18 @@ describe('<ChiefOfStaffChatBody>', () => {
           },
         },
       })
+      // The drawing surface draws the list's whole audience, not its members.
+      api.mock('POST /v1/contacts/points', {
+        status: 200,
+        data: {
+          points: people.map((person) => ({
+            id: person.id,
+            lat: 44.7593,
+            lng: -85.6175,
+          })),
+          truncated: false,
+        },
+      })
     }
 
     // The tool's ARGS are the payload, so the card can render from the live
@@ -1434,7 +1656,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
 
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
 
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
@@ -1461,7 +1683,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1555,7 +1777,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
 
       const buttons = await screen.findAllByRole('button', {
-        name: /draw an area/i,
+        name: /draw shapes/i,
       })
       expect(buttons).toHaveLength(2)
 
@@ -1565,8 +1787,227 @@ describe('<ChiefOfStaffChatBody>', () => {
       // Both, including the one that opened it: re-clicking its own card
       // would remount the overlay just as readily.
       expect(
-        screen.queryAllByRole('button', { name: /draw an area/i }),
+        screen.queryAllByRole('button', { name: /draw shapes/i }),
       ).toHaveLength(0)
+    })
+
+    // The whole point of the drawer being here. The write goes browser ->
+    // API and touches nothing the model can see, so before this the
+    // transcript gained no turn and the next question was answered against
+    // the list as it stood before the shape — the assistant telling holders
+    // it could not read an area they had just drawn.
+    it('sends a hidden turn naming the list when a boundary saves', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      // A ring already on the row, around the mocked people, so Save is live
+      // the moment the overlay mounts: the drawing gesture itself needs a
+      // real canvas, and what this pins is what happens after the write.
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: /edit shapes/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Named and id'd, because `crud_saved_filters` get takes an id and
+      // that is where the post-boundary count comes from.
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I drew an area on the map and saved it to my list "${LIST.name}" (list ${LIST.listId}). Where does that leave the list?`,
+          }),
+        ),
+      )
+      // Hidden: the holder drew, they did not type.
+      expect(screen.queryByText(/I drew an area on the map/)).toBeNull()
+      await screen.findByText('That leaves 412 constituents.')
+    })
+
+    // A list the agent offers is saved by a button, not by a typed "yes",
+    // and the card turns into the list's map. The conversation is told, in a
+    // hidden turn, because the write itself touches nothing the model sees.
+    it('creates an offered list from its card and tells the conversation', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      api.mock(
+        'GET /v1/voters/voter-file/filter/by-proposal-key/:proposalKey',
+        { status: 404, data: {} as never },
+      )
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: LIST.listId, name: LIST.name } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'Saved. Draw an area to narrow it.' },
+          { type: 'done', assistantMessageId: 'a_created' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'cut me renters'),
+        msg('assistant', 'Here is the list.', {
+          id: 'a_offer',
+          segments: [
+            { kind: 'text', text: 'Here is the list.' },
+            {
+              kind: 'tool',
+              toolName: 'present_list_proposal',
+              toolCallId: 'call_offer',
+              payload: {
+                name: LIST.name,
+                summary: 'Renters in the district.',
+                count: 1200,
+                filters: { homeownerNo: true },
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_offer" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create list' }),
+      )
+
+      expect(
+        await screen.findByRole('button', { name: /draw shapes/i }),
+      ).toBeInTheDocument()
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+          }),
+        ),
+      )
+      expect(screen.queryByText(/I created the list/)).toBeNull()
+    })
+
+    // The drawer is mounted by the body so it survives a turn committing
+    // (see the test below), which means a save can land mid-stream — and
+    // `deliver` refuses a send with one in flight. Dropped there, the model
+    // never learns the shape exists and answers the pre-boundary list back.
+    it('holds the boundary turn until an in-flight stream finishes', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_mid' })
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValueOnce(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done', assistantMessageId: 'a_mid' }
+        })(),
+      )
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_mid',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+      await user.type(screen.getByLabelText(/ask a question/i), 'map it')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Draw and save while the first turn is still streaming.
+      await user.click(
+        await screen.findByRole('button', { name: /edit shapes/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Nothing sent yet: the stream still holds the send path.
+      expect(streamMessageMock).toHaveBeenCalledTimes(1)
+
+      endTurn!()
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: expect.stringContaining('I drew an area on the map'),
+          }),
+        ),
+      )
     })
 
     // An absent row reads as unlocked, so gating on the lock alone showed
@@ -1599,7 +2040,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       // The card itself renders — only the button waits.
       expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+        screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
       ).not.toBeInTheDocument()
     })
 
@@ -1641,7 +2082,7 @@ describe('<ChiefOfStaffChatBody>', () => {
 
       // Opened while the turn is still streaming, off the live card.
       await user.click(
-        await screen.findByRole('button', { name: /draw an area/i }),
+        await screen.findByRole('button', { name: /draw shapes/i }),
       )
       expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
 
@@ -1707,20 +2148,21 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
     listMessagesMock.mockResolvedValue([])
   })
 
-  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
-    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
-    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+  it.each(['campaign_assistant', 'chief_of_staff'] as const)(
+    'shows the paperclip for the %s scope',
+    (scope) => {
+      render(<ChiefOfStaffChatBody active scope={scope} />)
+      expect(
+        screen.getByRole('button', { name: /attach/i }),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it('hides the paperclip for a scope without attachment support', () => {
+    render(<ChiefOfStaffChatBody active scope="ordinance_flow" />)
     expect(
       screen.queryByRole('button', { name: /attach/i }),
     ).not.toBeInTheDocument()
-  })
-
-  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
-    attachmentsOn = true
-    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
-    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
   })
 })
 
@@ -1729,17 +2171,20 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'ordinance_flow') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope && { scope })}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
 
   it('shows the drop overlay while dragging files and hides it on leave', () => {
-    attachmentsOn = true
     const surface = renderBody()
 
     fireEvent.dragEnter(surface, dragPayload([]))
@@ -1752,7 +2197,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('uploads a supported dropped file through the attach path', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -1774,7 +2218,6 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 
   it('does not upload an unsupported dropped file', async () => {
-    attachmentsOn = true
     const surface = renderBody()
     const file = new File(['x'], 'malware.exe', {
       type: 'application/x-msdownload',
@@ -1786,8 +2229,8 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 
-  it('ignores drops while attachments are disabled', async () => {
-    const surface = renderBody()
+  it('ignores drops on a scope without attachment support', async () => {
+    const surface = renderBody('ordinance_flow')
     const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
 
     fireEvent.dragEnter(surface, dragPayload([file]))
@@ -1801,19 +2244,78 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 })
 
+describe('<ChiefOfStaffChatBody> file picked from a chat bar', () => {
+  const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+  })
+
+  it('uploads it once the conversation is ready, and only once', async () => {
+    const view = render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    view.rerender(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores it on a scope without attachment support', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        scope="ordinance_flow"
+        pendingFile={file}
+      />,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
-  const GUARD_COPY =
+  const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."
+  const WIN_GUARD_COPY =
+    "Don't upload voter files, donor records, or anything you're not allowed to share."
 
   const dragPayload = (files: File[]) => ({
     dataTransfer: { types: ['Files'], files },
   })
 
-  const renderBody = () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
     listConversationsMock.mockResolvedValue([])
     listMessagesMock.mockResolvedValue([])
     const { container } = render(
-      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
     )
     return container.firstElementChild as HTMLElement
   }
@@ -1824,8 +2326,7 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       dragPayload([new File(['x'], name, { type: 'application/pdf' })]),
     )
 
-  it('shows the guard toast once after the first successful upload', async () => {
-    attachmentsOn = true
+  it('shows the Serve guard toast once after the first successful CoS upload, keyed serve-chat-attachments-guard', async () => {
     uploadAttachmentMock.mockResolvedValue({
       id: 'att-1',
       fileName: 'agenda.pdf',
@@ -1836,10 +2337,55 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     const surface = renderBody()
 
     dropPdf(surface, 'agenda.pdf')
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(GUARD_COPY))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(SERVE_GUARD_COPY),
+    )
     expect(trackEventMock).toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
+    )
+    // The attach event itself (not just the guard toast) must carry the
+    // Serve scope too — a regression that hardcoded DocumentAttached's scope
+    // would otherwise pass this suite (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'chief_of_staff' }),
+    )
+    expect(window.localStorage.getItem('serve-chat-attachments-guard')).toBe(
+      '1',
+    )
+
+    dropPdf(surface, 'minutes.pdf')
+    await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
+    expect(toastMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the Win guard toast once after the first successful CM upload, keyed win-chat-attachments-guard', async () => {
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(WIN_GUARD_COPY))
+    expect(window.localStorage.getItem('win-chat-attachments-guard')).toBe('1')
+    expect(
+      window.localStorage.getItem('serve-chat-attachments-guard'),
+    ).toBeNull()
+    // The Campaign Manager mounts this same body under campaign_assistant, so
+    // the attach and guard events must carry that scope rather than the
+    // chief_of_staff default (ENG-11219).
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.DocumentAttached,
+      expect.objectContaining({ scope: 'campaign_assistant' }),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.UploadGuardShown,
+      { scope: 'campaign_assistant' },
     )
 
     dropPdf(surface, 'minutes.pdf')
@@ -1848,7 +2394,6 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   })
 
   it('does not show the guard toast when the upload fails', async () => {
-    attachmentsOn = true
     uploadAttachmentMock.mockRejectedValue(new Error('boom'))
     const surface = renderBody()
 
@@ -1858,7 +2403,243 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
     expect(toastMock).not.toHaveBeenCalled()
     expect(trackEventMock).not.toHaveBeenCalledWith(
       EVENTS.ChiefOfStaff.UploadGuardShown,
-      {},
+      { scope: 'chief_of_staff' },
+    )
+    // The failed-upload prompt event must still fire, carrying the Serve
+    // scope (ENG-11219).
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'chief_of_staff' },
+      ),
+    )
+  })
+
+  it('tags the source-unreachable prompt event with the campaign_assistant scope for a failed CM upload', async () => {
+    uploadAttachmentMock.mockRejectedValue(new Error('boom'))
+    const surface = renderBody('campaign_assistant')
+
+    dropPdf(surface, 'agenda.pdf')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.SourceUnreachablePromptShown,
+        { promptContext: 'Upload failed', scope: 'campaign_assistant' },
+      ),
+    )
+  })
+})
+
+describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
+  it('shows one chip when the poll returns the row before the upload resolves', async () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const polled = vi.fn()
+    api.mock('GET /v1/chats/:conversationId/attachments', () => {
+      polled()
+      return {
+        status: 200,
+        data: {
+          attachments: [
+            {
+              id: 'att-1',
+              source: 'upload',
+              sourceUrl: null,
+              fileName: 'budget.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 1,
+              pageCount: null,
+              status: 'ready',
+              failureReason: null,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      }
+    })
+    let resolveUpload: (value: unknown) => void = () => undefined
+    uploadAttachmentMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve
+      }),
+    )
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+
+    fireEvent.drop(container.firstElementChild as HTMLElement, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [new File(['x'], 'budget.pdf', { type: 'application/pdf' })],
+      },
+    })
+    await waitFor(() => expect(polled).toHaveBeenCalled(), { timeout: 5_000 })
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+      ).toHaveLength(2),
+    )
+
+    resolveUpload({
+      id: 'att-1',
+      fileName: 'budget.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    // With every row ready the poll stops, so a duplicate would stay put.
+    await new Promise((resolve) => setTimeout(resolve, 3_500))
+    expect(
+      screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
+    ).toHaveLength(1)
+  }, 15_000)
+})
+
+describe('<ChiefOfStaffChatBody> link attachments', () => {
+  const renderBody = (scope?: 'chief_of_staff' | 'campaign_assistant') => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        {...(scope ? { scope } : {})}
+      />,
+    )
+  }
+
+  const pasteLink = async (url: string): Promise<void> => {
+    const input = await screen.findByLabelText(/ask a question/i)
+    fireEvent.paste(input, { clipboardData: { getData: () => url } })
+  }
+
+  it('fires LinkSubmitted with the chief_of_staff scope on a successful link attach', async () => {
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-1',
+        fileName: 'https://example.com/agenda.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody()
+
+    await pasteLink('see https://example.com/agenda.pdf for details')
+
+    await waitFor(() =>
+      expect(linkAttachmentMock).toHaveBeenCalledWith(
+        'conv',
+        'https://example.com/agenda.pdf',
+      ),
+    )
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.LinkSubmitted,
+      {
+        linkHost: 'example.com',
+        fetchSucceeded: true,
+        scope: 'chief_of_staff',
+      },
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the server reports a fetch error', async () => {
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.org/minutes.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the campaign_assistant scope when the link attach throws', async () => {
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.net/report.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkSubmitted with the campaign_assistant scope on a successful link attach', async () => {
+    linkAttachmentMock.mockResolvedValue({
+      ok: true,
+      attachment: {
+        id: 'link-2',
+        fileName: 'https://example.com/flyer.pdf',
+        status: 'ready',
+        pageCount: null,
+        failureReason: null,
+      },
+    })
+    renderBody('campaign_assistant')
+
+    await pasteLink('see https://example.com/flyer.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkSubmitted,
+        {
+          linkHost: 'example.com',
+          fetchSucceeded: true,
+          scope: 'campaign_assistant',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the server reports a fetch error', async () => {
+    linkAttachmentMock.mockResolvedValue({ ok: false, error: 'unreachable' })
+    renderBody()
+
+    await pasteLink('see https://example.org/budget.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.org',
+          failureReason: 'unreachable',
+          scope: 'chief_of_staff',
+        },
+      ),
+    )
+  })
+
+  it('fires LinkFetchFailed with the chief_of_staff scope when the link attach throws', async () => {
+    linkAttachmentMock.mockRejectedValue(new Error('network down'))
+    renderBody()
+
+    await pasteLink('see https://example.net/contract.pdf for details')
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.LinkFetchFailed,
+        {
+          linkHost: 'example.net',
+          failureReason: 'network_error',
+          scope: 'chief_of_staff',
+        },
+      ),
     )
   })
 })
@@ -1948,5 +2729,567 @@ describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
     expect(invalidate).not.toHaveBeenCalledWith({
       queryKey: ['custom-segments', 'eo-test-org'],
     })
+  })
+})
+describe('<ChiefOfStaffChatBody> widgets', () => {
+  const CONTACT = {
+    name: "Dale County Attorney's Office",
+    role: 'County attorney',
+    why: 'They own the nuisance ordinance the complaints fall under.',
+    askFor: 'The code enforcement division',
+    script: 'Calling about 14 Mill St.',
+  }
+  const QUESTION = {
+    questionId: 'q1',
+    question: 'Which blocks do you want repaired first?',
+    options: [{ label: 'The two by the school' }, { label: 'Main Street' }],
+  }
+  const HANDOFF = {
+    channel: 'serve_social' as const,
+    draftText: 'The bridge reopens Monday.',
+  }
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+  })
+
+  it('replays a card from its persisted tool call, with no pill for it', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Start here.', {
+        segments: [
+          { kind: 'text', text: 'Start here.' },
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(screen.getByText('Start here.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders a card from the live tool call, and once after the commit', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_live' })
+    let endTurn: () => void
+    const turnEnded = new Promise<void>((resolve) => {
+      endTurn = resolve
+    })
+    streamMessageMock.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'tool_call',
+          toolName: 'present_outside_contact',
+          toolCallId: 'tc1',
+          args: CONTACT,
+        }
+        await turnEnded
+        yield { type: 'text', delta: 'Call them first.' }
+        yield { type: 'done' }
+      })(),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'who do I call?'),
+      msg('assistant', 'Call them first.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+          { kind: 'text', text: 'Call them first.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active />)
+    await user.type(screen.getByLabelText(/ask a question/i), 'who do I call?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+
+    endTurn!()
+
+    // Re-query on every attempt. When the turn commits, the streaming row is
+    // rebuilt under its history key, so a node found a moment earlier can be
+    // detached by the time it is asserted on — which is what made this flaky.
+    // What matters is the settled state: the text and the card, once each.
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('Call them first.')).toHaveLength(1)
+        expect(screen.getAllByText(CONTACT.name)).toHaveLength(1)
+      },
+      { timeout: 5000 },
+    )
+  })
+
+  it('keeps an unparsed read_past_outreach as a labelled pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Nothing yet.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'read_past_outreach',
+            payload: { channel: 'text' },
+          },
+          { kind: 'text', text: 'Nothing yet.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText("Checking what you've sent"),
+    ).toBeInTheDocument()
+  })
+
+  it('renders compose_handoff as its card and never as a pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here is a draft.', {
+        segments: [
+          { kind: 'text', text: 'Here is a draft.' },
+          { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          {
+            kind: 'tool',
+            toolName: 'compose_handoff',
+            payload: { channel: 'unknown', draftText: 'x' },
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue in compose' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: 'Continue in compose' }),
+    ).toHaveLength(1)
+    expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
+  })
+
+  // This body is shared by Serve's Chief of Staff and Win's Campaign
+  // Manager, so the handoff routes on the payload's own channel rather than
+  // which surface mounted it.
+  describe('compose_handoff routing', () => {
+    beforeEach(() => {
+      vi.mocked(router.push!).mockClear()
+    })
+
+    afterEach(() => {
+      sessionStorage.clear()
+    })
+
+    it('routes a win_social handoff to the Win hub with the nonce', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_win" />)
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/outreach\?compose=social&source=campaign_manager&handoff=.+$/,
+      )
+      const nonce = destination.split('handoff=')[1]
+      expect(sessionStorage.getItem(`cos-handoff-${nonce}`)).toBe(
+        JSON.stringify({
+          channel: 'win_social',
+          draftText: 'The pothole crew starts Monday.',
+        }),
+      )
+    })
+
+    it('still routes a serve_social handoff to the Serve hub', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'text', text: 'Here is a draft.' },
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_serve" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(router.push).toHaveBeenCalledTimes(1)
+      const destination = vi.mocked(router.push!).mock.calls[0]?.[0] as string
+      expect(destination).toMatch(
+        /^\/dashboard\/constituent-outreach\?compose=social&handoff=.+$/,
+      )
+    })
+
+    // ENG-11219: the handoff event is one event shared by both products, so
+    // ComposeHandoffOpened must carry the mounting surface's scope rather than
+    // being inferred from the payload's own channel.
+    it('fires ComposeHandoffOpened with scope campaign_assistant for the Campaign Manager', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            {
+              kind: 'tool',
+              toolName: 'compose_handoff',
+              payload: {
+                channel: 'win_social',
+                draftText: 'The pothole crew starts Monday.',
+              },
+            },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="conv_win_scope"
+          scope="campaign_assistant"
+        />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'campaign_assistant' }),
+      )
+    })
+
+    it('fires ComposeHandoffOpened with scope chief_of_staff for the chief of staff', async () => {
+      const user = userEvent.setup()
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here is a draft.', {
+          segments: [
+            { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          ],
+        }),
+      ])
+
+      render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv_cos_scope" />,
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue in compose' }),
+      )
+
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.ComposeHandoffOpened,
+        expect.objectContaining({ scope: 'chief_of_staff' }),
+      )
+    })
+  })
+
+  it('reloads an answered question with its answer checked', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+      msg('user', 'The two by the school'),
+      msg('assistant', 'Got it.'),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', {
+      name: 'The two by the school',
+    })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('sends an option on the open question as a visible turn', async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    await user.click(await screen.findByRole('radio', { name: 'Main Street' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: 'Main Street',
+    })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> building the civic panel', () => {
+  type Next = {
+    stepId: string
+    channel: 'text' | 'phone_banking' | 'door_knocking'
+    status: 'not_started' | 'in_progress' | 'waiting_on_replies'
+    line: string
+    href: string | null
+  }
+  const plan = (next: Next | null) => ({
+    plan: {
+      id: 'plan-1',
+      status: 'active' as const,
+      goalMembers: 100,
+      keepFresh: false,
+      hoursPerWeek: 2,
+      currentWave: 1,
+      createdAt: new Date('2026-10-15T00:00:00.000Z'),
+      completedAt: null,
+      steps: next
+        ? [
+            {
+              id: next.stepId,
+              wave: 1,
+              channel: next.channel,
+              position: 1,
+              targetSize: 30,
+              status: next.status,
+              voterFileFilterId: null,
+              outreachId: null,
+              phoneBankingListId: null,
+              doorKnockingTurfId: null,
+              startedAt: null,
+              completedAt: null,
+              expectedRepliesBy: null,
+              markedDone: null,
+              reached: null,
+              joined: null,
+              steeredToward: null,
+              landlineFirst: null,
+            },
+          ]
+        : [],
+    },
+    next,
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
+    balance: null,
+  })
+
+  const timeQuestion = (answer?: string) => [
+    msg('assistant', 'A plan mixes texts with your own calls.', {
+      segments: [
+        { kind: 'text', text: 'A plan mixes texts with your own calls.' },
+        { kind: 'tool', toolName: 'ask_panel_weekly_time', payload: {} },
+      ],
+    }),
+    ...(answer ? [msg('user', answer), msg('assistant', 'Done.')] : []),
+  ]
+
+  it("asks the weekly time question with the panel page's answers, and sends the one picked", async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText('How much time can you give each week?'),
+    ).toBeInTheDocument()
+    for (const label of [
+      '1 hour a week',
+      '2 hours a week',
+      '3 hours a week',
+      '4 or more hours a week',
+    ]) {
+      expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
+    }
+    await user.click(screen.getByRole('radio', { name: '2 hours a week' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: '2 hours a week',
+    })
+  })
+
+  it('locks an answered weekly time question on reload', async () => {
+    listMessagesMock.mockResolvedValue(timeQuestion('3 hours a week'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', { name: '3 hours a week' })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+  })
+
+  it("shows the plan's next step in the panel page's words, opening that step", async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'phone_banking',
+        status: 'not_started',
+        line: 'Call residents to invite them to your civic panel',
+        href: '/dashboard/contacts/citizens-panel?step=s1',
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Your plan is ready.', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+          { kind: 'text', text: 'Your plan is ready.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(await within(card).findByText('Call 30 residents')).toBeVisible()
+    expect(within(card).queryByText(/members so far/)).toBeNull()
+    // The button opens the calls themselves (civicPanelWidgets.test.tsx).
+    expect(
+      within(card).getByRole('button', { name: 'Start the calls' }),
+    ).toBeInTheDocument()
+    expect(within(card).queryByRole('link')).toBeNull()
+  })
+
+  it('offers no button while the plan waits on replies, only the plan', async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'text',
+        status: 'waiting_on_replies',
+        line: 'Replies to your civic panel invite should be in by Monday',
+        href: null,
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(
+      within(card).getByText(
+        'Replies to your civic panel invite should be in by Monday',
+      ),
+    ).toBeInTheDocument()
+    expect(within(card).getAllByRole('link')).toHaveLength(1)
+    expect(
+      within(card).getByRole('link', { name: /See your plan/ }),
+    ).toBeInTheDocument()
+    expect(within(card).queryByRole('button')).toBeNull()
+  })
+
+  it('draws nothing for a refused call', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here it is.', {
+        segments: [
+          { kind: 'text', text: 'Here it is.' },
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: null },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText('Here it is.')).toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-next-step')).toBeNull()
+    expect(screen.queryByTestId('chat-card-loading')).toBeNull()
+  })
+
+  it('reads the plan and the home cards again once the weekly time is saved', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const user = userEvent.setup()
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'save_panel_weekly_time',
+          args: { hoursPerWeek: 2 },
+          toolCallId: 't1',
+        },
+        {
+          type: 'tool_result',
+          toolName: 'save_panel_weekly_time',
+          result: { saved: 'created' },
+          toolCallId: 't1',
+        },
+        { type: 'done' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+    await user.click(
+      await screen.findByRole('radio', { name: '2 hours a week' }),
+    )
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['civic-panel-plan', 'eo-test-org'],
+      }),
+    )
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['chief-of-staff', 'cards'],
+    })
+    invalidate.mockRestore()
   })
 })

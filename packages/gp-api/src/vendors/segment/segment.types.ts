@@ -15,13 +15,13 @@
  */
 export const EVENTS = {
   Account: {
-    PasswordResetRequested: 'Account - Password Reset Requested',
     ProSubscriptionConfirmed: 'Account - Pro Subscription Confirmed',
+    ProSubscriptionPastDue: 'Account - Pro Subscription Past Due',
+    ProSubscriptionEnded: 'Account - Pro Subscription Ended',
     ProUpgradeComplete: 'pro_upgrade_complete',
     UserDeleted: 'Account - User Deleted',
   },
   Onboarding: {
-    UserCreated: 'Onboarding - User Created',
     // Top of the magic-link funnel. Emitted when sales generates an onboarding
     // magic link for a lead, keyed to the provisioned user id + email. A single
     // funnel event for both flows — the `type` property ('serve' | 'win')
@@ -67,6 +67,11 @@ export const EVENTS = {
     // (rejection_source 'cv_status_check'). Drives Campaign Success
     // fix-your-filing outreach from HubSpot.
     ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
+    // Fired when gp-api refuses to start texting compliance because the
+    // campaign is past the SMS compliance cutoff (19 days before the general
+    // election). `path` is agentic | legacy | kickoff (the Pro payment) |
+    // submit_to_peerly.
+    ComplianceSubmissionBlocked: '10DLC - Compliance Submission Blocked',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
@@ -109,6 +114,9 @@ export const EVENTS = {
     ContentGenerated: 'Content Builder: Generation Completed',
   },
   Polls: {
+    PollCreated: 'Polls - Poll Created',
+    PollSubmitted: 'Polls - Poll Submitted For Review',
+    GatherMoreStarted: 'Polls - Gather More Started',
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
   // Meeting Briefings (Serve). Fires when the daily cron skips an
@@ -132,14 +140,10 @@ export const EVENTS = {
   // Server-side generation for the V2 onboarding campaign plan. The strategic
   // landscape (CAP/PMF engine) fans out into two independent agent jobs, so it
   // gets four events. The webapp's view of these is tracked separately under
-  // `Onboarding V2 -` in gp-webapp.
+  // `Dashboard - Campaign Plan:` in gp-webapp.
   CampaignPlanV2: {
     MediaGenerationStarted: 'Campaign Plan V2 - Media Generation Started',
     MediaGenerationCompleted: 'Campaign Plan V2 - Media Generation Completed',
-    CommunityEventsGenerationStarted:
-      'Campaign Plan V2 - Community Events Generation Started',
-    CommunityEventsGenerationCompleted:
-      'Campaign Plan V2 - Community Events Generation Completed',
     OppositionResearchGenerationStarted:
       'Campaign Plan V2 - Opposition Research Generation Started',
     OppositionResearchGenerationCompleted:
@@ -245,6 +249,13 @@ export const EVENTS = {
   DoorKnocking: {
     CanvassingTotalsUpdated: 'Door Knocking - Canvassing Totals Updated',
   },
+  // Issue capture (Win and Serve). Fires from the synthesis ingest when a run
+  // completes, whichever engine produced it: completion is server truth, the
+  // report page only polls for it. Counts and ids only, never what anyone
+  // said.
+  IssueCapture: {
+    SynthesisCompleted: 'Issue Capture - Synthesis Completed',
+  },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile
   // Notify Submitted', which counts the same submission for product analytics:
@@ -257,6 +268,31 @@ export const EVENTS = {
   },
   ChiefOfStaff: {
     AttachedDocumentQueried: 'Chief Of Staff - Attached Document Queried',
+  },
+  // Serve Priorities. A priority is created and archived from the Priorities
+  // page, Community Issues and the Chief of Staff, and its steps and checks
+  // are moved by the agent's tool calls and by real sends, so the browser
+  // never sees the whole picture. Attributed to the office's user.
+  Priorities: {
+    PriorityCreated: 'Priorities - Priority Created',
+    PriorityArchived: 'Priorities - Priority Archived',
+    StepStateChanged: 'Priorities - Step State Changed',
+    CheckStateChanged: 'Priorities - Check State Changed',
+    PlanCompleted: 'Priorities - Plan Completed',
+  },
+  // Serve's civic panel. The plan is made from the panel page and the Chief
+  // of Staff chat, its steps start and finish off sends, call lists and
+  // walks the browser never sees whole, and people join and leave by
+  // replying, so all of it is server truth. Attributed to the office's
+  // user; counts, ids and enums only, never who joined.
+  CivicPanel: {
+    PlanCreated: 'Civic Panel - Plan Created',
+    PlanUpdated: 'Civic Panel - Plan Updated',
+    StepStarted: 'Civic Panel - Step Started',
+    StepCompleted: 'Civic Panel - Step Completed',
+    StepSkipped: 'Civic Panel - Step Skipped',
+    GoalReached: 'Civic Panel - Goal Reached',
+    MembershipChanged: 'Civic Panel - Membership Changed',
   },
 }
 

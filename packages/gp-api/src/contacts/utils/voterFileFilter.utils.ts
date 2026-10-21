@@ -101,6 +101,16 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
+// Early-vote boolean -> people-api earlyVoteStatus value, exported for the
+// catalog for the same reason as the audience list above.
+export const EARLY_VOTE_STATUS_VALUES = [
+  { field: 'earlyVoteVeryLikely', value: 'Very Likely' },
+  { field: 'earlyVoteLikely', value: 'Likely' },
+  { field: 'earlyVoteUnlikely', value: 'Unlikely' },
+  { field: 'earlyVoteVeryUnlikely', value: 'Very Unlikely' },
+  { field: 'earlyVoteUnknown', value: 'Unknown' },
+] as const
+
 // Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
 // interactions). Resolved by ContactsMadeResolutionService, never sent to
 // people-api as a raw filter key (see fieldsHandledSeparately below) — kept
@@ -132,6 +142,13 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 // same bounds.
 export { INCOME_RANGE_MAPPING }
 
+// The names of a drawn boundary's parts: the one array column that is not
+// filter criteria. The generic array branch below would otherwise turn it
+// into an `in` filter on a voter column that does not exist.
+const isShapeLabels = (
+  value: readonly (string | PrismaJson.GeoShapeLabels[number])[],
+): value is PrismaJson.GeoShapeLabels => typeof value[0] === 'object'
+
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
 // fields are read; missing ones are treated as unset, exactly like false/empty.
@@ -148,9 +165,6 @@ export const convertVoterFileFilterToFilters = (
     'campaignId',
     'campaign',
     'outreaches',
-    'registeredVoterTrue',
-    'registeredVoterFalse',
-    'registeredVoterUnknown',
     // Resolved by the activity-condition/support-status resolution engine
     // (CRM feature 4 task 05), not this generic key->filter loop — an
     // activityConditions array of objects or a supportStatus string array
@@ -176,6 +190,7 @@ export const convertVoterFileFilterToFilters = (
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
     'audienceUnknown',
+    ...EARLY_VOTE_STATUS_VALUES.map(({ field }) => field),
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
@@ -223,6 +238,14 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade5Plus',
     // Resolves against contact_current_status, not a voter-file column.
     'followUpRequested',
+    'civicPanelMember',
+    'civicPanelLeft',
+    'civicPanelNeverInvited',
+    'civicPanelJoinedByText',
+    'civicPanelJoinedByDoor',
+    'civicPanelJoinedByPhone',
+    'civicPanelJoinedByHand',
+    'notContactedRecently',
     'independentAffinity',
     'ideologyConservative',
     'ideologyLiberal',
@@ -238,7 +261,11 @@ export const convertVoterFileFilterToFilters = (
         continue
       }
       filters[key] = true
-    } else if (Array.isArray(value) && value.length > 0) {
+    } else if (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      !isShapeLabels(value)
+    ) {
       if (key === 'languageCodes') {
         const filterMap = LANGUAGE_CODE_TO_LABEL
         const normalizedLanguages: string[] = value
@@ -280,6 +307,16 @@ export const convertVoterFileFilterToFilters = (
           ? { eq: voterStatusValues[0] }
           : { in: voterStatusValues }
     }
+  }
+
+  const earlyVoteStatusValues: string[] = EARLY_VOTE_STATUS_VALUES.filter(
+    ({ field }) => segment[field],
+  ).map(({ value }) => value)
+  if (earlyVoteStatusValues.length > 0) {
+    filters['earlyVoteStatus'] =
+      earlyVoteStatusValues.length === 1
+        ? { eq: earlyVoteStatusValues[0] }
+        : { in: earlyVoteStatusValues }
   }
 
   const politicalPartyValues: string[] = []
@@ -457,4 +494,28 @@ export const convertVoterFileFilterToFilters = (
     filters['independentAffinity'] = { eq: 'Yes' }
   }
   return filters
+}
+
+// The recommended-list dimensions a Serve org may not filter on. Kept in step
+// with the `modes: 'win'` marks in filterDimensions.catalog.ts, and shared so
+// the route asserts and the saved-list exclusion below reject the same set.
+export const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
+  'independentAffinity',
+  'ideology',
+] as const
+
+// A saved filter an elected-office org cannot resolve: the list/detail/count
+// paths 400 on these Win-only dimensions (party, ethnicity, recommended
+// affinity/ideology, contacts-made — see ContactsService.resolveBaseFilters),
+// so a Serve surface must not offer such a saved list back to the holder.
+export const savedFilterBlockedForElectedOffice = (
+  filterInput: Partial<VoterFileFilter>,
+): boolean => {
+  const filters = convertVoterFileFilterToFilters(filterInput)
+  return (
+    'politicalParty' in filters ||
+    'ethnicity' in filters ||
+    WIN_ONLY_RECOMMENDED_FILTER_KEYS.some((key) => key in filters) ||
+    CONTACTS_MADE_BUCKET_FIELDS.some(({ field }) => filterInput[field])
+  )
 }

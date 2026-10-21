@@ -46,6 +46,7 @@ type SortDir = 'asc' | 'desc'
 const TAB_LABELS: Record<QueueTab, string> = {
   awaiting: 'Awaiting review',
   booked: 'Booked',
+  sent: 'Sent',
   denied: 'Denied',
   canceled: 'Canceled',
 }
@@ -161,13 +162,13 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
           onValueChange={(value) => setTab(value as QueueTab)}
         >
           <Tabs.List>
-            {(['awaiting', 'booked', 'denied', 'canceled'] as const).map(
-              (key) => (
-                <Tabs.Trigger key={key} value={key}>
-                  {tabLabel(key, byTab(key).length)}
-                </Tabs.Trigger>
-              )
-            )}
+            {(
+              ['awaiting', 'booked', 'sent', 'denied', 'canceled'] as const
+            ).map((key) => (
+              <Tabs.Trigger key={key} value={key}>
+                {tabLabel(key, byTab(key).length)}
+              </Tabs.Trigger>
+            ))}
           </Tabs.List>
         </Tabs.Root>
         <Flex gap="3" align="center">
@@ -333,7 +334,8 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
                   )}
                 </Table.Cell>
                 <Table.Cell>
-                  {item.approvalStatus === 'canceled' ? (
+                  {item.approvalStatus === 'canceled' ||
+                  item.approvalStatus === 'sent' ? (
                     <Text size="2" color="gray">
                       —
                     </Text>

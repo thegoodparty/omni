@@ -20,6 +20,7 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionPhoneBankingService } from '@/contactInteraction/services/contactInteractionPhoneBanking.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactPriorityAnswersService } from '../services/contactPriorityAnswers.service'
 
 describe('ContactEngagementService', () => {
   describe('getIndividualActivities', () => {
@@ -47,7 +48,19 @@ describe('ContactEngagementService', () => {
       findEventsForFeed: ReturnType<typeof vi.fn>
     }
 
+    let mockPriorityAnswers: {
+      forFeed: ReturnType<typeof vi.fn>
+      list: ReturnType<typeof vi.fn>
+    }
+
     beforeEach(() => {
+      mockPriorityAnswers = {
+        forFeed: vi.fn().mockResolvedValue({
+          byTextOutreachId: new Map(),
+          byInteractionId: new Map(),
+        }),
+        list: vi.fn().mockResolvedValue([]),
+      }
       mockPollIndividualMessageService = {
         findMany: vi.fn().mockResolvedValue([]),
       }
@@ -83,6 +96,7 @@ describe('ContactEngagementService', () => {
         mockContactInteractionRobocallService as unknown as ContactInteractionRobocallService,
         mockContactInteractionPhoneBankingService as unknown as ContactInteractionPhoneBankingService,
         mockContactStatusService as unknown as ContactStatusService,
+        mockPriorityAnswers as unknown as ContactPriorityAnswersService,
       )
     })
 
@@ -544,7 +558,7 @@ describe('ContactEngagementService', () => {
       expect(result.results).toEqual([])
     })
 
-    it('reads back only follow_up status changes for a Serve org', async () => {
+    it('reads back only Serve status changes (follow-up, civic panel) for a Serve org', async () => {
       await service.getIndividualActivities(baseInput)
 
       expect(mockContactStatusService.findEventsForFeed).toHaveBeenCalledWith(
@@ -552,13 +566,18 @@ describe('ContactEngagementService', () => {
           where: expect.objectContaining({
             organizationSlug: 'eo-office-123',
             personId: 'person-123',
-            field: ContactStatusField.follow_up,
+            field: {
+              in: [
+                ContactStatusField.follow_up,
+                ContactStatusField.civic_panel,
+              ],
+            },
           }),
         }),
       )
     })
 
-    it('excludes follow_up status changes for a Win org', async () => {
+    it('excludes Serve status changes for a Win org', async () => {
       const campaignInput: IndividualActivityInput = {
         personId: 'person-123',
         organizationSlug: 'campaign-org-1',
@@ -572,7 +591,12 @@ describe('ContactEngagementService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             organizationSlug: 'campaign-org-1',
-            field: { not: ContactStatusField.follow_up },
+            field: {
+              notIn: [
+                ContactStatusField.follow_up,
+                ContactStatusField.civic_panel,
+              ],
+            },
           }),
         }),
       )
@@ -664,6 +688,46 @@ describe('ContactEngagementService', () => {
 
       expect(mockVoterOutreachActivityService.findMany).not.toHaveBeenCalled()
       expect(result.results).toEqual([])
+    })
+
+    it("carries a Serve text's reply bodies on its feed row", async () => {
+      mockContactInteractionTextService.findMany.mockResolvedValue([
+        {
+          id: 'tx-9',
+          occurredAt: new Date('2026-10-12T15:00:00Z'),
+          respondedAt: new Date('2026-10-12T16:00:00Z'),
+          optedOutAt: null,
+          note: null,
+          manual: false,
+          outreachId: 4,
+        },
+      ])
+      mockPollIndividualMessageService.findMany.mockResolvedValue([
+        { outreachId: 4, content: 'Yes, the drain backs up.' },
+        { outreachId: 4, content: 'JOIN' },
+      ])
+
+      const result = await service.getIndividualActivities({
+        personId: 'person-123',
+        organizationSlug: 'eo-org-1',
+        take: 20,
+      })
+
+      expect(mockPollIndividualMessageService.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            personId: 'person-123',
+            outreachId: { in: [4] },
+            sender: 'CONSTITUENT',
+          },
+        }),
+      )
+      const text = result.results.find(
+        (row) => row.type === ConstituentActivityType.TEXT,
+      )
+      expect(text?.data).toMatchObject({
+        replies: ['Yes, the drain backs up.', 'JOIN'],
+      })
     })
 
     it('maps door knock, text, robocall, and phone banking rows into the union', async () => {
@@ -792,6 +856,7 @@ describe('ContactEngagementService', () => {
             note: null,
             manual: false,
             outreachId: 55,
+            replies: [],
           },
         },
         {
@@ -813,7 +878,7 @@ describe('ContactEngagementService', () => {
 
     // A support answer and a turnout intention are Win facts about a person,
     // and this feed is read on the Serve surface too — the walk's person sheet
-    // and the Constituent Data overlay. Nulled here rather than hidden per
+    // and the Constituents overlay. Nulled here rather than hidden per
     // reader, the same rule `politicalParty` follows: the `eo-` prefix decides
     // it, so a Serve row states its outcome, note and actor and nothing about
     // a question its canvasser never asked.

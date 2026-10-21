@@ -15,12 +15,9 @@ export const CRMCompanyPropertiesSchema = z
     [HS_PROPS.calls_made]: intSchema,
     [HS_PROPS.direct_mail_sent]: intSchema,
     [HS_PROPS.event_impressions]: intSchema,
-    [HS_PROPS.knocked_doors]: intSchema,
     [HS_PROPS.doors_knocked]: intSchema,
     [HS_PROPS.online_impressions]: intSchema,
     [HS_PROPS.yard_signs_impressions]: intSchema,
-    [HS_PROPS.ecanvasser_contacts_count]: intSchema,
-    [HS_PROPS.ecanvasser_houses_count]: intSchema,
 
     // candidate details
     [HS_PROPS.candidate_district]: z.string(),

@@ -10,7 +10,11 @@ import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { ContactInteractionsController } from './contactInteractions.controller'
 import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
+import { CensusCompositionModule } from '@/priorities/censusComposition.module'
 import { ContactsService } from './services/contacts.service'
+import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
+import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
+import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
 
 @Module({
   imports: [
@@ -24,13 +28,23 @@ import { ContactsService } from './services/contacts.service'
     ContactInteractionModule,
     ContactNoteModule,
     PeopleQueryModule,
+    CensusCompositionModule,
   ],
   controllers: [
     ContactsController,
     ContactNotesController,
     ContactInteractionsController,
   ],
-  providers: [ContactsService],
-  exports: [ContactsService],
+  providers: [
+    ContactsService,
+    CivicPanelSummaryService,
+    CivicPanelBuildPlanService,
+    IndependentAffinityColumnService,
+  ],
+  exports: [
+    ContactsService,
+    CivicPanelBuildPlanService,
+    IndependentAffinityColumnService,
+  ],
 })
 export class ContactsModule {}

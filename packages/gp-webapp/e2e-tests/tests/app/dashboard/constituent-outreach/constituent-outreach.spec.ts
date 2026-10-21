@@ -6,7 +6,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 
-// serve-outreach reached 100% and was removed: the Constituent Outreach tab
+// serve-outreach reached 100% and was removed: the Outreach tab
 // and its hub are now gated on elected-office existence alone — the nav item
 // on `isElectedOffice`, the route on the server-side `serveAccess()` call.
 // These run with ZERO flag overrides, which is the point: while the flag was
@@ -15,7 +15,7 @@ import {
 // the access regression guard — removing the client-side FeatureFlagGuard
 // leaves `serveAccess()` as the only thing keeping a Win candidate off the
 // route.
-test.describe('Constituent Outreach hub — no flag overrides', () => {
+test.describe('Outreach hub — no flag overrides', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -71,7 +71,7 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
     // + mobile card list, toggled by CSS), so scope to the table cell.
     await expect(
       page.getByRole('cell', {
-        name: 'No campaigns yet. Pick a channel above to create your first.',
+        name: 'No outreach yet. Pick a channel above to send your first.',
       }),
     ).toBeVisible({ timeout: 30_000 })
   })
@@ -86,6 +86,13 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
+
+    // The hub is server-rendered, so the cards are clickable before React
+    // hydrates and a click that early does nothing. The Contacts rail item
+    // only resolves after a client query settles, so it marks hydration.
+    await expect(page.locator('#contacts-dashboard')).toBeVisible({
+      timeout: 30_000,
+    })
 
     await page.getByRole('button', { name: 'Social media' }).click()
 
@@ -111,6 +118,13 @@ test.describe('Constituent Outreach hub — no flag overrides', () => {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
+
+    // The hub is server-rendered, so the cards are clickable before React
+    // hydrates and a click that early does nothing. The Contacts rail item
+    // only resolves after a client query settles, so it marks hydration.
+    await expect(page.locator('#contacts-dashboard')).toBeVisible({
+      timeout: 30_000,
+    })
 
     await page.getByRole('button', { name: 'Phone banking' }).click()
 

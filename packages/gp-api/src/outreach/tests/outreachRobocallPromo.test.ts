@@ -7,7 +7,6 @@ import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallPromoService } from '@/outreach/services/outreachRobocallPromo.service'
@@ -106,10 +105,6 @@ beforeEach(async () => {
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
     .mockResolvedValue(undefined as never)
-  vi.spyOn(
-    service.app.get(HubspotSingleSendService),
-    'sendSingleSend',
-  ).mockResolvedValue(undefined as never)
   vi.spyOn(
     service.app.get(OutreachNotificationService),
     'notifyRobocallScheduled',

@@ -2,7 +2,13 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useProUpgradeWizard } from './proUpgradeWizardContext'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 // The real steps fetch and render heavy forms; a probe that reads the context
 // keeps this suite about the flow's own state machine.
@@ -79,6 +85,31 @@ describe('ProUpgradeFlow', () => {
     expect(screen.getByText('step:status')).toBeInTheDocument()
   })
 
+  it('collects filing details between the EIN and payment', () => {
+    const onPositionChange = vi.fn()
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.EIN}
+        channel="robocall"
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+        onPositionChange={onPositionChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('next'))
+    expect(screen.getByText('step:filing-details')).toBeInTheDocument()
+    expect(onPositionChange).toHaveBeenLastCalledWith({
+      currentStep: 4,
+      totalSteps: 6,
+    })
+
+    fireEvent.click(screen.getByText('next'))
+    expect(screen.getByText('step:payment')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('back'))
+    expect(screen.getByText('step:filing-details')).toBeInTheDocument()
+  })
+
   it('exits from the first step on back, and forwards exit/complete', () => {
     const onExit = vi.fn()
     const onComplete = vi.fn()
@@ -127,5 +158,45 @@ describe('ProUpgradeFlow', () => {
     fireEvent.click(screen.getByText('back'))
 
     expect(onExit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProUpgradeFlow Flow Started', () => {
+  it('fires once per mount with the attribution it was given', () => {
+    vi.mocked(trackEvent).mockClear()
+    const attribution = {
+      source: 'outreach_page' as const,
+      channel: 'door' as const,
+      cta: 'Create campaign',
+    }
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.GUIDANCE}
+        channel="door"
+        attribution={attribution}
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'next' }))
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Compliance.FlowStarted,
+      attribution,
+    )
+  })
+
+  it('fires nothing without attribution', () => {
+    vi.mocked(trackEvent).mockClear()
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.GUIDANCE}
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 })

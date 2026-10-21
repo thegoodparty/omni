@@ -66,7 +66,9 @@ describe('<OpponentProLockedView>', () => {
       screen.getByRole('button', { name: 'Upgrade to Pro' }),
     )
 
-    expect(push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade?source=opponent_research&channel=generic&cta=Upgrade+to+Pro',
+    )
   })
 
   it('fires Win - Opponent Upgrade Viewed once when the locked view renders', () => {

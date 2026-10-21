@@ -1,8 +1,12 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCKING_BULLET,
+  SERVE_OUTREACH_PURPOSE_VALUES,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { SERVE_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
 
@@ -42,15 +46,16 @@ beforeEach(async () => {
 
 const eoHeaders = () => ({ headers: { 'x-organization-slug': eoOrgSlug } })
 
-const POINTS = {
-  engagementQuestion: 'What is working and not working on your street?',
-  context: 'The office is tracking road repairs district by district.',
-  ask: 'Ask what they want raised at the next council meeting.',
-}
+const POINTS = [
+  'Ask what is working and not working on their street.',
+  'The office is tracking road repairs district by district.',
+  'Repairs are scheduled from what residents report.',
+  'Ask what they want raised at the next council meeting.',
+]
 
 const mockPoints = () =>
   jsonCompletion.mockResolvedValue({
-    object: POINTS,
+    object: { points: POINTS },
     tokens: 50,
     inputTokens: 25,
     outputTokens: 25,
@@ -81,7 +86,37 @@ const freshPurposes = SERVE_OUTREACH_PURPOSE_VALUES.filter(
   (purpose) => purpose !== 'custom',
 )
 
+const panelFlag = (enabled: boolean) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(enabled)
+
 describe('POST /v1/outreach/serve/door-knocking/draft', () => {
+  // The civic panel invite's ask is the join question the canvasser records.
+  it('drafts the civic panel invite around the join question', async () => {
+    panelFlag(true)
+    mockPoints()
+
+    const res = await postDraft(draftBody({ purpose: 'build_citizens_panel' }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('user')).toContain(
+      SERVE_DOOR_KNOCKING_VOICE.purposePrompts.build_citizens_panel,
+    )
+    expect(promptOf('user')).toContain(
+      'whether they want to join the civic panel',
+    )
+  })
+
+  it('hides the civic panel invite with the panel flag off', async () => {
+    panelFlag(false)
+
+    const res = await postDraft(draftBody({ purpose: 'build_citizens_panel' }))
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it.each(freshPurposes)('drafts the %s purpose', async (purpose) => {
     mockPoints()
 
@@ -91,6 +126,66 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(promptOf('user')).toContain(
       SERVE_DOOR_KNOCKING_VOICE.purposePrompts[purpose],
     )
+    expect(res.data.draft).toBe(
+      POINTS.map((point) => `${DOOR_KNOCKING_BULLET}${point}`).join('\n'),
+    )
+  })
+
+  // The community-input question is what the effort exists to ask, so the
+  // card's ask has to be written from it. Without this the ask came back as
+  // the purpose copy's generic "what should the council focus on".
+  it('writes the ask from the community-input question', async () => {
+    mockPoints()
+    const question = 'Would you take part in a compost pilot?'
+
+    const res = await postDraft(draftBody({ communityInputQuestion: question }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const user = promptOf('user')
+    expect(user).toContain(question)
+    // Fenced, so a question someone typed reads as quoted material rather
+    // than as further instructions to the prompt.
+    expect(user).toContain(`"""\n${question}\n"""`)
+    // Precedence is stated, because the listening purpose above it tells the
+    // model to write exactly the general ask this replaces.
+    expect(user).toContain('in place of the general question described above')
+  })
+
+  // Found on the deployed preview: an explain-a-decision card came back
+  // asking about the compost pilot, because the field was accepted on every
+  // purpose and folded into whichever ask was being written. The client never
+  // sends that pair, so the schema is what has to refuse it.
+  it('refuses a question on a purpose that asks none', async () => {
+    mockPoints()
+
+    const res = await postDraft(
+      draftBody({
+        purpose: 'explain_decision',
+        communityInputQuestion: 'Would you take part in a compost pilot?',
+      }),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('asks nothing extra when no question is given', async () => {
+    mockPoints()
+
+    await postDraft(draftBody())
+
+    expect(promptOf('user')).not.toContain('The question this effort')
+  })
+
+  // Whitespace-only is absent, not a violation — the same transform
+  // `instructions` carries, for the same reason.
+  it('treats a blank question as absent', async () => {
+    mockPoints()
+
+    const res = await postDraft(draftBody({ communityInputQuestion: '   ' }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('user')).not.toContain('The question this effort')
   })
 
   // The whole point of a separate Serve rail: this person already holds the
@@ -117,17 +212,37 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(user).toContain('Where the elected official serves: Georgetown, TX.')
   })
 
-  // Serve's card differs from Win's in two sections, so the shape the model is
-  // handed has to differ too — an "ask them to vote" note would be wrong here.
+  // Serve's introduction differs from Win's, and so does whose goal the
+  // bullets carry: an "ask them to vote" note would be wrong here.
   it('states the Serve card shape', async () => {
     mockPoints()
 
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('five-section card')
-    expect(system).toContain('"Hi, I\'m {name}, your {office}."')
-    expect(system).toContain('to ask of the constituent')
+    expect(system).not.toContain("Hi, I'm")
+    expect(system).toContain('a conversation with a constituent')
+    expect(system).toContain('about what the office is working toward')
+    expect(system).toContain('Refer to the official by full name')
+    expect(system).toContain('Write 4 or 5 short bullets')
+  })
+
+  // An Improve keeps the official's own sentences as sentences.
+  it('polishes the official’s text without reshaping it', async () => {
+    const sentences = 'We fixed the bus line.\nTell us what is next.'
+    jsonCompletion.mockResolvedValue({
+      object: { draft: sentences },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+
+    const res = await postDraft(draftBody({ currentDraft: sentences }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('system')).toContain('Keep the shape they wrote')
+    expect(res.data.draft).toBe(sentences)
   })
 
   // The Win rail's filter allowlist is not the Serve rail's: voter-file

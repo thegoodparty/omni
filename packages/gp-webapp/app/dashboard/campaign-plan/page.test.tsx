@@ -47,35 +47,19 @@ beforeEach(() => {
 })
 
 describe('dashboard/campaign-plan page', () => {
-  it('renders the router with planExists=false when no strategy exists', async () => {
-    mockServerRequest.mockResolvedValue({ data: { exists: false } })
-
+  it('hands the router the user and nothing else', async () => {
     const result = await Page()
 
-    expect(mockServerRequest).toHaveBeenCalledWith(
-      'GET /v1/campaignStrategy/mine/exists',
-      {},
-    )
-    expect(result.props.planExists).toBe(false)
-    expect(mockRedirect).not.toHaveBeenCalled()
-  })
-
-  it('fails closed to planExists=false when the existence check fails', async () => {
-    mockServerRequest.mockRejectedValue(new Error('api down'))
-
-    const result = await Page()
-
-    expect(result.props.planExists).toBe(false)
-    expect(mockRedirect).not.toHaveBeenCalled()
-  })
-
-  it('renders the router with planExists=true when a strategy exists', async () => {
-    mockServerRequest.mockResolvedValue({ data: { exists: true } })
-
-    const result = await Page()
-
-    expect(result.props.planExists).toBe(true)
     expect(result.props.initialUser).toBe(mockUser)
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  // The existence check only ever decided whether to show a generate button.
+  // Nothing generates on demand now, so asking cost every plan-tab load a
+  // blocking round trip to decide something it no longer decides.
+  it('does not ask whether a plan exists', async () => {
+    await Page()
+
+    expect(mockServerRequest).not.toHaveBeenCalled()
   })
 })

@@ -29,7 +29,10 @@ type SlackBlocksParams = {
   crmCompanyId?: string
   voterFileUrl?: string
   type: OutreachType
-  date?: Date
+  // Preformatted in the candidate's zone (outreach/util/scheduledSendLabel):
+  // a raw Date here would stringify in the server's UTC and name the wrong
+  // day for an evening US send.
+  scheduledSend?: string
   script?: string
   imageUrl?: string
   message?: string
@@ -57,7 +60,7 @@ export function buildSlackBlocks({
   crmCompanyId,
   voterFileUrl,
   type,
-  date,
+  scheduledSend,
   script,
   imageUrl,
   message,
@@ -210,7 +213,7 @@ export function buildSlackBlocks({
                 },
                 {
                   type: SlackMessageType.TEXT,
-                  text: date ? String(date) : 'Not available',
+                  text: scheduledSend ?? 'Not available',
                 },
               ],
             },

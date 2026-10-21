@@ -9,16 +9,18 @@ import { CampaignTurfList } from './CampaignTurfList'
 // Every mutation here snackbars, and `render` wraps only a QueryClient.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
-// The per-turf assignee menu reads both. Off by default, which is this
-// drawer's own default: an org without team accounts has no roster to pick
-// from and the menu renders nothing.
-let teamAccountsFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: () => teamAccountsFlag,
-}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-1' }),
 }))
+
+// The per-turf assignee menu hides itself on an empty roster (its own rule,
+// not this suite's) — an empty team keeps these tests focused on the turf
+// row itself rather than on assignment, which has its own suite.
+const mockEmptyTeam = () =>
+  api.mock('GET /v1/organizations/team', {
+    status: 200,
+    data: { members: [], pendingInvites: [] },
+  })
 
 // The drawer's sibling list, which had no tests at all until it grew a write.
 // What is pinned here is mostly about which rows offer which control: the row
@@ -29,7 +31,7 @@ describe('CampaignTurfList', () => {
   const errorSnackbar = vi.fn()
 
   beforeEach(() => {
-    teamAccountsFlag = { ready: true, enabled: false }
+    mockEmptyTeam()
     vi.mocked(useSnackbar).mockReturnValue({
       displaySnackbar: vi.fn(),
       errorSnackbar,
@@ -50,6 +52,7 @@ describe('CampaignTurfList', () => {
     peopleCount: 9,
     loggedCount: 6,
     routeSeconds: 900,
+    priorityId: null,
     completed: false,
     archivedAt: null,
     createdAt: new Date('2026-08-10T00:00:00Z'),
@@ -63,10 +66,37 @@ describe('CampaignTurfList', () => {
       data: turfs as never,
     })
 
-  const renderList = (props: { onOverlayOpenChange?: () => void } = {}) =>
+  const renderList = (
+    props: { onOverlayOpenChange?: () => void; canAddTurfs?: boolean } = {},
+  ) =>
     render(
-      <CampaignTurfList anchorOutreachId={30} outreachId={30} {...props} />,
+      <CampaignTurfList
+        isServe={false}
+        anchorOutreachId={30}
+        outreachId={30}
+        canAddTurfs
+        {...props}
+      />,
     )
+
+  // Opens the door-knocking page straight onto the drawing surface for this
+  // campaign.
+  it('links Add turf onto the map for this campaign', async () => {
+    mockTurfs()
+    renderList()
+
+    expect(
+      await screen.findByRole('link', { name: 'Add turf' }),
+    ).toHaveAttribute('href', '/dashboard/door-knocking?campaignOutreachId=30')
+  })
+
+  it('offers no Add turf on a finished or archived campaign', async () => {
+    mockTurfs()
+    renderList({ canAddTurfs: false })
+
+    expect(await screen.findByText('Elm St & 5th')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Add turf' })).toBeNull()
+  })
 
   it('renders a row per turf with its counts', async () => {
     mockTurfs([turf({ id: 12 }), turf({ id: 13, name: 'Oak Ave' })])
@@ -91,7 +121,7 @@ describe('CampaignTurfList', () => {
       '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
     )
     expect(
-      screen.getByRole('button', { name: 'Mark as done' }),
+      screen.getByRole('button', { name: 'Mark done' }),
     ).toBeInTheDocument()
   })
 
@@ -103,7 +133,7 @@ describe('CampaignTurfList', () => {
 
     expect(await screen.findByText('Done')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Continue knocking' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Mark as done' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull()
   })
 
   it('reads Archived on a shelved turf', async () => {
@@ -124,7 +154,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
 
     expect(await screen.findByText('Mark this turf done?')).toBeInTheDocument()
@@ -154,7 +184,7 @@ describe('CampaignTurfList', () => {
       '[data-slot="card"]',
     ) as HTMLElement
     await userEvent.click(
-      within(oakRow).getByRole('button', { name: 'Mark as done' }),
+      within(oakRow).getByRole('button', { name: 'Mark done' }),
     )
     const dialog = await screen.findByRole('alertdialog')
     await userEvent.click(
@@ -176,7 +206,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -185,6 +215,21 @@ describe('CampaignTurfList', () => {
 
   // The drawer's `onInteractOutside` guard depends on this, and it is
   // invisible from inside this component.
+  it('lists the newest turf first', async () => {
+    mockTurfs([
+      turf({ id: 12, name: 'First' }),
+      turf({ id: 14, name: 'Third' }),
+      turf({ id: 13, name: 'Second' }),
+    ])
+    renderList()
+
+    await screen.findByText('First')
+    const names = screen
+      .getAllByText(/^(First|Second|Third)$/)
+      .map((node) => node.textContent)
+    expect(names).toEqual(['Third', 'Second', 'First'])
+  })
+
   it('names the knock press for whether the turf has a route', async () => {
     // The route is bought at the first knock, so an unrouted press does
     // something the others do not: it plans one, and asks walking or
@@ -215,7 +260,7 @@ describe('CampaignTurfList', () => {
     renderList({ onOverlayOpenChange })
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark as done' }),
+      await screen.findByRole('button', { name: 'Mark done' }),
     )
     expect(onOverlayOpenChange).toHaveBeenCalledWith(true)
 

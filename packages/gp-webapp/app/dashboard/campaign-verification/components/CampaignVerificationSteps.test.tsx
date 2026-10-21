@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { render } from 'helpers/test-utils/render'
 import CampaignVerificationSteps from './CampaignVerificationSteps'
+import { saveVerificationDraft } from '../verificationDraft'
 
 interface MockElectionFilingFormProps {
   onSubmitted: () => void
+  persistDraft?: boolean
   onBack?: () => void
   title?: string
   caption?: string
@@ -26,8 +29,9 @@ vi.mock(
       caption,
       contactTitle,
       contactCaption,
+      persistDraft,
     }: MockElectionFilingFormProps) => (
-      <div>
+      <div data-testid="filing-form" data-persist-draft={persistDraft}>
         {title && <h2>{title}</h2>}
         {caption && <p>{caption}</p>}
         {contactTitle && <h2>{contactTitle}</h2>}
@@ -38,6 +42,13 @@ vi.mock(
     ),
   }),
 )
+
+const mockCampaign = vi.hoisted(() => ({
+  current: { id: 7 } as Record<string, unknown>,
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign.current],
+}))
 
 const SUBMITTED_TITLE = 'Submitted for verification'
 
@@ -54,6 +65,55 @@ describe('CampaignVerificationSteps', () => {
   beforeEach(() => {
     onExit = vi.fn<() => void>()
     onComplete = vi.fn<() => void>()
+    window.localStorage.clear()
+    mockCampaign.current = { id: 7 }
+  })
+
+  it('reopens on the form when this browser holds a draft', () => {
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    expect(screen.getByTestId('filing-form')).toBeInTheDocument()
+    expect(screen.queryByText(INTRO_TITLE)).not.toBeInTheDocument()
+  })
+
+  it('renders the same server markup whether or not a draft exists', () => {
+    const steps = (
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />
+    )
+    const withoutDraft = renderToString(steps)
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+
+    expect(renderToString(steps)).toBe(withoutDraft)
+  })
+
+  it('lets an explicit initialStep win over a draft', () => {
+    saveVerificationDraft(7, { filing: { candidateName: 'Sarah Chen' } })
+    render(
+      <CampaignVerificationSteps
+        initialStep="submitted"
+        onExit={onExit}
+        onComplete={onComplete}
+      />,
+    )
+
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
+  })
+
+  it('asks the filing form to keep a draft', async () => {
+    const user = userEvent.setup()
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByTestId('filing-form')).toHaveAttribute(
+      'data-persist-draft',
+      'true',
+    )
   })
 
   it('opens on the intro by default', () => {
@@ -160,6 +220,52 @@ describe('CampaignVerificationSteps', () => {
     expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Done' }))
     expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('confirms saved details without a PIN promise once texting has closed', async () => {
+    mockCampaign.current = {
+      id: 7,
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    const user = userEvent.setup()
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByText('mock-submit'))
+
+    expect(screen.getByText('Your details are saved')).toBeInTheDocument()
+    expect(screen.queryByText(SUBMITTED_TITLE)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Your campaign has been submitted for verification.'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts the cutoff date on the intro while closing', () => {
+    mockCampaign.current = {
+      id: 7,
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    render(
+      <CampaignVerificationSteps
+        initialStep="intro"
+        onExit={onExit}
+        onComplete={onComplete}
+      />,
+    )
+
+    expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
+    expect(
+      screen.getByText('Get verified to send SMS by the Oct. 15 deadline'),
+    ).toBeInTheDocument()
   })
 
   it('uses the caller-provided complete label', () => {

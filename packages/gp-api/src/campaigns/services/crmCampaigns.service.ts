@@ -23,7 +23,6 @@ import { AssociationTypes } from '@hubspot/api-client'
 import { AiChatService } from '../ai/chat/aiChat.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { EcanvasserIntegrationService } from '../../vendors/ecanvasserIntegration/services/ecanvasserIntegration.service'
 import {
   CRMCompanyProperties,
   CRMCompanyPropertiesSchema,
@@ -32,8 +31,22 @@ import { filterPropertiesForUpdate } from '../util/crmCompanyProperties.util'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { CampaignCreatedBy, OnboardingStep } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
+import { chunk, uniq } from 'es-toolkit'
 
 const HUBSPOT_COMPANY_PROPERTIES = Object.values(HubSpot.IncomingProperty)
+
+// HubSpot's batch read cap per request.
+const COMPANY_BATCH_READ_SIZE = 100
+const OWNER_PAGE_SIZE = 500
+const HUBSPOT_ID = /^\d+$/
+
+const formatOwnerName = ({
+  firstName,
+  lastName,
+}: {
+  firstName?: string
+  lastName?: string
+}) => `${firstName ? `${firstName} ` : ''}${lastName ? lastName : ''}`
 
 @Injectable()
 export class CrmCampaignsService {
@@ -50,7 +63,6 @@ export class CrmCampaignsService {
     private readonly aiChat: AiChatService,
     private readonly voterFile: VoterFileDownloadAccessService,
     private readonly slack: SlackService,
-    private readonly ecanvasser: EcanvasserIntegrationService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -110,9 +122,97 @@ export class CrmCampaignsService {
   async getCrmCompanyOwnerName(crmCompanyId: string) {
     const crmCompanyOwner = await this.getCrmCompanyOwner(crmCompanyId)
 
-    const { firstName, lastName } = crmCompanyOwner || {}
+    return formatOwnerName(crmCompanyOwner || {})
+  }
 
-    return `${firstName ? `${firstName} ` : ''}${lastName ? lastName : ''}`
+  // Batched for HubSpot's 190 requests / 10s limit: a page of companies
+  // costs one call per 100 plus the owner directory, not two per company.
+  // A key PRESENT means that id's read succeeded: the owner's name, or null
+  // when the company has no owner, the owner is not in the directory, or
+  // the company is gone. A key ABSENT means its read failed and the caller
+  // must not treat it as ownerless. Rejects only when the whole read fails.
+  async getCrmCompanyOwnerNames(
+    hubspotIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const ids = uniq(hubspotIds)
+    const names = new Map<string, string | null>()
+    if (!this.hubspot.isConfigured) {
+      for (const id of ids) names.set(id, null)
+      return names
+    }
+    // A malformed id would 400 the whole batch of 100 it rides in.
+    for (const id of ids) {
+      if (!HUBSPOT_ID.test(id)) names.set(id, null)
+    }
+    const readable = ids.filter((id) => HUBSPOT_ID.test(id))
+    if (readable.length === 0) return names
+
+    const [ownerNames, ...ownerIdChunks] = await Promise.all([
+      this.getOwnerDirectory(),
+      ...chunk(readable, COMPANY_BATCH_READ_SIZE).map((idChunk) =>
+        this.getCompanyOwnerIds(idChunk),
+      ),
+    ])
+    for (const ownerIds of ownerIdChunks) {
+      for (const [companyId, ownerId] of ownerIds ?? []) {
+        names.set(companyId, ownerId ? (ownerNames.get(ownerId) ?? null) : null)
+      }
+    }
+    return names
+  }
+
+  // Null when the batch read failed, so its ids stay absent upstream.
+  private async getCompanyOwnerIds(
+    ids: string[],
+  ): Promise<Map<string, string | null> | null> {
+    let results: SimplePublicObject[]
+    try {
+      const response = await this.hubspot.client.crm.companies.batchApi.read({
+        inputs: ids.map((id) => ({ id })),
+        properties: ['hubspot_owner_id', 'hs_merged_object_ids'],
+        propertiesWithHistory: [],
+      })
+      results = response.results
+    } catch (err) {
+      this.logger.warn(
+        { err, companyCount: ids.length },
+        'HubSpot company batch read failed',
+      )
+      return null
+    }
+    const requested = new Set(ids)
+    const ownerIds = new Map<string, string | null>()
+    for (const { id, properties } of results) {
+      const ownerId = properties.hubspot_owner_id || null
+      // A merged-away id answers with the surviving record under its own
+      // id; the id we asked for is only in hs_merged_object_ids.
+      const mergedIds = properties.hs_merged_object_ids?.split(';') ?? []
+      for (const resolvedId of [id, ...mergedIds]) {
+        if (requested.has(resolvedId)) ownerIds.set(resolvedId, ownerId)
+      }
+    }
+    // Absent from a successful batch: not found or deleted, so ownerless.
+    for (const id of ids) {
+      if (!ownerIds.has(id)) ownerIds.set(id, null)
+    }
+    return ownerIds
+  }
+
+  private async getOwnerDirectory(): Promise<Map<string, string | null>> {
+    const names = new Map<string, string | null>()
+    let after: string | undefined
+    do {
+      const page = await this.hubspot.client.crm.owners.ownersApi.getPage(
+        undefined,
+        after,
+        OWNER_PAGE_SIZE,
+      )
+      for (const owner of page.results) {
+        names.set(owner.id, formatOwnerName(owner).trim() || null)
+      }
+      after = page.paging?.next?.after
+    } while (after)
+    return names
   }
 
   private async createCompany(companyObj: CRMCompanyProperties) {
@@ -196,43 +296,36 @@ export class CrmCampaignsService {
     // district/ballot-level and position-name context share the same org row
     // and election-api position, so a single combined resolver deduplicates
     // what were previously two round-trips each re-fetching the same data.
-    const [
-      userResult,
-      aiChatCount,
-      liveMetrics,
-      orgContext,
-      tcrCompliance,
-      ecanvasser,
-    ] = await Promise.all([
-      this.users.findByCampaign(campaign),
-      userId
-        ? this.aiChat.count({ where: { userId, campaignId } })
-        : Promise.resolve(0),
-      this.campaigns.fetchLiveRaceTargetMetrics(campaign),
-      campaign.organizationSlug
-        ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
-            campaign.organizationSlug,
-          )
-        : Promise.resolve({
-            district: null,
-            ballotLevel: null,
-            positionName: null,
-            ballotReadyPositionId: null,
-          }),
-      this.campaigns.client.tcrCompliance.findUnique({
-        where: { campaignId },
-        select: {
-          email: true,
-          phone: true,
-          filingUrl: true,
-          pinDeliveryMethod: true,
-          pinDeliveryDestination: true,
-          pinSentDetectedAt: true,
-          peerlyIdentityId: true,
-        },
-      }),
-      this.ecanvasser.findByCampaignId(campaignId),
-    ])
+    const [userResult, aiChatCount, liveMetrics, orgContext, tcrCompliance] =
+      await Promise.all([
+        this.users.findByCampaign(campaign),
+        userId
+          ? this.aiChat.count({ where: { userId, campaignId } })
+          : Promise.resolve(0),
+        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+        campaign.organizationSlug
+          ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
+              campaign.organizationSlug,
+            )
+          : Promise.resolve({
+              district: null,
+              ballotLevel: null,
+              positionName: null,
+              ballotReadyPositionId: null,
+            }),
+        this.campaigns.client.tcrCompliance.findUnique({
+          where: { campaignId },
+          select: {
+            email: true,
+            phone: true,
+            filingUrl: true,
+            pinDeliveryMethod: true,
+            pinDeliveryDestination: true,
+            pinSentDetectedAt: true,
+            peerlyIdentityId: true,
+          },
+        }),
+      ])
 
     const user: User =
       // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
@@ -303,17 +396,6 @@ export class CrmCampaignsService {
       ? HubSpot.ProSubStatus.ACTIVE
       : HubSpot.ProSubStatus.INACTIVE
 
-    let ecanvasserCount = 0
-    let ecanvasserHousesCount = 0
-    let ecanvasserInteractionsCount = 0
-    if (ecanvasser) {
-      // get count of contacts and interactions
-      const { contacts, interactions } = ecanvasser
-      ecanvasserCount = contacts?.length
-      ecanvasserInteractionsCount = interactions?.length
-      ecanvasserHousesCount = ecanvasser.houses?.length
-    }
-
     const fieldsToSync: Record<
       HubSpot.OutgoingProperty,
       string | number | undefined
@@ -322,13 +404,11 @@ export class CrmCampaignsService {
       calls_made: reportedVoterGoals?.calls,
       direct_mail_sent: reportedVoterGoals?.directMail,
       event_impressions: reportedVoterGoals?.events,
-      knocked_doors: ecanvasserInteractionsCount || undefined, // TODO: remove/rename one of these two doorknock fields?
-      doors_knocked: reportedVoterGoals?.doorKnocking || undefined, // TODO: remove/rename one of these two doorknock fields?
+      doors_knocked: reportedVoterGoals?.doorKnocking || undefined,
       online_impressions: reportedVoterGoals?.digitalAds || undefined,
       yard_signs_impressions: reportedVoterGoals?.yardSigns || undefined,
       // p2p_texts: reportedVoterGoals?.text, TODO: we need a new field in HS for sms text contact numbers!!!
-      ecanvasser_contacts_count: ecanvasserCount,
-      ecanvasser_houses_count: ecanvasserHousesCount,
+
       // candidate details
       candidate_district: candidateDistrict,
       candidate_email: user?.email,
@@ -507,6 +587,18 @@ export class CrmCampaignsService {
       this.logger.debug(
         { campaignId, email: user.email },
         'skipping HubSpot company sync for a test campaign',
+      )
+      return
+    }
+
+    const org = await this.organizations.findUnique({
+      where: { slug: campaign.organizationSlug },
+      select: { testModeCreatedAt: true },
+    })
+    if (org?.testModeCreatedAt) {
+      this.logger.debug(
+        { campaignId },
+        'skipping HubSpot company sync for a test-mode organization',
       )
       return
     }

@@ -35,6 +35,12 @@ import {
   type SavedDedupeFilter,
 } from '../recommendedListsDedupe.util'
 import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
+import {
+  globalVariantOrder,
+  isEarlyVoteWindowOpen,
+} from '../recommendedListsEarlyVoteWindow.util'
+import { BallotReadyService } from '@/elections/services/ballotReady.service'
+import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
 
 export type Recommendation = {
   variant: RecommendedListVariant
@@ -70,6 +76,7 @@ const isSized = (outcome: SizeOutcome): outcome is SizedDraft =>
 type ResolvedScope = {
   filters: FilterData
   idOverrides?: IdOverrides
+  affinityColumn?: AffinityColumn
 }
 
 // Campaign.details is Prisma JSON, so its shadow type can't be trusted at
@@ -79,6 +86,7 @@ type ResolvedScope = {
 // campaignStrategy.service.ts twice.
 const CampaignRaceSchema = z.object({
   raceId: z.string().nullable().optional().catch(null),
+  electionDate: z.string().nullable().optional().catch(null),
 })
 
 // No floor at all, so any non-empty list qualifies.
@@ -159,6 +167,7 @@ export class RecommendedListsService {
     private readonly voterFileFilters: VoterFileFilterService,
     private readonly reads: VoterRecommendedListsService,
     private readonly electionApi: ElectionApiService,
+    private readonly ballotReady: BallotReadyService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(RecommendedListsService.name)
@@ -208,31 +217,42 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [districtId, ideologyBucket, savedFilters, race] = await Promise.all([
-      this.contacts.resolveEligibleDistrictId(organization),
-      // Never throws: a classification failure returns null, which hides
-      // the ideology variants. That is the common case, not the edge one.
-      needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
-      // Loaded with `activityConditions` included, which the dedupe
-      // comparison reads straight off the row. Rows without the relation
-      // all look condition-free, so two lists differing only in their
-      // conditions would compare equal and the candidate would be handed
-      // someone else's audience.
-      this.voterFileFilters.findByOrganizationSlug(organization.slug),
-      // Once per request, and inside this fan-out rather than ahead of it:
-      // it gates the size floor and the propensity band so it has to land
-      // before the counts, but it is an election-api round-trip and
-      // nothing else here waits on it.
-      this.raceSizingContext(campaign),
-    ])
+    // The global set is the one surface the early-vote window governs (see
+    // globalVariantOrder). A purpose or variant that names early voting comes
+    // in with an intent or a variant and is never gated.
+    const isGlobal = !variant && !intent && !channel
+
+    const [eligible, ideologyBucket, savedFilters, race, earlyVoteWindow] =
+      await Promise.all([
+        this.contacts.resolveEligibleDistrict(organization),
+        // Never throws: a classification failure returns null, which hides
+        // the ideology variants. That is the common case, not the edge one.
+        needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
+        // Loaded with `activityConditions` included, which the dedupe
+        // comparison reads straight off the row. Rows without the relation
+        // all look condition-free, so two lists differing only in their
+        // conditions would compare equal and the candidate would be handed
+        // someone else's audience.
+        this.voterFileFilters.findByOrganizationSlug(organization.slug),
+        // Once per request, and inside this fan-out rather than ahead of it:
+        // it gates the size floor and the propensity band so it has to land
+        // before the counts, but it is an election-api round-trip and
+        // nothing else here waits on it.
+        this.raceSizingContext(campaign),
+        isGlobal ? this.earlyVoteWindowOpen(campaign) : false,
+      ])
 
     const { votesNeededToWin, electionCode } = race
+    const ordered = isGlobal ? globalVariantOrder(earlyVoteWindow) : variants
 
-    const district = await this.reads.resolveDistrict(districtId)
+    const district = await this.reads.resolveDistrict(
+      eligible.districtId,
+      eligible.dataset,
+    )
 
     // A null filter is an ideology variant with no bucket to match
     // against; that null is how those variants hide.
-    const drafts = variants
+    const drafts = ordered
       .map((variant) => ({
         variant,
         filter: buildVariantFilter(
@@ -281,10 +301,9 @@ export class RecommendedListsService {
 
     const costInCents = channel ? COST_IN_CENTS[channel] : null
 
-    // Two intents can describe the same universe (early voting duplicates
-    // persuasion and event audiences by decision), so a global request
-    // would otherwise show one list twice. Kept under the first intent in
-    // registry order; the same payload comparison as the saved-list dedupe.
+    // Two intents can describe the same universe, so a global request would
+    // otherwise show one list twice. Kept under the first intent in display
+    // order; the same payload comparison as the saved-list dedupe.
     const seen: SavedDedupeFilter[] = []
     const distinct = sized.filter(isSized).filter((draft) => {
       if (findEquivalentFilter(draft.filter, seen) !== null) return false
@@ -292,8 +311,8 @@ export class RecommendedListsService {
       return true
     })
 
-    // variantsForIntent already returns registry display order and neither
-    // the map nor the filters above disturb it.
+    // `ordered` is already display order (registry order, or the global
+    // early-vote order) and neither the map nor the filters above disturb it.
     return distinct.map(({ variant, filter, count }) => ({
       variant,
       intent: RECOMMENDED_LISTS_REGISTRY[variant].intent,
@@ -376,6 +395,27 @@ export class RecommendedListsService {
     }
   }
 
+  // Early-vote start from BallotReady when it has one. fetchMilestones never
+  // throws (a failed lookup is null), and a null start falls back to two
+  // weeks out inside isEarlyVoteWindowOpen, so a BallotReady outage moves
+  // the window rather than hiding it.
+  private async earlyVoteWindowOpen(campaign: Campaign): Promise<boolean> {
+    const parsed = CampaignRaceSchema.safeParse(campaign.details)
+    const raceId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
+    const electionDate = parsed.success
+      ? (parsed.data.electionDate ?? null)
+      : null
+    if (!electionDate) return false
+    const milestones = raceId
+      ? await this.ballotReady.fetchMilestones(raceId)
+      : null
+    return isEarlyVoteWindowOpen(
+      new Date().toISOString().slice(0, 10),
+      electionDate,
+      milestones?.early_voting?.start ?? null,
+    )
+  }
+
   private async sizeDraft(
     organization: Organization,
     district: DbxDistrict,
@@ -400,6 +440,10 @@ export class RecommendedListsService {
       const scope: ResolvedScope = {
         filters: filtersSchema.parse(resolved.filters),
         idOverrides: resolved.idOverrides,
+        affinityColumn: await this.contacts.affinityColumnFor(
+          organization,
+          resolved.filters,
+        ),
       }
 
       if (channel === 'doorKnocking') {
@@ -410,6 +454,7 @@ export class RecommendedListsService {
           district,
           scope.filters,
           scope.idOverrides,
+          scope.affinityColumn,
         )
         if (
           !qualifies(
@@ -438,6 +483,7 @@ export class RecommendedListsService {
         district,
         scope.filters,
         scope.idOverrides,
+        scope.affinityColumn,
       )
       return qualifies(
         count,

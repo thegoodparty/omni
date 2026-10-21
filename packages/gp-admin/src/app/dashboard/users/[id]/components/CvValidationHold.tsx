@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { Button, Checkbox, Flex, Link, Text } from '@radix-ui/themes'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
-import { useToast } from '@/components/Toast'
-import { overrideCvValidationAndResubmit } from '@/app/dashboard/campaigns/actions'
+import { useCvHoldOverride } from '@/app/dashboard/campaigns/components/useCvHoldOverride'
+import { EditFilingUrlAction } from '@/app/dashboard/campaigns/components/EditFilingUrlAction'
 
 interface CvValidationHoldProps {
   campaignId: number
@@ -20,32 +20,14 @@ export function CvValidationHold({
   failureReasons,
   onResolved,
 }: CvValidationHoldProps) {
-  const { showToast } = useToast()
   const [confirmed, setConfirmed] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-
-  async function handleOverride() {
-    setSubmitting(true)
-    try {
-      const { retriedRunId, retryError } =
-        await overrideCvValidationAndResubmit(campaignId)
-      showToast(
-        retryError
-          ? `Hold cleared, but resubmitting failed: ${retryError}`
-          : retriedRunId
-            ? 'Hold cleared — registration resubmitted'
-            : 'Hold cleared — the next sweep will resubmit'
-      )
-      await onResolved()
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : 'Failed to override CV validation'
-      )
-    }
-    setSubmitting(false)
-  }
+  // overridden keeps the button dead between a successful override and the
+  // onResolved refresh unmounting this widget — a second click in that gap
+  // would queue (and bill) another agent run.
+  const { override, overriding, overridden } = useCvHoldOverride(
+    campaignId,
+    onResolved
+  )
 
   return (
     <Flex direction="column" gap="2">
@@ -59,9 +41,21 @@ export function CvValidationHold({
         </Flex>
       )}
       {filingUrl && (
-        <Link size="2" href={filingUrl} target="_blank" rel="noreferrer">
-          Open the filing page
-        </Link>
+        <Flex align="center" gap="2">
+          <Link size="2" href={filingUrl} target="_blank" rel="noreferrer">
+            Open the filing page
+          </Link>
+          <ProtectedContent
+            requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+            hideWhenUnauthorized
+          >
+            <EditFilingUrlAction
+              campaignId={campaignId}
+              filingUrl={filingUrl}
+              onResolved={onResolved}
+            />
+          </ProtectedContent>
+        </Flex>
       )}
       <ProtectedContent
         requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
@@ -71,7 +65,7 @@ export function CvValidationHold({
           <Flex align="center" gap="2">
             <Checkbox
               checked={confirmed}
-              disabled={submitting}
+              disabled={overriding || overridden}
               onCheckedChange={(checked) => setConfirmed(checked === true)}
             />
             <Text size="2" color="gray">
@@ -80,12 +74,14 @@ export function CvValidationHold({
           </Flex>
           <Button
             variant="outline"
-            disabled={!confirmed || submitting}
-            onClick={handleOverride}
+            disabled={!confirmed || overriding || overridden}
+            onClick={override}
           >
-            {submitting
-              ? 'Resubmitting...'
-              : 'Override validation and resubmit'}
+            {overridden
+              ? 'Hold cleared'
+              : overriding
+                ? 'Resubmitting...'
+                : 'Override validation and resubmit'}
           </Button>
         </Flex>
       </ProtectedContent>

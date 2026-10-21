@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
+import { useRouter } from 'next/navigation'
 import { Badge, Button, EmptyState, cn } from '@styleguide'
 import { ArchiveIcon, ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
@@ -12,9 +12,11 @@ import {
   type PrioritySource,
 } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import AddPriorityForm from './AddPriorityForm'
 import {
   archivePriority,
+  listPriorities,
   prioritizeCommunityIssue,
 } from '../data/priorities-api'
 
@@ -55,7 +57,7 @@ const SOURCE_ORDER: PrioritySource[] = [
 // step spine rather than trusting it: an id this build does not know about is
 // better shown as nothing than as a raw slug.
 const stepLabel = (currentStep: string | null): string => {
-  if (!currentStep) return 'Settled'
+  if (!currentStep) return 'Plan ready'
   const step = PRIORITY_STEP_IDS.find((id) => id === currentStep)
   return step ? PRIORITY_STEP_LABELS[step] : ''
 }
@@ -73,6 +75,41 @@ const PrioritiesHub = ({
   const [pendingIssueId, setPendingIssueId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+  const changedHere = useRef(false)
+
+  useEffect(() => {
+    const bySource = (source: PrioritySource) =>
+      priorities.filter((p) => p.source === source).length
+    trackEvent(EVENTS.Priorities.ListViewed, {
+      priorityCount: priorities.length,
+      userStatedCount: bySource('user_stated'),
+      communityIssueCount: bySource('community_issue'),
+      winImportCount: bySource('win_import'),
+      plansReadyCount: priorities.filter((p) => !p.currentStep).length,
+      seedIssueCount: seedIssues.filter((issue) => !issue.prioritized).length,
+    })
+    // Once per visit, on what the page rendered with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back to this page renders from Next's router cache, which still holds the
+  // list as it was first loaded: a priority added since is missing, so the row
+  // you click opens an older one, and step badges lag behind. Re-read on mount.
+  // A change made here before the read lands wins over it, and an add the
+  // read already carries is not added twice.
+  useEffect(() => {
+    let cancelled = false
+    listPriorities()
+      .then((fresh) => {
+        if (!cancelled && !changedHere.current) setItems(fresh)
+      })
+      // A failed re-read keeps the list the page rendered with.
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const counts = useMemo(() => {
     const tally: Record<string, number> = {}
@@ -89,13 +126,23 @@ const PrioritiesHub = ({
     [seedIssues],
   )
 
+  // Adding a priority is the start of working it, so go straight into its
+  // conversation rather than leaving a new row on the list.
+  const openPriority = (id: string): void => {
+    router.push(`/dashboard/priorities/${id}`)
+  }
+
   const addFromIssue = async (issue: CommunityIssueCard): Promise<void> => {
     if (pendingIssueId) return
     setPendingIssueId(issue.id)
     setError(null)
     try {
       const created = await prioritizeCommunityIssue(issue.id)
-      setItems((prev) => [...prev, created])
+      changedHere.current = true
+      setItems((prev) =>
+        prev.some((p) => p.id === created.id) ? prev : [...prev, created],
+      )
+      openPriority(created.id)
     } catch {
       setError('Could not add that issue. Please try again.')
     } finally {
@@ -109,6 +156,7 @@ const PrioritiesHub = ({
     setError(null)
     try {
       await archivePriority(id)
+      changedHere.current = true
       setItems((prev) => prev.filter((p) => p.id !== id))
     } catch {
       setError('Could not remove that priority. Please try again.')
@@ -141,8 +189,14 @@ const PrioritiesHub = ({
         {adding ? (
           <AddPriorityForm
             onCreated={(created) => {
-              setItems((prev) => [...prev, created])
+              changedHere.current = true
+              setItems((prev) =>
+                prev.some((p) => p.id === created.id)
+                  ? prev
+                  : [...prev, created],
+              )
               setAdding(false)
+              openPriority(created.id)
             }}
             onCancel={() => setAdding(false)}
           />
@@ -212,11 +266,6 @@ const PrioritiesHub = ({
                           {priority.nextAction}
                         </p>
                       ) : null}
-                      <p className="truncate text-xs text-muted-foreground">
-                        {priority.targetDate
-                          ? `Target ${format(new Date(priority.targetDate), 'MMM d, yyyy')}`
-                          : 'No target date'}
-                      </p>
                     </div>
                     {step ? (
                       <Badge

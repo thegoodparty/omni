@@ -46,6 +46,45 @@ export const dashboardApi = {
     }
   },
 
+  async completeCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/complete', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'complete-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
+  async snoozeCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/snooze', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'snooze-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
+  async restoreCard(id: string): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/cards/:id/restore', { id })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'restore-card',
+        cardId: id,
+      })
+      throw err
+    }
+  },
+
   async getOnboardingCards(): Promise<OnboardingCard[]> {
     const { data } = await clientRequest(
       'GET /v1/dashboard/onboarding-cards',
@@ -63,6 +102,21 @@ export const dashboardApi = {
       reportErrorToSentry(err, {
         surface: 'chief-of-staff-dashboard',
         phase: 'skip-onboarding-card',
+        cardKey: key,
+      })
+      throw err
+    }
+  },
+
+  async completeOnboardingCard(key: OnboardingCardKey): Promise<void> {
+    try {
+      await clientRequest('PUT /v1/dashboard/onboarding-cards/:key/complete', {
+        key,
+      })
+    } catch (err) {
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-dashboard',
+        phase: 'complete-onboarding-card',
         cardKey: key,
       })
       throw err

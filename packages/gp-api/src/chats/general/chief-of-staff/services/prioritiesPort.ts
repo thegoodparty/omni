@@ -11,19 +11,33 @@
 // drop this file's port in favor of importing slice 1's service type. See the
 // note in chief-of-staff.module.ts.
 
+import type {
+  PriorityStepCheck,
+  PriorityStepId,
+} from '@goodparty_org/contracts'
+
+// Where a priority stands in its own guided flow, so this surface can talk
+// about it without running it. Only steps that carry a check are listed.
+export interface PriorityFlowState {
+  currentStep: PriorityStepId | null
+  nextAction: string | null
+  checks: Array<{ stepId: PriorityStepId; check: PriorityStepCheck }>
+}
+
 export interface PriorityRecord {
   id: string
   title: string
   description: string
-  targetDate: string | null
   archivedAt: string | null
+  // Present on listActive, which is what the context reads. A write returns
+  // the record without it.
+  flow?: PriorityFlowState
 }
 
 export interface CreatePriorityInput {
   electedOfficeId: string
   title: string
   description: string
-  targetDate?: string | null
 }
 
 export interface UpdatePriorityInput {
@@ -31,7 +45,6 @@ export interface UpdatePriorityInput {
   id: string
   title?: string
   description?: string
-  targetDate?: string | null
 }
 
 export interface PrioritiesToolPort {

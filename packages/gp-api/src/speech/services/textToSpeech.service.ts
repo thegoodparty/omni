@@ -13,12 +13,11 @@ import {
   SynthesizeSpeechResponse,
 } from '@goodparty_org/contracts'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SPEECH_BUCKET } from '../speechBucket'
 import { chunkBySentence } from '../util/chunkBySentence'
 import { UserRequestBudget } from '../util/userRequestBudget'
 import { PollyService } from './polly.service'
 
-const SPEECH_BUCKET =
-  process.env.MEETING_PIPELINE_BUCKET ?? 'meeting-pipeline-dev'
 const SYNTH_PREFIX = 'speech/synth'
 const POLLY_MAX_CHARS = 2900
 const PRESIGNED_URL_EXPIRES_SECONDS = 600

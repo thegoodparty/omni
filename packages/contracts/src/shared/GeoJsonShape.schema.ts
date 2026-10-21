@@ -51,3 +51,24 @@ export const shapePolygons = (shape: GeoJsonShape): GeoJsonPolygon[] =>
 // How many parts a boundary has — the number a surface prints as "2 shapes".
 export const shapePartCount = (shape: GeoJsonShape): number =>
   shape.type === 'Polygon' ? 1 : shape.coordinates.length
+
+// What the holder called each part of a list's boundary, and the colour they
+// drew it in. A GeoJSON `MultiPolygon` has nowhere to carry either, so this
+// rides beside `geoPoly` as its own array, one entry per part in
+// `shapePolygons` order. The index IS the join, which is why a write that
+// changes the shape without restating its labels clears them rather than
+// leaving names attached to parts that moved.
+export const MAX_GEO_SHAPE_NAME_LENGTH = 120
+
+export const GeoShapeLabelSchema = z
+  .object({
+    name: z.string().trim().min(1).max(MAX_GEO_SHAPE_NAME_LENGTH),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  })
+  .strict()
+
+export type GeoShapeLabel = z.infer<typeof GeoShapeLabelSchema>
+
+export const GeoShapeLabelsSchema = z.array(GeoShapeLabelSchema).min(1)
+
+export type GeoShapeLabels = z.infer<typeof GeoShapeLabelsSchema>

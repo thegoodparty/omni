@@ -132,6 +132,7 @@ const Harness = ({
     )
   return (
     <PersonSheet
+      turfId={1}
       stop={stop(residents, door)}
       stopSeq={7}
       isServe={isServe}
@@ -609,10 +610,10 @@ describe('PersonSheet reconciliation', () => {
   })
 })
 
-// ADR 0007 and 0008. A flagged resident reads "Do not knock" in the walk list
-// and used to read "Support unknown" here one tap later — two answers to the
-// same question about the same person. Both rosters replace the status with the
-// marker for the same reason the list does.
+// Do-not-knock and not-a-voter. A flagged resident reads "Do not knock" in
+// the walk list and used to read "Support unknown" here one tap later — two
+// answers to the same question about the same person. Both rosters replace the
+// status with the marker for the same reason the list does.
 describe('PersonSheet flagged residents', () => {
   const household = () =>
     screen.getByRole('heading', { name: 'Household' }).parentElement!
@@ -694,7 +695,6 @@ describe('PersonSheet flagged residents', () => {
   })
 })
 
-// ADR 0009.
 describe('PersonSheet activity feed', () => {
   const feed = () =>
     screen.getByRole('heading', { name: 'Activity Feed' }).parentElement!
@@ -966,8 +966,8 @@ describe('PersonSheet voter support', () => {
 
   // A stance with no dated row behind it is still worth stating; the date is
   // what has to go missing rather than be invented. This is also the offline
-  // case — a route snapshotted before ADR 0009 shipped carries no history at
-  // all.
+  // case — a route snapshotted before the activity feed was added to the
+  // route payload carries no history at all.
   it('states the support without a date when nothing in the history says when', () => {
     renderSheet([
       target({
@@ -1000,7 +1000,7 @@ describe('PersonSheet voter support', () => {
 
   // The newest row that speaks to support is the only one allowed to date the
   // card. When it disagrees with the status on the payload — an override
-  // outside ADR 0009's five-row window is how that happens — the honest answer
+  // outside the feed's five-row window is how that happens — the honest answer
   // is no date, not the older row that happens to agree.
   it('refuses to date the card from a superseded answer', () => {
     renderSheet([
@@ -1019,11 +1019,12 @@ describe('PersonSheet voter support', () => {
     expect(support.queryByText(/As of/)).toBeNull()
   })
 
-  // ADR 0007 and 0008, at panel scale: the marker replaces the status rather
-  // than sitting beside it. "Supporter" over a footer reading "asked not to be
-  // visited again" is the pair of answers to one question that `targetMarker`
-  // exists to prevent. The card now sits in the body rather than inside the
-  // footer's flag branch, so this pair is what holds the two halves together.
+  // Do-not-knock and not-a-voter, at panel scale: the marker replaces the
+  // status rather than sitting beside it. "Supporter" over a footer reading
+  // "asked not to be visited again" is the pair of answers to one question that
+  // `targetMarker` exists to prevent. The card now sits in the body rather than
+  // inside the footer's flag branch, so this pair is what holds the two halves
+  // together.
   it.each<[string, Partial<RoutePayloadTarget>]>([
     ['do-not-knock', { doNotKnock: true }],
     ['not-a-voter', { notAVoterReason: 'moved' }],
@@ -1211,6 +1212,7 @@ describe('PersonSheet demographic information', () => {
   it('leaves other residents name-only', () => {
     render(
       <PersonSheet
+        turfId={1}
         stop={{
           ...stop([fullTarget()]),
           addresses: [
@@ -1253,7 +1255,7 @@ describe('PersonSheet demographic information', () => {
   })
 })
 
-// ADR 0011. The card's own reads and writes are covered in
+// Notes. The card's own reads and writes are covered in
 // DoorNotesCard.test.tsx; what belongs here is where the sheet puts it, whose
 // notes it shows, and what survives.
 describe('PersonSheet notes', () => {
@@ -1409,7 +1411,7 @@ describe('PersonSheet notes', () => {
   })
 
   // Seventh, between the demographic profile and the activity feed, where the
-  // canvas draws Notes. ADR 0011 argued it second — above the profile, because
+  // canvas draws Notes. It was once argued second — above the profile, because
   // it is the only card here read BEFORE the knock — and that argument is
   // recorded in the component and in AGENTS.md rather than deleted; what
   // overrules it is the design call that this panel's card order is the
@@ -1431,9 +1433,10 @@ describe('PersonSheet notes', () => {
     ).toBeTruthy()
   })
 
-  // A route the service worker snapshotted before ADR 0011 shipped has no
-  // `notes` key at all, and the phone holding it cannot refetch. The card still
-  // renders — it just says which of the two silences this is.
+  // A route the service worker snapshotted before notes were added to the
+  // route payload has no `notes` key at all, and the phone holding it cannot
+  // refetch. The card still renders — it just says which of the two silences
+  // this is.
   it('renders for a payload with no notes field', () => {
     renderSheet([target()])
 

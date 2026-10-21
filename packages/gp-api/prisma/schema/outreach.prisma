@@ -1,6 +1,6 @@
 enum OutreachType {
   text
-  // Legacy: draft/intent rows from the old CSV/eCanvasser flow (all pending).
+  // Legacy: draft/intent rows from the old CSV-import flow (all pending).
   doorKnocking
   // Native: one envelope row per generated door_knocking_route
   // (see doorKnockingRouteId) so routes appear in the unified outreach list.
@@ -12,6 +12,9 @@ enum OutreachType {
   socialMedia
   robocall
   p2p
+  // Serve self-serve poll: the question lives in `message`, the rest on
+  // the OutreachPoll satellite.
+  poll
 }
 
 enum OutreachStatus {
@@ -42,6 +45,35 @@ model Outreach {
   // The priority this outreach belongs to, when it came out of one.
   priorityId                        String?                            @map("priority_id")
   priority                          Priority?                          @relation(fields: [priorityId], references: [id], onDelete: SetNull)
+  // The check on that priority this outreach puts out: a gate step id and
+  // 'main' | 'contrast' (contracts PriorityCheckSide), validated on write.
+  // Kept on the row because a text only goes out once it is paid for, long
+  // after the create that carried them.
+  priorityStepId                    String?                            @map("priority_step_id")
+  priorityCheckSide                 String?                            @map("priority_check_side")
+  // Set at create when the message carries the civic panel JOIN line, so the
+  // reply ingest reads JOIN replies off this send and nothing else.
+  asksToJoinCivicPanel              Boolean                            @default(false) @map("asks_to_join_civic_panel")
+  // Set at create when the message carries the civic panel LEAVE line, which
+  // only a send to panel members alone carries, never beside the JOIN line.
+  // A LEAVE reply is honored on any Serve send; this records the offer.
+  offersCivicPanelLeave             Boolean                            @default(false) @map("offers_civic_panel_leave")
+  // Set on a Serve text that reports back to the people an earlier text
+  // asked. It marks the send as not itself an ask (no report back is owed on
+  // it) and completes the earlier send's "Report back" card once it goes out.
+  reportBackForOutreachId           Int?                               @map("report_back_for_outreach_id")
+  reportBackFor                     Outreach?                          @relation("OutreachReportBack", fields: [reportBackForOutreachId], references: [id], onDelete: SetNull)
+  reportBacks                       Outreach[]                         @relation("OutreachReportBack")
+  // Set on a priority text's follow-up: the second half of one purchase,
+  // held until its draw, pointing at the first half sent right away. One
+  // follow-up per first round, paid for in the same checkout.
+  roundOneOutreachId                Int?                               @unique @map("round_one_outreach_id")
+  roundOne                          Outreach?                          @relation("OutreachRounds", fields: [roundOneOutreachId], references: [id], onDelete: Cascade)
+  roundTwo                          Outreach?                          @relation("OutreachRounds")
+  // The campaign plan task this outreach was launched from, when it was. The
+  // task list marks that task done once the outreach is scheduled, then
+  // clears this, so a later "Mark not done" on the task sticks.
+  trackerTaskId                     String?                            @map("tracker_task_id")
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
   // Nullable so a Serve elected-office org (no campaign row) can persist an
@@ -105,6 +137,12 @@ model Outreach {
   // finalize. Cancel-before-send resolves its payment intent for the
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
+  // The zero-amount fulfillment that funded this outreach: the synthetic
+  // free_confirmed_* marker completeFreePurchase mints. Recorded so a
+  // granted free send is a positive fact rather than the absence of a
+  // Stripe session — the approval gate cannot tell "free" from "never
+  // purchased" otherwise.
+  freePurchaseSessionId             String?                            @map("free_purchase_session_id")
   // CAS approval gate (SMS console): a scheduled p2p send stays dormant at
   // the vendor until an admin approval requests canvassers. All nullable —
   // pre-console rows and non-SMS channels never carry them.
@@ -149,6 +187,9 @@ model Outreach {
   campaignSiblings                  Outreach[]                         @relation("OutreachCampaign")
   social                            OutreachSocial?
   robocall                          OutreachRobocall?
+  pollDetails                       OutreachPoll?
+  p2pSms                            OutreachP2pSms?
+  optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]
@@ -157,9 +198,15 @@ model Outreach {
   contactInteractionRobocalls       ContactInteractionRobocall[]
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
   assignments                       OutreachAssignment[]
+  constituentFeedback               ConstituentFeedback[]
+  feedbackSynthesisRuns             FeedbackSynthesisRun[]
+  contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
+  civicPanelBuildSteps              CivicPanelBuildStep[]
+  priorityAnswers                   PriorityAnswer[]
 
   @@index([campaignId])
   @@index([organizationSlug])
   @@index([campaignOutreachId])
+  @@index([reportBackForOutreachId])
   @@map("outreach")
 }

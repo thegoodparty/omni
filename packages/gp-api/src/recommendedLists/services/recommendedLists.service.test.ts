@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -36,6 +36,8 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
 }
 
 const rankedPrecincts = (count: number) =>
@@ -52,7 +54,7 @@ const isSupporterUniverse = (filter: VoterFilterBase) =>
   filter.supportStatus?.length === 1 && filter.supportStatus[0] === 'supporter'
 
 describe('RecommendedListsService.recommend', () => {
-  let resolveEligibleDistrictId: ReturnType<typeof vi.fn>
+  let resolveEligibleDistrict: ReturnType<typeof vi.fn>
   let resolveSavedFilterForQuery: ReturnType<typeof vi.fn>
   let bucketForCampaign: ReturnType<typeof vi.fn>
   let findByOrganizationSlug: ReturnType<typeof vi.fn>
@@ -60,10 +62,13 @@ describe('RecommendedListsService.recommend', () => {
   let countForFilter: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
   let getRaceContext: ReturnType<typeof vi.fn>
+  let fetchMilestones: ReturnType<typeof vi.fn>
   let service: RecommendedListsService
 
   beforeEach(() => {
-    resolveEligibleDistrictId = vi.fn().mockResolvedValue(DISTRICT_ID)
+    resolveEligibleDistrict = vi
+      .fn()
+      .mockResolvedValue({ districtId: DISTRICT_ID, dataset: 'voters' })
     // The real conversion, so the FilterData each count receives is the
     // one the variant's own universe produces and a test can key on it.
     resolveSavedFilterForQuery = vi.fn(
@@ -86,9 +91,14 @@ describe('RecommendedListsService.recommend', () => {
       winNumberEffective: VOTES_NEEDED,
       electionCode: ElectionCode.General,
     })
+    fetchMilestones = vi.fn().mockResolvedValue(null)
 
     service = new RecommendedListsService(
-      { resolveEligibleDistrictId, resolveSavedFilterForQuery } as never,
+      {
+        resolveEligibleDistrict,
+        resolveSavedFilterForQuery,
+        affinityColumnFor: vi.fn().mockResolvedValue(undefined),
+      } as never,
       { bucketForCampaign } as never,
       { findByOrganizationSlug } as never,
       {
@@ -97,8 +107,20 @@ describe('RecommendedListsService.recommend', () => {
         rankPrecincts,
       } as never,
       { getRaceContext } as never,
+      { fetchMilestones } as never,
       createMockLogger(),
     )
+  })
+
+  it('resolves the district against the people table the org reads', async () => {
+    resolveEligibleDistrict.mockResolvedValue({
+      districtId: DISTRICT_ID,
+      dataset: 'constituents',
+    })
+
+    await service.recommend(organization, campaign, 'sms', 'introduce')
+
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
   })
 
   it('omits ideology variants when the campaign has no bucket', async () => {
@@ -149,6 +171,78 @@ describe('RecommendedListsService.recommend', () => {
       'persuadeIdeology',
       'persuadeUndecided',
     ])
+  })
+
+  describe('the early-vote window on the global set', () => {
+    const datedCampaign = {
+      ...campaign,
+      details: { raceId: RACE_ID, electionDate: '2026-11-03' },
+    } as unknown as Campaign
+
+    const atDay = (day: string) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(`${day}T12:00:00Z`))
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('ranks early vote right after introduce while early voting is open', async () => {
+      atDay('2026-10-16')
+      fetchMilestones.mockResolvedValue({
+        voter_registration: null,
+        early_voting: { start: '2026-09-24', end: '2026-11-02' },
+        request_ballot: null,
+      })
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        null,
+        null,
+      )
+
+      expect(fetchMilestones).toHaveBeenCalledWith(RACE_ID)
+      expect(results.slice(0, 3).map((result) => result.variant)).toEqual([
+        'introNeverIded',
+        'earlyVoteSupporters',
+        'earlyVoteAffinity',
+      ])
+    })
+
+    it('leaves early vote out before the window opens', async () => {
+      atDay('2026-10-16')
+      fetchMilestones.mockResolvedValue(null)
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        null,
+        null,
+      )
+
+      expect(results.some((result) => result.intent === 'earlyVote')).toBe(
+        false,
+      )
+    })
+
+    it('never gates a request that names the early-vote intent', async () => {
+      atDay('2026-06-01')
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        'sms',
+        'earlyVote',
+      )
+
+      expect(fetchMilestones).not.toHaveBeenCalled()
+      expect(results.map((result) => result.variant)).toEqual([
+        'earlyVoteSupporters',
+        'earlyVoteAffinity',
+      ])
+    })
   })
 
   describe('the vote-goal size floor', () => {
@@ -540,7 +634,9 @@ describe('RecommendedListsService.recommend', () => {
         inFlight -= 1
         return value
       }
-      resolveEligibleDistrictId.mockImplementation(() => track(DISTRICT_ID))
+      resolveEligibleDistrict.mockImplementation(() =>
+        track({ districtId: DISTRICT_ID, dataset: 'voters' }),
+      )
       getRaceContext.mockImplementation(() =>
         track({
           winNumberEffective: VOTES_NEEDED,
@@ -762,7 +858,7 @@ describe('RecommendedListsService.recommend', () => {
     const results = await service.recommend(organization, campaign, 'sms', null)
 
     expect(results).toEqual([])
-    expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+    expect(resolveEligibleDistrict).not.toHaveBeenCalled()
     expect(getRaceContext).not.toHaveBeenCalled()
   })
 
@@ -771,7 +867,7 @@ describe('RecommendedListsService.recommend', () => {
       service.recommend(electedOffice, campaign, 'sms', 'introduce'),
     ).rejects.toBeInstanceOf(BadRequestException)
 
-    expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+    expect(resolveEligibleDistrict).not.toHaveBeenCalled()
   })
 
   it('names the intent each recommendation belongs to', async () => {
@@ -1023,7 +1119,8 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(rankPrecincts).toHaveBeenCalledTimes(1)
-      expect(rankPrecincts.mock.calls[0]).toHaveLength(3)
+      // district, filters, idOverrides, affinityColumn: no widening argument.
+      expect(rankPrecincts.mock.calls[0]).toHaveLength(4)
       expect(countForFilter).not.toHaveBeenCalled()
       expect(first?.count).toBe(100)
       expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])

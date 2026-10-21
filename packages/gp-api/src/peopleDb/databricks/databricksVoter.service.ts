@@ -41,6 +41,7 @@ import {
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
+  buildPrecinctMembersSql,
   MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
@@ -48,23 +49,51 @@ import {
   HOUSEHOLD_PAGE_COLUMNS,
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
+  buildWalkableAreaSql,
   DOOR_KNOCKING_RESIDENT_COLUMNS,
   type DbxDistrict,
   type DbxEvaluateRow,
   type DbxResidentRow,
+  type DbxWalkableHouseholdRow,
+  type DbxScopeArgs,
+  peopleTable,
 } from './databricksVoterSql.util'
+import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
 import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
+  WalkableAreaDTO,
 } from '../schemas/doorKnocking.schema'
 import {
   buildDistrictStatsSql,
   mapDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
-import { buildDistrictCensusSql } from './districtCensusSql.util'
+import { type AffinityColumn } from '../affinityColumns.const'
+import {
+  buildAnswerCellsSql,
+  buildDistrictCellsSql,
+  buildDistrictCensusSql,
+  buildDistrictCompositionSql,
+  buildDistrictTractAdultsSql,
+  buildPoolCellsSql,
+  buildRespondentCellsSql,
+  buildTractGridCellsSql,
+  mapAcsCounts,
+  mapAnswerCells,
+  mapDistrictCells,
+  mapGridCells,
+  mapRespondentCells,
+  mapTractAdults,
+  sampleWeightSql,
+  type AnswerCell,
+  type DistrictCell,
+  type DistrictCells,
+  type PersonAnswer,
+  type WeightingInputs,
+} from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -88,8 +117,11 @@ const EMPTY_FILTERS = filtersSchema.parse({})
 // what the sample is for; stable within a minute so a retry is idempotent.
 // `| 0` because hash32 returns unsigned 32-bit and the parameter binds as INT:
 // a district whose hash lands above 2^31-1 is otherwise rejected outright.
-const sampleSeed = (districtId: string): number =>
-  hash32(`${districtId}:${Math.floor(Date.now() / 60_000)}`) | 0
+//
+// A caller that names the draw (`seedKey`) gets the same people whenever it
+// asks, so a list's sample can be drawn again the same way.
+const sampleSeed = (districtId: string, seedKey?: string): number =>
+  hash32(`${districtId}:${seedKey ?? Math.floor(Date.now() / 60_000)}`) | 0
 
 const TIMEOUT_MESSAGE =
   'The voter query took too long to run. Narrow the audience and try again.'
@@ -145,7 +177,14 @@ export class DatabricksVoterService {
   // District rows are immutable reference data and one list-detail request
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
-  private readonly districts = new Map<string, DbxDistrict>()
+  //
+  // Holds only the district's identity, never the table: the dataset is a
+  // per-organization decision, and caching a resolved table here would hand
+  // one org's people to another org scoped to the same district.
+  private readonly districts = new Map<
+    string,
+    Omit<DbxDistrict, 'dataset' | 'table'>
+  >()
 
   constructor(
     private readonly logger: PinoLogger,
@@ -155,17 +194,23 @@ export class DatabricksVoterService {
     this.logger.setContext(DatabricksVoterService.name)
   }
 
-  // Resolved from election-api, which owns the District table -- not from
-  // Databricks (a measured p90 of 8.6s for one keyed row, at the head of every
-  // voter read) and no longer from people-db either. Reading the upstream
+  // Resolved from the election database, which owns the District table -- not
+  // from Databricks (a measured p90 of 8.6s for one keyed row, at the head of
+  // every voter read) and no longer from people-db either. Reading the owner
   // directly is what leaves a Databricks-served read touching people-db not at
-  // all. Memoized per process, so a district costs one hop per task.
-  async resolveDistrict(districtId: string): Promise<DbxDistrict> {
+  // all. Memoized per process, so a district costs one query per task.
+  async resolveDistrict(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DbxDistrict> {
+    const withTable = (
+      identity: Omit<DbxDistrict, 'dataset' | 'table'>,
+    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
     const cached = this.districts.get(districtId)
-    if (cached) return cached
+    if (cached) return withTable(cached)
     const { type, name, state } =
       await this.districtService.findDistrictById(districtId)
-    const district: DbxDistrict = {
+    const district = {
       districtId,
       state,
       districtType: type,
@@ -176,12 +221,13 @@ export class DatabricksVoterService {
     }
     // `type` is spliced into the SQL as a column IDENTIFIER, which cannot be a
     // bound parameter, so it is checked before it gets there. It arrives from
-    // election-api's District table rather than from a caller, so this guards
-    // our own ingest rather than user input -- and a character class is the
-    // whole of that guard: a value that fails it cannot form valid SQL. This
-    // used to query information_schema on every process to confirm the column
-    // existed too, which answered a different question at the cost of an
-    // uncached metadata round trip on the first voter read of every task.
+    // the election database's District table rather than from a caller, so
+    // this guards our own ingest rather than user input -- and a character
+    // class is the whole of that guard: a value that fails it cannot form
+    // valid SQL. This used to query information_schema on every process to
+    // confirm the column existed too, which answered a different question at
+    // the cost of an uncached metadata round trip on the first voter read of
+    // every task.
     if (!district.useVoterOnlyPath && !SAFE_IDENTIFIER.test(type)) {
       throw new InternalServerErrorException(
         `District ${districtId} has type "${type}", which is not a usable ` +
@@ -189,17 +235,21 @@ export class DatabricksVoterService {
       )
     }
     this.districts.set(districtId, district)
-    return district
+    return withTable(district)
   }
 
-  async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
-    const district = await this.resolveDistrict(dto.districtId)
+  async getAggregates(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<PeopleAggregatesResponse> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { rows } = await this.run(
       buildAggregatesSql({
         district,
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -210,10 +260,29 @@ export class DatabricksVoterService {
     })
   }
 
+  async findPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCell[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildPoolCellsSql({
+        district,
+        filters: dto.filters,
+        search: dto.search,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
+      }),
+    )
+    return mapDistrictCells(rows)
+  }
+
   async getListDetailAggregates(
     dto: AggregatesDTO,
+    dataset: PeopleDataset,
   ): Promise<PeopleListDetailAggregatesResponse> {
-    const district = await this.resolveDistrict(dto.districtId)
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { rows } = await this.run(
       buildListDetailAggregatesSql({
         district,
@@ -221,6 +290,7 @@ export class DatabricksVoterService {
         search: dto.search,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     const [row] = rows
@@ -237,8 +307,9 @@ export class DatabricksVoterService {
 
   async getOverlapCount(
     dto: OverlapCountDTO,
+    dataset: PeopleDataset,
   ): Promise<PeopleOverlapCountResponse> {
-    const district = await this.resolveDistrict(dto.districtId)
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { rows } = await this.run(
       buildOverlapCountSql({
         district,
@@ -247,6 +318,7 @@ export class DatabricksVoterService {
         savedFilterSets: dto.savedFilterSets,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
       }),
     )
     return PeopleOverlapCountResponseSchema.parse({
@@ -258,8 +330,8 @@ export class DatabricksVoterService {
   // from another office must not resolve through this drawer. The two
   // not-found messages mirror Postgres exactly, because the webapp
   // distinguishes "not in this district" from "no such person".
-  async findPerson(id: string, districtId: string) {
-    const district = await this.resolveDistrict(districtId)
+  async findPerson(id: string, districtId: string, dataset: PeopleDataset) {
+    const district = await this.resolveDistrict(districtId, dataset)
     const { columnNames } = buildVoterSelectSql()
     const { rows } = await this.run(
       buildPersonSql({
@@ -279,8 +351,11 @@ export class DatabricksVoterService {
     return transformToPersonOutput(toDbPerson(columnNames, row))
   }
 
-  async findPrecincts(districtId: string): Promise<PeoplePrecinctsResponse> {
-    const district = await this.resolveDistrict(districtId)
+  async findPrecincts(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<PeoplePrecinctsResponse> {
+    const district = await this.resolveDistrict(districtId, dataset)
     const { rows } = await this.run(buildPrecinctsSql({ district }))
     // The statement asks for one row past the cap purely so this comparison
     // can tell a full list from a clipped one; that extra row is dropped.
@@ -298,6 +373,25 @@ export class DatabricksVoterService {
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
   }
 
+  // The given people counted per (County, Precinct). A NULL precinct is ''
+  // as in findPrecincts.
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<Array<{ county: string; precinct: string; people: number }>> {
+    if (personIds.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(
+      buildPrecinctMembersSql({ district, personIds }),
+    )
+    return rows.map((row) => ({
+      county: row[0] ?? '',
+      precinct: row[1] ?? '',
+      people: Number(row[2] ?? 0),
+    }))
+  }
+
   // A recommended-list variant's own count, scoped to a resolved district.
   // Callers already have `district` -- the recommended-lists endpoint fans
   // out several of these plus a districtTotal concurrently against one
@@ -310,9 +404,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<number> {
     const { rows } = await this.run(
-      buildCountSql({ district, filters, idOverrides }),
+      buildCountSql({ district, filters, idOverrides, affinityColumn }),
     )
     return Number(rows[0]?.[0] ?? 0)
   }
@@ -325,9 +420,10 @@ export class DatabricksVoterService {
     district: DbxDistrict,
     filters: FilterData,
     idOverrides?: IdOverrides,
+    affinityColumn?: AffinityColumn,
   ): Promise<RankPrecinctsResult> {
     const { rows } = await this.run(
-      buildRankPrecinctsSql({ district, filters, idOverrides }),
+      buildRankPrecinctsSql({ district, filters, idOverrides, affinityColumn }),
     )
     const precincts: RankedPrecinct[] = rows.map((row) => ({
       county: row[0] ?? '',
@@ -340,8 +436,8 @@ export class DatabricksVoterService {
     }
   }
 
-  async findPeople(dto: ListPeopleDTO) {
-    const district = await this.resolveDistrict(dto.districtId)
+  async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { columnNames } = buildVoterSelectSql()
     const scope = {
       district,
@@ -349,6 +445,7 @@ export class DatabricksVoterService {
       search: dto.search,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
     }
     const page = Math.max(1, dto.page)
 
@@ -401,8 +498,11 @@ export class DatabricksVoterService {
   // await: it hits a 109k-row table, so it costs nothing next to the voter
   // scan, and a missing census row (~25% of districts) must never affect the
   // null/unavailable result that scan alone decides.
-  async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
-    const district = await this.resolveDistrict(districtId)
+  async findStats(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<ComputedDistrictStats | null> {
+    const district = await this.resolveDistrict(districtId, dataset)
     const statsRead = this.run(buildDistrictStatsSql(district))
     // Failure-isolated: this figure is decorative next to the voter scan, so
     // a Databricks blip on it must not fail the primary stats read every
@@ -434,27 +534,116 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
+  // What weighting needs: respondents counted by age band, gender, tenure
+  // and tract, and the district's adults per tract.
+  async findWeightingInputs(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<WeightingInputs> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractResult] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      personIds.length > 0
+        ? this.client.query(buildRespondentCellsSql(district, personIds))
+        : Promise.resolve({ columns: [], rows: [] }),
+      this.client.query(buildDistrictTractAdultsSql(district)),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapRespondentCells(cellResult.rows),
+      tractAdults: mapTractAdults(tractResult.rows),
+    }
+  }
+
+  // The district's census row, its adults per tract, and its people counted
+  // by age band, gender, tract and race.
+  async findDistrictCells(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCells> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractAdults] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      this.client.query(buildDistrictCellsSql(district)),
+      this.client
+        .query(buildDistrictTractAdultsSql(district))
+        .then(({ rows }) => mapTractAdults(rows))
+        .catch((err: unknown) => {
+          this.logger.warn(
+            { err, districtId },
+            'tract adults read failed; frame keeps the voter file tracts',
+          )
+          return new Map<string, number>()
+        }),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapDistrictCells(cellResult.rows),
+      tractAdults,
+    }
+  }
+
+  async findAnswerCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    answers: PersonAnswer[],
+  ): Promise<AnswerCell[]> {
+    if (answers.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildAnswerCellsSql(district, answers),
+    )
+    return mapAnswerCells(rows)
+  }
+
+  async findTractGridCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+    cellDegrees: number,
+  ): Promise<Array<{ row: number; col: number }>> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractGridCellsSql(district, tracts, cellDegrees),
+    )
+    return mapGridCells(result.rows)
+  }
+
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
   // know how big the population is, and the two rejections below are product
   // behavior the Postgres path enforced (a missing-stats district unmounts the
   // surface rather than showing zero).
-  async samplePeople(dto: SamplePeopleDTO) {
-    const district = await this.resolveDistrict(dto.districtId)
+  //
+  // Drawn within an audience (`filters`), the pool is that audience's own
+  // count instead, and the cell-phone cut is left to the filters: an audience
+  // already says how it is reached (has cell for a text, any phone for a
+  // call), and the count has to read the same rows the draw does.
+  async samplePeople(dto: SamplePeopleDTO, dataset: PeopleDataset) {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const size = dto.size ?? DEFAULT_SAMPLE_SIZE
-    const hasCellPhone = dto.hasCellPhone ?? true
+    const hasCellPhone = dto.filters ? undefined : (dto.hasCellPhone ?? true)
     const excludeIds = dto.excludeIds ?? []
-
-    const stats = await this.findStats(dto.districtId)
-    if (!stats) {
-      throw new BadRequestException({
-        message: `District stats not available for districtId=${dto.districtId}`,
-        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
-      })
+    const weights = dto.weights
+    const scope: DbxScopeArgs = {
+      district,
+      filters: dto.filters ?? EMPTY_FILTERS,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
+      search: dto.search,
     }
 
-    const pool = hasCellPhone
-      ? stats.totalConstituentsWithCellPhone
-      : stats.totalConstituents
+    const pool = dto.filters
+      ? Number((await this.run(buildCountSql(scope))).rows[0]?.[0] ?? 0)
+      : await this.districtSamplePool(
+          dto.districtId,
+          dataset,
+          hasCellPhone !== false,
+        )
     const remaining = pool - Math.min(excludeIds.length, pool)
     if (remaining < size) {
       throw new BadRequestException(
@@ -463,27 +652,62 @@ export class DatabricksVoterService {
     }
 
     const desiredRows = size * SAMPLE_OVERSAMPLE_FACTOR
-    const hashDivisor = Math.min(
+    let hashDivisor = Math.min(
       MAX_SAMPLE_HASH_DIVISOR,
       Math.max(1, Math.floor(remaining / desiredRows)),
     )
 
     const { columnNames } = buildVoterSelectSql()
-    const { rows } = await this.run(
-      buildSampleSql({
-        district,
-        filters: EMPTY_FILTERS,
-        columns: columnNames,
-        size,
-        seed: sampleSeed(dto.districtId),
-        hashDivisor,
-        hasCellPhone,
-        excludeIds,
-      }),
-    )
+    const seed = sampleSeed(dto.districtId, dto.seedKey)
+    const draw = (divisor: number) =>
+      this.run(
+        buildSampleSql({
+          ...scope,
+          columns: columnNames,
+          size,
+          seed,
+          hashDivisor: divisor,
+          hasCellPhone,
+          excludeIds,
+          weight: weights && ((bag) => sampleWeightSql(bag, weights)),
+        }),
+      )
+    let { rows } = await draw(hashDivisor)
+    // The slice holds three times the request on average, so it can still
+    // land short: a small draw by chance, or a stale pool count. Widen once
+    // to a slice twice the size, then to the whole pool, which either fills
+    // or proves the pool too small. Each step is fixed by the seed, so a seed
+    // still maps to one set of people.
+    for (const wider of [Math.floor(hashDivisor / 2), 1]) {
+      if (rows.length >= size || hashDivisor <= 1) break
+      hashDivisor = Math.max(1, wider)
+      rows = (await draw(hashDivisor)).rows
+    }
+    if (rows.length < size) {
+      throw new BadRequestException(
+        `Not enough non-excluded constituents ${rows.length} to satisfy target: ${size}`,
+      )
+    }
     return rows
       .map((row) => toDbPerson(columnNames, row))
       .map(transformToPersonOutput)
+  }
+
+  private async districtSamplePool(
+    districtId: string,
+    dataset: PeopleDataset,
+    cellOnly: boolean,
+  ): Promise<number> {
+    const stats = await this.findStats(districtId, dataset)
+    if (!stats) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+    return cellOnly
+      ? stats.totalConstituentsWithCellPhone
+      : stats.totalConstituents
   }
 
   // Both door-knocking reads return ROWS, not a finished response. The cap
@@ -492,19 +716,22 @@ export class DatabricksVoterService {
   // implementation across both engines rather than two that can drift.
   async doorKnockingEvaluateRows(
     dto: DoorKnockingEvaluateDTO,
+    dataset: PeopleDataset,
     opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DbxEvaluateRow[]> {
-    const district = await this.resolveDistrict(dto.districtId)
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { columns, rows } = await this.run(
       buildDoorKnockingEvaluateSql({
         district,
         filters: dto.filters,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
         bbox: dto.bbox,
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,
         requireRooftopAccuracy: opts?.requireRooftopAccuracy,
+        tract: dto.tract,
       }),
     )
     return rows.map((row) => {
@@ -521,11 +748,38 @@ export class DatabricksVoterService {
     })
   }
 
+  async walkableAreaRows(
+    dto: WalkableAreaDTO,
+    dataset: PeopleDataset,
+  ): Promise<DbxWalkableHouseholdRow[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { columns, rows } = await this.run(
+      buildWalkableAreaSql({
+        district,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        households: dto.households,
+        excludePersonIds: dto.excludePersonIds,
+        tract: dto.tract,
+      }),
+    )
+    return rows.map((row) => {
+      const record = toRecord(columns, row)
+      return {
+        lat: Number(record.lat),
+        lng: Number(record.lng),
+        personIds: (record.personIds ?? '').split(',').filter(Boolean),
+      }
+    })
+  }
+
   async doorKnockingResidentRows(
     dto: DoorKnockingResidentsDTO,
+    dataset: PeopleDataset,
     residentsCap: number,
   ): Promise<DbxResidentRow[]> {
-    const district = await this.resolveDistrict(dto.districtId)
+    const district = await this.resolveDistrict(dto.districtId, dataset)
     const { columns, rows } = await this.run(
       buildDoorKnockingResidentsSql({
         district,

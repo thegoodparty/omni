@@ -26,7 +26,7 @@ const note = {
   actorName: null,
 }
 
-describe('RoutePayloadTargetSchema notes (ADR 0011)', () => {
+describe('RoutePayloadTargetSchema notes', () => {
   // The whole reason the field is `.optional()` rather than required or
   // `.default([])`. A route snapshotted for an offline walk before this
   // shipped carries no `notes` key, and the phone holding it cannot refetch.

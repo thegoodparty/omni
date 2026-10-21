@@ -3,12 +3,19 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "builder": "swc",
-    "typeCheck": true,
+    "builder": {
+      "type": "swc",
+      "options": { "swcrcPath": ".swcrc.build.json" }
+    },
+    "typeCheck": false,
     "deleteOutDir": true,
     "assets": [
       {
         "include": "meetings/assets/**/*",
+        "outDir": "dist"
+      },
+      {
+        "include": "chats/general/services/guardrailLines.json",
         "outDir": "dist"
       },
       {
@@ -38,6 +45,36 @@
       },
       {
         "include": "generated/prisma/package.json",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.node",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.wasm",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.mjs",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.js",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.prisma",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/package.json",
         "outDir": "dist",
         "watchAssets": false
       }

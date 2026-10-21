@@ -1,6 +1,9 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
-import { GeoJsonShapeSchema } from '@goodparty_org/contracts'
+import {
+  GeoJsonShapeSchema,
+  GeoShapeLabelsSchema,
+} from '@goodparty_org/contracts'
 import { voterFilterBaseSchema } from '../../shared/schemas/voterFilterBase.schema'
 
 export class UpdateVoterFileFilterSchema extends createZodDto(
@@ -11,6 +14,9 @@ export class UpdateVoterFileFilterSchema extends createZodDto(
       // absent key leaves both alone, which is what every pre-boundary
       // caller sends.
       geoPoly: GeoJsonShapeSchema.nullable().optional(),
+      // Only read beside `geoPoly`. Sending `geoPoly` without it clears
+      // the names, because they were joined to the parts it replaces.
+      geoPolyLabels: GeoShapeLabelsSchema.nullable().optional(),
     })
     .partial(),
 ) {}

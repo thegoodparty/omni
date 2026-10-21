@@ -13,9 +13,7 @@ members = [
     "gp-ai-projects",
     "gp-autopilot",
     "gp-broker",
-    "gp-clickup-bot",
     "gp-ddhq-matcher",
-    "gp-engineer-agent",
     "gp-pmf-engine",
     "gp-shared",
     "gp-v1-pipeline",
@@ -1284,11 +1282,6 @@ dev = [
 ]
 
 [package.dev-dependencies]
-campaign-plan-lambda = [
-    { name = "braintrust" },
-    { name = "google-genai" },
-    { name = "python-dotenv" },
-]
 dev = [
     { name = "braintrust", extra = ["cli"] },
     { name = "jsonschema" },
@@ -1348,11 +1341,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-campaign-plan-lambda = [
-    { name = "braintrust", specifier = ">=0.12.1" },
-    { name = "google-genai", specifier = ">=1.56.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-]
 dev = [
     { name = "braintrust", extras = ["cli"], specifier = ">=0.12.1" },
     { name = "jsonschema", specifier = ">=4.20.0" },
@@ -1418,11 +1406,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "gp-clickup-bot"
-version = "0.1.0"
-source = { virtual = "clickup_bot" }
-
-[[package]]
 name = "gp-ddhq-matcher"
 version = "0.1.0"
 source = { virtual = "hubspot_ddhq_match" }
@@ -1439,27 +1422,6 @@ requires-dist = [
     { name = "faiss-cpu", specifier = ">=1.12.0" },
     { name = "gp-shared", editable = "shared" },
     { name = "pyarrow", specifier = ">=21.0.0" },
-]
-
-[[package]]
-name = "gp-engineer-agent"
-version = "0.1.0"
-source = { virtual = "engineer_agent" }
-dependencies = [
-    { name = "boto3" },
-    { name = "claude-agent-sdk" },
-    { name = "gp-shared" },
-    { name = "httpx" },
-    { name = "pyjwt", extra = ["crypto"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = ">=1.40.50" },
-    { name = "claude-agent-sdk", specifier = "==0.2.87" },
-    { name = "gp-shared", editable = "shared" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
 ]
 
 [[package]]

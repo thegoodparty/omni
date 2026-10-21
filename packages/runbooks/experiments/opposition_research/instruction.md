@@ -7,17 +7,17 @@ This experiment does **NOT** profile opponents. No candidate summaries, no key f
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/opposition_research.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 
 ## TODO CHECKLIST
-1. Read `PARAMS_JSON`; identify the candidate (`is_user`) and build the seed opponent list from the general + primary rosters (Step 0).
+1. Read `PARAMS_FILE`; identify the candidate (`is_user`) and build the seed opponent list from the general + primary rosters (Step 0).
 2. Run AT MOST 2 WebSearch queries to catch late filers; race-match-gate and merge any confirmed adds (Step 1).
 3. Write the opponent list + `_race.json`, run `assemble.py` (Step 2).
 4. Validate (Step 3).
 
-## Inputs (the params in `PARAMS_JSON`)
+## Inputs (the params in `PARAMS_FILE`)
 Every field gp-api provides. Fill in the glossary term for each value where one applies (leave blank where there is no term).
 
 **Top level**
@@ -75,7 +75,7 @@ Every field gp-api provides. Fill in the glossary term for each value where one 
 
 ### Step 0 - Read params, identify the candidate, build the seed opponent list
 
-Read `PARAMS_JSON` once. The candidate you write FOR is `user_full_name`; `office_name` = `campaign_strategy_context.candidate_office` (fallback `official_office_name`, used for web search); `state` / `electionDate` = the context's `state` / `relevant_election_date`. (`race_id` is a trace id - ignore it; you never call election-api.)
+Read `PARAMS_FILE` once. The candidate you write FOR is `user_full_name`; `office_name` = `campaign_strategy_context.candidate_office` (fallback `official_office_name`, used for web search); `state` / `electionDate` = the context's `state` / `relevant_election_date`. (`race_id` is a trace id - ignore it; you never call election-api.)
 
 The roster is `campaign_strategy_context.candidates[]` and it INCLUDES the candidate. `campaign_primary_strategy_context` carries only the PRIMARY stage's roster (`candidate_count` + `candidates`), or is `null` when the race has no primary. **You are handed both rosters on purpose: our data lags reality and the timing varies** - this can run before OR after the primary, so the general roster is often empty or stale before the field settles, while the primary roster usually has the real filed names. Treat both as evidence and **use judgment to build the list of who is actually running against the candidate in this (general) election.** Do not blindly merge the two.
 

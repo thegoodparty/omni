@@ -8,12 +8,16 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { Person, SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { useWinVoterContext } from 'app/dashboard/shared/useWinVoterContext'
 import ListMapSection from './ListMapSection'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+vi.mock('app/dashboard/shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
 }))
@@ -63,6 +67,7 @@ vi.mock('./ContactListMap', () => ({
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 const errorSnackbar = vi.fn()
 const successSnackbar = vi.fn()
 
@@ -99,6 +104,12 @@ beforeEach(() => {
     currentlySelectedPersonId: null,
     isWinContext: false,
   } as unknown as ReturnType<typeof useContactsTable>)
+  mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+  // The drawing surface draws the list's whole audience, not its members.
+  api.mock('POST /v1/contacts/points', {
+    status: 200,
+    data: { points: [{ id: 'p1', lat: 44.76, lng: -85.61 }], truncated: false },
+  })
   api.mock('GET /v1/contacts', {
     status: 200,
     data: {
@@ -120,15 +131,46 @@ describe('ListMapSection — boundary CTA', () => {
     render(<ListMapSection segment={segment()} />)
 
     expect(
-      await screen.findByRole('button', { name: /draw an area/i }),
+      await screen.findByRole('button', { name: /draw shapes/i }),
     ).toBeInTheDocument()
+  })
+
+  it('maps a built-in list read-only, with no draw CTA', async () => {
+    const segments: (string | undefined)[] = []
+    api.mock('GET /v1/contacts', ({ query }) => {
+      segments.push(query.segment)
+      return {
+        status: 200,
+        data: {
+          people: [person('p1', '44.76', '-85.61')],
+          pagination: {
+            totalResults: 1,
+            currentPage: 1,
+            pageSize: 20,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        },
+      }
+    })
+    render(<ListMapSection builtInListId="civicPanel" />)
+
+    expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
+      'data-people',
+      '1',
+    )
+    expect(segments).toEqual(['civicPanel'])
+    expect(
+      screen.queryByRole('button', { name: /shapes/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('reads as editing once the list carries a boundary, and draws it', async () => {
     render(<ListMapSection segment={segment({ geoPoly: SAVED_POLYGON })} />)
 
     expect(
-      await screen.findByRole('button', { name: /edit area/i }),
+      await screen.findByRole('button', { name: /edit shapes/i }),
     ).toBeInTheDocument()
     const map = screen.getByTestId('contact-map-stub')
     // Every part of a saved boundary is read-only here, so it arrives as
@@ -157,7 +199,7 @@ describe('ListMapSection — boundary CTA', () => {
       JSON.stringify([TAPS]),
     )
     expect(
-      screen.queryByRole('button', { name: /draw an area|edit area/i }),
+      screen.queryByRole('button', { name: /draw shapes|edit shapes/i }),
     ).not.toBeInTheDocument()
   })
 
@@ -171,7 +213,7 @@ describe('ListMapSection — boundary CTA', () => {
     render(<ListMapSection segment={segment()} />)
 
     await user.click(
-      await screen.findByRole('button', { name: /draw an area/i }),
+      await screen.findByRole('button', { name: /draw shapes/i }),
     )
     const overlay = within(screen.getByTestId('boundary-overlay'))
     await user.click(overlay.getByRole('button', { name: 'place ring' }))
@@ -189,6 +231,39 @@ describe('ListMapSection — boundary CTA', () => {
     )
   })
 
+  it('tracks a candidate saving a boundary as a Voter Data event', async () => {
+    mockedUseContactsTable.mockReturnValue({
+      selectPerson: vi.fn(),
+      currentlySelectedPersonId: null,
+      isWinContext: true,
+    } as unknown as ReturnType<typeof useContactsTable>)
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 7 },
+    })
+    const user = userEvent.setup()
+    render(<ListMapSection segment={segment()} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: /draw shapes/i }),
+    )
+    const overlay = within(screen.getByTestId('boundary-overlay'))
+    await user.click(overlay.getByRole('button', { name: 'place ring' }))
+    await user.click(overlay.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.VoterData.ListBoundarySaved,
+        { listId: 7, cleared: false, shapeCount: 1, surface: 'listDetail' },
+      ),
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.ConstituentData.ListBoundarySaved,
+      expect.anything(),
+    )
+  })
+
   // Locked between the sheet opening and the save landing. The wizard's own
   // update treats that race as a neutral message rather than a failure, and
   // so does this.
@@ -201,7 +276,7 @@ describe('ListMapSection — boundary CTA', () => {
     render(<ListMapSection segment={segment()} />)
 
     await user.click(
-      await screen.findByRole('button', { name: /draw an area/i }),
+      await screen.findByRole('button', { name: /draw shapes/i }),
     )
     const overlay = within(screen.getByTestId('boundary-overlay'))
     await user.click(overlay.getByRole('button', { name: 'place ring' }))

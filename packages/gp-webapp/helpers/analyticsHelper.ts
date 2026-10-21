@@ -177,12 +177,26 @@ export const EVENTS = {
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
-    KnowYourConstituentsViewed:
-      'Serve Onboarding - Know Your Constituents Viewed',
-    KnowYourConstituentsCompleted:
-      'Serve Onboarding - Know Your Constituents Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
+    // The serve-citizen-panels district story, one pair per step, then the
+    // priorities step.
+    YouRepresentViewed: 'Serve Onboarding - You Represent Viewed',
+    YouRepresentCompleted: 'Serve Onboarding - You Represent Completed',
+    HearFromTheLoudestVoicesViewed:
+      'Serve Onboarding - Hear From The Loudest Voices Viewed',
+    HearFromTheLoudestVoicesCompleted:
+      'Serve Onboarding - Hear From The Loudest Voices Completed',
+    WhereYourCommunityStandsViewed:
+      'Serve Onboarding - Where Your Community Stands Viewed',
+    WhereYourCommunityStandsCompleted:
+      'Serve Onboarding - Where Your Community Stands Completed',
+    BuildAndGrowYourListViewed:
+      'Serve Onboarding - Build And Grow Your List Viewed',
+    BuildAndGrowYourListCompleted:
+      'Serve Onboarding - Build And Grow Your List Completed',
+    PrioritiesViewed: 'Serve Onboarding - Priorities Viewed',
+    PrioritiesCompleted: 'Serve Onboarding - Priorities Completed',
   },
   Navigation: {
     Top: {
@@ -198,10 +212,8 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
-      ClickCommunity: 'Navigation - Dashboard: Click Community',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
-      ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
@@ -229,16 +241,29 @@ export const EVENTS = {
     InviteSubmitted: 'Team - Invite Submitted',
   },
 
+  // The Campaign Manager home's first-run prompt cards (meet the manager, get
+  // on the ballot, personalize, plan ready), the control arm of
+  // `next-task-experience`. `card` says which and `action` whether the
+  // candidate took the CTA or skipped. Its task cards fire TaskActionTaken.
+  CampaignManager: {
+    PromptCardActionTaken: 'Campaign Manager - Prompt Card Action Taken',
+  },
+
   Dashboard: {
     CampaignPlan: {
-      GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
-      WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
-      TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
-      TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
-      ViewModeToggled: 'Dashboard - Campaign Plan View Mode Toggled',
-      VoterContactDialogViewed: 'Dashboard - Voter Contact Dialog Viewed',
-      VoterContactRecorded: 'Dashboard - Voter Contact Recorded',
+      // Completion only — an uncomplete is a correction, not an activation
+      // signal, and an event named Completed must not fire on one.
+      TaskCompleted: 'Dashboard - Campaign Task Completed',
+      // Every other choice a candidate makes on a plan task (start its work,
+      // ask about it, put it off, set it aside, bring it back, mark it not
+      // done), from Home's card or the plan page. `action` says which and
+      // `source` says where, matching the outreach flows' own `source`.
+      TaskActionTaken: 'Campaign Plan - Task Action Taken',
+      // The Campaign strategy window: opened, then closed with how far into
+      // the plan the candidate read (scroll depth, deepest section, time).
+      CampaignStrategyViewed: 'Campaign Plan - Campaign Strategy Viewed',
+      CampaignStrategyClosed: 'Campaign Plan - Campaign Strategy Closed',
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
@@ -250,8 +275,6 @@ export const EVENTS = {
         'Dashboard - Campaign Plan: Strategic Landscape Displayed',
       PlanDownloaded: 'Dashboard - Campaign Plan: Plan Downloaded',
       PlanShared: 'Dashboard - Campaign Plan: Plan Shared',
-      CampaignManagerClicked:
-        'Dashboard - Campaign Plan: Campaign Manager Clicked',
     },
     PathToVictory: {
       ClickUnderstand:
@@ -270,8 +293,18 @@ export const EVENTS = {
         Exit: 'Dashboard - Path to Victory: Exit About Phases Modal',
       },
     },
+    // One event per outreach campaign carrying a `medium` (the tracker's
+    // TaskChannel vocabulary) and a `fanout`, NOT one event per channel — the
+    // per-channel `Outreach - <channel>: Complete` trio went dark one channel
+    // at a time when the v2 hub replaced their surfaces, and nothing noticed
+    // for a month. Full schema: `docs/features/voter-outreach-analytics.md`.
     VoterContact: {
-      CampaignCompleted: 'Voter Outreach - Campaign Completed',
+      CampaignCompleted: 'Outreach - Campaign Completed',
+      // Fires on EVERY channel, always before Completed. On the paid channels
+      // and social the two sit close together (the draft exists, then it is
+      // paid for or saved); on door knocking and phone banking there is a real
+      // gap, because the list is created days before anyone works it.
+      CampaignCreated: 'Outreach - Campaign Created',
       LogProgress: {
         Exit: 'Dashboard - Voter Contact - Log Progress: Exit Log Progress',
         ClickAdd:
@@ -284,44 +317,6 @@ export const EVENTS = {
           'Dashboard - Voter Contact - Door Knocking: Click Get Door Targets',
         ClickLogProgress:
           'Dashboard - Voter Contact - Door Knocking: Click Log Progress',
-      },
-      Texting: {
-        ClickGenerateScript:
-          'Dashboard - Voter Contact - Texting: Click Generate Script',
-        ClickScheduleTextCampaign:
-          'Dashboard - Voter Contact - Texting: Click Schedule Text Campaign',
-        ClickLogProgress:
-          'Dashboard - Voter Contact - Texting: Click Log Progress',
-        ScheduleCampaign: {
-          Exit: 'Schedule Text Campaign: Exit',
-          Next: 'Schedule Text Campaign: Next',
-          Back: 'Schedule Text Campaign: Back',
-          Complete: {
-            ReturnToDashboard:
-              'Schedule Text Campaign: Complete - Return to Dashboard',
-            ReturnToVoterFile:
-              'Schedule Text Campaign: Complete - Return to Voter File',
-          },
-          Audience: {
-            CheckAudience: 'Schedule Text Campaign - Audience: Check Audience',
-            CheckPoliticalParty:
-              'Schedule Text Campaign - Audience: Check Political Party',
-            CheckAge: 'Schedule Text Campaign - Audience: Check Age',
-            CheckGender: 'Schedule Text Campaign - Audience: Check Gender',
-            EnterRequest:
-              'Schedule Text Campaign - Audience: Enter Audience Request',
-          },
-          Script: {
-            ClickSaved:
-              'Schedule Text Campaign - Script: Click Use a saved script',
-            SelectSaved: 'Schedule Text Campaign - Script: Select Saved Script',
-            ClickGenerate:
-              'Schedule Text Campaign - Script: Click Generate a new script',
-            ClickAdd:
-              'Schedule Text Campaign - Script: Click Add your own script',
-            SubmitAdd: 'Schedule Text Campaign - Script: Submit added script',
-          },
-        },
       },
       PhoneBanking: {
         ClickGenerateScript:
@@ -367,10 +362,6 @@ export const EVENTS = {
   },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
-    Banner: {
-      ClickUpgrade:
-        'Pro Upgrade - Level Up Your Campaign Banner: Click upgrade',
-    },
     Modal: {
       Shown: 'Pro Upgrade - Modal: Modal Shown',
       Exit: 'Pro Upgrade - Modal: Exit',
@@ -379,21 +370,21 @@ export const EVENTS = {
     CommitteeCheck: {
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
-      ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
     },
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
     // belong to the older upgrade UX. The funnel's submit/checkout-start signals
     // already exist and are reused (Profile.CandidateProfile.SubmitSuccess,
-    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted,
-    // ProUpgrade.ClickGoToStripe); the "viewed" steps below were the gap.
+    // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
+    // the "viewed" steps below were the gap.
     Compliance: {
-      BannerViewed: 'Pro Upgrade - Banner Viewed',
-      BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
-      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
-      TextingSetupBannerStart:
-        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
+      // The funnel's first step: carries `source`, `channel` and `cta`.
+      FlowStarted: 'Pro Upgrade - Flow Started',
+      // The outreach gate's "Join Pro to send this campaign" pause screen.
+      InterstitialViewed: 'Pro Upgrade - Upgrade Interstitial Viewed',
+      InterstitialCompleted: 'Pro Upgrade - Upgrade Interstitial Completed',
+      InterstitialDismissed: 'Pro Upgrade - Upgrade Interstitial Dismissed',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
       ValuePropMaybeLater: 'Pro Upgrade - Value Prop: Click Maybe later',
@@ -419,17 +410,14 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
-    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
-    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
-    // `action`.
     Membership: {
-      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
-      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
-      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
-      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
-      PitchViewed: 'Pro Upgrade - Pitch Viewed',
-      PitchJoin: 'Pro Upgrade - Pitch: Click join',
-      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+      // A press of the nav unit (sidebar banner on desktop, top-bar chip on
+      // mobile), one event per thing the unit is asking for. Device filters
+      // tell the two surfaces apart; `path` is the page.
+      BannerClicked: 'Pro Upgrade - Banner Clicked',
+      VerificationBannerClicked: '10DLC - Verification Banner Clicked',
+      PinBannerClicked: '10DLC - PIN Banner Clicked',
+      ScheduleBannerClicked: '10DLC - Schedule Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
@@ -437,6 +425,12 @@ export const EVENTS = {
       IntroViewed: 'Pro Upgrade - Verification Intro Viewed',
       IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
       SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
+    },
+    // The SMS compliance cutoff notice shown before purchase in the Pro
+    // wizard. Both carry `source`; Completed fires on continue to payment.
+    SmsCutoff: {
+      NoticeViewed: 'Pro Upgrade - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Pro Upgrade - SMS Cutoff Notice Completed',
     },
   },
   // Candidate questions flow. The event string is snake_case, predating the
@@ -472,20 +466,19 @@ export const EVENTS = {
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
-    OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
     // Fires once per page entry when the org has no resolvable district, so the
     // page can only offer the support handoff. 437 active campaigns are in that
     // state; this measures how many actually land here, which is what would
     // justify building self-serve remediation.
     VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
     // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
-    // once per drawer open with { context, source: 'message' | 'history' }
-    // (a bar submit opens with a message; a history pick opens a past
-    // conversation); MessageSent fires per user send ({ context }) — the
-    // initial bar submit and every composer follow-up — so open-to-send
-    // drop-off is visible.
+    // once per drawer open with
+    // { context, source: 'message' | 'history' | 'toolbar' } (a bar submit
+    // opens with a message; a history pick opens a past conversation; the
+    // paperclip or mic opens a fresh one). Each send is AI Chat - Message
+    // Sent with surface 'contacts_assistant', so open-to-send drop-off is
+    // visible.
     AssistantChatOpened: 'Contacts - Assistant Chat Opened',
-    AssistantMessageSent: 'Contacts - Assistant Message Sent',
     // ENG-10767: per-stage funnel for the URL-stable create-list wizard
     // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
     // its stages. Viewed fires on every stage entry (including Back
@@ -539,9 +532,7 @@ export const EVENTS = {
     ListExported: 'Constituent Data - List Exported',
     // The boundary saved onto an existing list from the map on its detail
     // sheet. `{ listId, cleared }` — clearing a boundary is the same write
-    // and is worth telling apart from setting one. Serve-only surface (the
-    // map itself is), so there is no VoterData variant, same as
-    // ContactStatusChanged below in the other direction.
+    // and is worth telling apart from setting one.
     ListBoundarySaved: 'Constituent Data - List Boundary Saved',
     // The person-record follow-up toggle. Fires once per confirmed-successful
     // change with { from, to } — never on a failed PATCH. Serve-only
@@ -562,6 +553,8 @@ export const EVENTS = {
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
+    // See ConstituentData.ListBoundarySaved.
+    ListBoundarySaved: 'Voter Data - List Boundary Saved',
     // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
     // every "Send outreach" click in the CRM with
     // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
@@ -588,16 +581,11 @@ export const EVENTS = {
     RunningAgainst: {
       ClickAddNew: 'Profile - Running Against: Click Add New',
       SubmitAddNew: 'Profile - Running Against: Submit Add New',
-      CancelAddNew: 'Profile - Running Against: Cancel Add New',
       ClickEdit: 'Profile - Running Against: Click Edit',
       SubmitEdit: 'Profile - Running Against: Submit Edit',
-      CancelEdit: 'Profile - Running Against: Cancel Edit',
-      ClickDelete: 'Profile - Running Against: Click Delete',
       ClickSave: 'Profile - Running Against: Click Save',
     },
-    TopIssues: {
-      CancelEdit: 'Profile - Top Issues: Cancel Edit',
-    },
+    TopIssues: {},
     PolicyPriorities: {
       ClickAdd: 'Profile - Policy Priorities: Click Add',
       ClickEdit: 'Profile - Policy Priorities: Click Edit',
@@ -644,21 +632,20 @@ export const EVENTS = {
       PinVerificationCompleted:
         '10 DLC Compliance - PIN Verification Completed',
     },
-    PaymentStarted: 'Voter Outreach - Payment Started',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
-      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      ListCreated: 'Outreach - Phone Banking Call List Created',
       // Fires from every entry point that links to the print/[listId]/pdf
       // route (the flow's download step, and later the call-session header
       // button) — ENG-10918.
-      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
+      SheetDownloaded: 'Outreach - Phone Banking Call Sheet Downloaded',
       // ENG-10921: the in-app caller page. Distinct from the legacy
       // Dashboard.VoterContact.PhoneBanking group above, which belongs to
       // the pre-native script/download surface.
-      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
-      CallLogged: 'Outreach - Phone Banking: Call Logged',
+      ContactViewed: 'Outreach - Phone Banking Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking Call Logged',
     },
     // The audience step's recommended-lists cards.
     // Fires once the recommendation is accepted (the saved list is created),
@@ -686,6 +673,10 @@ export const EVENTS = {
       BannerViewed: 'Outreach - Gate Banner Viewed',
       ExplainerViewed: 'Outreach - Gate Explainer Viewed',
       ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
+      // The one gate screen with no event of its own: the Pro, verification
+      // and PIN screens fire theirs from ProUpgradeFlow,
+      // CampaignVerificationSteps and PinDialog.
+      InReviewViewed: 'Outreach - Gate In Review Viewed',
     },
     // Per-stage drop-off across the v2 channel wizards, fired by
     // OutreachFlowShell rather than by each flow: the stage is a property
@@ -698,21 +689,29 @@ export const EVENTS = {
       StepViewed: 'Voter Outreach - Flow Step Viewed',
       StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
-    ActionClicked: 'Outreach - Action Clicked',
+    // The SMS compliance cutoff notice that replaces a texting or compliance
+    // surface once gp-api reports the window closed. Fired by SmsCutoffNotice:
+    // Viewed carries `surface`, `cutoffDate` and `generalElectionDate`,
+    // Completed carries `surface` and the `channel` picked instead.
+    SmsCutoff: {
+      NoticeViewed: 'Outreach - SMS Cutoff Notice Viewed',
+      NoticeCompleted: 'Outreach - SMS Cutoff Notice Completed',
+    },
   },
   CandidateWebsite: {
-    Started: 'Candidate Website - Started',
     Continued: 'Candidate Website - Continued',
-    Unpublished: 'Candidate Website - Unpublished',
     Edited: 'Candidate Website - Edited',
-    StartedDomainSelection: 'Candidate Website - Started domain selection',
-    SelectedDomain: 'Candidate Website - Selected domain',
   },
   Candidacy: {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
-    CampaignCompleted: 'Candidacy - Campaign Completed',
-    DebriefClicked: 'Candidacy - Debrief Clicked',
+  },
+  // Every message a user sends to an agent chat, on every surface: { agent
+  // (the ChatScope), surface, via, product, priorityId?, ordinanceId? }.
+  // Hidden turns the app sends never fire it. See
+  // app/dashboard/shared/agent-chat/chatAnalytics.ts.
+  AIChat: {
+    MessageSent: 'AI Chat - Message Sent',
   },
   ChiefOfStaff: {
     DocumentAttached: 'Chief Of Staff - Document Attached',
@@ -723,6 +722,16 @@ export const EVENTS = {
     CitationOpened: 'Chief Of Staff - Citation Opened',
     UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
     ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
+    // The front card of the home's task stack. `cardType` is the card's kind
+    // (onboarding, briefing, agenda_item, community_issue, civic_panel,
+    // report_back), `cardVariant` tells the civic panel cards apart
+    // (panel_build, panel_step, priority_next_step), `stackSize` how many
+    // cards were in the stack when the official acted.
+    TaskCompleted: 'Chief Of Staff - Task Completed',
+    // Every other choice on that card: `action` is start (its main button),
+    // ask (open the chat about it), explain (What's a civic panel?) or skip,
+    // with `skipChoice` snooze or dismiss.
+    TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -777,26 +786,8 @@ export const EVENTS = {
     OfficeCompleted: 'Onboarding V2 - Office Completed',
     VotesNeededViewed: 'Onboarding V2 - Votes Needed Viewed',
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',
-    VoterInsightsViewed: 'Onboarding V2 - Voter Insights Viewed',
-    VoterInsightsCompleted: 'Onboarding V2 - Voter Insights Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
-    PlanShared: 'Onboarding V2 - Plan Shared',
-    PlanDownloaded: 'Onboarding V2 - Plan Downloaded',
-    CampaignManagerClicked: 'Onboarding V2 - Campaign Manager Clicked',
-    MediaRequested: 'Onboarding V2 - Media Requested',
-    MediaResultsReceived: 'Onboarding V2 - Media Results Received',
-    MediaDisplayed: 'Onboarding V2 - Media Displayed',
-    CommunityEventsRequested: 'Onboarding V2 - Community Events Requested',
-    CommunityEventsResultsReceived:
-      'Onboarding V2 - Community Events Results Received',
-    CommunityEventsDisplayed: 'Onboarding V2 - Community Events Displayed',
-    StrategicLandscapeRequested:
-      'Onboarding V2 - Strategic Landscape Requested',
-    StrategicLandscapeResultsReceived:
-      'Onboarding V2 - Strategic Landscape Results Received',
-    StrategicLandscapeDisplayed:
-      'Onboarding V2 - Strategic Landscape Displayed',
     VotesNeededCalculated: 'Onboarding V2 - Votes Needed Calculated',
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
@@ -819,6 +810,26 @@ export const EVENTS = {
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
   },
+  // Serve Priorities. Creates, archives, and step and check moves are server
+  // truth and fire from gp-api under the same `Priorities -` prefix.
+  Priorities: {
+    ListViewed: 'Priorities - List Viewed',
+    PriorityViewed: 'Priorities - Priority Viewed',
+    // Get answers queued its turn: { priorityId, source: strip | rail |
+    // results_page }. Typed messages are AI Chat - Message Sent.
+    GetAnswersClicked: 'Priorities - Get Answers Clicked',
+    // `heldBack` is true while the priority has no good read yet;
+    // `readStatus` is the read's status, `answersFloor` the fewest answers
+    // that could give every major group its three, and `groupsHeard` of
+    // `groupsTotal` the major groups that have them.
+    ResultsViewed: 'Priorities - Results Viewed',
+  },
+  CivicPanel: {
+    PanelViewed: 'Civic Panel - Panel Viewed',
+    // A plan step opened in its text, call or door flow, from the panel page
+    // or the Chief of Staff chat. Its start and completion are server truth.
+    StepOpened: 'Civic Panel - Step Opened',
+  },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
     ClarifyCompleted: 'Ordinances - Clarify Completed',
@@ -839,12 +850,10 @@ export const EVENTS = {
     NewOrdinanceCreated: 'Ordinances - New Ordinance Created',
     NewOrdinanceErrored: 'Ordinances - New Ordinance Errored',
     DraftChatOpened: 'Ordinances - Draft Chat Opened',
-    DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
-  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
-  // which belongs to the legacy eCanvasser/script surface — different funnel,
-  // don't merge them.
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —
+  // different funnel, don't merge them.
   //
   // The walk is the session: Started when the walk view opens, then exactly
   // one of Completed (left having logged at least one door) or Abandoned
@@ -860,23 +869,50 @@ export const EVENTS = {
   // that's the event the door-knocking activation metric counts, and the
   // manual "log progress" modal already feeds it the same way.
   DoorKnocking: {
-    ListCreated: 'Door Knocking - List Created',
-    ListEdited: 'Door Knocking - List Edited',
-    ListDeleted: 'Door Knocking - List Deleted',
-    RouteBuildFailed: 'Door Knocking - Route Build Failed',
-    SessionStarted: 'Door Knocking - Session Started',
-    SessionCompleted: 'Door Knocking - Session Completed',
-    SessionAbandoned: 'Door Knocking - Session Abandoned',
-    DoorLogged: 'Door Knocking - Door Logged',
-    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
-    // (DoNotKnockControl), so nothing in the product sets the flag.
-    DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
-    // ADR 0008. Both directions for the same reason, and the Set event carries
-    // which reason was given: the follow-up is optional, so how often it is
-    // answered at all — and how the two answers split — is the only way to tell
-    // whether the question is worth asking.
-    NotAVoterReasonSet: 'Door Knocking - Not A Voter Reason Set',
-    NotAVoterReasonCleared: 'Door Knocking - Not A Voter Reason Cleared',
+    ListCreated: 'Outreach - Door Knocking List Created',
+    ListEdited: 'Outreach - Door Knocking List Edited',
+    ListDeleted: 'Outreach - Door Knocking List Deleted',
+    RouteBuildFailed: 'Outreach - Door Knocking Route Build Failed',
+    SessionStarted: 'Outreach - Door Knocking Session Started',
+    SessionCompleted: 'Outreach - Door Knocking Session Completed',
+    SessionAbandoned: 'Outreach - Door Knocking Session Abandoned',
+    DoorLogged: 'Outreach - Door Knocking Door Logged',
+    // Do-not-knock, clear direction only: the walk's door is
+    // read-only-plus-Undo (DoNotKnockControl), so nothing in the product sets
+    // the flag.
+    DoNotKnockCleared: 'Outreach - Door Knocking Do Not Knock Cleared',
+    // Not-a-voter. Both directions for the same reason, and the Set event
+    // carries which reason was given: the follow-up is optional, so how often
+    // it is answered at all — and how the two answers split — is the only way
+    // to tell whether the question is worth asking.
+    NotAVoterReasonSet: 'Outreach - Door Knocking Not A Voter Reason Set',
+    NotAVoterReasonCleared:
+      'Outreach - Door Knocking Not A Voter Reason Cleared',
+  },
+  // Issue capture, on Win and Serve, and its own product area rather than
+  // Door Knocking's or Outreach's: the same three events fire from a knock and
+  // from a call, so a channel-named group would have to be written twice and
+  // the rollup metric — the share of conversations that carry an issue —
+  // would have to add two events together. `channel` and `product` are
+  // properties instead, the same way outreach events carry `product`.
+  //
+  // Skipped is as load-bearing as Confirmed. Together they are the only
+  // measure of whether a canvasser will answer a question about a
+  // conversation they have just finished, which is the riskiest assumption in
+  // the feature; a skip that fired nothing would read as capture never
+  // happening.
+  IssueCapture: {
+    MemoRecorded: 'Issue Capture - Memo Recorded',
+    MemoConfirmed: 'Issue Capture - Memo Confirmed',
+    MemoSkipped: 'Issue Capture - Memo Skipped',
+    // The report's own three. Counts only, never a memo's words or a tag's
+    // name: what a person said is not an analytics payload.
+    ReportViewed: 'Issue Capture - Report Viewed',
+    SynthesisRequested: 'Issue Capture - Synthesis Requested',
+    // The offline path: a memo recorded with no signal, and the moment it
+    // reaches the server.
+    MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
+    MemoUploaded: 'Issue Capture - Memo Uploaded',
   },
 } as const
 

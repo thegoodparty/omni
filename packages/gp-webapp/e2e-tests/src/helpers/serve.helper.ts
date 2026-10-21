@@ -150,6 +150,22 @@ export type SeedPrefilledOfficeOptions = {
    * BallotReady lookup.
    */
   positionName?: string
+  /**
+   * BallotReady position id to bind the org to. Unset by default, which keeps
+   * the prefill-branch spec testing what it is meant to: a sales prefill
+   * BallotReady could not match to a position.
+   *
+   * Set it for any account a human will actually use. Without a position the
+   * org has no district, so `resolveDistrictInfoFromOrg` finds nothing and
+   * every district-scoped read — `count_contacts`, `describe_filter_dimensions`,
+   * `crud_saved_filters`, the constituent data tools — comes back
+   * `VOTER_DATA_UNAVAILABLE`. The account looks fine and is inert.
+   *
+   * `Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw` is Cheyenne City
+   * Council Ward 1, which the e2e specs already lean on because it resolves in
+   * every environment and has a populated DistrictStats row.
+   */
+  ballotReadyPositionId?: string
   /** `yyyy-MM-dd`. */
   termStartDate?: string
   /** `yyyy-MM-dd`. */
@@ -180,6 +196,7 @@ export const seedPrefilledElectedOffice = async (
 ): Promise<SeededElectedOffice> => {
   const {
     positionName = 'Governor of Maryland',
+    ballotReadyPositionId,
     termStartDate = '2023-01-18',
     termEndDate = '2027-01-20',
   } = options
@@ -196,7 +213,11 @@ export const seedPrefilledElectedOffice = async (
 
   const { data } = await withGatewayRetry('POST /v1/elected-office', () =>
     client.post<{ id: string }>('/v1/elected-office', {
-      customPositionName: positionName,
+      // A bound position clears customPositionName server-side, so sending
+      // both would leave the stale name shadowing the resolved one.
+      ...(ballotReadyPositionId
+        ? { ballotReadyPositionId }
+        : { customPositionName: positionName }),
       termStartDate,
       termEndDate,
     }),

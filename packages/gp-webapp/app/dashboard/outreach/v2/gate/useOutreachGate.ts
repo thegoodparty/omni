@@ -6,11 +6,20 @@ import { useMembershipState } from 'app/dashboard/shared/membership/useMembershi
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { GateChannel } from './gateCopy'
 
-export type GateRequirement = 'pro' | 'verify' | 'in_review' | 'pin' | null
+export type GateRequirement =
+  | 'pro'
+  | 'verify'
+  | 'in_review'
+  | 'pin'
+  | 'closed'
+  | null
 
 export interface OutreachGateState {
   // Flag on and membership ready — the flow can trust `requirement`.
   enabled: boolean
+  // The flag has answered and, when it is on, membership has loaded, so
+  // `requirement` is final rather than a placeholder null.
+  resolved: boolean
   requirement: GateRequirement
   // Texting channels (sms only) need Pro AND verification; every other
   // channel needs Pro alone.
@@ -21,24 +30,37 @@ export interface OutreachGateState {
 
 // A Serve org is never gated (milestone 1's MembershipBanner reads the same
 // way — see isMembershipSurfaceVisible), regardless of tier or texting state.
+// Closed texting comes before the Pro check: Pro cannot reopen it, so a free
+// candidate's text gets the cutoff notice rather than a pitch for a send
+// that could never go out.
 const deriveRequirement = (
   channel: GateChannel,
   membership: MembershipState,
 ): GateRequirement => {
   if (membership.isElectedOffice) return null
+  if (channel === 'sms' && membership.texting === 'closed') return 'closed'
   if (membership.tier === 'free') return 'pro'
   if (channel !== 'sms') return null
-  if (membership.texting === 'needs_verification') return 'verify'
-  if (membership.texting === 'in_review') return 'in_review'
-  if (membership.texting === 'awaiting_pin') return 'pin'
-  return null
+  switch (membership.texting) {
+    case 'needs_verification':
+      return 'verify'
+    case 'in_review':
+      return 'in_review'
+    case 'awaiting_pin':
+      return 'pin'
+    case 'closed':
+      return 'closed'
+    case 'cleared':
+      return null
+  }
 }
 
 // Thin over the flag + membership hooks: maps them to what a channel flow
 // needs to decide whether it must pause, and on which screen. A later task
 // mounts this inside each channel flow alongside GateBanner/OutreachGate.
 export const useOutreachGate = (channel: GateChannel): OutreachGateState => {
-  const { enabled: flagEnabled } = useOutreachProGatingV2Flag(false)
+  const { ready: flagReady, enabled: flagEnabled } =
+    useOutreachProGatingV2Flag(false)
   const {
     ready: membershipReady,
     state,
@@ -52,6 +74,7 @@ export const useOutreachGate = (channel: GateChannel): OutreachGateState => {
 
   return {
     enabled,
+    resolved: flagReady && (!flagEnabled || membershipReady),
     requirement: enabled && state ? deriveRequirement(channel, state) : null,
     twoStep,
     membership: state,

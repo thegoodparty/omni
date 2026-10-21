@@ -6,44 +6,15 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 // (src/contactInteraction/) per the CRM tech design:
 // https://app.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-98973
 // No new write paths may target this service. Segment-derived send-attribution
-// writes were retired in feature 5 (ENG-10731); the only writer left is the
-// deprecated eCanvasser door-knock attribution (recordActivityIdempotent).
+// writes were retired in feature 5 (ENG-10731), and the last remaining writer
+// has since been deleted, so nothing in the product writes here any more. The
+// legacy rows stay readable for the person activity feed until the sunset ends.
 @Injectable()
 export class VoterOutreachActivityService extends createPrismaBase(
   MODELS.VoterOutreachActivity,
 ) {
   recordActivity(data: Prisma.VoterOutreachActivityUncheckedCreateInput) {
     return this.model.create({ data })
-  }
-
-  // Idempotent write for source-event-backed write paths (e.g. door knocking).
-  // Keyed on the (campaignId, outreachType, sourceId) unique constraint so a
-  // re-sync upserts the same row instead of double-writing — the dedupe is
-  // enforced at the DB, not after a read, so concurrent retries can't race in a
-  // duplicate. `sourceId` is required here (the upstream event id); the update
-  // branch refreshes the fields a re-sync can legitimately change.
-  recordActivityIdempotent(
-    data: Prisma.VoterOutreachActivityUncheckedCreateInput & {
-      sourceId: string
-    },
-  ) {
-    const { campaignId, outreachType, sourceId } = data
-    return this.model.upsert({
-      where: {
-        campaignId_outreachType_sourceId: {
-          campaignId,
-          outreachType,
-          sourceId,
-        },
-      },
-      create: data,
-      update: {
-        lalVoterId: data.lalVoterId,
-        occurredAt: data.occurredAt,
-        attributionSource: data.attributionSource,
-        metadata: data.metadata,
-      },
-    })
   }
 
   // Source-event ids already attributed for a campaign + channel, so a re-sync

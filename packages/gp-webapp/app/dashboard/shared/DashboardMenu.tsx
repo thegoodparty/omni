@@ -9,7 +9,6 @@ import {
   MdMenuBook,
   MdMessage,
   MdPeople,
-  MdPoll,
 } from 'react-icons/md'
 import {
   Circle,
@@ -17,7 +16,6 @@ import {
   ClipboardList,
   ExternalLink,
   LogOut,
-  Send,
   Settings,
   Sparkles,
   UserRound,
@@ -25,13 +23,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useEcanvasser } from '@shared/hooks/useEcanvasser'
-import { useEffect, useMemo } from 'react'
-import { syncEcanvasser } from '@shared/utils/syncEcanvasser'
+import { useMemo } from 'react'
 import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
@@ -68,10 +63,11 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
 import { MembershipBanner } from './membership/MembershipBanner'
+import { TestModeMenuItem } from './testMode/TestModeMenuItem'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -108,9 +104,9 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: NAV_LABELS.campaignManager,
+    label: NAV_LABELS.home,
     icon: <MdFactCheck />,
-    v2Icon: NAV_HEADER_ICONS.dashboard,
+    v2Icon: NAV_HEADER_ICONS.house,
     link: '/dashboard',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -151,7 +147,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     link: `${CIRCLE_COMMUNITY_BASE}/join?invitation_token=ee5c167c12e1335125a5c8dce7c493e95032deb7-a58159ab-64c4-422a-9396-b6925c225952`,
     target: '_blank',
     id: 'community-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
 
@@ -179,16 +174,6 @@ const WIN_CONTACTS_MENU_ITEM: MenuItem = {
   v2Icon: UsersRound,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
-}
-
-const POLLS_MENU_ITEM: MenuItem = {
-  id: 'polls-dashboard',
-  label: 'Polls',
-  link: '/dashboard/polls',
-  icon: <MdPoll />,
-  v2Icon: Send,
-  v2Category: 'elected-office',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
 }
 
 const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
@@ -260,10 +245,10 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: NAV_LABELS.campaignTracker,
+  label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
-  v2Icon: NAV_HEADER_ICONS.scroll,
+  v2Icon: NAV_HEADER_ICONS.checklist,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
@@ -290,8 +275,19 @@ export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   prioritiesEnabled = false,
+  nextTaskExperience = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
+  // Behind `next-task-experience`: Home and the checklist plan icon, with
+  // Your Story after Voter Data. Off keeps Campaign Manager, the scroll icon
+  // and Your Story above the plan.
+  if (!nextTaskExperience) {
+    menuItems[0] = {
+      ...menuItems[0]!,
+      label: NAV_LABELS.campaignManager,
+      v2Icon: NAV_HEADER_ICONS.dashboard,
+    }
+  }
 
   // Community Issues nav mirrors page-level access (serveAccess.ts): both are
   // elected-office existence alone.
@@ -313,8 +309,7 @@ export const getDashboardMenuItems = (
     menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
-    menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
-    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
+    menuItems.splice(voterDataIndex, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
@@ -355,10 +350,31 @@ export const getDashboardMenuItems = (
     (chiefOfStaffShown ? 1 : 0) +
     (prioritiesShown ? 1 : 0)
 
-  // The campaign tracker tab, and the "Your Story" tab just above it (the
-  // story is what the tracker + plan are generated from).
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
-  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  // The campaign tracker tab, right after Campaign Manager.
+  menuItems.splice(
+    afterCampaignManager,
+    0,
+    nextTaskExperience
+      ? CAMPAIGN_PLAN_MENU_ITEM
+      : { ...CAMPAIGN_PLAN_MENU_ITEM, v2Icon: NAV_HEADER_ICONS.scroll },
+  )
+
+  if (nextTaskExperience) {
+    // "Your Story" follows the daily-use tabs, right after Voter Data
+    // (whichever form of it this org gets: Win's contacts, the Pro upsell,
+    // or Serve's).
+    const voterDataItemIndex = menuItems.findIndex(
+      (item) =>
+        item === WIN_CONTACTS_MENU_ITEM ||
+        item === VOTER_DATA_UPGRADE_ITEM ||
+        item === CONTACTS_MENU_ITEM,
+    )
+    menuItems.splice(voterDataItemIndex + 1, 0, CAMPAIGN_STORY_MENU_ITEM)
+  } else {
+    // "Your Story" just above the plan (the story is what the tracker and
+    // plan are generated from).
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
@@ -379,15 +395,11 @@ export const getDashboardMenuItems = (
 export default function DashboardMenu({
   pathname,
 }: DashboardMenuProps): React.JSX.Element {
-  const [campaign] = useCampaign()
-  const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
   const organization = useOrganization()
-  // trackExposure=false: this is a render-decision read, not the experiment's
-  // treatment surface (the team page itself tracks exposure).
-  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
   const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
+  const { enabled: nextTaskExperience } = useNextTaskExperienceFlag(false)
 
   const menuItems = useMemo(
     () =>
@@ -395,17 +407,17 @@ export default function DashboardMenu({
         !!electedOffice,
         isElectedOfficeLoading,
         prioritiesEnabled,
+        nextTaskExperience,
       ),
-    [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
+    [
+      electedOffice,
+      isElectedOfficeLoading,
+      prioritiesEnabled,
+      nextTaskExperience,
+    ],
   )
 
-  useEffect(() => {
-    if (campaign && ecanvasser) {
-      syncEcanvasser(campaign?.id)
-    }
-  }, [campaign, ecanvasser])
-
-  // win-team-accounts (ENG-10816/10827), moved from the primary nav into the
+  // Team accounts (ENG-10816/10827), moved from the primary nav into the
   // account menu (ENG-11061 design correction). Win-only in Phase 1 (ENG-10816
   // non-goal: Serve staff accounts are out of scope, so this never renders for
   // an elected-office org — see gp-api's matching 400 on POST team/invites for
@@ -419,8 +431,7 @@ export default function DashboardMenu({
   // filter already relies on for the same distinction (bugbot review,
   // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
   // restrictive, never less.
-  const showTeamAccountItem =
-    teamAccountsEnabled && !electedOffice && !organization?.electedOfficeId
+  const showTeamAccountItem = !electedOffice && !organization?.electedOfficeId
 
   return (
     <NewNavMenu
@@ -475,9 +486,13 @@ const NewNavMenu = ({
   const { setOpenMobile, isMobile } = useSidebar()
 
   const menuFirstName =
-    (isClerkUserLoaded && clerkUser?.firstName?.trim()) || user?.firstName || ''
+    user?.firstName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.firstName?.trim()) ||
+    ''
   const menuLastName =
-    (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
+    user?.lastName?.trim() ||
+    (isClerkUserLoaded && clerkUser?.lastName?.trim()) ||
+    ''
 
   const organization = useOrganization()
   const organizationRole = useOrganizationRole()
@@ -506,8 +521,8 @@ const NewNavMenu = ({
       href: '/dashboard/account',
     },
     // ENG-11061 design correction: Team moves out of the primary nav and
-    // lives here instead, gated by showTeamAccountItem (win-team-accounts
-    // flag on, not an elected-office org).
+    // lives here instead, gated by showTeamAccountItem (not an
+    // elected-office org).
     team: {
       label: 'Team',
       icon: UsersRound,
@@ -659,6 +674,7 @@ const NewNavMenu = ({
       {!isMobile && (
         <SidebarFooter>
           <MembershipBanner />
+          <TestModeMenuItem />
           <SidebarMenu>
             <SidebarMenuItemComponent>
               <DropdownMenu>

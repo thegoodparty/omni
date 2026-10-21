@@ -1,7 +1,11 @@
-import { ServeOutreachPurpose } from '@goodparty_org/contracts'
+import { ServeSmsPurpose } from '@goodparty_org/contracts'
+import { PROTECTED_MARKER_RULE } from './smsProtectedImprove.util'
 import {
   FRESH_DRAFT_TARGET_LENGTH,
   IMPROVE_DRAFT_TARGET_LENGTH,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
+  SMS_NO_NAME_PLACEHOLDER_RULE,
   SmsVoiceConfig,
 } from '../services/outreachSmsGeneration.service'
 
@@ -25,11 +29,17 @@ import {
 //   bio / why they serve  -> PersonProfile.bioOverride / whyRunning, via
 //                            OutreachServeComposeContextService
 //   published priorities  -> visible PersonProfileIssues, same service
-//   decision / event / resource details -> not modeled; the prompts ask for
-//                            a square-bracket placeholder instead of an
-//                            invented specific
+//   event date/time/place -> eventDetailsContext, from the flow's event
+//                            details step
+//   decision / resource details -> not modeled; the prompts leave a missing
+//                            specific out rather than invent or bracket it
 
-const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
+const SERVE_PURPOSE_GOALS: Record<ServeSmsPurpose, string> = {
+  build_citizens_panel:
+    "introduce the elected official and invite residents onto the official's civic panel",
+  report_back:
+    'tell the constituents an earlier text asked what the official heard ' +
+    'from them and what the official will do next',
   introduce_myself:
     'introduce the elected official to the constituents they serve',
   explain_decision:
@@ -47,7 +57,35 @@ const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
 // three-bullet priorities formula is the Win intro structure carried over —
 // it is the shape Candidate Success validated, and nothing about it is
 // election-specific.
-const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
+const SERVE_PURPOSE_STRUCTURES: Record<ServeSmsPurpose, string> = {
+  // The flow appends the locked JOIN line (contracts' CIVIC_PANEL_JOIN_LINE)
+  // after this body, and the reply reader only honors JOIN off those exact
+  // words, so the body must not write its own ask.
+  build_citizens_panel:
+    'Structure: one short line of who the official is, drawn from the ' +
+    'materials (what they do, community roots, why they serve); then ' +
+    'one or two sentences on what their civic panel is: residents ' +
+    'their office (not a campaign) texts about once a month to hear what ' +
+    'they think before the official makes decisions; then one sentence ' +
+    'on why that matters to the official, in plain words. Keep the whole ' +
+    'body under four sentences. Stop there. Do NOT ask the reader to ' +
+    'reply JOIN, sign up, or reply at all, and do not explain how to ' +
+    'join: the app adds the line that asks them, right after your text. ' +
+    'Never promise how many texts, what topics, or what the official ' +
+    'will do with the answers beyond hearing them.',
+  // Sent to the people an earlier text asked, so it never carries the
+  // civic panel JOIN line or a fresh ask of its own.
+  report_back:
+    'Structure: one short sentence thanking the people who answered the ' +
+    'earlier text; then one or two sentences on what the official heard, ' +
+    'as the main themes and roughly how many people raised each, never ' +
+    "quoting anyone's words or saying anything that could point to who " +
+    'said it; then one or two sentences on what the official will do ' +
+    'next. Both the themes and the next step come only from the ' +
+    'materials: if either is missing, leave that part out rather than ' +
+    'writing one. Keep the whole body under four sentences. Never ask ' +
+    'people to join a panel or reply JOIN, and never promise an outcome ' +
+    'the materials do not state.',
   introduce_myself:
     'FIRST decide which of two structures applies. If the materials ' +
     'contain no published priorities, use the NARRATIVE structure and ' +
@@ -58,31 +96,30 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
     'Only if the materials DO contain published priorities, use the ' +
     'three-bullet formula: one short line of who the ' +
     'official is, drawn from the materials (what they do, community ' +
-    'roots, why they serve) — constituents need a reason to trust ' +
+    'roots, why they serve), since constituents need a reason to trust ' +
     'before any ask; then one sentence on what they are focused on ' +
     'this term; then the line "My priorities:" followed by exactly ' +
     'three short bullet points, each on its own line starting with ' +
-    '"• ", drawn from the published priorities in the materials — each ' +
-    'bullet names the concrete HOW, not just the topic ("Fix our roads ' +
-    'with a real maintenance plan, not patchwork", never just "Fix our ' +
+    '"• ", drawn from the published priorities in the materials. Each ' +
+    'bullet names the concrete HOW, not only the topic ("Fix our roads ' +
+    'with a real maintenance plan, not patchwork", never a bare "Fix our ' +
     'roads"); then one closing line inviting a reply. Every bullet must ' +
     'come from a real published priority; never pad to three with a ' +
     'placeholder.',
   explain_decision:
     'Structure: state the decision plainly in the first line; then two ' +
     'or three plain-language sentences of the reasoning, drawn only ' +
-    'from the materials — no procedural jargon; then one closing line ' +
+    'from the materials, with no procedural jargon; then one closing line ' +
     'inviting questions or disagreement by reply. Never invent the ' +
     'outcome, the tally, or a justification the materials do not ' +
     'contain, and never name or criticize a colleague. Where a ' +
-    'specific is missing, leave a short square-bracket placeholder for ' +
-    'the official to fill in.',
+    'specific is missing, write around it.',
   event_invite:
     'Structure: a warm invitation naming why the gathering matters to ' +
-    'the neighborhood; then a details line the official fills in ' +
-    'before sending, formatted exactly as "📅 [Date] | 🕐 [Time] | 📍 ' +
-    '[Location]"; then a reply-to-RSVP ask. Never invent event ' +
-    'specifics.',
+    'the neighborhood; then one details line with the event details ' +
+    'given below, formatted as "📅 <date> | 🕐 <time> | 📍 <location>"; ' +
+    'leave the line out entirely if no event details are given; then a ' +
+    'reply-to-RSVP ask. Never invent event specifics.',
   community_input:
     'Structure: name the issue or upcoming decision in the first line; ' +
     'then one or two sentences on why the official wants to hear from ' +
@@ -94,11 +131,11 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
   share_resource:
     'Structure: name the program, service, or resource in the first ' +
     'line; then one or two sentences on who it helps and what it does; ' +
-    'then a closing line on how to get it — a number to call, a place ' +
-    'to go, or a date — as short square-bracket placeholders like ' +
-    '[phone number] unless the materials provide them; then invite a ' +
-    'reply from anyone who needs help getting access. Never invent ' +
-    'eligibility rules, deadlines, or contact details.',
+    'then a closing line on how to get it (a number to call, a place ' +
+    'to go, or a date) only as the materials give it, leaving out ' +
+    'whatever they do not; then invite a reply from anyone who needs ' +
+    'help getting access. Never invent eligibility rules, deadlines, or ' +
+    'contact details.',
   custom: '',
 }
 
@@ -119,24 +156,24 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  you may include it once, as a plain domain, near the close. Never',
   '  invent or shorten a URL; with none in the materials, include none.',
   '- Invite responses as replies to this message ("You can reply here',
-  '  with questions") — never "text me back" or "call me": the',
+  '  with questions") and never "text me back" or "call me": the',
   '  message is sent from a temporary number.',
-  '- Square-bracket placeholders are ONLY for missing LOGISTICS —',
-  '  meeting times, dates, locations, phone numbers. Use short ones',
-  '  like [time] or [date] rather than inventing real-sounding',
-  '  specifics.',
-  '- NEVER use a placeholder for substance: priorities, positions,',
+  '- Never write a square-bracket placeholder, for logistics or for',
+  '  substance. Meeting times, dates, locations and phone numbers come',
+  '  only from the event details or the materials; leave out any they',
+  '  do not give rather than inventing real-sounding specifics.',
+  '- Never fill a gap in substance either: priorities, positions,',
   '  accomplishments, reasons, or anything about what the official',
-  '  stands for. A bracketed priority is worse than no priority — it',
-  '  ships the official a form to fill in and reads as unfinished. If',
-  '  the materials do not contain these, leave the section out',
-  '  entirely and write what the materials DO support.',
+  '  stands for. If the materials do not contain these, leave the',
+  '  section out entirely and write what the materials DO support.',
   '- The app has ALREADY written the greeting and identification above',
   '  your text ("Hi, this is <name>, your <office>."). Do not greet, do',
-  '  not name the official, and do not restate the office — an opening',
-  '  like "I\'m your City Constable" repeats what the constituent just',
-  '  read. Start with substance. Do NOT add any opt-out language',
-  '  either: the app appends it.',
+  '  not name the official, and do not restate the office: an opening',
+  '  like "I\'m your City Constable" repeats what the constituent already',
+  '  read. Do not sign off either. Start with substance. Do NOT add any',
+  '  opt-out language: the app appends it.',
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
+  SMS_NO_NAME_PLACEHOLDER_RULE,
   "- Ground decisions, priorities, and specifics in the official's own",
   '  materials when they are provided; never invent positions, votes,',
   '  endorsements, statistics, dates, places, or events the materials',
@@ -148,7 +185,7 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
 
 const SERVE_IMPROVE_SYSTEM_PROMPT = [
   'You are a writing assistant helping a local elected official polish',
-  'the body of one SMS they wrote themselves.',
+  'one SMS they wrote themselves.',
   'This is a light edit, NOT a rewrite. Rules:',
   '- Every concrete detail in the original MUST appear in your output:',
   '  dates, deadlines, places, events, times, names, numbers, asks.',
@@ -161,17 +198,18 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any web address the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
-  "- The message opens with the official's identification; keep it",
-  '  intact. Do NOT add any opt-out language: the app appends it.',
+  PROTECTED_MARKER_RULE,
+  SMS_IMPROVE_IDENTIFICATION_RULE,
+  SMS_LOCKED_LINES_AND_STYLE_RULE,
   '- Never add positions, decisions, endorsements, statistics, dates,',
-  '  places, or events the original text does not contain — the',
+  '  places, or events the original text does not contain. The',
   "  official's own materials, when provided, are context for tone and",
   '  accuracy, not a source of new content in a polish.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-export const SERVE_SMS_VOICE: SmsVoiceConfig<ServeOutreachPurpose> = {
+export const SERVE_SMS_VOICE: SmsVoiceConfig<ServeSmsPurpose> = {
   purposeGoals: SERVE_PURPOSE_GOALS,
   purposeStructures: SERVE_PURPOSE_STRUCTURES,
   draftSystemPrompt: SERVE_DRAFT_SYSTEM_PROMPT,

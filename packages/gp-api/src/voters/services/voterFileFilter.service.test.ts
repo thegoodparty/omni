@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachType, VoterFileFilter } from '../../generated/prisma'
+import {
+  Organization,
+  OutreachType,
+  VoterFileFilter,
+} from '../../generated/prisma'
 import { VoterFileFilterService } from './voterFileFilter.service'
 
 const filter = (overrides: Partial<VoterFileFilter>): VoterFileFilter =>
@@ -14,7 +18,7 @@ const filter = (overrides: Partial<VoterFileFilter>): VoterFileFilter =>
 describe('voterFileFilterToAudience', () => {
   // Neither dependency is reachable from voterFileFilterToAudience — it is a
   // pure mapping over the row's own columns.
-  const service = new VoterFileFilterService({} as never)
+  const service = new VoterFileFilterService({} as never, {} as never)
 
   it('maps genderUnknown to the gender_unknown filter', async () => {
     const audience = await service.voterFileFilterToAudience(
@@ -268,5 +272,76 @@ describe('findOutreachesByVoterFileFilterId', () => {
     const result = await svc.findOutreachesByVoterFileFilterId(filter.id)
 
     expect(result.map((row) => row.id)).toEqual([nativeDoorKnockRow.id])
+  })
+})
+
+describe('findUsableByOrganizationSlug', () => {
+  const service = useTestService()
+
+  const seedOrg = async (slug: string) => {
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+  }
+
+  it('drops a party-filtered list for an elected-office org', async () => {
+    const slug = `eo-usable-${Math.random().toString(36).slice(2)}`
+    await seedOrg(slug)
+    await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'party list', partyDemocrat: true },
+    })
+    const clean = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'clean list', genderFemale: true },
+    })
+    const svc = service.app.get(VoterFileFilterService)
+
+    const usable = await svc.findUsableByOrganizationSlug({
+      slug,
+    } as Organization)
+
+    expect(usable.map((f) => f.id)).toEqual([clean.id])
+  })
+
+  it('keeps a party-filtered list for a Win org', async () => {
+    const slug = `campaign-usable-${Math.random().toString(36).slice(2)}`
+    await seedOrg(slug)
+    const partyList = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'party list', partyDemocrat: true },
+    })
+    const svc = service.app.get(VoterFileFilterService)
+
+    const usable = await svc.findUsableByOrganizationSlug({
+      slug,
+    } as Organization)
+
+    expect(usable.map((f) => f.id)).toContain(partyList.id)
+  })
+})
+
+describe('saving a list with a drawn boundary', () => {
+  const service = useTestService()
+
+  it('gives the write transaction more than the 5s Prisma default', async () => {
+    const slug = `org-geo-tx-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const row = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'drawn list' },
+    })
+    const svc = service.app.get(VoterFileFilterService)
+    const spy = vi.spyOn(svc.client, '$transaction')
+
+    await svc.updateByIdAndOrganizationSlug(
+      row.id,
+      slug,
+      { name: 'renamed' } as never,
+      ['person-1', 'person-2'],
+    )
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ timeout: 30_000 }),
+    )
   })
 })

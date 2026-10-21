@@ -8,9 +8,11 @@ import { Module } from '@nestjs/common'
 import { ChatsModule } from '@/chats/chats.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
+import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -25,6 +27,7 @@ import {
   CM_CONSTITUENT_DATA_PROVIDER,
   CM_CONSTITUENT_TABLES_CONFIG,
 } from './campaignManager.handler'
+import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 export { CAMPAIGN_MANAGER_MODELS }
 
@@ -50,7 +53,9 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 // shared ChatStoreService (greeting seeding), Organizations/Elections for the
 // reused constituent-data tool's district resolution, and
 // CampaignStory/Websites/CampaignStrategy for the Campaign Story intake (story +
-// website bio/issues + plan generation).
+// website bio/issues + plan generation), and PersonProfiles for the public
+// profile's publish gate and canonical address.
+
 @Module({
   imports: [
     ChatsModule,
@@ -58,9 +63,11 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     ElectionsModule,
     CampaignStoryModule,
     WebsitesModule,
+    QueueProducerModule,
     CampaignStrategyModule,
     ContactsModule,
     VotersModule,
+    PersonProfilesModule,
   ],
   providers: [
     CampaignManagerHandler,
@@ -68,6 +75,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     DistrictResolverService,
     CampaignStoryIntakeService,
     HelpCenterSearchService,
+    PriorityFlowOutreachService,
     {
       provide: CM_CONSTITUENT_DATA_PROVIDER,
       useFactory: constituentDataProviderFactory,

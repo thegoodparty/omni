@@ -42,7 +42,10 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { PollResponseJsonRow } from '../queue.types'
 import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
+import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
 vi.mock('@/polls/utils/polls.utils', async (importOriginal) => ({
@@ -54,6 +57,7 @@ const createPollAnalysisCompleteMessage = (data: {
   pollId: string
   totalResponses?: number
   responsesLocation?: string
+  promptSource?: 'hosted' | 'fallback'
   issues?: Array<{
     pollId: string
     rank: number
@@ -72,6 +76,7 @@ const createPollAnalysisCompleteMessage = (data: {
       totalResponses: data.totalResponses ?? 10,
       responsesLocation:
         data.responsesLocation ?? 'polls/poll-1/all_cluster_analysis.json',
+      ...(data.promptSource ? { promptSource: data.promptSource } : {}),
       issues: data.issues ?? [
         {
           pollId: data.pollId,
@@ -129,6 +134,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
     resolveProAccess: ReturnType<typeof vi.fn>
+    resolvePeopleDataset: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -145,6 +151,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
   }
   let usersService: { findUnique: ReturnType<typeof vi.fn> }
   let hubspotSingleSend: { sendSingleSend: ReturnType<typeof vi.fn> }
+  let logger: ReturnType<typeof createMockLogger>
 
   const pollId = 'poll-123'
   const electedOfficeId = 'office-1'
@@ -196,6 +203,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
+      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -235,6 +243,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     hubspotSingleSend = {
       sendSingleSend: vi.fn().mockResolvedValue(undefined),
     }
+    logger = createMockLogger()
 
     service = new QueueConsumerService(
       {} as never,
@@ -270,7 +279,10 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      createMockLogger(),
+      {} as never,
+      {} as never,
+      logger,
+      {} as never,
     )
   })
 
@@ -283,6 +295,42 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     expect(s3Service.getFile).not.toHaveBeenCalled()
     expect(pollIssuesService.model.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('warns when the cluster-analysis prompt fell back to the in-repo prompt', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({
+      pollId,
+      promptSource: 'fallback',
+    })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      { pollId },
+      'Synthesis run used the in-repo theme prompt',
+    )
+  })
+
+  it('does not warn when the prompt came from the hosted build', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({
+      pollId,
+      promptSource: 'hosted',
+    })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when the pipeline sent no promptSource at all', async () => {
+    pollsService.findUnique.mockResolvedValue(null)
+    const message = createPollAnalysisCompleteMessage({ pollId })
+
+    await service.processMessage(message)
+
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 
   it('acks and does not create messages when poll is not SCHEDULED or IN_PROGRESS', async () => {
@@ -333,6 +381,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -372,6 +421,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
+      'constituents',
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -430,6 +480,8 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(result).toBe(true)
     // Pro-access resolved once, not once per phone.
     expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    // The people table is resolved once for the whole fan-out, not per phone.
+    expect(contactsService.resolvePeopleDataset).toHaveBeenCalledTimes(1)
     expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
       phones.length,
     )
@@ -1108,7 +1160,10 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger(),
+      {} as never,
     )
   })
 
@@ -1306,7 +1361,10 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger(),
+      {} as never,
     )
   })
 
@@ -1394,12 +1452,14 @@ describe('QueueConsumerService - message type routing', () => {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
   let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
+  let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
+    mockPollExpansion = { resolveDelivery: vi.fn() }
 
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1500,7 +1560,13 @@ describe('QueueConsumerService - message type routing', () => {
           provide: OutreachTextDeliveryService,
           useValue: mockOutreachTextDelivery,
         },
+        {
+          provide: OutreachServePollExpansionService,
+          useValue: mockPollExpansion,
+        },
+        { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     module = mod
@@ -1585,6 +1651,120 @@ describe('QueueConsumerService - message type routing', () => {
       message: 'Trash pickup moves to Thursday.',
       imageUrl: 'https://example.com/flyer.png',
       scheduledLocalDate: '2026-10-08',
+    })
+  })
+
+  describe('outreachTextSend for a poll', () => {
+    const pollRow = (overrides: Record<string, unknown> = {}) => ({
+      outreachType: 'poll',
+      approvedAt: new Date('2026-10-10T12:00:00Z'),
+      message: 'Hi, do you support the park?',
+      imageUrl: null,
+      scheduledLocalDate: '2026-10-14',
+      voterFileFilterId: null,
+      textCount: 250,
+      pollDetails: { audienceKind: 'sample' },
+      ...overrides,
+    })
+    const delivered = {
+      audienceResolved: true,
+      recipientCount: 250,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '3-1.csv',
+    }
+
+    it('delivers a sample poll as a sample of textCount people', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'sample', size: 250 },
+          paidRecipientCap: 250,
+        }),
+      )
+    })
+
+    it('delivers a list poll to its saved filter', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({
+          voterFileFilterId: 61,
+          pollDetails: { audienceKind: 'list' },
+        }),
+      )
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'savedFilter', voterFileFilterId: 61 },
+        }),
+      )
+    })
+
+    it('sends nothing for a poll that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({ approvedAt: null }),
+      )
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    })
+
+    it('delivers an expansion as a sample that excludes earlier recipients', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue({
+        textCount: 80,
+        excludePersonIds: ['person-1', 'person-2'],
+      })
+      mockOutreachTextDelivery.requestSend.mockResolvedValue({
+        ...delivered,
+        recipientCount: 80,
+        sendKey: '3-2.csv',
+      })
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockPollExpansion.resolveDelivery).toHaveBeenCalledWith(3, 2)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sendSeq: 2,
+          audience: {
+            kind: 'sample',
+            size: 80,
+            excludePersonIds: ['person-1', 'person-2'],
+          },
+          paidRecipientCap: 80,
+        }),
+      )
+    })
+
+    it('sends nothing for an expansion that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue(null)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
     })
   })
 
@@ -2043,22 +2223,11 @@ describe('QueueConsumerService - message type routing', () => {
 describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
   let service: QueueConsumerService
   let mockTcrComplianceService: {
-    findFirstOrThrow: ReturnType<typeof vi.fn>
-    checkTcrRegistrationStatus: ReturnType<typeof vi.fn>
-    model: { updateMany: ReturnType<typeof vi.fn> }
-    sendComplianceCompletedSingleSend: ReturnType<typeof vi.fn>
+    checkUsecaseActivation: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: {
     track: ReturnType<typeof vi.fn>
     identify: ReturnType<typeof vi.fn>
-  }
-
-  const recipient = { id: 42, email: 'candidate@example.com' }
-  const campaignRecord = { userId: recipient.id, user: recipient }
-  const tcrComplianceRecord = {
-    peerlyIdentityId: 'peerly-999',
-    peerlyCvStatus: 'VERIFIED',
-    campaign: campaignRecord,
   }
 
   const buildMessage = (): Message => ({
@@ -2075,10 +2244,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
 
   beforeEach(async () => {
     mockTcrComplianceService = {
-      findFirstOrThrow: vi.fn().mockResolvedValue(tcrComplianceRecord),
-      checkTcrRegistrationStatus: vi.fn().mockResolvedValue(true),
-      model: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      sendComplianceCompletedSingleSend: vi.fn().mockResolvedValue(undefined),
+      checkUsecaseActivation: vi.fn().mockResolvedValue(true),
     }
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
@@ -2124,88 +2290,25 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
+        { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
   })
 
-  // Env-var gating (unset -> no-op) is owned by
-  // CampaignTcrComplianceService.sendComplianceCompletedSingleSend itself
-  // and covered in campaignTcrCompliance.service.test.ts — this suite
-  // covers what the consumer owns: resolving the recipient/properties and
-  // never letting a single-send failure affect the SQS ack.
-  it('resolves the campaign account email off the campaign relation and forwards it', async () => {
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockTcrComplianceService.model.updateMany).toHaveBeenCalledWith({
-      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
-      data: { status: 'approved' },
-    })
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).toHaveBeenCalledWith(recipient.email, {
-      peerly_identity_id: 'peerly-999',
-    })
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-  })
-
-  // bootstrapTcrComplianceCheck (@Cron 7am/7pm ET) re-queries every `pending`
-  // record and re-enqueues this message twice daily, so a backlog or a
-  // slow-handler redelivery can land two messages for the same record while
-  // it's still pending — an at-least-once SQS redelivery, not adversarial
-  // timing. Only the caller that actually flips the status may notify.
-  it('does not re-track or re-send when another delivery already transitioned the record', async () => {
-    mockTcrComplianceService.model.updateMany.mockResolvedValueOnce({
-      count: 0,
-    })
-
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-    expect(mockAnalytics.identify).not.toHaveBeenCalled()
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('does not call single-send when the campaign has no linked user', async () => {
-    mockTcrComplianceService.findFirstOrThrow.mockResolvedValueOnce({
-      ...tcrComplianceRecord,
-      campaign: { userId: recipient.id, user: null },
-    })
-
+  // The body lives in CampaignTcrComplianceService.checkUsecaseActivation
+  // (covered in campaignTcrCompliance.service.test.ts); the consumer only
+  // delegates and returns its ack.
+  it('delegates to checkUsecaseActivation and returns its ack', async () => {
     const result = await service.processMessage(buildMessage())
 
     expect(result).toBe(true)
     expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('never throws out of the handler when single-send fails (no infinite redelivery)', async () => {
-    mockTcrComplianceService.sendComplianceCompletedSingleSend.mockRejectedValueOnce(
-      new Error('HubSpot down'),
-    )
-
-    const result = await service.processMessage(buildMessage())
-
-    // The message is still acked (true) and the Segment event/DB update the
-    // flow depends on already happened — a single-send failure must not
-    // corrupt or requeue this SQS-fired path.
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
+      mockTcrComplianceService.checkUsecaseActivation,
+    ).toHaveBeenCalledWith({ peerlyIdentityId: 'peerly-999' })
   })
 })
 
@@ -2333,7 +2436,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
+        { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: FeedbackSynthesisIngestService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2457,7 +2563,10 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger(),
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2495,5 +2604,151 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 
     expect(result).toBe(true)
     expect(handleStep).not.toHaveBeenCalled()
+  })
+})
+
+describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
+  let logger: ReturnType<typeof createMockLogger>
+
+  const buildService = (handle: ReturnType<typeof vi.fn>) => {
+    logger = createMockLogger()
+    return new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never, // p2pPhoneListUpload
+      logger,
+      { handle } as never,
+    )
+  }
+
+  const synthesisMessage = (data: object): Message => ({
+    MessageId: 'msg-synthesis-1',
+    Body: JSON.stringify({ type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE, data }),
+  })
+
+  it('hands a valid event to the feedback synthesis ingest', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 2,
+      responsesLocation: 'output/feedback/run-1.json',
+      issues: [
+        {
+          rank: 1,
+          theme: 'Street flooding',
+          summary: 's',
+          analysis: 'a',
+          responseCount: 2,
+          quotes: [{ quote: 'q', respondent_id: 'feedback-1' }],
+        },
+      ],
+    }
+
+    const result = await service.processMessage(synthesisMessage(data))
+
+    expect(result).toBe(true)
+    expect(handle).toHaveBeenCalledWith({
+      type: QueueType.FEEDBACK_SYNTHESIS_COMPLETE,
+      data,
+    })
+  })
+
+  it('warns when the cluster-analysis prompt fell back to the in-repo prompt', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+      promptSource: 'fallback',
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      { sourceType: 'constituent_feedback', sourceId: 'run-1' },
+      'Synthesis run used the in-repo theme prompt',
+    )
+  })
+
+  it('does not warn when the prompt came from the hosted build', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+      promptSource: 'hosted',
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when the pipeline sent no promptSource at all', async () => {
+    const handle = vi.fn().mockResolvedValue(undefined)
+    const service = buildService(handle)
+    const data = {
+      sourceType: 'constituent_feedback',
+      sourceId: 'run-1',
+      totalResponses: 0,
+      responsesLocation: null,
+      issues: [],
+    }
+
+    await service.processMessage(synthesisMessage(data))
+
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('acks and drops a malformed event instead of requeueing', async () => {
+    const handle = vi.fn()
+    const service = buildService(handle)
+
+    const result = await service.processMessage(
+      synthesisMessage({ sourceId: 'run-1' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handle).not.toHaveBeenCalled()
   })
 })

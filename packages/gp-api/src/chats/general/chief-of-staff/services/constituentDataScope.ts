@@ -1,5 +1,6 @@
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { ConstituentDataScope } from '@/llm/tools/queryConstituentData.tool'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { SERVE_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.serveAgentVoters'
 import { SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS } from './constituentSuggestedDimensions.serveAgentVoters'
 
@@ -29,6 +30,35 @@ export const CONSTITUENT_TABLES: ConstituentTableConfig[] = [
   },
 ]
 
+export type ConstituentTablesByDataset = Record<
+  PeopleDataset,
+  ConstituentTableConfig[]
+>
+
+// Chosen per chat turn from PeopleDatasetService. serve_agent_constituents is
+// a superset of serve_agent_voters (every voter row unchanged, plus adult
+// residents who are not registered to vote) with the same column names, so
+// it carries the same allowlist. Its extra columns stay unqueryable.
+export const CONSTITUENT_TABLES_BY_DATASET: ConstituentTablesByDataset = {
+  voters: CONSTITUENT_TABLES,
+  constituents: [
+    {
+      table: 'serve_agent_constituents',
+      dimensions: SERVE_AGENT_VOTER_DIMENSIONS,
+    },
+  ],
+}
+
+// WHERE the approved surface lives, beside WHAT it is. Two modules build a
+// provider against this pair (chief-of-staff and priority-flow) and the
+// judge's data-version resolver has to query the very table the tool reads,
+// so a third and fourth copy of the literals is how one of them ends up
+// pointing at a different table than the one under test. The catalog is the
+// same one peopleDb/databricks/peopleDbx.config.ts names; only the schema
+// differs, because this mart is curated for the Serve agents.
+export const CONSTITUENT_CATALOG = 'goodparty_data_catalog'
+export const CONSTITUENT_SCHEMA = 'mart_serve_agents'
+
 // Hard legal line: these columns must NEVER appear in any clause. App-side
 // defensive backstop layered on top of the warehouse credential's column
 // denies. These are best-effort guesses at the names.
@@ -50,6 +80,7 @@ const FORBIDDEN_COLUMNS = new Set([
 export const buildConstituentDataScope = (
   districtFilters: MandatoryFilter[],
   tables: ConstituentTableConfig[],
+  peopleDataset: PeopleDataset,
 ): ConstituentDataScope => ({
   allowedTables: new Set(tables.map((t) => t.table)),
   allowedDimensions: new Set(tables.flatMap((t) => t.dimensions)),
@@ -62,4 +93,5 @@ export const buildConstituentDataScope = (
   // off-center marks that hsScoreSemantics refers to (verified against
   // serve_agent_voters, 2026-08-04).
   catalogCarriesScoreMarks: true,
+  peopleDataset,
 })

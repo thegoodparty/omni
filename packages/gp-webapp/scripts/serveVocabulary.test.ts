@@ -190,6 +190,30 @@ export const keyed = { voter: 'Someone you represent' }`,
       ).toEqual(['voter'])
     })
 
+    it('flags the outreach history strings Serve once showed', () => {
+      expect(
+        words(
+          SHARED_FILE,
+          `const SERVE_HISTORY_COPY = {
+  title: 'Active campaigns',
+  caption: "Every campaign you've sent, most recent first.",
+  column: 'Campaign',
+  results: '0 supporters',
+}`,
+        ),
+      ).toEqual(['campaign', 'campaign', 'campaign', 'supporter'])
+    })
+
+    it('reads a capitalised single word as a label', () => {
+      expect(
+        words(
+          SERVE_FILE,
+          `const El = () => <th>Campaign</th>
+export const kind = 'campaign'`,
+        ),
+      ).toEqual(['campaign'])
+    })
+
     it('reads a derive-by-replace override as the Serve string it produces', () => {
       // ThinkingStream.tsx: Serve's list is Win's with one message swapped, so
       // the Win string it matches on sits inside the SERVE_ declaration. The
@@ -261,5 +285,55 @@ export const pledge = 'I will run as an independent candidate'`,
         ),
       ).toEqual(['voter'])
     })
+  })
+})
+
+describe('the civic panel name', () => {
+  it('flags every old name for the panel, in any file', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `export const copy = {
+  a: "Build your citizens' panel",
+  b: 'Do they want to join your citizens’ panel?',
+  c: "Who is on your citizen's panel",
+  d: 'On Your Citizens Panel',
+  e: 'Your civics panel is growing',
+  f: 'Your constituent panel is growing',
+}`,
+      ),
+    ).toEqual([
+      'citizens panel',
+      'citizens panel',
+      'citizens panel',
+      'citizens panel',
+      'civics panel',
+      'constituent panel',
+    ])
+  })
+
+  it('reads JSX text with its entities', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `export const Row = () => <span>On your citizens&apos; panel</span>`,
+      ),
+    ).toEqual(['citizens panel'])
+  })
+
+  it('passes the civic panel and the identifiers that keep the old name', () => {
+    expect(
+      words(
+        SHARED_FILE,
+        `import { useServeCitizenPanelsFlag } from './serveCitizenPanelsFlag'
+// The citizens' panel, in a comment, is not copy.
+export const copy = {
+  title: 'Your civic panel',
+  label: 'Civic panel',
+  href: '/dashboard/contacts/citizens-panel',
+  flag: 'serve-citizen-panels',
+}`,
+      ),
+    ).toEqual([])
   })
 })

@@ -1,4 +1,8 @@
 import { HttpStatus } from '@nestjs/common'
+import {
+  CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_LEAVE_LINE,
+} from '@goodparty_org/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -113,6 +117,7 @@ const getReplies = (id: number, query = '') =>
 const createInput = {
   name: 'Budget hearing reminder',
   message: 'The budget hearing is Thursday at 6pm at City Hall.',
+  imageUrl: 'https://assets.test/header.png',
   scheduledLocalDate: '2026-10-08',
   voterFileFilterId: 55,
 }
@@ -134,7 +139,28 @@ describe('POST /v1/outreach/serve/sms/draft', () => {
         "The official's bio, in their own words:",
       ],
       SERVE_SMS_VOICE,
+      undefined,
     )
+  })
+
+  // Improve gets the whole message, so the generator is told what Serve
+  // locks in it: the official's name and the double-brace merge tag, never
+  // a paid-for-by line an elected official has no committee for.
+  it('hands Improve the official and the Serve locks', async () => {
+    const res = await postDraft({
+      purpose: 'community_input',
+      tone: 'warm',
+      currentDraft:
+        'Hello {{first_name}}, this is Johnny. Join us Thursday.\n\nReply STOP to opt out.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(generateDraftWithVoice.mock.calls[0]?.[6]).toEqual({
+      candidateNames: ['Johnny Goodparty'],
+      committeeName: null,
+      channel: 'serve',
+      ignoredRules: ['paid_for_by'],
+    })
   })
 
   // Office and place are prompt enrichment: election-api is not on the
@@ -155,6 +181,7 @@ describe('POST /v1/outreach/serve/sms/draft', () => {
       String(service.user.id),
       ["The official's bio, in their own words:"],
       SERVE_SMS_VOICE,
+      undefined,
     )
   })
 
@@ -175,7 +202,7 @@ describe('POST /v1/outreach/serve/sms', () => {
     const res = await postCreate(createInput)
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput)
+    expect(createDraft).toHaveBeenCalledWith(eoOrgSlug, createInput, {})
     expect(res.data).toEqual({
       outreachId: 12,
       recipientCount: 480,
@@ -194,11 +221,19 @@ describe('POST /v1/outreach/serve/sms', () => {
     expect(createDraft).toHaveBeenCalledWith(
       eoOrgSlug,
       expect.not.objectContaining({ organizationSlug: 'eo-somebody-else' }),
+      {},
     )
   })
 
   it('rejects a body the create schema does not accept', async () => {
     const res = await postCreate({ ...createInput, scheduledLocalDate: 12 })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(createDraft).not.toHaveBeenCalled()
+  })
+
+  it('rejects a send with no image', async () => {
+    const res = await postCreate({ ...createInput, imageUrl: undefined })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(createDraft).not.toHaveBeenCalled()
@@ -261,6 +296,98 @@ describe('Serve SMS feature gate', () => {
     expect(generateDraftWithVoice).toHaveBeenCalledOnce()
     expect(createDraft).toHaveBeenCalledOnce()
   })
+
+  it('404s a civic panel draft while serve-citizen-panels is off', async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(generateDraftWithVoice).not.toHaveBeenCalled()
+  })
+
+  it.each(CIVIC_PANEL_JOIN_LINES)(
+    'refuses a create carrying a join line while serve-citizen-panels is off: %s',
+    async (line) => {
+      isFeatureEnabled.mockImplementation(
+        async ({ feature }: { feature: string }) =>
+          feature !== 'serve-citizen-panels',
+      )
+
+      const res = await postCreate({
+        ...createInput,
+        message: `${createInput.message}\n\n${line}\n\nReply STOP to opt out.`,
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(createDraft).not.toHaveBeenCalled()
+    },
+  )
+
+  it('refuses a create carrying the LEAVE line while serve-citizen-panels is off', async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postCreate({
+      ...createInput,
+      message: `${createInput.message}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`,
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(createDraft).not.toHaveBeenCalled()
+  })
+
+  it('creates a send carrying a join line with serve-citizen-panels on', async () => {
+    const res = await postCreate({
+      ...createInput,
+      message: `${createInput.message}\n\n${CIVIC_PANEL_JOIN_LINES[0]}\n\nReply STOP to opt out.`,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(createDraft).toHaveBeenCalledOnce()
+  })
+
+  it('leaves a create without a join line alone while serve-citizen-panels is off', async () => {
+    isFeatureEnabled.mockImplementation(
+      async ({ feature }: { feature: string }) =>
+        feature !== 'serve-citizen-panels',
+    )
+
+    const res = await postCreate(createInput)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(createDraft).toHaveBeenCalledOnce()
+  })
+
+  it('drafts a civic panel text with serve-citizen-panels on', async () => {
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(isFeatureEnabled).toHaveBeenCalledWith({
+      user: expect.objectContaining({ id: service.user.id }),
+      feature: 'serve-citizen-panels',
+    })
+    expect(generateDraftWithVoice).toHaveBeenCalledWith(
+      { purpose: 'build_citizens_panel', tone: 'warm' },
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      SERVE_SMS_VOICE,
+      undefined,
+    )
+  })
 })
 
 describe('Serve SMS results and replies routes', () => {
@@ -284,22 +411,50 @@ describe('Serve SMS results and replies routes', () => {
     expect(listReplies).toHaveBeenCalledWith(
       12,
       { organizationSlug: eoOrgSlug, campaignId: null },
-      { limit: 10, offset: 0 },
+      {
+        limit: 10,
+        offset: 0,
+        userId: service.user.id,
+        filter: 'all',
+        themeId: undefined,
+        nonClustered: false,
+      },
+    )
+  })
+
+  it('passes the theme, non-clustered and filter params through', async () => {
+    await getReplies(12, '?themeId=theme-1&nonClustered=true&filter=unread')
+
+    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
+      limit: 10,
+      offset: 0,
+      userId: service.user.id,
+      filter: 'unread',
+      themeId: 'theme-1',
+      nonClustered: true,
+    })
+  })
+
+  it('400s a filter that is not all, unread or favorited', async () => {
+    expect((await getReplies(12, '?filter=starred')).status).toBe(
+      HttpStatus.BAD_REQUEST,
     )
   })
 
   it('clamps the reply page: nonsense falls back, oversized caps at 200', async () => {
     await getReplies(12, '?limit=banana&offset=-5')
-    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
-      limit: 10,
-      offset: 0,
-    })
+    expect(listReplies).toHaveBeenLastCalledWith(
+      12,
+      expect.anything(),
+      expect.objectContaining({ limit: 10, offset: 0 }),
+    )
 
     await getReplies(12, '?limit=5000&offset=30')
-    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
-      limit: 200,
-      offset: 30,
-    })
+    expect(listReplies).toHaveBeenLastCalledWith(
+      12,
+      expect.anything(),
+      expect.objectContaining({ limit: 200, offset: 30 }),
+    )
   })
 
   it('serves results and replies with the rollout flag off', async () => {

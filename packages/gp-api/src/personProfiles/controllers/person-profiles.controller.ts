@@ -308,12 +308,22 @@ export class PersonProfilesController {
   @HttpCode(HttpStatus.OK)
   async clearRemoval(@Body() body: ClearPersonProfileRemovalDto) {
     await this.personProfilesService.clearRemoval(body.personId, body.clearedBy)
+    // Reinstating makes the page render again, so make sure the id it renders
+    // under is current. A user whose Person was merged upstream while hidden
+    // would otherwise come back under a stale id (and the wrong identity).
+    // Best-effort: the reinstate itself has already succeeded.
+    try {
+      const owner = await this.users.findUser({ personId: body.personId })
+      if (owner) await this.personIdBackfill.resyncLinkedUser(owner)
+    } catch {
+      // The daily drift sweep is the backstop.
+    }
     void this.revalidation.revalidatePerson(body.personId)
     return { personId: body.personId, removed: false as const }
   }
 
   // Carries the ops note and the actor, so it stays behind the same admin guard
-  // as the writes — the unauthenticated /unlisted feed is personId-only for
+  // as the writes — the service-readable /unlisted feed is personId-only for
   // precisely this reason.
   @Get('removals')
   @UseGuards(AdminOrM2MGuard)

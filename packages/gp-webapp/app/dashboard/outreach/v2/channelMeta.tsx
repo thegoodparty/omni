@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react'
-import { Badge, StatusText } from '@styleguide'
+import { MessageSquareOff } from 'lucide-react'
+import {
+  Badge,
+  StatusText,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import {
   ArchiveIcon,
   CalendarClockIcon,
@@ -7,6 +14,7 @@ import {
   CheckCircleIcon,
   CircleDotIcon,
   CircleIcon,
+  ClipboardListIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadsetIcon,
@@ -21,6 +29,7 @@ import {
   ShieldAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // One meta row per channel, shared by the hub tiles, the history table's
 // channel badge, and the details drawer so the channel reads identically
@@ -66,6 +75,12 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-brand-blue-200',
     badgeTint: 'bg-brand-blue-200 text-foreground',
   },
+  poll: {
+    label: 'Poll / Survey',
+    icon: <ClipboardListIcon />,
+    iconTint: 'bg-brand-bright-yellow-200',
+    badgeTint: 'bg-brand-bright-yellow-200 text-foreground',
+  },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,
@@ -90,9 +105,8 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-brand-halo-green-200',
     badgeTint: 'bg-brand-halo-green-200 text-foreground',
   },
-  // Same presentation as the legacy type: a candidate reading the history has
-  // no use for the distinction between an eCanvasser draft and a native walk,
-  // and a channel that renders two ways reads as two channels.
+  // Same presentation as the legacy type: a channel that renders two ways
+  // reads as two channels.
   nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
@@ -177,16 +191,37 @@ const STATUS_DISPLAY: Record<
   'Verification in review': { icon: <Loader2Icon />, tone: 'primary' },
   'PIN needed': { icon: <ShieldCheckIcon />, tone: 'primary' },
   'Ready to schedule': { icon: <CalendarDaysIcon />, tone: 'primary' },
+  // The sixth has no next step: the texting window closed for this race.
+  'Texting closed': { icon: <MessageSquareOff />, tone: 'muted' },
 }
 
-export const HistoryStatusText = ({ label }: { label: string | null }) => {
+// `textingClosedReason` is the hover reason behind "Texting closed", the one
+// label with no next step to name.
+export const HistoryStatusText = ({
+  label,
+  textingClosedReason,
+}: {
+  label: string | null
+  textingClosedReason?: string
+}) => {
   if (!label) {
     return <StatusText tone="muted">n/a</StatusText>
   }
   const display = STATUS_DISPLAY[label]
-  return (
+  const text = (
     <StatusText tone={display?.tone ?? 'primary'} icon={display?.icon}>
       {label}
     </StatusText>
+  )
+  if (label !== SMS_CUTOFF_COPY.closedLabel || !textingClosedReason) {
+    return text
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{text}</span>
+      </TooltipTrigger>
+      <TooltipContent>{textingClosedReason}</TooltipContent>
+    </Tooltip>
   )
 }

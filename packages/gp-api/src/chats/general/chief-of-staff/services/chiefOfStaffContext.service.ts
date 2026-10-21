@@ -1,12 +1,23 @@
+import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatScope, type Organization } from '../../../../generated/prisma'
+import {
+  ChatScope,
+  CivicPanelBuildPlanStatus,
+  CivicPanelStatus,
+  ContactStatusField,
+  OutreachType,
+  type Organization,
+} from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
+import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
+import {
+  ChatAnchorSchema,
+  type ChatAnchor,
+  type PriorityReadStatus,
+} from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
-import { FeaturesService } from '@/features/services/features.service'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
-import { addMilliseconds, isAfter } from 'date-fns'
 
 export interface ChiefOfStaffContext {
   conversationId: string
@@ -20,6 +31,8 @@ export interface ChiefOfStaffContext {
   userLastName: string | null
   officeTitle: string | null
   jurisdiction: string | null
+  // Two-letter state from the resolved district, for the date line's zone.
+  state?: string | null
   swornInDate: Date | null
   party: string | null
   electedDate: Date | null
@@ -41,10 +54,36 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-chat-attachments flag is on for this user. Cached
-  // per user for 60 s to avoid an Amplitude fetchV2 round-trip on every
-  // turn; a flag flip takes effect within that window.
-  attachmentsEnabled: boolean
+  // Which people table the constituent-data tool reads. The context service
+  // defaults it to 'voters'; the handler resolves it per turn from
+  // PeopleDatasetService for the conversation's org.
+  peopleDataset: PeopleDataset
+  // Whether read_outreach_feedback registers: the serve-citizen-panels flag
+  // for the chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
+  // Where the civic panel stands, read per turn behind the same flag.
+  // Undefined while it is off, so nothing about building a panel reaches the
+  // prompt or the proposal tool.
+  civicPanel?: CivicPanelBuildState
+  // The office's priority texts whose replies are in, and whether each has
+  // been reported back on. Read per turn behind the same flag.
+  reportBacks?: ReportBackSend[]
+  // Each active priority's answers against what a good read of the district
+  // needs, keyed by priority id. Read per turn behind the same flag.
+  priorityReads?: Map<string, PriorityReadStatus>
+}
+
+export interface CivicPanelBuildState {
+  members: number
+  // A text asking people to join is past checkout: the invite is out, and
+  // the build card is done.
+  inviteSent: boolean
+  // The office has a plan building the panel across texts, calls and doors,
+  // on the panel page.
+  hasPlan: boolean
+  // The members it takes to answer one question in their district
+  // (panelGoalMembers).
+  goalMembers: number
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -53,38 +92,6 @@ export interface ChiefOfStaffContext {
 export class ChiefOfStaffContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  // Amplitude fetchV2 retries cost several seconds per call when the SDK
-  // cannot reach the edge — enough to push CI E2E tests into timeout. Cache
-  // the boolean per user for a short window so only the first turn in that
-  // window incurs the round-trip.
-  private static readonly ATTACHMENTS_CACHE_TTL_MS = 60_000
-  private readonly attachmentsCache = new Map<
-    number,
-    { enabled: boolean; expiresAt: Date }
-  >()
-
-  constructor(private readonly features: FeaturesService) {
-    super()
-  }
-
-  private async resolveAttachmentsEnabled(userId: number): Promise<boolean> {
-    const now = new Date()
-    const hit = this.attachmentsCache.get(userId)
-    if (hit !== undefined && isAfter(hit.expiresAt, now)) return hit.enabled
-    const enabled = await this.features.isFeatureEnabled({
-      user: userId,
-      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
-    })
-    this.attachmentsCache.set(userId, {
-      enabled,
-      expiresAt: addMilliseconds(
-        now,
-        ChiefOfStaffContextService.ATTACHMENTS_CACHE_TTL_MS,
-      ),
-    })
-    return enabled
-  }
-
   async load(
     conversationId: string,
     userId: number,
@@ -111,8 +118,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
     }
 
     const priorities = await port.listActive(electedOffice.id)
-
-    const attachmentsEnabled = await this.resolveAttachmentsEnabled(userId)
 
     // "First conversation" means they have never actually talked to their
     // chief of staff, so this counts PRIOR conversations that hold at least
@@ -167,7 +172,45 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      attachmentsEnabled,
+      peopleDataset: 'voters',
+    }
+  }
+
+  async civicPanelBuildState(
+    organizationSlug: string,
+    goalMembers: number,
+  ): Promise<CivicPanelBuildState> {
+    const [members, invite, plan] = await Promise.all([
+      this.client.contactCurrentStatus.count({
+        where: {
+          organizationSlug,
+          field: ContactStatusField.civic_panel,
+          value: CivicPanelStatus.member,
+        },
+      }),
+      this.client.outreach.findFirst({
+        where: {
+          organizationSlug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+          asksToJoinCivicPanel: true,
+          status: { notIn: UNSENT_OUTREACH_STATUSES },
+        },
+        select: { id: true },
+      }),
+      this.client.civicPanelBuildPlan.findFirst({
+        where: {
+          organizationSlug,
+          status: CivicPanelBuildPlanStatus.active,
+        },
+        select: { id: true },
+      }),
+    ])
+    return {
+      members,
+      inviteSent: invite !== null,
+      hasPlan: plan !== null,
+      goalMembers,
     }
   }
 }

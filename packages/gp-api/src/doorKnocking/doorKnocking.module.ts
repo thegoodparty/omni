@@ -7,6 +7,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
+import { PrioritiesModule } from '@/priorities/priorities.module'
 import { DoorKnockingController } from './doorKnocking.controller'
 import { DoorKnockingActivityService } from './services/doorKnockingActivity.service'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
@@ -38,6 +39,9 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
     OrganizationsModule,
     GeoapifyModule,
     PeopleQueryModule,
+    // For PriorityStatusService: a walk built from a priority's check puts
+    // that check out.
+    forwardRef(() => PrioritiesModule),
   ],
   controllers: [DoorKnockingController],
   providers: [
@@ -57,7 +61,8 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
   ],
   // The rail's counts aggregate, exported so the outreach detail read can
   // report doors/people/logged for a nativeDoorKnocking envelope off the same
-  // computation rather than a second one of its own (ADR 0010).
+  // computation rather than a second one of its own, so one quantity has one
+  // number.
   exports: [DoorKnockingTurfCountsService],
 })
 export class DoorKnockingModule {}

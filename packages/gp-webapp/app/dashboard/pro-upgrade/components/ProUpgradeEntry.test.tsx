@@ -3,10 +3,12 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'next/navigation'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import type { Campaign } from 'helpers/types'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ProUpgradeEntry from './ProUpgradeEntry'
 
 // Mock only useQuery so we control pending vs resolved; keep the real
@@ -14,6 +16,12 @@ import ProUpgradeEntry from './ProUpgradeEntry'
 vi.mock('@tanstack/react-query', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-query')>()
   return { ...actual, useQuery: vi.fn() }
+})
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
 })
 
 vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
@@ -265,5 +273,52 @@ describe('ProUpgradeEntry', () => {
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/pro-upgrade/success',
     )
+  })
+
+  describe('Flow Started', () => {
+    it('fires once with the attribution the entry link carried', () => {
+      vi.mocked(useSearchParams).mockReturnValue(
+        new URLSearchParams({
+          source: 'navigation',
+          channel: 'generic',
+          cta: 'Join Pro',
+        }) as unknown as ReturnType<typeof useSearchParams>,
+      )
+      setQueries(queryResult(), queryResult())
+
+      const { rerender } = render(<ProUpgradeEntry />)
+      rerender(<ProUpgradeEntry />)
+
+      expect(trackEvent).toHaveBeenCalledTimes(1)
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.FlowStarted,
+        { source: 'navigation', channel: 'generic', cta: 'Join Pro' },
+      )
+    })
+
+    it('reads a bare entry as direct', () => {
+      vi.mocked(useSearchParams).mockReturnValue(
+        new URLSearchParams() as unknown as ReturnType<typeof useSearchParams>,
+      )
+      setQueries(queryResult(), queryResult())
+
+      render(<ProUpgradeEntry />)
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.FlowStarted,
+        { source: 'direct', channel: 'generic' },
+      )
+    })
+
+    it('does not fire for an already-Pro candidate routed to success', () => {
+      setQueries(
+        queryResult({ data: { isPro: true, details: {} } as Campaign }),
+        queryResult(),
+      )
+
+      render(<ProUpgradeEntry />)
+
+      expect(trackEvent).not.toHaveBeenCalled()
+    })
   })
 })

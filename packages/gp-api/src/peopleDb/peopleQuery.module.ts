@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common'
-import { HttpModule } from '@nestjs/axios'
-import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { DistrictsModule } from '@/electionDb/districts/districts.module'
 import { ElectionApiDistrictService } from './services/electionApiDistrict.service'
 import { StatsService } from './services/stats.service'
 import { VoterQueryService } from './services/voterQuery.service'
@@ -13,9 +12,10 @@ import { DatabricksVoterPackService } from './databricks/databricksVoterPack.ser
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
 import { VoterReadLogService } from './databricks/voterReadLog.service'
 import { VoterRecommendedListsService } from './services/voterRecommendedLists.service'
+import { PeopleDatasetService } from './services/peopleDataset.service'
 
 @Module({
-  imports: [HttpModule, ClerkModule],
+  imports: [DistrictsModule],
   providers: [
     PeopleDbxStatementClient,
     VoterReadLogService,
@@ -29,6 +29,7 @@ import { VoterRecommendedListsService } from './services/voterRecommendedLists.s
     VoterDoorKnockingService,
     VoterPackService,
     VoterRecommendedListsService,
+    PeopleDatasetService,
   ],
   exports: [
     StatsService,
@@ -37,6 +38,7 @@ import { VoterRecommendedListsService } from './services/voterRecommendedLists.s
     VoterDoorKnockingService,
     VoterPackService,
     VoterRecommendedListsService,
+    PeopleDatasetService,
   ],
 })
 export class PeopleQueryModule {}

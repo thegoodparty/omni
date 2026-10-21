@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { ReactNode } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useQuery } from '@tanstack/react-query'
@@ -13,6 +14,7 @@ import {
   OrganizationPicker,
   useOrganization,
 } from './organization-picker'
+import { FeatureFlagsContext } from './experiments/FeatureFlagsProvider'
 
 const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
@@ -30,11 +32,6 @@ vi.mock('next/navigation', async (importOriginal) => {
     usePathname: vi.fn(() => '/dashboard'),
   }
 })
-
-const mockUseFlagOn = vi.fn(() => ({ ready: true, on: true }))
-vi.mock('./experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: (...args: unknown[]) => mockUseFlagOn(...(args as [])),
-}))
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),
@@ -101,7 +98,6 @@ beforeEach(() => {
   mockRouterReplace.mockClear()
   mockRouterRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
-  mockUseFlagOn.mockReset().mockReturnValue({ ready: true, on: true })
 })
 
 describe('OrganizationProvider', () => {
@@ -391,27 +387,6 @@ describe('OrganizationPicker', () => {
     await waitFor(() => {
       expect(mockRouterPush).toHaveBeenCalledWith('/volunteer')
     })
-  })
-
-  // Flag off keeps routing byte-identical to today even for a role that
-  // (per gp-api) can't really exist yet outside the pilot.
-  it('routes to /dashboard/chief-of-staff for a volunteer-role org when win-team-accounts is off', async () => {
-    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
-    const user = userEvent.setup()
-    renderPicker(
-      orgs.map((org, i) => ({
-        ...org,
-        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
-      })),
-    )
-
-    await user.click(screen.getByText('Organization One'))
-    await user.click(screen.getByText('Organization Two'))
-
-    await waitFor(() => {
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
-    })
-    expect(mockRouterPush).not.toHaveBeenCalledWith('/volunteer')
   })
 
   it('fetches organizations from the API', async () => {
@@ -1060,5 +1035,96 @@ describe('stale org cookie repair (server/client divergence)', () => {
       expect(screen.getByTestId('org')).toHaveTextContent('org-one')
     })
     expect(mockRouterRefresh).toHaveBeenCalledTimes(1)
+  })
+})
+
+// issue-capture rolls out by org: gp-api resolves it for the org the cookie
+// names. The flag provider sits above the org provider and cannot see the
+// cookie change, so a change of org has to ask it to resolve again, after
+// the cookie the request will carry is written.
+describe('feature flags follow the org', () => {
+  const Probe = () => {
+    const org = useOrganization()
+    return <div data-testid="org">{org?.slug}</div>
+  }
+
+  const withFlags = (ui: ReactNode) => {
+    const refresh = vi.fn(() => Promise.resolve())
+    render(
+      <FeatureFlagsContext.Provider
+        value={{
+          ready: true,
+          variant: () => ({ value: undefined }),
+          all: () => ({}),
+          exposure: vi.fn(),
+          refresh,
+          clear: vi.fn(),
+        }}
+      >
+        {ui}
+      </FeatureFlagsContext.Provider>,
+    )
+    return refresh
+  }
+
+  it('resolves the flags again when the user switches orgs', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+    const refresh = withFlags(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+    expect(refresh).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /Organization One/ }))
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-two' : false,
+    )
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-two')
+    expect(mockSetCookie.mock.invocationCallOrder[0]).toBeLessThan(
+      refresh.mock.invocationCallOrder[0] ?? 0,
+    )
+  })
+
+  it('resolves the flags again when a stale cookie is repaired', async () => {
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-from-another-user' : false,
+    )
+    const refresh = withFlags(
+      <OrganizationProvider
+        initialOrganizations={orgs}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
+  })
+
+  it('leaves the server-resolved flags alone when the cookie is valid', async () => {
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+    const refresh = withFlags(
+      <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org')).toHaveTextContent('org-one')
+    })
+    expect(refresh).not.toHaveBeenCalled()
   })
 })

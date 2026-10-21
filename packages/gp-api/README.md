@@ -127,25 +127,6 @@ You can run the tests in the Postman desktop app or you can run them using the P
 
 (This will eventually be automated to run in a npm/npx script to automatically fetch the collection and environment keys for you)
 
-### Campaign Event Generation (Local)
-
-To test the campaign event generation Lambda locally, run the local server in `packages/gp-ai`:
-
-```bash
-cd packages/gp-ai
-source .venv/bin/activate
-python campaign_plan_lambda/local_server.py
-```
-
-Then add to your gp-api `.env`:
-
-```
-CAMPAIGN_PLAN_LOCAL_URL=http://localhost:8089/generate
-CAMPAIGN_PLAN_RESULTS_BUCKET=campaign-plan-results-dev
-```
-
-See `packages/gp-ai/campaign_plan_lambda/README.md` for full setup instructions including AWS credentials and SQS queue configuration.
-
 ### AWS Setup
 
 To set up your AWS CLI locally, run the following script:
@@ -156,7 +137,7 @@ curl -fsSL https://raw.githubusercontent.com/thegoodparty/omni/main/packages/gp-
 
 ## Contracts Package (`@goodparty_org/contracts`)
 
-A shared Zod schema and TypeScript types package consumed by `gp-api`, `gp-sdk`, and other workspaces to keep API request/response types in sync without duplication.
+A shared Zod schema and TypeScript types package consumed by `gp-api`, `gp-webapp`, `gp-admin`, and other workspaces to keep API request/response types in sync without duplication.
 
 The contracts source lives in `packages/contracts` and is managed as an npm workspace.
 
@@ -169,7 +150,7 @@ npm install
 npm run build -w packages/contracts
 ```
 
-For live rebuilds of contracts source during development (e.g., when editing schemas for `gp-sdk` consumption):
+For live rebuilds of contracts source during development (e.g., when editing schemas a consumer reads):
 
 ```bash
 npm run dev -w packages/contracts
@@ -189,15 +170,6 @@ npm run build -w packages/contracts
 ```
 
 This regenerates the enum definitions in `packages/contracts/src/generated/enums.ts`.
-
-### Testing Against gp-sdk Locally
-
-Build contracts first, then build gp-sdk:
-
-```bash
-npm run build -w packages/contracts
-npm run build -w packages/gp-sdk
-```
 
 ## Agent Job Contracts
 

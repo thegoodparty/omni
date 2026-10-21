@@ -1,10 +1,8 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
-import { Methods, MimeTypes } from 'http-constants-ts'
-import { createHash } from 'crypto'
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
+import { Injectable } from '@nestjs/common'
+import { SQSClient } from '@aws-sdk/client-sqs'
 import { Producer } from 'sqs-producer'
 import { Message } from '@ssut/nestjs-sqs/dist/sqs.types'
-import { campaignPlanQueueConfig, queueConfig } from '../queue.config'
+import { queueConfig } from '../queue.config'
 import { MessageGroup, QueueMessage } from '../queue.types'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -47,70 +45,5 @@ export class QueueProducerService {
         throw error
       }
     }
-  }
-
-  async sendToExternalQueue<T extends object>(
-    queueUrl: string,
-    body: T,
-    messageGroupId: string,
-  ): Promise<void> {
-    const messageBody = JSON.stringify(body)
-    const bodyHash = createHash('sha256')
-      .update(messageBody)
-      .digest('hex')
-      .substring(0, 16)
-    const deduplicationId = `${messageGroupId}-${bodyHash}`
-    try {
-      await sqsClient.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: messageBody,
-          MessageGroupId: messageGroupId,
-          MessageDeduplicationId: deduplicationId,
-        }),
-      )
-    } catch (error) {
-      this.logger.error({ error, queueUrl }, 'error sending to external queue')
-      throw error
-    }
-  }
-
-  async sendToCampaignPlanQueue(body: {
-    campaignId: number
-    electionDate: string
-    state: string | null
-    city: string | null
-    officeName: string | null
-    officeLevel: string | null
-    primaryElectionDate: string | null
-  }): Promise<void> {
-    const { localUrl, inputQueueUrl } = campaignPlanQueueConfig
-
-    // Local development/testing bypass — POST directly instead of SQS.
-    if (localUrl && process.env.NODE_ENV !== 'production') {
-      const response = await fetch(localUrl, {
-        method: Methods.POST,
-        headers: { 'Content-Type': MimeTypes.APPLICATION_JSON },
-        body: JSON.stringify(body),
-      })
-      if (!response.ok) {
-        throw new BadGatewayException(
-          `Local campaign plan server returned ${response.status}`,
-        )
-      }
-      return
-    }
-
-    if (!inputQueueUrl) {
-      throw new BadGatewayException(
-        'Campaign plan input queue URL not configured',
-      )
-    }
-
-    await this.sendToExternalQueue(
-      inputQueueUrl,
-      body,
-      `campaign-plan-${body.campaignId}`,
-    )
   }
 }

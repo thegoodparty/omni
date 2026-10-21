@@ -2,12 +2,13 @@ import {
   HiUsers,
   HiCog,
   HiUserGroup,
-  HiGlobeAlt,
   HiLightningBolt,
   HiClipboardList,
   HiChatAlt2,
   HiEyeOff,
   HiKey,
+  HiStatusOnline,
+  HiCheckCircle,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -33,12 +34,6 @@ export const navItems: NavItem[] = [
     permission: PERMISSIONS.MANAGE_INVITES,
   },
   {
-    title: 'Ecanvasser',
-    href: '/dashboard/ecanvasser',
-    icon: HiGlobeAlt,
-    permission: PERMISSIONS.MANAGE_ECANVASSER,
-  },
-  {
     title: 'Agent Runs',
     href: '/dashboard/agent-runs',
     icon: HiLightningBolt,
@@ -48,6 +43,12 @@ export const navItems: NavItem[] = [
     title: 'SMS Outreach',
     href: '/dashboard/sms-outreach',
     icon: HiChatAlt2,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
+    title: 'Poll approvals',
+    href: '/dashboard/poll-approvals',
+    icon: HiCheckCircle,
     permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {
@@ -67,6 +68,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/domains',
     icon: HiKey,
     permission: PERMISSIONS.WRITE_CAMPAIGNS,
+  },
+  {
+    title: '10DLC Status',
+    href: '/dashboard/ten-dlc-status',
+    icon: HiStatusOnline,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {
     title: 'Settings',

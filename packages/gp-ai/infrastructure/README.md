@@ -335,7 +335,7 @@ curl -X POST https://ai-dev.goodparty.org/serve/messages/process \
 ### S3 Trigger (Automatic)
 - **Auth**: Not required (S3 event notifications are internal)
 - **Access Control**: S3 bucket is private, only Lambda can trigger
-- **Upload**: Any CSV file uploaded to `input/` triggers pipeline automatically
+- **Upload**: Any CSV file uploaded to `input/` triggers a poll run automatically; `feedback-input/` is gp-api's memo drop and runs as `constituent_feedback`
 
 ```bash
 # S3 upload trigger (no API key needed)
@@ -477,7 +477,7 @@ For detailed monitoring setup, see:
 - Ensure API key matches value in Secrets Manager
 
 **S3 upload doesn't trigger pipeline:**
-- Verify file is uploaded to `input/` prefix with `.csv` suffix
+- Verify file is uploaded to the `input/` or `feedback-input/` prefix with `.csv` suffix
 - Check S3 bucket notification configuration
 - Verify Lambda has S3 invoke permission
 

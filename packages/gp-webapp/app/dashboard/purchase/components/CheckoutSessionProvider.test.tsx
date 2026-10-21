@@ -130,13 +130,14 @@ describe('CheckoutSessionProvider', () => {
     expect(reportErrorToSentryMock).toHaveBeenCalled()
   })
 
-  it('surfaces the nested legacy error message on a non-ok response', async () => {
+  it("surfaces gp-api's message on a 4xx response", async () => {
+    // Nest serializes a BadRequestException, and the Stripe validation error
+    // the controller rethrows, as `{ statusCode, message }`.
+    const message =
+      "The Checkout Session's total amount due must add up to at least $0.50 USD"
     mswServer.use(
       http.post(LEGACY_URL, () =>
-        HttpResponse.json(
-          { data: { error: 'Card country mismatch' } },
-          { status: 400 },
-        ),
+        HttpResponse.json({ statusCode: 400, message }, { status: 400 }),
       ),
     )
 
@@ -152,18 +153,22 @@ describe('CheckoutSessionProvider', () => {
     )
 
     await act(async () => {
-      await expect(ref.current!.fetchClientSecret()).rejects.toThrow(
-        'Card country mismatch',
-      )
+      await expect(ref.current!.fetchClientSecret()).rejects.toThrow(message)
     })
-    expect(ref.current!.error).toBe('Card country mismatch')
-    expect(reportErrorToSentryMock).toHaveBeenCalled()
+    expect(ref.current!.error).toBe(message)
+    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ message, status: 400 }),
+    )
   })
 
-  it('falls back to a generic error message on a non-ok response without the nested error shape', async () => {
+  it('keeps the generic message on a 5xx and reports the server one to Sentry', async () => {
     mswServer.use(
       http.post(LEGACY_URL, () =>
-        HttpResponse.json({ message: 'nope' }, { status: 400 }),
+        HttpResponse.json(
+          { statusCode: 500, message: 'Internal server error' },
+          { status: 500 },
+        ),
       ),
     )
 
@@ -184,6 +189,48 @@ describe('CheckoutSessionProvider', () => {
       )
     })
     expect(ref.current!.error).toBe('Failed to create checkout session')
+    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        status: 500,
+        serverMessage: 'Internal server error',
+      }),
+    )
+  })
+
+  it('keeps the generic message on a non-JSON edge response and reports its status', async () => {
+    mswServer.use(
+      http.post(
+        LEGACY_URL,
+        () =>
+          new HttpResponse('<html>502 Bad Gateway</html>', {
+            status: 502,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    )
+
+    const ref: { current: CheckoutSessionContextValue | null } = {
+      current: null,
+    }
+    const Probe = captureContext(ref)
+
+    render(
+      <CheckoutSessionProvider type={PURCHASE_TYPES.DOMAIN_REGISTRATION}>
+        <Probe />
+      </CheckoutSessionProvider>,
+    )
+
+    await act(async () => {
+      await expect(ref.current!.fetchClientSecret()).rejects.toThrow(
+        'Failed to create checkout session',
+      )
+    })
+    expect(ref.current!.error).toBe('Failed to create checkout session')
+    expect(reportErrorToSentryMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ status: 502 }),
+    )
   })
 
   it('uses an injected createSession and never calls the legacy URL', async () => {

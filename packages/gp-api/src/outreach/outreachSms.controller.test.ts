@@ -6,6 +6,7 @@ import { User } from '../generated/prisma'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 
 const requester = { id: 7, firstName: 'Derek', lastName: 'Lane' } as User
 
@@ -30,13 +31,21 @@ const buildController = () => {
       .fn()
       .mockResolvedValue('State Senate'),
   } as unknown as OrganizationsService
+  const findFirst = vi.fn().mockResolvedValue({
+    candidateName: 'Jared T. Smith',
+    committeeName: 'Friends of Jared Smith',
+  })
+  const tcrCompliance = {
+    findFirst,
+  } as unknown as CampaignTcrComplianceService
   const controller = new OutreachSmsController(
     generationService,
     composeContext,
     organizations,
+    tcrCompliance,
     createMockLogger(),
   )
-  return { controller, generateDraft }
+  return { controller, generateDraft, findFirst }
 }
 
 describe('OutreachSmsController.draft', () => {
@@ -55,6 +64,26 @@ describe('OutreachSmsController.draft', () => {
       // LLM-call attribution stays on the requester, the acting user.
       '7',
       expect.anything(),
+      // A fresh draft writes only the body, so nothing is locked yet.
+      undefined,
     )
+  })
+
+  it('hands Improve the names and committee scheduling will check', async () => {
+    const { controller, generateDraft, findFirst } = buildController()
+
+    await controller.draft(requester, campaign, {
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: "Hello {first_name}, it's Jared. Reply STOP to opt out.",
+    })
+
+    expect(findFirst).toHaveBeenCalledWith({ where: { campaignId: 1 } })
+    expect(generateDraft.mock.calls[0]?.[5]).toEqual({
+      candidateNames: ['Jared Smith', 'Jared T. Smith'],
+      committeeName: 'Friends of Jared Smith',
+      channel: 'peerly',
+      ignoredRules: [],
+    })
   })
 })

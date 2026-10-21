@@ -20,7 +20,10 @@ import {
 } from '@nestjs/common'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
-import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
+import {
+  CampaignTcrComplianceService,
+  smsComplianceCutoffException,
+} from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
 import { CreateTcrComplianceDto } from './schemas/createTcrComplianceDto.schema'
 import { CreateAgenticTcrComplianceDto } from './schemas/createAgenticTcrComplianceDto.schema'
@@ -41,9 +44,13 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
+  TenDlcStatusSnapshotSchema,
   UpdateCommitteeNameOutputSchema,
+  UpdateFilingUrlOutputSchema,
 } from '@goodparty_org/contracts'
 import { UpdateCommitteeNameDto } from './schemas/updateCommitteeNameDto.schema'
+import { UpdateFilingUrlDto } from './schemas/updateFilingUrlDto.schema'
+import { Nightly10DlcReportService } from './services/nightly10DlcReport.service'
 
 // Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
 // (ENG-11034): unset in every environment today, pending the Ops-created
@@ -72,6 +79,7 @@ export class CampaignTcrComplianceController {
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
     private readonly hubspotSingleSend: HubspotSingleSendService,
+    private readonly nightly10DlcReport: Nightly10DlcReportService,
   ) {
     this.logger.setContext(CampaignTcrComplianceController.name)
   }
@@ -159,6 +167,17 @@ export class CampaignTcrComplianceController {
     return this.complianceStateService.findStateForCampaign(campaignId)
   }
 
+  // Backs the gp-admin 10DLC status page: every stuck-registration bucket the
+  // nightly Slack report renders, computed live by the same code. Includes
+  // the registry-hold DNS sweep, so a large domain fleet can take seconds.
+  @Get('admin/status-snapshot')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(TenDlcStatusSnapshotSchema)
+  async getTenDlcStatusSnapshot() {
+    return this.nightly10DlcReport.getAdminStatusSnapshot()
+  }
+
   @Post('admin/:campaignId/resend-cv-pin')
   @UseGuards(AdminOrM2MGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -240,6 +259,25 @@ export class CampaignTcrComplianceController {
       committeeName,
     )
     return { committeeName: record.committeeName }
+  }
+
+  // Staff filing-link correction from gp-admin's hold widget. A changed URL
+  // also clears the CV validation hold/override columns (see the service
+  // method); 409 once a Peerly identity exists, since the URL was already
+  // consumed by CampaignVerify.
+  @Patch('admin/:campaignId/filing-url')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(UpdateFilingUrlOutputSchema)
+  async updateFilingUrlForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+    @Body() { filingUrl }: UpdateFilingUrlDto,
+  ) {
+    const record = await this.tcrComplianceService.updateFilingUrl(
+      campaignId,
+      filingUrl,
+    )
+    return { filingUrl: record.filingUrl }
   }
 
   @Post('submit-to-peerly')
@@ -344,7 +382,20 @@ export class CampaignTcrComplianceController {
     @Body()
     tcrComplianceDto: CreateTcrComplianceDto,
   ) {
-    if (await this.tcrComplianceService.fetchByCampaignId(campaign.id)) {
+    const existing = await this.tcrComplianceService.fetchByCampaignId(
+      campaign.id,
+    )
+    if (
+      await this.tcrComplianceService.isPastSmsCutoff({
+        userId: campaign.userId,
+        campaign,
+        tcrCompliance: existing,
+        path: 'legacy',
+      })
+    ) {
+      throw smsComplianceCutoffException()
+    }
+    if (existing) {
       throw new ConflictException(
         'TCR compliance already exists for this campaign',
       )
@@ -462,36 +513,43 @@ export class CampaignTcrComplianceController {
         campaignVerifyToken,
       )
 
-    await this.tcrComplianceService.model.update({
-      where: { id: tcrCompliance.id },
-      data: {
-        status: TcrComplianceStatus.pending,
-      },
-    })
-
-    try {
-      await this.analytics.track(
-        user.id,
-        EVENTS.Outreach.CompliancePinSubmitted,
-        { source: 'compliance_flow' },
-      )
-    } catch (e) {
-      // TODO: Alert on this.
-      this.logger.error(
-        { e },
-        `Failed to track compliance PIN submitted event for user ${user.id}`,
-      )
-    }
-    try {
-      await this.sendPinSubmittedSingleSend(user.email, {
-        source: 'compliance_flow',
+    // Only a row still awaiting its PIN moves to review. The PIN form is
+    // only shown at that stage, and an internal-testing row approved by the
+    // admin checkbox must never be downgraded by a stray submit.
+    if (tcrCompliance.status === TcrComplianceStatus.submitted) {
+      await this.tcrComplianceService.model.update({
+        where: { id: tcrCompliance.id },
+        data: {
+          status: TcrComplianceStatus.pending,
+        },
       })
-    } catch (err) {
-      this.logger.error(
-        { err, userId: user.id },
-        'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
-          'the workflow email path still fires from the Segment event',
-      )
+    }
+
+    if (!tcrCompliance.internalTestingAt) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Outreach.CompliancePinSubmitted,
+          { source: 'compliance_flow' },
+        )
+      } catch (e) {
+        // TODO: Alert on this.
+        this.logger.error(
+          { e },
+          `Failed to track compliance PIN submitted event for user ${user.id}`,
+        )
+      }
+      try {
+        await this.sendPinSubmittedSingleSend(user.email, {
+          source: 'compliance_flow',
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, userId: user.id },
+          'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
+            'the workflow email path still fires from the Segment event',
+        )
+      }
     }
 
     return campaignVerifyBrand

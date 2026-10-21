@@ -61,3 +61,52 @@ export const DeleteTestFixtureUsersResponseSchema = z.object({
 export type DeleteTestFixtureUsersResponse = z.infer<
   typeof DeleteTestFixtureUsersResponseSchema
 >
+
+export const TEST_FIXTURE_ACTIVITY_MAX_PEOPLE = 500
+
+// How many residents answer the seeded priority, each with a coded answer.
+// Every resident asked answers when it is left out.
+export const TestFixtureAnswersSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+
+// `lean` codes nine in ten answers yes, which lets every group read as
+// heard; `even` splits them half yes and half no, which leaves the model
+// unsure of its groups however many answer.
+export const TestFixtureSplitSchema = z.enum(['lean', 'even'])
+
+export const SeedTestFixtureActivityRequestSchema = z
+  .object({
+    people: z
+      .number()
+      .int()
+      .min(20)
+      .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+      .optional(),
+    answers: TestFixtureAnswersSchema.optional(),
+    split: TestFixtureSplitSchema.optional(),
+  })
+  .strict()
+  .default({})
+export type SeedTestFixtureActivityRequest = z.infer<
+  typeof SeedTestFixtureActivityRequestSchema
+>
+
+export const TestFixtureActivityEffortSchema = z.object({
+  outreachId: z.number(),
+  outreachType: z.string(),
+  interactions: z.number(),
+  memos: z.number(),
+  synthesisRunId: z.string().nullable(),
+})
+
+export const SeedTestFixtureActivityResponseSchema = z.object({
+  organizationSlug: z.string(),
+  people: z.number(),
+  efforts: z.array(TestFixtureActivityEffortSchema),
+})
+export type SeedTestFixtureActivityResponse = z.infer<
+  typeof SeedTestFixtureActivityResponseSchema
+>

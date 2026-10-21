@@ -17,15 +17,27 @@ import {
   type SmsApprovalStatus,
   type SmsTestMessageRequest,
   type SmsTestMessageResponse,
+  type SmsVendorAccount,
 } from '@goodparty_org/contracts'
 import { addDays, format, isAfter, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
-import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  P2pSmsSettleState,
+  Prisma,
+} from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyAccountService } from 'src/vendors/peerly/services/peerlyAccount.service'
+import { PeerlyTestListService } from 'src/vendors/peerly/services/peerlyTestList.service'
 import { OutreachService } from './outreach.service'
+import {
+  HoldStillSettlingException,
+  OutreachP2pSmsCancelService,
+} from './outreachP2pSmsCancel.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
@@ -74,6 +86,12 @@ const REVIEWABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
 ]
 
+// The Sent tab is an after-the-fact record (CAS request, 2026-09-30), not
+// an archive: every queue row costs a registration and HubSpot owner read,
+// so completed sends fall off after this window rather than accumulating
+// forever behind the tab nobody works from.
+const SMS_ADMIN_SENT_LOOKBACK_DAYS = 90
+
 // Peerly flagged (2026-09-04) that our detail reads were rapidly piling
 // duplicate long-running requests — a slow read gets abandoned client-side
 // by the timebox above, but the request keeps computing at Peerly, and the
@@ -98,6 +116,10 @@ const STATS_CACHE_TTL_MS = 10 * 60 * 1000
 // like the cool-offs so tests can cross the TTL without waiting it out.
 const queueJobsCacheTtlMs = () =>
   Number(process.env.QUEUE_JOBS_CACHE_TTL_MS ?? 60_000)
+// The vendor balance moves per send, not per second; a minute keeps the
+// header near-live while a refresh after an approve serves the last read.
+const balanceCacheTtlMs = () =>
+  Number(process.env.BALANCE_CACHE_TTL_MS ?? 60_000)
 // HubSpot company-owner assignments change on human timescales.
 const ownerCacheTtlMs = () =>
   Number(process.env.OWNER_CACHE_TTL_MS ?? 10 * 60 * 1000)
@@ -112,7 +134,7 @@ const detailOutstandingRetryCooldownMs = () =>
 const testSendCooldownMs = () =>
   Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 
-// The whole account's job list is one cache entry.
+// The whole account's job list is one cache entry; so is its balance.
 const ACCOUNT_JOBS_KEY = 'account'
 
 // HubSpot owner reads distinguish "unassigned" (ok) from "read failed"
@@ -156,6 +178,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<PeerlyJob[] | null>
   >()
+  private readonly balanceCache = new Map<
+    string,
+    DetailCacheEntry<SmsVendorAccount | null>
+  >()
+  private readonly balanceInFlight = new Map<
+    string,
+    DetailInFlightEntry<SmsVendorAccount | null>
+  >()
   // Keyed by HubSpot company id.
   private readonly ownerCache = new Map<string, DetailCacheEntry<OwnerRead>>()
   private readonly ownerInFlight = new Map<
@@ -169,27 +199,71 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly peerlyAccountService: PeerlyAccountService,
+    private readonly peerlyTestListService: PeerlyTestListService,
     private readonly analytics: AnalyticsService,
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
     private readonly outreachService: OutreachService,
+    private readonly p2pSmsCancel: OutreachP2pSmsCancelService,
     private readonly notifications: OutreachNotificationService,
   ) {
     super()
   }
 
+  // Null on a failed or stalled vendor read: the console header degrades
+  // to "unavailable" the way the queue's readiness column does.
+  getVendorBalance(): Promise<SmsVendorAccount | null> {
+    return this.boundedRead(
+      this.singleFlightCached(
+        this.balanceCache,
+        this.balanceInFlight,
+        ACCOUNT_JOBS_KEY,
+        (value) => value === null,
+        async () => {
+          const read = await this.loggedVendorRead(
+            'account_balance',
+            {},
+            this.peerlyAccountService.getBalance(),
+          )
+          return read ? { ...read, readAt: new Date() } : null
+        },
+        balanceCacheTtlMs(),
+      ),
+    )
+  }
+
   private queueWhere(): Prisma.OutreachWhereInput {
     return {
       outreachType: OutreachType.p2p,
-      // Canceled rows stay visible (the Canceled tab's audit trail); only
-      // reviewable rows are actionable.
-      status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
       projectId: { not: null },
-      // The pre-console backlog is noise, not work: rows stranded pending
-      // from before the console existed are hidden behind a fixed cutoff
-      // (CAS request, 2026-09-09). Dateless rows stay visible — a pending
-      // row with no send date is an anomaly worth seeing, not backlog.
-      OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+      AND: [
+        {
+          // Canceled rows stay visible (the Canceled tab's audit trail);
+          // only reviewable rows are actionable. A completed row is the
+          // Sent tab's record — but only a BOOKED one: before the sweep
+          // learned to hold unbooked rows at in_progress it completed them
+          // on their send day, and those rows sent nothing.
+          OR: [
+            {
+              status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
+            },
+            {
+              status: OutreachStatus.completed,
+              canvassRequestedAt: { not: null },
+              date: { gte: subDays(new Date(), SMS_ADMIN_SENT_LOOKBACK_DAYS) },
+            },
+          ],
+        },
+        {
+          // The pre-console backlog is noise, not work: rows stranded
+          // pending from before the console existed are hidden behind a
+          // fixed cutoff (CAS request, 2026-09-09). Dateless rows stay
+          // visible — a pending row with no send date is an anomaly worth
+          // seeing, not backlog.
+          OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
+        },
+      ],
     }
   }
 
@@ -306,10 +380,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
   /**
    * Admin cancel runs the candidate's own unwind (vendor delete, refund,
-   * promo restore) with staff attribution. The past-send-time guard
-   * inside cancelOutreach applies to staff too — a mid-send vendor
-   * delete is a mess regardless of who clicks — but only for a booked
-   * send; an unbooked row past its date never sends and stays cancelable.
+   * promo restore) with staff attribution. Staff may cancel any unsent
+   * campaign, booked or past its send time: they unbook canvassers through
+   * this console, not Peerly, so cancelOutreach skips the candidate's
+   * send-time refusals for them and the console warns instead.
    */
   async cancel(
     outreachId: number,
@@ -371,6 +445,53 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     ) {
       throw new BadRequestException(
         'Only scheduled SMS campaigns can be approved',
+      )
+    }
+    // Approval is what books canvassers, which is the vendor spend — so it is
+    // the last gate before money is committed to the send. Two funding models
+    // reach this console, told apart by whether the row has an OutreachP2pSms
+    // satellite — NOT by the flag:
+    //
+    //  - HOLD MODEL (the row has a satellite): the paid `cs_` checkout placed a
+    //    manual-capture authorization HOLD. The funding marker
+    //    (stripeCheckoutSessionId) is stamped at AUTHORIZATION, not capture, so
+    //    it CANNOT gate the send: an `authorized` or `capturing` hold still
+    //    carries the marker yet has taken no money, and if it is never captured
+    //    the hold lapses and the texts go out free. Gate on the committed
+    //    `captured` state instead — the satellite is the source of truth
+    //    (capture commits it under a CAS). Any other state is non-approvable:
+    //    `capturing` is money mid-flight (retry once it commits),
+    //    `authorized`/`hold_pending`/`pending_payment` is not yet captured, and
+    //    `voided`/`hold_failed`/`refunded` is a terminal non-send.
+    //
+    //  - FUNDING-MARKER MODEL (no satellite — the whole flag-off/default
+    //    population, and every free/forgiven send on the `free_confirmed_*`
+    //    path): the paid checkout stamps stripeCheckoutSessionId, a zero-amount
+    //    redemption stamps freePurchaseSessionId. Neither present means nothing
+    //    funded the send, so it is refused rather than read as "free".
+    //
+    // The satellite read is UNCONDITIONAL, never flag-gated: a satellite exists
+    // only if the send went through the hold path, so an uncaptured hold must be
+    // blocked even on a flag rollback (flag ON at checkout, flipped OFF before
+    // approve) — gating this read on the flag would turn the kill switch itself
+    // into a free-send trigger (the read is skipped, the authorization-time
+    // marker passes, and an uncaptured hold sends). The flag still gates ENTRY
+    // into the hold model (checkout, recordHold, capture); only this gate's read
+    // is unconditional. A non-hold row has no satellite, so `holdSms` is null
+    // and the marker gate runs byte-for-byte as before.
+    const holdSms = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { settleState: true },
+    })
+    if (holdSms) {
+      if (holdSms.settleState !== P2pSmsSettleState.captured) {
+        throw new BadRequestException(
+          this.holdBlockMessage(holdSms.settleState),
+        )
+      }
+    } else if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
+      throw new BadRequestException(
+        'This campaign has no completed purchase on record',
       )
     }
 
@@ -469,7 +590,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       await this.tryTrack(
         updated.campaign.user.id,
         EVENTS.Outreach.CampaignApproved,
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     }
     return this.toQueueItem(
@@ -483,6 +604,22 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     input: DenySmsOutreachRequest,
   ): Promise<SmsApprovalQueueItem> {
+    // Hold model: a row carrying an OutreachP2pSms satellite was funded by a
+    // manual-capture hold that is by this point captured (the approve gate only
+    // lets a `captured` row reach canvasser booking), so denying it must RELEASE
+    // the money — refund if captured, void if still authorized — and neutralize
+    // the vendor job so a denied send can never go out. This is distinct from the
+    // send-back-for-edits deny below: a non-satellite row keeps that behavior
+    // byte-for-byte. SATELLITE-gated, not flag-gated — a captured/authorized hold
+    // is released even if win_sms_hold_billing is since turned off.
+    const satellite = await this.client.outreachP2pSms.findUnique({
+      where: { outreachId },
+      select: { outreachId: true },
+    })
+    if (satellite) {
+      return this.denyHold(outreachId, input)
+    }
+
     const denied = await this.model.updateMany({
       where: {
         id: outreachId,
@@ -505,6 +642,110 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new ConflictException(
         'This campaign is not awaiting review any more',
       )
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  // Terminal deny for a hold-model row: CLAIM the denial via a guarded CAS FIRST
+  // (symmetric with approve, so the two can never interleave — see the claim
+  // below), and only on a won claim neutralize the vendor job then release the
+  // money through the shared charge-keyed refund terminal. The denial is
+  // committed by the claim, so the catch distinguishes TWO failure classes. A
+  // `capturing` refusal (money mid-flight, HoldStillSettlingException) commits no
+  // release and moves no money, so it self-heals: the denial stamp is reverted
+  // and a retry succeeds once the capture settles. EVERY other delete/release
+  // failure may already have moved money (a refund committed, then a DB write
+  // threw), so the denial stays committed and the row is left denied-but-
+  // unreleased for the slice-F reconcile — never reverted, so it can never
+  // become sendable again while a refund is outstanding (a revert would reopen a
+  // refund-and-also-send window). This is the better trade than a read-only
+  // pre-check, which would let a concurrent approve book/send between the read
+  // and the action and then refund an already-booked send.
+  private async denyHold(
+    outreachId: number,
+    input: DenySmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, outreachType: OutreachType.p2p },
+      include: queueInclude,
+    })
+    if (!row || !row.campaignId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // Claim the denial FIRST via a guarded CAS, SYMMETRIC with approve's claim —
+    // so approve and deny can never interleave on one row. A read-only pre-check
+    // would leave a TOCTOU window where a concurrent approve commits `approvedAt`
+    // and books/sends canvassers between the read and deny's action, after which
+    // deny would delete the job and refund an already-booked/sent campaign. The
+    // CAS closes that: only a still-reviewable, un-approved, un-denied row claims,
+    // and the row ends with exactly one of approvedAt/deniedAt. REVIEWABLE_STATUSES
+    // also excludes a completed (sent) row, so a delivered send is never refunded.
+    // NOTE: deny intentionally still permits `in_progress` (the sweep ratchets an
+    // unapproved row there on its send day), matching the hand-booking window the
+    // console works from; a completed row is the terminal that is refused.
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        status: { in: REVIEWABLE_STATUSES },
+        approvedAt: null,
+        deniedAt: null,
+      },
+      data: {
+        deniedAt: new Date(),
+        deniedBy: input.deniedBy,
+        deniedReason: input.reason,
+      },
+    })
+    if (claimed.count === 0) {
+      // A concurrent approve (or deny) already decided this row, or it is sent:
+      // abort WITHOUT deleting the job or moving any money.
+      throw new ConflictException(
+        'This campaign is not awaiting review any more',
+      )
+    }
+
+    // We own the denial (committed above). Neutralize the job FIRST and throw on
+    // failure (the cancel discipline), so a denied send can never fire: releasing
+    // the money before the job is gone would risk a free delivered send if the
+    // delete then failed.
+    try {
+      if (row.projectId) {
+        await this.peerlyP2pJobService.deleteJob(row.projectId)
+        this.invalidateVendorReads(row.projectId)
+      }
+
+      // Release the hold (refund if captured, void if authorized). Refuses a
+      // `capturing` row (money mid-flight) with a throw — no state transition is
+      // committed on that path, so there is never money moved without a denial.
+      await this.p2pSmsCancel.releaseForDeny(outreachId, row.campaignId)
+    } catch (err) {
+      // ONLY the `capturing` refusal is safe to heal by reverting the denial: it
+      // throws BEFORE any release transition commits, so no money moved, and the
+      // revert lets a retry succeed once the capture settles (the vendor job
+      // delete is idempotent, so re-running is safe). ANY other failure here may
+      // already have moved money — a refund can commit and then a DB write throw
+      // — so reverting would make the row reviewable/approvable again and open a
+      // refund-and-also-send window; instead keep the denial committed and leave
+      // the row denied-but-unreleased for the slice-F reconcile. approvedAt stays
+      // null throughout (approve requires deniedAt null), making the guard
+      // belt-and-suspenders. The original error is rethrown unchanged either way.
+      if (err instanceof HoldStillSettlingException) {
+        await this.model.updateMany({
+          where: { id: outreachId, approvedAt: null },
+          data: { deniedAt: null, deniedBy: null, deniedReason: null },
+        })
+      }
+      throw err
     }
 
     const updated = await this.model.findFirstOrThrow({
@@ -543,6 +784,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException('Only scheduled campaigns can be edited')
     }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
+    }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: a template overwrite would change copy under live agents.
     if (
@@ -556,6 +801,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (!row.identityId || row.campaignId === null) {
       throw new BadRequestException(
         'This campaign is missing its sending identity and cannot be edited',
+      )
+    }
+
+    // The vendor refuses a shortened link outright, and the template update is
+    // a destructive overwrite — so an edit carrying one fails at the vendor
+    // with the vendor's wording, after we have already started writing to a
+    // live job. Refuse it here instead. Only this rule is enforced: the rest of
+    // the standards check stays advisory in the console, where the human
+    // approval is the gate.
+    if (checkSmsStandards(input.script).failures.includes('link_shortener')) {
+      throw new BadRequestException(
+        'Links must not use a shortener like bit.ly — paste the full web ' +
+          'address instead',
       )
     }
 
@@ -649,6 +907,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // job is deleted — there is no send left to move.
     if (row.status === OutreachStatus.canceled) {
       throw new ConflictException('A canceled campaign cannot be rescheduled')
+    }
+    // A sent row is in scope for the Sent tab's record; its texts are gone.
+    if (row.status === OutreachStatus.completed) {
+      throw new ConflictException('A sent campaign cannot be rescheduled')
     }
     // Once the send day has begun AND canvassers are booked, Peerly may be
     // mid-send: moving the window under live agents is not recoverable.
@@ -780,10 +1042,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
    * CAS's pre-approval check: send the campaign's live template to the
    * reviewer's own handset, the way Peerly's platform "send test" button
    * does. Find-or-create the job's test job (reused across clicks —
-   * every test job is a real vendor object), then fire the test text to
-   * ONLY the explicitly typed phone — never a number derived from
-   * campaign or contact data. Nothing we cache changes, so no
-   * invalidateVendorReads.
+   * every test job is a real vendor object) AND the identity's Peerly test
+   * list holding the typed number (Peerly only texts a number that sits on
+   * one, and names the list in the send), then fire the test text to ONLY
+   * the explicitly typed phone — never a number derived from campaign or
+   * contact data. Nothing we cache changes, so no invalidateVendorReads.
    */
   async sendTestMessage(
     outreachId: number,
@@ -801,6 +1064,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException(
         'This campaign was canceled and its vendor job deleted',
+      )
+    }
+    // A sent row is in scope for the Sent tab's record; there is nothing
+    // left to preview.
+    if (row.status === OutreachStatus.completed) {
+      throw new BadRequestException('This campaign has already sent')
+    }
+    // The test list Peerly sends to lives inside the campaign's identity,
+    // so a row whose job predates identity capture cannot be tested.
+    if (!row.identityId) {
+      throw new BadRequestException(
+        'This campaign has no Peerly identity recorded, so a test cannot ' +
+          'be sent',
       )
     }
 
@@ -823,13 +1099,21 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     this.testSendClaims.set(outreachId, now)
 
     try {
+      const testListId = await this.peerlyTestListService.resolveTestListId({
+        identityId: row.identityId,
+        phone,
+      })
       const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
         row.projectId,
       )
       const testJobId =
         existingTestJobIds[0] ??
         (await this.peerlyP2pJobService.createTestJob(row.projectId))
-      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+      await this.peerlyP2pJobService.sendTestMessage(
+        testJobId,
+        phone,
+        testListId,
+      )
     } catch (error) {
       this.testSendClaims.delete(outreachId)
       throw error
@@ -886,44 +1170,54 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         campaigns.set(row.campaignId, row.campaign)
       }
     }
-    // Parallel + cached per company: the old serial loop paid two HubSpot
-    // round trips per campaign on every queue view — with a full queue,
-    // the dominant page cost (QA 2026-09-09). Each read is single-flighted
-    // and bounded like the Peerly reads, so a stalling CRM can't hold the
-    // queue either.
-    await Promise.all(
-      [...campaigns].map(async ([campaignId, campaign]) => {
-        const hubspotId = campaign?.data?.hubspotId
-        if (!hubspotId) {
-          byCampaign.set(campaignId, null)
-          return
-        }
-        const owner = await this.boundedRead(
-          this.singleFlightCached(
-            this.ownerCache,
-            this.ownerInFlight,
-            hubspotId,
-            (value) => !value.ok,
-            async () => {
-              try {
-                const name =
-                  await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
-                return { ok: true, name: name?.trim() ? name.trim() : null }
-              } catch (err) {
-                this.logger.warn(
-                  { err, campaignId },
-                  'Admin queue: HubSpot owner read failed; rendering ' +
-                    'unassigned',
-                )
-                return { ok: false, name: null }
-              }
-            },
-            ownerCacheTtlMs(),
-          ),
-        )
-        byCampaign.set(campaignId, owner?.name ?? null)
-      }),
+    // One batched HubSpot read per view, cached + single-flighted per
+    // company: a read per company blew through HubSpot's 190 requests/10s
+    // limit on a cold queue, and every 429 rendered as Unassigned for the
+    // full owner TTL. A cache miss's produce only queues its id; the batch
+    // is released after the synchronous loop, so it holds exactly the ids
+    // whose produce ran. Don't pre-check ownerCache here instead:
+    // singleFlightCached sweeps expired entries itself, and an id it
+    // treats as a miss but the batch skipped would read as failed.
+    const toRead: string[] = []
+    let releaseBatch!: (read: Promise<Map<string, string | null>>) => void
+    const batch = new Promise<Map<string, string | null>>((resolve) => {
+      releaseBatch = resolve
+    }).catch((err: Error) => {
+      this.logger.warn(
+        { err, companyCount: toRead.length },
+        'Admin queue: HubSpot owner read failed; rendering unassigned',
+      )
+      return null
+    })
+    const reads = [...campaigns].map(([campaignId, campaign]) => {
+      const hubspotId = campaign?.data?.hubspotId
+      if (!hubspotId) return Promise.resolve({ campaignId, owner: null })
+      return this.boundedRead(
+        this.singleFlightCached(
+          this.ownerCache,
+          this.ownerInFlight,
+          hubspotId,
+          (value) => !value.ok,
+          () => {
+            toRead.push(hubspotId)
+            return batch.then((names) =>
+              names?.has(hubspotId)
+                ? { ok: true, name: names.get(hubspotId) ?? null }
+                : { ok: false, name: null },
+            )
+          },
+          ownerCacheTtlMs(),
+        ),
+      ).then((owner) => ({ campaignId, owner }))
+    })
+    releaseBatch(
+      toRead.length > 0
+        ? this.crmCampaigns.getCrmCompanyOwnerNames(toRead)
+        : Promise.resolve(new Map<string, string | null>()),
     )
+    for (const { campaignId, owner } of await Promise.all(reads)) {
+      byCampaign.set(campaignId, owner?.name ?? null)
+    }
     return byCampaign
   }
 
@@ -1164,10 +1458,29 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     job: PeerlyJob | null,
   ): SmsApprovalStatus {
     if (row.status === OutreachStatus.canceled) return 'canceled'
+    if (row.status === OutreachStatus.completed) return 'sent'
     if (row.deniedAt) return 'denied'
     if (job?.canvassers_schedule?.approved) return 'peerly_approved'
     if (row.canvassRequestedAt) return 'canvass_requested'
     return 'awaiting_review'
+  }
+
+  // The CAS-facing reason a hold-model send is not yet approvable, keyed by
+  // the satellite's settle state so the console shows whether to wait or stop.
+  private holdBlockMessage(state: P2pSmsSettleState): string {
+    switch (state) {
+      case P2pSmsSettleState.capturing:
+        return (
+          'The payment for this campaign is still being captured — try ' +
+          'again shortly once it settles'
+        )
+      case P2pSmsSettleState.voided:
+      case P2pSmsSettleState.hold_failed:
+      case P2pSmsSettleState.refunded:
+        return 'The payment for this campaign did not complete, so it cannot be sent'
+      default:
+        return 'The payment for this campaign has not been captured yet, so it cannot be sent'
+    }
   }
 
   private async tryTrack(

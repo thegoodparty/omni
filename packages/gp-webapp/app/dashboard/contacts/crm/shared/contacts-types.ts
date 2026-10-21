@@ -1,16 +1,22 @@
 import type {
+  CivicPanelStatus,
+  CivicPanelStatusResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
   ContactStatuses,
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,
   FollowUpStatus,
   FollowUpStatusResponse,
   GeoJsonShape,
+  GeoShapeLabels,
   GetIndividualActivitiesResponse,
   ListDetailContactsResponse,
   ListDetailOutreachHistoryEntry,
@@ -29,6 +35,7 @@ import type {
   TextConstituentActivity,
   UpdateContactStatusInput,
   UpdateFollowUpInput,
+  UpdateCivicPanelInput,
   VoterLikelihood,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
@@ -54,9 +61,15 @@ export interface SegmentResponse {
   // than taken from contracts because the saved-list shape has never lived
   // there — the index signature below would otherwise type it `unknown`.
   geoPoly?: GeoJsonShape | null
+  // What each part of `geoPoly` is called and drawn in, aligned by index.
+  // Null on a list saved before shapes could be named.
+  geoPolyLabels?: GeoShapeLabels | null
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null
+  // Serve: a list our code saved as a civic panel invite's audience. The
+  // lists index leaves it out; the built-in Civic panel row is the panel's.
+  civicPanelInvite?: boolean
   [key: string]: unknown
 }
 
@@ -73,6 +86,14 @@ export type { ContactStatuses, UpdateContactStatusInput, VoterLikelihood }
 // both of Win's editable statuses and a Serve write can honestly supply
 // neither.
 export type { FollowUpStatus, FollowUpStatusResponse, UpdateFollowUpInput }
+
+// PATCH /v1/contacts/:personId/civic-panel, its own endpoint for the same
+// reason as follow-up.
+export type {
+  CivicPanelStatus,
+  CivicPanelStatusResponse,
+  UpdateCivicPanelInput,
+}
 
 export type ListContactsResponse = PeopleListResponse
 
@@ -104,6 +125,9 @@ export type GetConstituentIssuesResponse = {
 export type {
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,

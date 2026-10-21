@@ -3,6 +3,9 @@ import { createZodDto } from 'nestjs-zod'
 
 export class TrackWebsiteViewSchema extends createZodDto(
   z.object({
-    visitorId: z.string(),
+    // The site issues this from `crypto.randomUUID()` and keeps it in
+    // localStorage, so the handler's `(websiteId, visitorId)` dedupe only
+    // means anything if the shape is pinned to what that issues.
+    visitorId: z.guid(),
   }),
 ) {}

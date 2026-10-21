@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { ChatConversation, ChatScope } from '../../../generated/prisma'
 import type { LlmStreamUsage, LlmTool } from '@/llm/services/llm.service'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 import {
   ChatAnchorSchema,
   type OrdinanceFlowStep,
@@ -11,6 +12,12 @@ import {
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import {
+  composeAppendix,
+  hasCanonicalCautionLine,
+  legalAdviceBackstop,
+} from '../services/guardrailBackstops'
+import { ADVICE_SIGNALS } from '../services/professionalAdviceCheck'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   OrdinanceFlowContext,
@@ -22,7 +29,6 @@ import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.servi
 import {
   buildAcceptDraftChangesTool,
   buildApplyDraftEditTool,
-  buildAskClarifyQuestionTool,
   buildBraveSearchTool,
   buildFetchUrlTool,
   buildGetCodeSourceTool,
@@ -38,6 +44,7 @@ import {
   buildSaveSynthesisTool,
   type OrdinanceToolDeps,
 } from './tools/ordinanceFlowTools'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import { buildOrdinanceFlowSystemPrompt } from './services/ordinanceFlowPrompt'
 
 // Sensitive scope: the ordinance record and its research (constituent-derived
@@ -47,6 +54,17 @@ export const ORDINANCE_FLOW_MODELS = [
   'claude-sonnet-4-6',
   'claude-opus-4-7',
 ] as const
+
+// The tools a turn calls to present or change the draft, named once here so
+// the finish hook and the tool registry below cannot drift apart.
+const PRESENT_DRAFT = 'present_draft'
+const APPLY_DRAFT_EDIT = 'apply_draft_edit'
+const ACCEPT_DRAFT_CHANGES = 'accept_draft_changes'
+const DRAFTING_TOOL_NAMES: ReadonlySet<string> = new Set([
+  PRESENT_DRAFT,
+  APPLY_DRAFT_EDIT,
+  ACCEPT_DRAFT_CHANGES,
+])
 
 @Injectable()
 export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowContext> {
@@ -139,6 +157,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      state: resolved.state,
       officeLevel: resolved.level,
     }
   }
@@ -148,6 +167,32 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
     })
+  }
+
+  // A statute reading the model left uncautioned gets the shared legal line.
+  // Not on a turn that presented or changed the draft: the lead-in and the
+  // draft-ready card already carry the one-time attorney note, and an edit
+  // confirmation names the section it touched without being a legal reading.
+  // Only a call that returned counts, since a failed one produced no card.
+  // The step is read from the tool trace because the hook sees no context.
+  // A caution in the model's own words does not count as the line here: the
+  // bench found it closing legal readings with "not legal advice" and
+  // skipping the line, and the draft lead-in whose wording the shared test
+  // was tuned for only appears on turns this hook already skips.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    const drafted = turn.toolEvents.some(
+      (event) =>
+        event.status === 'returned' && DRAFTING_TOOL_NAMES.has(event.name),
+    )
+    if (drafted) return null
+    return composeAppendix([
+      legalAdviceBackstop(
+        text,
+        'ordinance_flow',
+        ADVICE_SIGNALS,
+        hasCanonicalCautionLine,
+      ),
+    ])
   }
 
   buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
@@ -233,7 +278,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     // The terminal step synthesizes the prior steps into a complete draft and
     // persists it to the ordinance's draft columns.
     if (ctx.step === 'draft') {
-      tools.present_draft = buildPresentDraftTool(deps)
+      tools[PRESENT_DRAFT] = buildPresentDraftTool(deps)
       // For the rare drafting-blocker question only (DRAFT RULES cap it at
       // one) — so even that question rides the widget and persists as a
       // clarify answer instead of a prose interview the record never sees.
@@ -244,8 +289,8 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     // draft in place as tracked-change redline, and (for a new ordinance)
     // accept those changes into clean final text — both reviewed in the editor.
     if (ctx.step === 'review') {
-      tools.apply_draft_edit = buildApplyDraftEditTool(deps)
-      tools.accept_draft_changes = buildAcceptDraftChangesTool(deps)
+      tools[APPLY_DRAFT_EDIT] = buildApplyDraftEditTool(deps)
+      tools[ACCEPT_DRAFT_CHANGES] = buildAcceptDraftChangesTool(deps)
     }
 
     // A numbered flow step can offer a button to advance. The terminal draft

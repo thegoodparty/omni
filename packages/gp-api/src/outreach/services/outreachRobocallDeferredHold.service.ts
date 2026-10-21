@@ -12,7 +12,6 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
-import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
 // on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
@@ -51,7 +50,6 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   constructor(
     private readonly holds: OutreachRobocallHoldService,
     private readonly analytics: AnalyticsService,
-    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
   ) {
     super()
   }
@@ -219,7 +217,7 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
 
     // A robocall row is always campaign-scoped (only social outreach can be
     // org-only, outreach.prisma).
-    await this.emitCanceled(draft.outreach.campaign!.userId, outreachId, sendAt)
+    await this.emitCanceled(draft.outreach.campaign!.userId, outreachId)
   }
 
   // Flip the spine `pending → canceled` after the satellite cancel. Guarded on
@@ -247,7 +245,6 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   private async emitCanceled(
     userId: number,
     outreachId: number,
-    sendAt: Date,
   ): Promise<void> {
     try {
       await this.analytics.track(
@@ -263,17 +260,5 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
         'deferred robocall cancel milestone emit failed',
       )
     }
-
-    // Single-send email leg (ENG-11035) — best-effort, never throws; see
-    // OutreachRobocallSingleSendService.
-    await this.robocallSingleSend.send(
-      EVENTS.Robocall.Canceled,
-      userId,
-      outreachId,
-      {
-        outreach_id: String(outreachId),
-        scheduled_at: sendAt.toISOString(),
-      },
-    )
   }
 }

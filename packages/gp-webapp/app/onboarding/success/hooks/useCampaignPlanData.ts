@@ -20,6 +20,7 @@ import type {
   VoterInsightsContext,
 } from '../components/PlanSections'
 import { useStrategicLandscape } from './useStrategicLandscape'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 // Lifecycle signals per async plan resource, shaped for analytics.
 // `isGenerating` is true only while the server reports an active background
@@ -48,11 +49,15 @@ export interface CampaignPlanData {
 // both entry points.
 export const useCampaignPlanData = (
   initialUser: User | null,
+  // The tracker's start, so the plan's contact schedule compresses a late
+  // joiner's past sends the way the tracker does.
+  planStartIso: string | null = null,
 ): CampaignPlanData => {
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
   const [campaign] = useCampaign()
   const campaignId = campaign?.id
+  const smsClosed = useSmsCompliance().smsCompliance === 'closed'
 
   // The candidate is the campaign OWNER, not the viewer — a Campaign Manager
   // opening the plan must not become the headline name. Fall back to the
@@ -115,6 +120,7 @@ export const useCampaignPlanData = (
   const projectedTurnoutUpper = metrics?.projectedTurnoutUpper ?? null
   const winNumberLower = metrics?.winNumberLower ?? null
   const winNumberUpper = metrics?.winNumberUpper ?? null
+  const numberOfSeats = metrics?.numberOfSeats ?? null
   const raceCandidatesRef = metrics?.candidates
   const milestonesRef = metrics?.milestones ?? null
   // 30-90s first generation, instant on cache hit. Hook returns
@@ -227,6 +233,8 @@ export const useCampaignPlanData = (
       state: stateValue,
       partisanType,
       electionDateIso,
+      planStartIso,
+      smsClosed,
       filingDateStartIso,
       filingDateEndIso,
       winNumber,
@@ -248,6 +256,7 @@ export const useCampaignPlanData = (
       projectedTurnoutUpper,
       winNumberLower,
       winNumberUpper,
+      numberOfSeats,
       raceCandidates: raceCandidatesRef ?? [],
       milestones: milestonesRef,
       strategicLandscape: strategy.data,
@@ -263,6 +272,8 @@ export const useCampaignPlanData = (
     stateValue,
     partisanType,
     electionDateIso,
+    planStartIso,
+    smsClosed,
     filingDateStartIso,
     filingDateEndIso,
     winNumber,
@@ -281,6 +292,7 @@ export const useCampaignPlanData = (
     projectedTurnoutUpper,
     winNumberLower,
     winNumberUpper,
+    numberOfSeats,
     raceCandidatesRef,
     milestonesRef,
     strategy.data,

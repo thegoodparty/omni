@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import boto3
 import pytest
 from fastapi import FastAPI
@@ -11,6 +13,7 @@ from broker.endpoints.delete_run_token import (
     get_ticket_store,
     router,
 )
+from broker.endpoints.experiment_manifest import get_experiment_metadata_bucket, get_s3_client
 from broker.endpoints.mint_run_token import (
     get_service_token_hash as mint_get_service_token_hash,
 )
@@ -20,6 +23,17 @@ from broker.endpoints.mint_run_token import (
 from broker.endpoints.mint_run_token import (
     router as mint_router,
 )
+
+
+# Mint resolves the published-manifest providers on every request, because
+# FastAPI resolves every dependency whether or not the code path uses it. This
+# app never mints with an override, so S3 must never actually be read — and a
+# read fails loudly rather than returning something plausible.
+def _s3_never_read():
+    client = MagicMock()
+    client.get_object.side_effect = AssertionError("a mint without an override read S3")
+    return client
+
 
 SERVICE_TOKEN = "test-dispatch-lambda-token"
 SERVICE_TOKEN_HASH = hash_service_token(SERVICE_TOKEN)
@@ -48,6 +62,8 @@ def app_and_store(moto_env):
     app.include_router(router)
     app.dependency_overrides[mint_get_ticket_store] = lambda: store
     app.dependency_overrides[mint_get_service_token_hash] = lambda: SERVICE_TOKEN_HASH
+    app.dependency_overrides[get_s3_client] = _s3_never_read
+    app.dependency_overrides[get_experiment_metadata_bucket] = lambda: "unused"
     app.dependency_overrides[get_ticket_store] = lambda: store
     app.dependency_overrides[get_service_token_hash] = lambda: SERVICE_TOKEN_HASH
     return app, store, moto_env

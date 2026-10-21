@@ -255,10 +255,12 @@ class TestSingleSourceLink:
 
     def test_qa_checks_list_has_all_checks(self):
         qc = _qa_checks()
-        assert len(qc.CHECKS) == 12
+        assert len(qc.CHECKS) == 14
         names = [c.__name__ for c in qc.CHECKS]
         assert "check_cross_reference_integrity" in names
         assert "check_disclosure_present" in names
+        assert "check_agenda_availability_consistency" in names
+        assert "check_run_decisions_admit_unavailable_agenda" in names
         assert "check_no_data_internals_in_candidate_text" in names
 
     def test_qa_checks_dead_driver_surface_removed(self):

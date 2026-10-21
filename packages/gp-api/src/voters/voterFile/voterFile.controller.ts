@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  BadRequestException,
   ForbiddenException,
   Get,
   HttpCode,
@@ -9,6 +10,7 @@ import {
   NotFoundException,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -35,6 +37,10 @@ import { CanDownloadVoterFileGuard } from './guards/CanDownloadVoterFile.guard'
 import { GetVoterFileSchema } from './schemas/GetVoterFile.schema'
 import { VoterFileService } from './voterFile.service'
 import { PinoLogger } from 'nestjs-pino'
+import { ModuleRef } from '@nestjs/core'
+import { shapePartCount } from '@goodparty_org/contracts'
+import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
+import { unreachedAreaLabels } from '@/priorities/util/gridArea.util'
 
 @Controller('voters/voter-file')
 @UsePipes(ZodValidationPipe)
@@ -47,6 +53,9 @@ export class VoterFileController {
     // controller, so reaching into contacts closes no ES module cycle.
     private readonly contacts: ContactsService,
     private readonly organizationsService: OrganizationsService,
+    // Priorities reach back into contacts, so the results service is
+    // resolved lazily rather than imported into this module.
+    private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(VoterFileController.name)
@@ -97,6 +106,20 @@ export class VoterFileController {
     @ReqOrganization() organization: Organization,
     @Body() voterFileFilter: CreateVoterFileFilterSchema,
   ) {
+    if (voterFileFilter.unreachedAreaOfPriorityId !== undefined) {
+      return this.createForUnreachedArea(
+        organization,
+        voterFileFilter,
+        voterFileFilter.unreachedAreaOfPriorityId,
+      )
+    }
+    // A draft's boundary resolves only once the list has an id, so a sample
+    // drawn before saving would ignore it and hold people outside the shape.
+    if (voterFileFilter.sample && voterFileFilter.geoPoly) {
+      throw new BadRequestException(
+        'A list drawn on the map cannot also be saved as a sample',
+      )
+    }
     return this.voterFileFilterService.create(
       organization.slug,
       voterFileFilter,
@@ -106,13 +129,83 @@ export class VoterFileController {
             voterFileFilter.geoPoly,
           )
         : null,
+      voterFileFilter.sample
+        ? await this.contacts.drawListSample(
+            organization,
+            voterFileFilter,
+            voterFileFilter.sample,
+          )
+        : null,
+    )
+  }
+
+  // The area is drawn here, not by the caller, so its people are known
+  // before the save and a sample can be drawn within them.
+  private async createForUnreachedArea(
+    organization: Organization,
+    body: CreateVoterFileFilterSchema,
+    priorityId: string,
+  ) {
+    const voterFileFilter = { ...body, unreachedAreaOfPriorityId: undefined }
+    if (voterFileFilter.geoPoly) {
+      throw new BadRequestException(
+        'A list kept to the parts not reached yet cannot also be drawn on the map',
+      )
+    }
+    const area = await this.moduleRef
+      .get(PriorityResultsService, { strict: false })
+      .unreachedAreaFor(organization.slug, priorityId)
+    if (!area) {
+      throw new BadRequestException(
+        'Every part of the district has answered on this priority',
+      )
+    }
+    const geoMemberIds = await this.contacts.resolveGeoMemberIds(
+      organization,
+      area,
+    )
+    return this.voterFileFilterService.create(
+      organization.slug,
+      {
+        ...voterFileFilter,
+        geoPoly: area,
+        geoPolyLabels: unreachedAreaLabels(shapePartCount(area)),
+      },
+      geoMemberIds,
+      voterFileFilter.sample
+        ? await this.contacts.drawListSample(organization, voterFileFilter, {
+            ...voterFileFilter.sample,
+            withinPersonIds: geoMemberIds,
+          })
+        : null,
     )
   }
 
   @Get('filters')
   @UseOrganization()
   listVoterFileFilters(@ReqOrganization() organization: Organization) {
-    return this.voterFileFilterService.findByOrganizationSlug(organization.slug)
+    return this.voterFileFilterService.findUsableByOrganizationSlug(
+      organization,
+    )
+  }
+
+  // Whether a chat card's list has been created yet, so the card can render
+  // as the list once it has. 404 is the ordinary "not yet" answer.
+  @Get('filter/by-proposal-key/:proposalKey')
+  @UseOrganization()
+  async getVoterFileFilterByProposalKey(
+    @Param('proposalKey', ParseUUIDPipe) proposalKey: string,
+    @ReqOrganization() organization: Organization,
+  ) {
+    const filter =
+      await this.voterFileFilterService.findByProposalKeyAndOrganizationSlug(
+        proposalKey,
+        organization.slug,
+      )
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+    return filter
   }
 
   @Get('filter/:id')

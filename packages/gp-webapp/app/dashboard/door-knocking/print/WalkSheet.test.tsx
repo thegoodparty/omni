@@ -50,7 +50,7 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           estimatedIncomeAmount: 82000,
           language: 'Spanish',
           ethnicityGroup: 'Hispanic',
-          // ADR 0011, carried for the same reason and with more force again:
+          // Carried for the same reason and with more force again:
           // saved contact notes are free text a named person typed about a
           // named voter, which is the largest disclosure on this payload.
           notes: {
@@ -375,6 +375,53 @@ describe('WalkSheet', () => {
     expect(document.querySelectorAll('.ws-boxes')).toHaveLength(2)
   })
 
+  // Serve asks follow-up and then the civic panel, in the form's order, in one
+  // column whose heading names both so the second Yes / No is never read as
+  // more answers to the first.
+  it('asks the civic panel question after follow-up on a serve sheet', () => {
+    render(
+      <WalkSheet
+        turfId="3"
+        turfName="Elm & Cedar"
+        payload={{ ...payload([stop()]), isServe: true }}
+        citizenPanelsEnabled
+      />,
+    )
+
+    expect(screen.getAllByRole('columnheader')[6]?.textContent).toBe(
+      'Do they need follow-up? Do they want to join your civic panel?',
+    )
+    const offered = Array.from(
+      rowFor('Dorian Fen').querySelectorAll('.ws-opt span:not(.ws-box)'),
+    ).map((label) => label.textContent)
+    expect(offered).toEqual([
+      'Answered',
+      'Not home',
+      'Inaccessible',
+      'Refused',
+      'Yes',
+      'No',
+      'Yes',
+      'No',
+    ])
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-boxes')).toHaveLength(3)
+  })
+
+  it('asks follow-up alone on a serve sheet with serve-citizen-panels off', () => {
+    render(
+      <WalkSheet
+        turfId="3"
+        turfName="Elm & Cedar"
+        payload={{ ...payload([stop()]), isServe: true }}
+      />,
+    )
+
+    expect(screen.getAllByRole('columnheader')[6]?.textContent).toBe(
+      'Do they need follow-up?',
+    )
+    expect(rowFor('Dorian Fen').querySelectorAll('.ws-boxes')).toHaveLength(2)
+  })
+
   // The template rules a Phone column and this is the field that fills it — the
   // one screen-side value that crossed onto paper, and deliberately the only
   // one. Cell first with the landline as the fallback, which is the order
@@ -468,10 +515,10 @@ describe('WalkSheet', () => {
     }
   })
 
-  // ADR 0011, and the same argument once more. The fixture carries a saved note
-  // and a count of nine, so both halves of the block can fail — the count is a
-  // disclosure of its own, since "9 notes on file" says how much has been
-  // written about this voter even with none of it printed.
+  // Contact notes, and the same argument once more. The fixture carries a
+  // saved note and a count of nine, so both halves of the block can fail —
+  // the count is a disclosure of its own, since "9 notes on file" says how
+  // much has been written about this voter even with none of it printed.
   //
   // Named by its body rather than by the word "Notes", because the sheet rules a
   // Notes column for every person to write in: that blank is the point of the
@@ -535,7 +582,7 @@ describe('WalkSheet', () => {
     expect(row.querySelectorAll('.ws-box')).toHaveLength(0)
   })
 
-  // ADR 0007. Turf evaluation keeps flagged people off new lists, but paper
+  // Do-not-knock. Turf evaluation keeps flagged people off new lists, but paper
   // freezes the moment it prints, so the sheet has to carry the instruction
   // itself — otherwise the one surface used without the app is the one that
   // ignores it.
@@ -619,9 +666,10 @@ describe('WalkSheet', () => {
     expect(screen.getByText('Marisol Vega')).toBeInTheDocument()
   })
 
-  // ADR 0008. Paper freezes at print time and is the surface used without the
-  // app, so a resident who moved away or died carries their instruction on the
-  // page — a blank form beside their name is how a door gets knocked anyway.
+  // Not-a-voter. Paper freezes at print time and is the surface used without
+  // the app, so a resident who moved away or died carries their instruction on
+  // the page — a blank form beside their name is how a door gets knocked
+  // anyway.
   it('prints the reason instead of a form, and words the two reasons apart', () => {
     const resident = {
       personId: 'person-1',
@@ -898,7 +946,7 @@ describe('WalkSheet', () => {
     expect(screen.getByAltText('GoodParty.org')).toBeInTheDocument()
   })
 
-  // ENG-10876. On screen ADR 0009's activity feed answers "have we been here
+  // ENG-10876. On screen the activity feed answers "have we been here
   // before"; paper carried no history at all, so an answered-but-unsure door and
   // a door nobody has ever knocked printed the same blank form. The line prints
   // for a flagged resident too — whether we have been here is a fact about them

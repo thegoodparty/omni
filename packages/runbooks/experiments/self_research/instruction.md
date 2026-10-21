@@ -36,20 +36,20 @@ These are absolute. A finding that touches any of these is dropped, never emitte
 
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST below.
-3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
+3. Your params are in the JSON file named by the `PARAMS_FILE` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/self_research.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 
 ## TODO CHECKLIST
 
-1. Read `PARAMS_JSON`; capture `full_name`, `state`, `city`, `office_name`, `prior_roles`, and the hint URLs (Step 0).
+1. Read `PARAMS_FILE`; capture `full_name`, `state`, `city`, `office_name`, `prior_roles`, and the hint URLs (Step 0).
 2. Fan out one researcher subagent per category to discover and fetch sources (Step 1).
 3. For every candidate finding, `verify_quote` the `source_extract` against the fetched page; DROP any that fails (Step 2).
 4. Draft a short response for each surviving finding (Step 3).
 5. Assemble the artifact and write it (Step 4).
 6. Validate (Step 5).
 
-## Inputs (the params in `PARAMS_JSON`)
+## Inputs (the params in `PARAMS_FILE`)
 
 - `full_name` (string): the candidate. The person this is FOR.
 - `state` (2-letter string): used to disambiguate the right person/jurisdiction.
@@ -82,7 +82,7 @@ These are absolute. A finding that touches any of these is dropped, never emitte
 
 ```python
 import json, os
-PARAMS = json.loads(os.environ["PARAMS_JSON"])
+PARAMS = json.load(open(os.environ["PARAMS_FILE"]))
 FULL_NAME = PARAMS["full_name"]
 STATE = PARAMS["state"]
 CITY = PARAMS.get("city")

@@ -13,6 +13,9 @@ model DashboardCard {
   sourceExternalId String    @map("source_external_id")
   sourceItemId     String?   @map("source_item_id")
   dismissedAt      DateTime? @map("dismissed_at")
+  completedAt      DateTime? @map("completed_at")
+  // "Show in 3 days": the card stays off the active list until then.
+  snoozedUntil     DateTime? @map("snoozed_until")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -26,4 +29,7 @@ enum DashboardCardType {
   briefing
   agenda_item
   community_issue
+  civic_panel
+  // Tell the people a priority's text asked what was heard and what is next.
+  report_back
 }

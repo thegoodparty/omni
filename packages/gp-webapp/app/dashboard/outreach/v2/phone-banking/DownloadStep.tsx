@@ -4,8 +4,13 @@ import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
 import { Alert, AlertDescription, Button, Card } from '@styleguide'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
+
+// One value for every sheet count: the rendered label carries the count, and
+// a CTA that varies with it would split a funnel breakdown by button.
+const DOWNLOAD_GATED_CTA = 'Download call sheets'
 
 interface DownloadStepProps {
   // The created list. Absent while the candidate cannot have one yet: the
@@ -14,7 +19,11 @@ interface DownloadStepProps {
   response?: PhoneBankingCreateResponse
   pending?: { personCount: number; sheetCount: number }
   audienceLabel: string
-  onDownloadGated?: () => void
+  // Which product's event name the download reports under — the flow's own
+  // `surface.isServe`, threaded rather than re-derived.
+  isServe: boolean
+  // Handed the CTA the Pro gate's Flow Started reports.
+  onDownloadGated?: (cta: string) => void
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
@@ -24,11 +33,15 @@ export const DownloadStep = ({
   response,
   pending,
   audienceLabel,
+  isServe,
   onDownloadGated,
 }: DownloadStepProps) => {
   const sheetCount = response?.sheetCount ?? pending?.sheetCount ?? 1
   const personCount = response?.personCount ?? pending?.personCount ?? 0
   const isZip = sheetCount > 1
+  const downloadLabel = isZip
+    ? `Download ${sheetCount} call sheets (ZIP)`
+    : 'Download call sheet (PDF)'
   const href = response
     ? `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
     : null
@@ -36,6 +49,7 @@ export const DownloadStep = ({
   const handleDownloadClick = () => {
     if (!response) return
     trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+      product: outreachProduct(isServe),
       listId: response.id,
       contactCount: response.personCount,
     })
@@ -109,9 +123,7 @@ export const DownloadStep = ({
               anchor, same precedent as door-knocking's print link. */}
           <a href={href} target="_blank" rel="noreferrer">
             <DownloadIcon className="size-4" />
-            {isZip
-              ? `Download ${sheetCount} call sheets (ZIP)`
-              : 'Download call sheet (PDF)'}
+            {downloadLabel}
           </a>
         </Button>
       ) : (
@@ -119,12 +131,10 @@ export const DownloadStep = ({
           type="button"
           variant="outline"
           className="w-full"
-          onClick={onDownloadGated}
+          onClick={() => onDownloadGated?.(DOWNLOAD_GATED_CTA)}
         >
           <DownloadIcon className="size-4" />
-          {isZip
-            ? `Download ${sheetCount} call sheets (ZIP)`
-            : 'Download call sheet (PDF)'}
+          {downloadLabel}
         </Button>
       )}
     </div>

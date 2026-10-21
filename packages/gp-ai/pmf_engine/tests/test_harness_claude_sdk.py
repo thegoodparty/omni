@@ -12,6 +12,7 @@ from claude_agent_sdk import ResultMessage
 from pmf_engine.runner.harness.base import AgentHarness, HarnessResult
 from pmf_engine.runner.harness.claude_sdk import (
     ALLOWED_TOOLS,
+    USAGE_SCHEMA_VERSION,
     ClaudeSdkHarness,
     build_system_prompt,
     collect_output_artifact,
@@ -2213,3 +2214,341 @@ class TestFinalizeInjection:
         assert finalize_cancelled["was_cancelled"], (
             "the hung finalize query must be cancelled by its wait_for, not abandoned"
         )
+
+
+# --- conversation.jsonl token counts (Universal Judge re-derived cost) --------
+#
+# The harness consumes the SDK's usage in-process in `_price_turn` and, until
+# these landed, wrote only `total_cost_usd` to the trace. A dollar figure is a
+# snapshot of one price list, so the judge's `priceUsd()` over a background
+# record returned 0 and a re-derived cost delta read 0 against 0 on both arms.
+
+
+def _read_result_line(workspace_dir: str) -> dict:
+    """The single `type: result` record out of a run's conversation.jsonl.
+
+    Parsed by key, the way every consumer of this file does (eval_trajectory.py,
+    perf_monitor.py, ab_savings.py, parse_conversation.py all use `.get()`), and
+    asserted to be unique so a second result line can't hide a wrong one.
+    """
+    path = os.path.join(workspace_dir, "conversation.jsonl")
+    with open(path) as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    results = [r for r in records if r.get("type") == "result"]
+    assert len(results) == 1, f"expected exactly one result line, got {len(results)}"
+    return results[0]
+
+
+async def _run_with_usage(usage: dict | None, tmpdir: str, total_cost_usd: float = 0.42):
+    """Drive one harness run whose ResultMessage carries `usage`."""
+    message = _make_result_message(total_cost_usd=total_cost_usd, num_turns=4, session_id="sess-usage")
+    message.usage = usage
+
+    async def fake_query(prompt, options):
+        yield message
+
+    output_dir = os.path.join(tmpdir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "result.json"), "w") as f:
+        json.dump({"ok": True}, f)
+
+    with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+        harness = ClaudeSdkHarness()
+        return await harness.run(
+            instruction="Do analysis",
+            model="sonnet",
+            max_turns=5,
+            workspace_dir=tmpdir,
+            params={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_result_line_carries_the_four_billed_token_classes():
+    """Each class must arrive under its own key with its own count.
+
+    The four values are deliberately distinct: equal counts would pass a
+    mapping that crossed input with output, or that wrote the same number four
+    times, and either of those prices a run wrong in a way a shape check can't
+    see.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        await _run_with_usage(
+            {
+                "input_tokens": 153_773,
+                "output_tokens": 3_878,
+                "cache_read_input_tokens": 91_004,
+                "cache_creation_input_tokens": 12_611,
+                # The CLI's usage object ships more than the billed counts.
+                "server_tool_use": {"web_search_requests": 3, "web_fetch_requests": 1},
+                "service_tier": "standard",
+            },
+            tmpdir,
+        )
+        line = _read_result_line(tmpdir)
+
+    assert line["usage"] == {
+        "input_tokens": 153_773,
+        "output_tokens": 3_878,
+        "cache_read_input_tokens": 91_004,
+        "cache_creation_input_tokens": 12_611,
+    }
+    # The counts are logged BESIDE the cost, not instead of it. The stored
+    # figure is what the run was billed under the price list of the day; the
+    # counts are what a later comparison re-derives from. Losing either one
+    # re-breaks the thing this fix exists for.
+    assert line["total_cost_usd"] == 0.42
+    assert line["num_turns"] == 4
+    assert line["session_id"] == "sess-usage"
+    # The stamp rides on every result line, including this one. Without it a
+    # base arm from a checkout that predates the counts is indistinguishable
+    # from a run whose usage never arrived.
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
+
+
+@pytest.mark.asyncio
+async def test_cache_counts_reported_as_zero_reach_the_line_as_zero():
+    """Prompt caching is off, so a real run's usage reports its cache keys at
+    zero. A reported zero is an observation and must survive as one.
+
+    This is the whole reason to carry them now rather than later: the judge's
+    pricing table has no cache-read rate and throws rather than pricing a cache
+    read at the full input rate, roughly a tenfold overstatement. That guard
+    reads a count, so a run the CLI says used no cache has to say so.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        await _run_with_usage(
+            {
+                "input_tokens": 1_000,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+            tmpdir,
+        )
+        line = _read_result_line(tmpdir)
+
+    assert line["usage"]["cache_read_input_tokens"] == 0
+    assert line["usage"]["cache_creation_input_tokens"] == 0
+    assert line["usage"]["input_tokens"] == 1_000
+
+
+@pytest.mark.asyncio
+async def test_a_key_the_usage_dict_never_carried_is_not_invented_as_zero():
+    """The inverse of the test above, and the distinction the whole projection
+    turns on. An absent key is not an observation of zero: writing it as zero
+    tells the judge the run used no cache, which prices a cache read out of the
+    total entirely and understates the run with nothing to detect it. A key
+    that is merely missing fails the record schema instead, which is loud.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        await _run_with_usage({"input_tokens": 1_000, "output_tokens": 50}, tmpdir)
+        line = _read_result_line(tmpdir)
+
+    assert line["usage"] == {"input_tokens": 1_000, "output_tokens": 50}
+
+
+@pytest.mark.asyncio
+async def test_result_line_omits_usage_when_the_sdk_reports_none():
+    """`ResultMessage.usage` is Optional in the SDK. An unobserved count must be
+    absent from the line, never written as zero.
+
+    Zero is a legal count: `priceUsd` returns 0 for it without complaint, so a
+    run that cost $4.17 would enter the comparison at $0.00 and be printed
+    beside a verdict as evidence. A record the judge rejects is recoverable; a
+    record that silently prices at $0 is not. The run must still keep its
+    artifact and its billed figure, which is what the rest of this asserts.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = await _run_with_usage(None, tmpdir, total_cost_usd=4.17)
+        line = _read_result_line(tmpdir)
+
+    assert "usage" not in line
+    # The stamp is still there, which is what separates this from a line
+    # written by a harness that never logged counts.
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
+    assert line["total_cost_usd"] == 4.17
+    assert result.cost_usd == 4.17
+
+
+def test_usage_counts_omits_a_garbled_count_rather_than_zeroing_it():
+    """One garbled field zeroed is the worst shape available: the other three
+    stay real, so the total is plausible and carries no marker. Dropping the
+    key makes the record fail the judge's schema, which is recoverable."""
+    from pmf_engine.runner.harness.claude_sdk import _usage_counts
+
+    counts = _usage_counts(
+        {
+            "input_tokens": -5,
+            "output_tokens": "not a number",
+            "cache_read_input_tokens": None,
+            "cache_creation_input_tokens": 7.9,
+        }
+    )
+    assert "input_tokens" not in counts
+    assert "output_tokens" not in counts
+    assert "cache_read_input_tokens" not in counts
+    # A float truncates to an int rather than being discarded: the count is
+    # real, only its type is unexpected.
+    assert counts["cache_creation_input_tokens"] == 7
+
+
+def test_usage_counts_drops_vendor_fields_it_was_not_asked_for():
+    """conversation.jsonl is durable and read by four separate tools. Projecting
+    onto the four billed classes keeps an unbounded vendor object (`iterations`
+    is a list, `cache_creation` a nested dict) out of it."""
+    from pmf_engine.runner.harness.claude_sdk import _usage_counts
+
+    counts = _usage_counts(
+        {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "server_tool_use": {"web_search_requests": 2, "web_fetch_requests": 0},
+            "service_tier": "standard",
+            "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0},
+            "iterations": [],
+            "speed": "standard",
+        }
+    )
+    assert set(counts) == {
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    }
+
+
+def test_usage_counts_cannot_raise_on_a_usage_that_is_not_a_dict():
+    """It is evaluated while BUILDING the record handed to `_log_jsonl`, which
+    is outside that function's try/except. A raise here would escape the harness
+    after the agent had already produced a valid artifact and discard it, so an
+    off-the-wire shape we did not expect degrades to "nothing observed" — which
+    is None, not zeros: a wire shape we cannot read is not a run that used no
+    tokens."""
+    from pmf_engine.runner.harness.claude_sdk import _usage_counts
+
+    for hostile in ([], "usage", 7, object(), None):
+        assert _usage_counts(hostile) is None, hostile
+
+
+@pytest.mark.asyncio
+async def test_a_hostile_usage_shape_still_produces_a_usable_run():
+    """The end-to-end form of the assertion above: a ResultMessage whose usage
+    is the wrong type must not cost the run its artifact, and must not turn
+    into a confident zero on the way out."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = await _run_with_usage(["not", "a", "dict"], tmpdir, total_cost_usd=0.11)
+        line = _read_result_line(tmpdir)
+
+    assert result.cost_usd == 0.11
+    assert "usage" not in line
+    assert line["usage_schema"] == USAGE_SCHEMA_VERSION
+
+
+def test_usage_counts_survives_the_json_infinity_literal():
+    """`json.loads` accepts the non-standard `Infinity` literal by default, and
+    `int(float("inf"))` raises OverflowError — an ArithmeticError, so a catch
+    narrowed to ValueError/TypeError would let it through. It escaping matters
+    more than it sounds: the projection is an ARGUMENT to `_log_jsonl`, so it is
+    evaluated outside that function's try/except, and a raise here would fail a
+    run whose agent had already finished and whose money was already spent."""
+    from pmf_engine.runner.harness.claude_sdk import _usage_counts
+
+    parsed = json.loads('{"input_tokens": Infinity, "output_tokens": -Infinity, "cache_read_input_tokens": NaN}')
+    counts = _usage_counts(parsed)
+
+    assert counts == {}
+
+
+def test_usage_counts_omits_a_count_past_javascript_integer_precision():
+    """The judge reads these counts in TypeScript, where a value past
+    Number.MAX_SAFE_INTEGER satisfies `z.number().int()` and is still wrong. It
+    is dropped rather than clamped: a clamped count is a number the judge would
+    price, and a wrong one, which is the same defect as writing an unobserved
+    count as zero."""
+    from pmf_engine.runner.harness.claude_sdk import _MAX_LOGGED_TOKEN_COUNT, _usage_counts
+
+    counts = _usage_counts({"input_tokens": 2**53, "output_tokens": _MAX_LOGGED_TOKEN_COUNT - 1})
+
+    assert "input_tokens" not in counts
+    assert _MAX_LOGGED_TOKEN_COUNT == 2**53 - 1
+    # A real count just under the ceiling is untouched — the bound must not be
+    # rejecting ordinary values.
+    assert counts["output_tokens"] == _MAX_LOGGED_TOKEN_COUNT - 1
+
+
+# A turn whose ResultMessage carried no cost leaves the evaluator's TOTAL
+# unknown, not unchanged. The old accumulation did
+# `state["cost_usd"] + (message.total_cost_usd or 0.0)`, which reports a run
+# whose cost nobody measured as a run that cost less — and starting the sum at
+# 0.0 reported a stream that produced no ResultMessage at all as free.
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_none_when_a_turn_reports_none():
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        yield _make_result_message(result="Done", total_cost_usd=None, num_turns=2, session_id="sess-nocost")
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd is None
+    # The turns were still observed; only the cost is unknown.
+    assert result.num_turns == 2
+
+
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_none_when_no_result_message_arrives():
+    """A stream that ends without a ResultMessage measured nothing. A 0.0 start
+    reported that as a free run."""
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd is None
+
+
+@pytest.mark.asyncio
+async def test_evaluator_cost_is_reported_when_every_turn_reports_one():
+    """The other half: a measured cost still arrives as a number, so the None
+    above is a signal rather than the only thing this path can produce."""
+    from pmf_engine.runner.harness.claude_sdk import run_evaluator_agent
+
+    async def fake_query(*_args, **_kwargs):
+        yield _make_result_message(result="Done", total_cost_usd=0.0731, num_turns=4, session_id="sess-cost")
+
+    with tempfile.TemporaryDirectory() as workspace_dir, tempfile.TemporaryDirectory() as gate_cwd:
+        result_file_path = os.path.join(gate_cwd, "fragments.json")
+        params = _make_evaluator_params(
+            gate_cwd=gate_cwd,
+            workspace_dir=workspace_dir,
+            result_file_path=result_file_path,
+        )
+        with _isolated_runner_env(None):
+            with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query):
+                result = await run_evaluator_agent(params)
+
+    assert result.cost_usd == pytest.approx(0.0731)

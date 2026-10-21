@@ -1,11 +1,14 @@
 import {
-  SERVE_OUTREACH_PURPOSE_VALUES,
-  type ServeOutreachPurpose,
+  SERVE_PHONE_BANKING_PURPOSE_VALUES,
+  type ServePhoneBankingPurpose,
 } from '@goodparty_org/contracts'
 
-export type ServeDoorKnockingPurpose = ServeOutreachPurpose
+// The shared Serve list plus the civic panel invite, the list Serve phone
+// banking reads.
+export type ServeDoorKnockingPurpose = ServePhoneBankingPurpose
 
-export const SERVE_DOOR_KNOCKING_PURPOSE_VALUES = SERVE_OUTREACH_PURPOSE_VALUES
+export const SERVE_DOOR_KNOCKING_PURPOSE_VALUES =
+  SERVE_PHONE_BANKING_PURPOSE_VALUES
 
 // Door knocking's own wording for the shared Serve slugs — deliberately NOT
 // phone banking's copy, the same rule the Win labels follow in
@@ -17,6 +20,7 @@ export const SERVE_DOOR_KNOCKING_PURPOSE_LABELS: Record<
   ServeDoorKnockingPurpose,
   string
 > = {
+  build_citizens_panel: 'Invite to your civic panel',
   introduce_myself: 'Introduce myself',
   explain_decision: 'Explain a recent decision',
   event_invite: 'Invite people to an event',
@@ -37,6 +41,7 @@ export const SERVE_DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS: Record<
   ServeDoorKnockingPurpose,
   string
 > = {
+  build_citizens_panel: 'Civic panel walk',
   introduce_myself: 'Introduction walk',
   explain_decision: 'Decision update walk',
   event_invite: 'Event invite walk',

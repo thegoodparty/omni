@@ -35,19 +35,39 @@ donation processor).
 
 ## What the candidate sees
 
-The Campaign Plan page (`/dashboard/campaign-plan`) shows a four-phase rail:
-**Pre-launch, Launch, Active campaign, Get out the vote**. Each phase holds
-dated task cards the candidate works through and marks complete.
+The Campaign Plan page (`/dashboard/campaign-plan`) shows the campaign as a
+timeline of three phases: **Launch, Active campaign, Get out the vote**. Each
+phase is a window on the calendar, and holds the tasks dated inside it.
 
-- **Static tasks** (the launch / pre-launch checklist) and the **7 outreach
-  sends** render the moment the tracker is bootstrapped, so there is something
-  to do immediately.
+### The timeline
+
+The windows live in contracts (`CampaignTimeline.ts`), so gp-api dates tasks
+and the webapp groups them by the same rules. They count back from the
+election and forward from the day the plan started:
+
+- **Get out the vote** is the final 30 days (plus the close-out after).
+- **Active campaign** opens about 10 weeks out.
+- **Launch** is everything before that: setup work first, going-public work in
+  its last two weeks. The catalog's `preLaunch` and `launch` timing say which.
+
+A candidate who joins late gets a compressed timeline, not a fake one: Launch
+shrinks to half the time left before get-out-the-vote (four weeks at most),
+and one who joins inside 30 days starts in get-out-the-vote.
+
+A task's phase is the window its **date** falls in, not its catalog category,
+so the AI's weekly tasks dated in June are Launch work for a November race.
+Work with no knowable date (a state deadline, per-item or recurring catalog
+work) is planned for the start of its phase. Every task shows its date, and
+any open task past it reads as overdue.
+
+- **Static tasks** and the **7 outreach sends** render the moment the tracker
+  is bootstrapped, so there is something to do immediately.
 - **Dynamic tasks and events** land a few minutes later when the first agent
-  run completes. While they generate, a banner says so.
-- **Pre-launch and Launch** show **all** of their tasks at once. The **Active
-  campaign** phase is a **week navigator**: one Monday-Sunday week at a time,
-  with controls to step one week back (to review) or one week forward (next
-  week's plan, once that Thursday's generation lands), but no further.
+  run completes, with no spinner to wait on; the candidate is told what was
+  added.
+- Every phase shows **all** of its tasks at once, open work by date and
+  finished work after it. The **Active campaign** list starts at last week
+  (older weeks' AI suggestions stay out) and shows everything ahead.
 - GOTV tasks stay hidden behind a window message until the election is within
   **30 days**.
 - If the candidate **loses their primary**, the outreach sends disappear and no
@@ -57,31 +77,123 @@ dated task cards the candidate works through and marks complete.
 
 ## Lifecycle
 
-Every candidate goes through Campaign Story and gets the tracker — the webapp
-no longer reads a flag (ENG-11013). The tracker takes the campaign story (why /
-background / issues) as input:
+Every candidate gets the tracker. The campaign story (why / background /
+issues) is **input that sharpens** the plan and the tasks, not a precondition
+for either — a candidate with no story gets a generic plan and tracker:
 
-1. Candidate completes **Campaign Story** (why / background / issues).
-2. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
-   sections, with the story as input). When both sections persist **and a
-   `campaign_story` row exists**, the tracker bootstraps.
-3. **Bootstrap** materializes the static rows plus the 7 deterministic outreach
+1. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
+   sections, with the story as input when there is one). When both sections
+   persist, the tracker bootstraps.
+2. **Bootstrap** materializes the static rows plus the 7 deterministic outreach
    sends, and dispatches the first CAP run.
-4. Each **Thursday** (once the weekly cron is enabled) a CAP run re-prioritizes
+3. Each **Thursday** (once the weekly cron is enabled) a CAP run re-prioritizes
    the upcoming Monday-Sunday week and refreshes events. The Thursday cadence
    gives the downstream ClickUp email automations ~3 days to fire before Monday.
 
-The bootstrap gate is **`campaign_story` existence (data)**, not a flag — a
-pre-existing campaign with no story row still generates a plan but never
-bootstraps the tracker (see Legacy `campaign_task` remnant below).
+The story is optional all the way down: `campaign_story` is dropped from the
+agent params under budget pressure, and `CampaignStoryService.getForCampaign`
+returns `{ background: null }` for a missing row rather than throwing. The
+campaign-plan router does not read story state at all; `CampaignPlanGenerateGate`
+offers generation to everyone and invites the story alongside it.
 
-Because a plan can exist without a complete story (e.g. one generated before
-this rollout), the **campaign-plan router also gates the UI on story
-completeness**. `CampaignPlanRouter` reads `useCampaignStoryComplete` (bio +
-`background` + at least one issue) and shows the plan/tracker only once the
-story is complete; an incomplete story is routed to the "finish your Campaign
-Story" gate (`CampaignPlanStoryGate`) instead of a tracker stuck on "setting up"
-forever. This keeps the frontend gate aligned with the bootstrap's data gate.
+### The campaign story prompt
+
+The prompt is **a real tracker task** (`CAMPAIGN_STORY_CATEGORY`, one `static`
+catalog entry) filed as pre-launch work, so it lands early in Launch and flows through the same row
+machinery as everything else rather than being a bespoke surface, and leads
+the next-step card when it is the candidate's next task.
+
+The task's `completed` mirrors whether the story is finished, in both
+directions, and the row is never deleted. That is what makes the tracker the
+single source of truth for this work: finishing the story on any other surface
+ticks the task — `completeCampaignStoryTaskIfDone` runs on the tracker read, so
+it closes immediately rather than at the next generation — and emptying the
+story reopens it. A candidate never has to tick it by hand, and it can never
+disagree with the story itself.
+
+The manager home keeps its own `PersonalizeStoryCard` (the task list there
+renders dynamic rows only, so the static story row never appears in it). Ballot
+access still outranks it: a missed filing deadline cannot be undone. All three
+surfaces share the same title and caption.
+
+### Regeneration when the story changes
+
+A plan goes stale whenever the story it was built from changes, in a way the
+`raceId` comparison can't see — whether that is a candidate finishing a story
+they never had, or editing an answer years later.
+`CampaignStrategy.storyFingerprint` holds a hash of the three answers the plan
+was last generated from (`fingerprintStory`, beside the one story reader), and
+`alignPlanWithStory` (the same shape as `alignPlanWithRace`) wipes the content
+in place and lets `dispatchPending` regenerate whenever the current story
+hashes to something else. Attempt counters deliberately survive.
+
+The hash **is** the claim, as a compare-and-swap rather than a one-way flag:
+every write is conditional on the row still holding the fingerprint that call
+read, which is what stops two concurrent polls from both resetting and
+double-dispatching. It also makes the write path cheap enough to fire on every
+story save: the story page saves each field independently, so one edit arrives
+as several messages that all hash alike once it settles, and only a hash that
+actually differs reaches the reset.
+
+`generatedWithStory`, the boolean this replaced, survives for one job: telling
+a pre-fingerprint row that was built _from_ a story (adopt the current hash
+silently) apart from one built _without_ one (regenerate). Without that, adding
+the column would have billed a regeneration for every campaign with a finished
+story at once. It is dead weight once every row carries a fingerprint and can
+be dropped then.
+
+The decision is per-section, not per-plan, and reading it per-plan cost two
+bugs in a row. Each section owns a runId and a `persistedAt`, so a section
+holding a runId with no stamp has a generation on the wire whose output is
+still coming. If **any** section is in that state the align stands aside
+without claiming, including the partial case where opposition has landed and
+opportunities is still running: wiping nulls both runIds, which is how
+`onExperimentRunCompleted` finds the plan, so the live run finishes into a
+plan that no longer references it and its output is dropped. Claiming would
+be wrong the other way, flagging a plan story-aware whose in-flight params
+predate the story, which the one-shot claim then makes permanent. Otherwise
+persisted content takes the reset above, and a plan with no content and
+nothing dispatched stamps the claim and lets the dispatch that follows carry
+the story.
+
+That read-path alignment is the backstop; the trigger is the write path, so a
+candidate who finishes their story in the manager chat doesn't have to open the
+plan tab for it to take effect. The story spans three fields across two tables
+(`background` on `campaign_story`; the why and the issues on the website),
+written from the story page, `PUT /v1/websites/mine` and the chat agent — so
+each of those writes enqueues `QueueType.CAMPAIGN_STORY_COMPLETED` through
+`CampaignStoryCompletedProducer`, and the consumer calls
+`CampaignStrategyService.regenerateOnStoryComplete`. The websites guard watches
+`about.bio` and `about.issues` specifically rather than `about`, which also
+carries `committee`: announcing on that would wipe and regenerate a
+complete-story campaign's plan for an edit that had nothing to do with the
+story. Enqueued rather than
+called directly because `campaignStrategy` already depends on both
+`campaignStory` and `websites`, so a direct call would need a module cycle at
+each edge, and because a story autosave should not wait on a regeneration.
+Messages are deliberately **not** deduped per campaign. The story page saves
+each field independently, and a per-campaign dedup id would collapse the burst
+inside SQS FIFO's 5-minute window and keep the _first_ message — the one
+written while the story was still incomplete, which the handler correctly
+no-ops on. The write that actually completes the story would be the one
+discarded, so the eager path would silently never fire. Every write gets its
+own message; the handler is cheap when the story is incomplete and one-shot
+when it is not.
+
+`regenerateOnStoryComplete` only acts on a plan that **already exists**:
+generation is otherwise user-triggered, and dispatching for a campaign that
+never asked for a plan would bill it. It never throws — a story save must not
+fail because a regeneration could not be dispatched, and if the dispatch fails
+after the reset lands, the next plan read dispatches it.
+
+It does **not** dispatch the tracker itself. The tracker agent's params are
+built from the plan in the database, which the reset has just wiped, so a run
+started there would spend a full generation against a null plan. Instead the
+reset **releases `trackerBootstrapped`**, so when the regenerated sections
+persist the completion handler finds an unclaimed tracker and dispatches a run
+against the finished plan. That also covers the case where a concurrent plan
+poll wins the `generatedWithStory` claim first: whoever wins releases the
+tracker claim, so the refresh happens either way.
 
 ## Data model
 
@@ -89,17 +201,22 @@ One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`)
 whose schema mirrors the legacy `campaign_task` plus a `phase` column, so the
 completion / CTA / update-history machinery is reused against it.
 
-| Field | Meaning |
-|-------|---------|
+| Field           | Meaning                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `isDefaultTask` | `true` = deterministic row (static catalog **or** outreach send); `false` = agent-generated dynamic task or event |
-| `flowType` | channel (`text`, `robocall`, `events`, …); `events` marks event rows |
-| `phase` | `preLaunch` \| `launch` \| `active` \| `gotv` (drives the rail) |
-| `week` | **generation index** (see below), not a calendar week |
-| `date` | when the task is scheduled (drives sorting + the digest window) |
-| `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
+| `flowType`      | channel (`text`, `robocall`, `events`, …); `events` marks event rows                                              |
+| `phase`         | the catalog's kind of work (`preLaunch` \| `launch` \| `active` \| `gotv`); the rail places rows by `date`        |
+| `week`          | **generation index** (see below), not a calendar week                                                             |
+| `date`          | when the task is scheduled (drives sorting + the digest window)                                                   |
+| `completed`     | per-task completion; `updateHistoryId` links voter-contact logging                                                |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below).
+claim (see Bootstrap below). Both in-place plan resets release it —
+`alignPlanWithStory` when the story lands and `alignPlanWithRace` when the
+office changes — because the tasks are built from the plan, so whatever
+stales the plan stales them. A reset that kept the claim would leave the
+campaign on the old race's or the pre-story tasks until the weekly cron came
+round.
 
 ### The append (generation) model
 
@@ -125,9 +242,8 @@ choice and it has consequences every consumer must respect:
 ### Bootstrap (initial run)
 
 `campaignStrategy.service.ts → bootstrapTrackerIfPlanComplete` fires once both
-plan sections have persisted **and the campaign has a `campaign_story` row**
-(the story-data gate, so story-off plans complete but never bootstrap), then
-calls `CampaignTrackerTasksService.bootstrapForCampaign`:
+plan sections have persisted, then calls
+`CampaignTrackerTasksService.bootstrapForCampaign`:
 
 1. **Atomic claim.** A single conditional update flips
    `CampaignStrategy.trackerBootstrapped` `false → true`. The two plan sections
@@ -148,8 +264,8 @@ calls `CampaignTrackerTasksService.bootstrapForCampaign`:
 3. **Dispatch** the initial CAP run (`mode = initial`, high priority).
 
 **Static rows are also materialized eagerly, at plan-generation start.**
-`getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
-best-effort) as soon as plan generation is requested, so the static checklist +
+`getOrGenerateStrategicLandscape` calls `materializeStaticTasks`
+(best-effort) as soon as plan generation is requested, so the static checklist +
 outreach render immediately, without waiting for the CAP-completion bootstrap
 above (which is SQS-driven and, notably, never fires in local dev). The dynamic
 `dispatchGeneration` still happens only from the completion bootstrap, since it
@@ -201,7 +317,7 @@ dispatch limit:
 Output: up to **12** prioritized tasks plus up to **3** real local events, drawn
 from the ~20 non-outreach dynamic catalog (no text/robocall). The model selects,
 ranks, personalizes, and finds events; it does **not** set gates, caps, or the
-outreach schedule. The GOTV 30-day window and the Active-phase week navigator
+outreach schedule. The GOTV 30-day window and the Active phase's week span
 stay deterministic in gp-api / webapp.
 
 `onExperimentRunCompleted` loads the artifact, drops any `text`/`robocall` rows
@@ -235,26 +351,24 @@ to fire before the Monday digest; tasks are still displayed Monday-Sunday.
 
 ### Weekly digest
 
-`weeklyTasksDigestHandler.service.ts` serves **both cohorts** from one trigger,
-routed per campaign:
+`weeklyTasksDigestHandler.service.ts` reads **only** `campaign_tracker_tasks`
+(`fetchTrackerDigestRows`) and mirrors the tracker's week view: the **latest
+dynamic generation** plus the **deterministic text/robocall outreach** dated in
+the window (`(is_default_task = false AND week = latest generation) OR
+(is_default_task = true AND flow_type IN (text, robocall))`). The static setup
+checklist (non-outreach default rows) is excluded, since it renders in the
+Launch/GOTV-ops sections rather than the active week the digest
+promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
+until the election is within 30 days (matching the UI), and excludes inactive /
+demo campaigns.
 
-- **Tracker cohort** (`fetchTrackerDigestRows`): reads `campaign_tracker_tasks`
-  and mirrors the tracker's week view: the **latest dynamic generation** plus the
-  **deterministic text/robocall outreach** dated in the window
-  (`(is_default_task = false AND week = latest generation) OR (is_default_task =
-  true AND flow_type IN (text, robocall))`). The static setup checklist
-  (non-outreach default rows) is excluded, since it renders in the
-  Pre-launch/Launch/GOTV-ops sections rather than the active week the digest
-  promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
-  until the election is within 30 days (matching the UI), and excludes inactive /
-  demo campaigns.
-- **Legacy cohort** (`fetchLegacyDigestRows`): the unchanged pre-tracker digest
-  over `campaign_task`, guarded by `NOT EXISTS (campaign_tracker_tasks)` so a
-  migrated campaign isn't double-counted. The two cohorts are mutually
-  exclusive, so each campaign gets exactly one digest.
+It emails the **top 3 uncompleted** tasks dated in the upcoming Monday-Sunday
+window, and sends nothing to a campaign with fewer than 3 open tasks in it
+(`MIN_TASKS`). Election date falls back to `primaryElectionDate`.
 
-Both email the **top 3 uncompleted** tasks dated in the upcoming Monday-Sunday
-window. Election date falls back to `primaryElectionDate`.
+Because tracker rows are the cohort gate, a campaign only enters the digest
+once its plan has generated. That is why the storyless cohort was getting no
+Monday email at all before the story gate came off.
 
 ## Key files
 
@@ -270,44 +384,41 @@ and gotchas. Read those first when working in the code:
 
 The table below is the cross-package file index:
 
-| Area | Path |
-|------|------|
-| Tracker service (bootstrap, dispatch params, append-persist, completion) | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerTasks.service.ts` |
-| Weekly cron | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerDispatch.service.ts` |
-| Static row materialization | `gp-api/src/campaigns/campaignTracker/services/staticTrackerTasks.util.ts` |
-| Controller + MCP tool | `gp-api/src/campaigns/campaignTracker/campaignTracker.controller.ts` |
-| Bootstrap trigger | `gp-api/src/campaignStrategy/services/campaignStrategy.service.ts` |
-| Digest | `gp-api/src/campaigns/tasks/services/weeklyTasksDigestHandler.service.ts` |
-| Shared week-start helper | `gp-api/src/shared/util/date.util.ts` (`nextMondayUtcMidnight`) |
-| Catalog generator | `gp-api/scripts/generate-tracker-catalog.ts` |
-| CAP experiment | `packages/runbooks/experiments/campaign_tracker_tasks/` |
-| Task catalog (source of truth) | `@goodparty_org/contracts` (`CampaignTaskCatalog`) |
-| Frontend rendering | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
-| Frontend data hook | `…/campaignStrategy/useTrackerTasks.ts` |
-| Frontend section | `…/campaignStrategy/CampaignStrategySection.tsx` |
+| Area                                                                     | Path                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Tracker service (bootstrap, dispatch params, append-persist, completion) | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerTasks.service.ts`             |
+| Weekly cron                                                              | `gp-api/src/campaigns/campaignTracker/services/campaignTrackerDispatch.service.ts`          |
+| Static row materialization                                               | `gp-api/src/campaigns/campaignTracker/services/staticTrackerTasks.util.ts`                  |
+| Controller + MCP tool                                                    | `gp-api/src/campaigns/campaignTracker/campaignTracker.controller.ts`                        |
+| Bootstrap trigger                                                        | `gp-api/src/campaignStrategy/services/campaignStrategy.service.ts`                          |
+| Digest                                                                   | `gp-api/src/campaigns/tasks/services/weeklyTasksDigestHandler.service.ts`                   |
+| Shared week-start helper                                                 | `gp-api/src/shared/util/date.util.ts` (`nextMondayUtcMidnight`)                             |
+| Catalog generator                                                        | `gp-api/scripts/generate-tracker-catalog.ts`                                                |
+| CAP experiment                                                           | `packages/runbooks/experiments/campaign_tracker_tasks/`                                     |
+| Task catalog (source of truth)                                           | `@goodparty_org/contracts` (`CampaignTaskCatalog`)                                          |
+| Frontend rendering                                                       | `gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/buildTrackerStrategy.ts` |
+| Frontend data hook                                                       | `…/campaignStrategy/useTrackerTasks.ts`                                                     |
+| Frontend section                                                         | `…/campaignStrategy/CampaignStrategySection.tsx`                                            |
 
 ## Frontend specifics
 
 - `buildTrackerStrategy.ts` builds the rail from rows: filter dynamic rows to
   `max(week)`, bucket by phase, and apply the deterministic display rules. A
   phase reads `done` only when **all** its tasks are completed; the "happening
-  now" (active) phase is **date-driven**. Pre-launch / Launch show all of their
+  now" (active) phase is **date-driven**. Launch shows all of its
   tasks; GOTV is gated to the final 30 days. The **Active** phase is built
   separately by `buildActiveWeeks`, which buckets every active task (all
   generations, not just the latest) into Monday-Sunday weeks and flags the week
-  containing today; `CampaignStrategyPhase` renders it as a navigator bounded to
-  the current week ±1. Dates are parsed at **local** midnight (matching the date
+  containing today; the page lists last week onward as one list. Dates are parsed at **local** midnight (matching the date
   chip) so a UTC-midnight task can't land in the wrong calendar week.
 - `useTrackerTasks.ts` polls fast (20s) while dynamic tasks are still
   generating, then drops to a slow background poll (so a weekly regen is picked
   up) with a fast-poll budget cap.
 - `CampaignStrategySection.tsx` renders only from persisted tracker rows
   (loading / error / a "setting up your tracker" state while bootstrap is in
-  flight, then the accordion). There is **no** client-side catalog fallback.
-  `CampaignPlanView` renders it unconditionally now, so a no-rows state means
-  bootstrap hasn't landed yet, not "legacy campaign with no tracker" — a
-  campaign whose bootstrap never ran (no `campaign_story` row) instead falls
-  through to the story-completeness gate, never this section.
+  flight, then the phases). There is **no** client-side catalog fallback.
+  `CampaignPlanView` renders it unconditionally, so a no-rows state means
+  bootstrap hasn't landed yet.
 - `CampaignPlanView.tsx` renders the tracker hero + `CampaignStrategySection`
   above the plan unconditionally. The legacy community-events poll
   (`useCampaignPlanData`) was removed along with the onboarding success page
@@ -317,9 +428,6 @@ The table below is the cross-package file index:
 
 - **Weekly cron:** `CAMPAIGN_TRACKER_AUTOMATION_ENABLED=true` (env) turns on
   Thursday regeneration. Ships disabled.
-- **Bootstrap gate:** `campaign_story` existence gates the bootstrap — a
-  pre-existing campaign with no story row never bootstraps (see Legacy
-  `campaign_task` remnant below).
 - Cost is roughly $0.94 per candidate per run (validated on dev cohorts;
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
@@ -328,14 +436,15 @@ The table below is the cross-package file index:
 
 The webapp no longer reads a flag (ENG-11013) and gp-api's legacy digest,
 default-task generator, and community-events backend are torn down
-(ENG-11015). What's left is data-shaped, not code-shaped: a pre-existing
-campaign with no `campaign_story` row never bootstrapped the tracker, so it
-has no `campaign_tracker_tasks` rows. Its legacy `campaign_task` rows (if any
-were generated before the teardown) are still readable and completable via
-`CampaignTasksController` (`GET/complete/uncomplete /campaigns/tasks`), and
-`notifySlackOnProUpgrade` still has a legacy branch that posts the
-plan-summary Slack message for that cohort — nothing generates new
-`campaign_task` rows or emails a digest for them anymore.
+(ENG-11015). What's left is data-shaped, not code-shaped: legacy
+`campaign_task` rows generated before the teardown are still readable and
+completable via `CampaignTasksController`
+(`GET/complete/uncomplete /campaigns/tasks`), and `notifySlackOnProUpgrade`
+still has a legacy branch that posts the plan-summary Slack message for a
+campaign that has those rows and no tracker rows — nothing generates new
+`campaign_task` rows or emails a digest for them anymore. A campaign that has
+not yet had its plan generated has neither table populated; it bootstraps the
+tracker the first time a plan is generated for it.
 
 Dropping the `campaign_task` table itself needs a follow-up: those completion
 routes and the Slack legacy branch still query it directly, and gp-webapp's
@@ -390,24 +499,15 @@ there, nowhere else.
 
 ## How this diverged from the original TDD
 
-The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed
-coexistence with the legacy tracker and a weekly **wholesale replace** of
-dynamic rows. One of those held; the other changed:
+The design doc (`scratch/campaign-tracker-v3/`, since removed) proposed a weekly
+**wholesale replace** of dynamic rows. That changed:
 
-1. **Coexistence, gated on campaign story.** An earlier iteration hard-flipped
-   (retired the legacy `campaign_task` generation + display). That was reverted:
-   because `campaign-story` is still gated in prod and dev auto-merges to prod
-   daily, the off state must remain a fully usable legacy experience. So the new
-   tracker is the story cohort's path, the legacy path is preserved for
-   story-off, and routing/digest/UI cohort-split per campaign on the
-   `campaign-story` flag + `campaign_story` existence.
-2. **Append, not replace.** Wholesale-replace wiped completion every week and
+1. **Append, not replace.** Wholesale-replace wiped completion every week and
    kept no history for the agent. The append model preserves both, at the cost
    of every consumer scoping to the latest generation.
-3. **Outreach is deterministic, not agent-selected.** The original design let
+2. **Outreach is deterministic, not agent-selected.** The original design let
    the agent pick text/robocall sends like any other dynamic task. They are now
    the 7 fixed sends from the plan's general-election contact schedule,
    materialized at bootstrap and suppressed on a lost primary. This keeps the
-   compliance-sensitive outreach cadence out of the model's hands. The Active
-   phase also moved from a flat list to a one-week-at-a-time navigator (current
-   week ±1), and weekly generation moved from Sunday to Thursday.
+   compliance-sensitive outreach cadence out of the model's hands. Weekly
+   generation moved from Sunday to Thursday.

@@ -331,7 +331,7 @@ describe('StripeService.createOffSessionCharge', () => {
       metadata: { outreachId: '42', kind: 'robocall_fresh_charge' },
     })
     // Stable per outreach so a retry replays instead of double-charging.
-    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-cus_1-42' })
   })
 
   it('maps a card decline to StripeChargeDeclinedError carrying the PI id', async () => {
@@ -395,11 +395,12 @@ describe('StripeService.createOffSessionCharge', () => {
       data: [{ id: 'pi_landed', amount_received: 450 }],
     })
 
-    const found = await service.findSucceededChargeByOutreach(42)
+    const found = await service.findSucceededChargeByOutreach(42, 'cus_1')
 
     expect(found).toEqual({ paymentIntentId: 'pi_landed', amountReceived: 450 })
     const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
     expect(query).toContain("status:'succeeded'")
+    expect(query).toContain("customer:'cus_1'")
     expect(query).toContain("metadata['kind']:'robocall_fresh_charge'")
     expect(query).toContain("metadata['outreachId']:'42'")
   })
@@ -407,7 +408,29 @@ describe('StripeService.createOffSessionCharge', () => {
   it('returns null when no succeeded fresh charge exists', async () => {
     paymentIntentsSearch.mockResolvedValue({ data: [] })
 
-    expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
+    expect(await service.findSucceededChargeByOutreach(42, 'cus_1')).toBeNull()
+  })
+
+  it("finds live holds by outreach, scoped to the row's customer", async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [{ id: 'pi_live' }] })
+
+    expect(await service.findLiveManualHoldsByOutreach(42, 'cus_1')).toEqual([
+      'pi_live',
+    ])
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).toContain("status:'requires_capture'")
+    expect(query).toContain("customer:'cus_1'")
+    expect(query).toContain("metadata['outreachId']:'42'")
+  })
+
+  it('searches live holds unscoped when the row has no customer', async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [] })
+
+    await service.findLiveManualHoldsByOutreach(42, null)
+
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).not.toContain('customer:')
+    expect(query).toContain("metadata['outreachId']:'42'")
   })
 })
 
@@ -458,7 +481,7 @@ describe('StripeService.createManualCaptureHold', () => {
     // The account is not enrolled in extended authorization, so the hold must
     // never request it — an ineligible account rejects the whole intent.
     expect(body).not.toHaveProperty('payment_method_options')
-    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-42-0' })
+    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-cus_1-42-0' })
   })
 
   it('falls back to now+7d when Stripe omits capture_before', async () => {
@@ -734,5 +757,55 @@ describe('StripeService.createCustomCheckoutSession', () => {
 
     const args = firstOrThrow(sessionsCreate.mock.calls)[0]
     expect(args.payment_method_types).toEqual(['card', 'amazon_pay'])
+  })
+
+  // Win SMS hold billing: the hold is created by authorizing the Checkout
+  // Session's PaymentIntent with manual capture.
+  it('authorizes a manual-capture hold when manualCapture is set, keeping receipt_email', async () => {
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_test_hold',
+      client_secret: 'cs_test_hold_secret',
+      amount_total: 10500,
+    })
+
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      {
+        type: PaymentType.OUTREACH_PURCHASE,
+        purchaseType: PurchaseType.TEXT,
+        amount: 10500,
+        productName: 'SMS Outreach',
+        returnUrl: 'https://app.test/dashboard/purchase/complete',
+        manualCapture: true,
+      },
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_intent_data).toEqual({
+      receipt_email: email,
+      capture_method: 'manual',
+    })
+  })
+
+  it('leaves capture automatic (no capture_method) when manualCapture is unset', async () => {
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_test_auto',
+      client_secret: 'cs_test_auto_secret',
+      amount_total: 1092,
+    })
+
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      {
+        type: PaymentType.OUTREACH_PURCHASE,
+        purchaseType: PurchaseType.TEXT,
+        amount: 1092,
+        productName: 'SMS Outreach',
+        returnUrl: 'https://app.test/dashboard/purchase/complete',
+      },
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_intent_data).toEqual({ receipt_email: email })
   })
 })

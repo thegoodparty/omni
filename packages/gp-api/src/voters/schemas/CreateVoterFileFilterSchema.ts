@@ -2,6 +2,8 @@ import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import {
   GeoJsonShapeSchema,
+  GeoShapeLabelsSchema,
+  ListSampleSchema,
   RecommendedListChannelSchema,
   RecommendedListFilterSchema,
   RecommendedListIntentSchema,
@@ -30,5 +32,22 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     // and door knocking's own filter grammar, both of which already have a
     // polygon of their own to mean something else by.
     geoPoly: GeoJsonShapeSchema.nullable().optional(),
+    // One name and colour per part of `geoPoly`, in the same order.
+    geoPolyLabels: GeoShapeLabelsSchema.nullable().optional(),
+    // The chat card this list is being created from, if any. A second
+    // create under the same key returns the first list instead of a twin.
+    proposalKey: z.string().uuid().optional(),
+    // Create-only: a sample is drawn once, when the list is saved, and the
+    // update schema has nothing to redraw it with.
+    sample: ListSampleSchema.optional(),
+    // Serve, from a priority's card: keep the list to the parts of the
+    // district that priority's answers have barely reached. gp-api draws
+    // the area and saves it as the list's boundary; the request carries no
+    // geometry of its own.
+    unreachedAreaOfPriorityId: z.string().min(1).optional(),
+    // Serve: the audience of a civic panel invite. The outreach that used
+    // the list keeps it, and the lists index leaves it out, since the
+    // panel's one list is the built-in Civic panel row. Create-only.
+    civicPanelInvite: z.boolean().optional(),
   }),
 ) {}

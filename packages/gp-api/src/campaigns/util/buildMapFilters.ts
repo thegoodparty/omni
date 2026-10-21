@@ -2,11 +2,9 @@ import { Prisma } from '../../generated/prisma'
 import { capitalizeFirstLetter } from 'src/shared/util/strings.util'
 import { IS_PROD_DEPLOY } from 'src/shared/util/appEnvironment.util'
 
-const WINNERS_ELECTION_YEAR = process.env.WINNERS_ELECTION_YEAR
-
-if (!WINNERS_ELECTION_YEAR) {
-  throw new Error('Please set WINNERS_ELECTION_YEAR in your .env')
-}
+// Optional tier with a code default ('2024' in ENV_VAR_CONTRACT) — never
+// boot-gating.
+const WINNERS_ELECTION_YEAR = process.env.WINNERS_ELECTION_YEAR || '2024'
 
 interface FilterParams {
   partyFilter?: string

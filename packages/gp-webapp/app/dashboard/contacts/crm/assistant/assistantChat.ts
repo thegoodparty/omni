@@ -7,9 +7,22 @@ import type {
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
 import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
 import {
+  buildCampaignManagerIntro,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   campaignManagerChatApi,
 } from '../../../campaign-manager/campaignManagerChat'
+
+// The Chief of Staff's home intro offers its home's next steps, which this
+// surface does not show, so the contacts entry point names what it is for.
+export const buildServeContactsIntro = (
+  firstName?: string | null,
+): string[] => [
+  firstName
+    ? `Hi ${firstName}, I'm your Chief of Staff.`
+    : "Hi, I'm your Chief of Staff.",
+  'I can find the constituents you want to reach and save them as a list.',
+  'Who are you looking for?',
+]
 
 export const ASSISTANT_PLACEHOLDER =
   "Describe the list you want and I'll make it for you"
@@ -24,6 +37,9 @@ export interface AssistantChatBinding {
   // alias for it; the list-building framing moves to the subtitle.
   agentName: string
   analyticsLabel: string
+  // The chat body defaults to the Chief of Staff's intro, so a Win binding
+  // that left this unset introduced the candidate to the wrong assistant.
+  defaultIntro: string[]
 }
 
 // No dedicated ChatScope for this surface (a new scope needs a migration and
@@ -33,6 +49,7 @@ export interface AssistantChatBinding {
 // with those surfaces instead of double-fetching the same list.
 export const getAssistantChat = (
   isWinContext: boolean,
+  firstName?: string | null,
 ): AssistantChatBinding =>
   isWinContext
     ? {
@@ -41,6 +58,7 @@ export const getAssistantChat = (
         scope: 'campaign_assistant',
         agentName: 'Campaign manager',
         analyticsLabel: 'campaign-manager-chat',
+        defaultIntro: buildCampaignManagerIntro(firstName),
       }
     : {
         chatApi: chiefOfStaffChatApi,
@@ -48,4 +66,5 @@ export const getAssistantChat = (
         scope: 'chief_of_staff',
         agentName: 'Chief of Staff',
         analyticsLabel: 'chief-of-staff-chat',
+        defaultIntro: buildServeContactsIntro(firstName),
       }

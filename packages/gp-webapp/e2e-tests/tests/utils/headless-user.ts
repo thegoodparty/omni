@@ -65,6 +65,7 @@ export const withGatewayRetry = async <T>(
   fn: () => Promise<T>,
 ): Promise<T> => {
   let lastError: unknown
+  let waitedMs = 0
   for (let attempt = 1; attempt <= GATEWAY_RETRY_ATTEMPTS; attempt++) {
     try {
       return await fn()
@@ -74,6 +75,27 @@ export const withGatewayRetry = async <T>(
         attempt === GATEWAY_RETRY_ATTEMPTS ||
         !isRetriableGatewayError(error)
       ) {
+        // Say so when the schedule ran out, unconditionally rather than under
+        // DEBUG. What reaches CI otherwise is a bare `AxiosError: Request
+        // failed with status code 401` from somewhere inside setup, which
+        // reads as a broken token and sends the next reader looking at auth
+        // code. These three numbers are what tells the two apart: an exhausted
+        // retry schedule is an instance-wide Clerk rate window that outlasted
+        // us, a first-attempt 401 is a real credential problem.
+        if (
+          attempt === GATEWAY_RETRY_ATTEMPTS &&
+          isRetriableGatewayError(error)
+        ) {
+          const status = axios.isAxiosError(error)
+            ? (error.response?.status ?? 'no response')
+            : 'non-axios'
+          console.warn(
+            `[withGatewayRetry] ${label} gave up after ` +
+              `${GATEWAY_RETRY_ATTEMPTS} attempts over ${waitedMs}ms of ` +
+              `backoff; last status ${status}. A 401 here is usually Clerk's ` +
+              `rate limit surfacing as an unauthorized user, not a bad token.`,
+          )
+        }
         throw error
       }
       // Half-fixed, half-random. Every shard's workers hit the same Clerk rate
@@ -88,6 +110,7 @@ export const withGatewayRetry = async <T>(
             `${attempt}/${GATEWAY_RETRY_ATTEMPTS}, retrying in ${backoffMs}ms`,
         )
       }
+      waitedMs += backoffMs
       await new Promise((resolve) => setTimeout(resolve, backoffMs))
     }
   }

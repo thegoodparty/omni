@@ -3,11 +3,12 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { Button, CropIcon } from '@styleguide'
 import type { ShowListMap } from '@goodparty_org/contracts'
-import {
-  drawnRings,
-  ringsFromGeoJsonShape,
-} from 'app/dashboard/shared/ringGeometry'
+import { shapesFromSaved } from 'app/dashboard/shared/listShapes'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import {
+  peopleCount,
+  type CardMode,
+} from 'app/dashboard/shared/agent-chat/cards/proposalPresentation'
 import { useListPeople } from '../../../contacts/crm/map/useListPeople'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
 
@@ -36,16 +37,17 @@ interface ChatListMapProps extends ShowListMap {
   // new key when it commits, which would unmount an overlay mounted here
   // and throw away a ring mid-draw.
   onRefineArea?: (list: ShowListMap) => void
+  mode?: CardMode
 }
 
 export default function ChatListMap({
   listId,
   name,
   onRefineArea,
+  mode = 'serve',
 }: ChatListMapProps) {
   const { people, total, truncated, isLoading, isError } = useListPeople(listId)
-  // Serve-only surface, so the labels are the constituent ones.
-  const labels = getContactsLabels(false)
+  const labels = getContactsLabels(mode === 'win')
   const { list } = useSavedList(listId)
   // Memoised for the same reason both sibling callers memoise it, and more
   // sharply here: ringsFromGeoJsonShape allocates a fresh array every call
@@ -54,10 +56,13 @@ export default function ChatListMap({
   // that rebuilds its deck.gl layers. A transcript re-renders on every
   // streaming token, so a bare call rebuilt the polygon and vertex layers
   // continuously while the assistant was mid-reply.
-  const savedRings = useMemo(
-    () => ringsFromGeoJsonShape(list?.geoPoly),
-    [list?.geoPoly],
-  )
+  const { savedRings, savedColors } = useMemo(() => {
+    const shapes = shapesFromSaved(list?.geoPoly, list?.geoPolyLabels)
+    return {
+      savedRings: shapes.map((shape) => shape.ring),
+      savedColors: shapes.map((shape) => shape.color),
+    }
+  }, [list?.geoPoly, list?.geoPolyLabels])
   // Requires the row to have ARRIVED, not merely to be unlocked. An absent
   // row reads as unlocked, so gating on the lock alone offered the button
   // while the list was still loading — and the overlay behind it seeds its
@@ -74,7 +79,7 @@ export default function ChatListMap({
         <span className="truncate text-sm font-semibold">{name}</span>
         {!isLoading && !isError ? (
           <span className="shrink-0 text-xs text-muted-foreground">
-            {total.toLocaleString()} constituents
+            {peopleCount(total, mode)}
           </span>
         ) : null}
       </div>
@@ -91,7 +96,11 @@ export default function ChatListMap({
               so the dots are markers. A saved boundary still draws, without
               a writer, so the map shows the geography the list was cut
               with even when it cannot be re-cut here. */}
-          <ContactListMap people={people} otherRings={savedRings} />
+          <ContactListMap
+            people={people}
+            otherRings={savedRings}
+            otherRingColors={savedColors}
+          />
         </div>
       )}
 
@@ -111,7 +120,7 @@ export default function ChatListMap({
               onClick={() => onRefineArea?.({ listId, name })}
             >
               <CropIcon className="size-4" aria-hidden />
-              {drawnRings(savedRings).length > 0
+              {savedRings.length > 0
                 ? labels.boundaryEditCta
                 : labels.boundaryDrawCta}
             </Button>

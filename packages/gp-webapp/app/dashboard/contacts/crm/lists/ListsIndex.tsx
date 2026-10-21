@@ -10,6 +10,7 @@ import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvi
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { ALL_SEGMENTS } from '../shared/constants'
 import ListCard from './ListCard'
+import { CitizensPanelListCard } from './CitizensPanelListCard'
 
 // The Lovable design's first list row: the whole (unfiltered) universe.
 // Count comes from the same GET /v1/contacts/stats query DistrictStatCard
@@ -104,6 +105,11 @@ export default function ListsIndex() {
   // isWinContextReady keeps the button from flashing at a Serve user while
   // the mode resolves.
   const showSendOutreach = isWinContextReady && isWinContext
+  // A civic panel invite's audience is the outreach's record, not a list the
+  // official keeps: the panel's one list is the built-in Civic panel row.
+  const savedLists = customSegments.filter(
+    (segment) => segment.civicPanelInvite !== true,
+  )
 
   return (
     <section className="flex flex-col gap-4">
@@ -120,12 +126,13 @@ export default function ListsIndex() {
           showSendOutreach={showSendOutreach}
           canUseProFeatures={canUseProFeatures}
         />
-        {customSegments.length === 0 ? (
+        <CitizensPanelListCard />
+        {savedLists.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             You haven&apos;t created any lists yet.
           </p>
         ) : (
-          customSegments.map((segment) => (
+          savedLists.map((segment) => (
             <ListCard key={segment.id} segment={segment} />
           ))
         )}

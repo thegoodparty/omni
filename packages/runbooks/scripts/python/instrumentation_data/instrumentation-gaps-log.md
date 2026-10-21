@@ -1,3 +1,157 @@
+## 2026-10-19
+
+### Potential instrumentation gaps
+
+Coverage: 67 tracked — 19 new, 0 open, 12 accepted, 10 dismissed, 7 resolved, 19 retired.
+Scan: 481 surfaces enumerated, 123 already tracked, 358 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 1 | packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit | form_submit | outcome-and-blocker | How many users start a civic panel plan, and how often is it blocked by a conflicting plan or failure? | packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the Gather More poll expansion flow (size vs when steps)? | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715 | form_submit | payment confirmation outcome/blocker | How many robocall payment setups succeed vs. fail at the card confirmation step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | Where do users drop off in the poll creation wizard, by step? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow viewed/completed | At which step of the Pro Upgrade wizard do users drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of this full-screen wizard flow do users drop off? | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx |
+| 2 | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit | form_submit | primary-cta-or-outcome | How many users successfully update their personal information (name) and how often does it fail? | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / blocker-error | How many briefing error reports are submitted vs. abandoned? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | blocker-or-outcome | How many bug reports are submitted on briefings, and how often does submission fail? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+
+(9 more new gaps — see the state file.)
+
+## 2026-10-19
+
+### Potential instrumentation gaps
+
+Coverage: 66 tracked — 18 new, 0 open, 12 accepted, 10 dismissed, 7 resolved, 19 retired.
+Scan: 481 surfaces enumerated, 125 already tracked, 356 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the Gather More poll expansion flow (size vs when steps)? | packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715 | form_submit | payment confirmation outcome/blocker | How many robocall payment setups succeed vs. fail at the card confirmation step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the poll creation step sequence? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow viewed/completed | At which step of the Pro Upgrade wizard do users drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of this full-screen wizard flow do users drop off? | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx |
+| 2 | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit | form_submit | primary CTA / form submit outcome | How often do users successfully update their personal information (name)? | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / blocker-error | How many briefing error reports are submitted vs. abandoned? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | form_submit / error blocker | How many users submit or fail to submit a briefing error report, and how often do they delete one? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | form_submit outcome | How often do users successfully submit notes (and how often does submission fail)? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+
+(8 more new gaps — see the state file.)
+
+## 2026-10-16
+
+### Potential instrumentation gaps
+
+Coverage: 65 tracked — 17 new, 0 open, 12 accepted, 10 dismissed, 7 resolved, 19 retired.
+Scan: 481 surfaces enumerated, 125 already tracked, 356 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715 | form_submit | payment confirmation outcome/blocker | How many robocall payment setups succeed vs. fail at the card confirmation step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow viewed/completed | At which step of the Create Poll wizard do users abandon the flow? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow viewed/completed | At which step of the Pro Upgrade wizard do users drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of this full-screen wizard flow do users drop off? | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx |
+| 2 | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx#form_submit | form_submit | primary CTA / outcome | How often do users successfully update their personal information (name)? | packages/gp-webapp/app/dashboard/account/components/PersonalInformationCard.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / blocker-error | How many briefing error reports are submitted vs. abandoned? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | primary CTA / outcome | How many users successfully submit a briefing error report vs. hit an error? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | primary CTA / outcome | How many users successfully submit notes intake vs. fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 2 | packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit | form_submit | outcome | How many citizen panel plans are started/created? | packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx |
+
+(7 more new gaps — see the state file.)
+
+## 2026-10-12
+
+### Potential instrumentation gaps
+
+Coverage: 62 tracked — 14 new, 0 open, 12 accepted, 10 dismissed, 7 resolved, 19 retired.
+Scan: 460 surfaces enumerated, 123 already tracked, 337 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of poll creation do users drop off? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of the Pro upgrade wizard do users drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L715 | form_submit | payment confirmation outcome/blocker | How many robocall payment setups succeed vs. fail at the card confirmation step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx#wizard_stage | wizard_stage | multi-step flow Viewed/Completed | At which step of this full-screen wizard flow do users drop off? | packages/gp-webapp/app/dashboard/shared/FullScreenStepChrome.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / form submit | How many users submit a bug report via the annotation sheet, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | outcome / blocker | How many bug reports are successfully submitted vs. erroring out? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | outcome / blocker | How many notes submissions succeed vs. fail in the Add Notes flow? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 2 | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77 | form_submit | form submit CTA | How many users save their 'running against' opponent details? | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit | form_submit | outcome | How many ordinance bug reports are submitted from the draft detail view? | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx |
+
+(4 more new gaps — see the state file.)
+
+## 2026-10-08
+
+### Potential instrumentation gaps
+
+Coverage: 60 tracked — 13 new, 0 open, 13 accepted, 10 dismissed, 7 resolved, 17 retired.
+Scan: 458 surfaces enumerated, 125 already tracked, 333 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where in the poll-creation wizard do users drop off, by step? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off in the Pro upgrade wizard, by stage? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710 | form_submit | payment confirmation / outcome | How often do users successfully save a payment method and authorize a robocall payment, and where do they fail? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / form submit | How often do users submit a bug report via the briefing annotation sheet? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | form submit / outcome | How often do bug-report submissions succeed vs fail in the annotation sheet? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | form submit / outcome | How often do users successfully submit notes via the Add Notes dialog, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 2 | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77 | form_submit | primary CTA / form submit | How often do users save their 'running against' opponent details? | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit | form_submit | form submit / outcome | How often do users submit a bug report on an ordinance draft? | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit | form_submit | chat message sent (explicit exception to chrome skip) | How often do users send messages in the ordinance flow chat? | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx |
+
+(3 more new gaps — see the state file.)
+
+## 2026-10-05
+
+### Potential instrumentation gaps
+
+Coverage: 60 tracked — 13 new, 0 open, 13 accepted, 10 dismissed, 7 resolved, 17 retired.
+Scan: 447 surfaces enumerated, 119 already tracked, 328 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off in the poll creation wizard, by stage? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off across the priorities setup steps? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow: URL-stable stage Viewed/Completed | Where do users drop off in the Pro upgrade wizard, by stage? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / outcome (form submit) | How often do users submit a bug/error report from the briefing annotation sheet? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 1 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | primary CTA / outcome (form submit) + blocker/error | How many bug report submissions succeed vs error out? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 1 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | primary CTA / outcome (form submit) + blocker/error | How many notes-intake submissions succeed vs fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710 | form_submit | payment confirmation - outcome/blocker | How many robocall payment authorizations succeed vs fail at card confirmation? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 2 | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77 | form_submit | primary CTA / outcome (form submit) | How often do users save/update their 'running against' opponent details? | packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit | form_submit | primary CTA / outcome (form submit) | How many ordinance bug reports are submitted? | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit | form_submit | AI chat message sent (exception to chrome skip) | How many messages are sent in the ordinance flow chat, and what is the open-to-send drop-off? | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx |
+
+(3 more new gaps — see the state file.)
+
+## 2026-10-01
+
+### Potential instrumentation gaps
+
+Coverage: 58 tracked — 11 new, 0 open, 17 accepted, 6 dismissed, 7 resolved, 17 retired.
+Scan: 448 surfaces enumerated, 118 already tracked, 330 candidates.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where in the poll-creation wizard do users drop off, per step? | packages/gp-webapp/app/dashboard/polls/create/CreatePoll.tsx |
+| 0 | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where do users drop off in the priorities plan wizard, per step? | packages/gp-webapp/app/dashboard/priorities/components/PrioritiesHub.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx#wizard_stage | wizard_stage | multi-step flow stage Viewed/Completed | Where do users drop off in the pro-upgrade wizard, per step/channel? | packages/gp-webapp/app/dashboard/pro-upgrade/components/proUpgradeWizardContext.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L710 | form_submit | payment outcome - backend server truth | How often does robocall payment setup/authorization succeed or fail? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215 | form_submit | primary CTA / form submit | How many users submit (or delete) a briefing error report? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet | form_submit | primary CTA / form submit | How often do users successfully submit a bug/error report on a briefing, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 2 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog | form_submit | primary CTA / outcome | How many users successfully submit notes via the Add Notes dialog, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx#form_submit | form_submit | outcome / blocker reporting | How often do users submit a bug report on an ordinance draft? | packages/gp-webapp/app/dashboard/ordinances/components/DraftDetail.tsx |
+| 2 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx#form_submit | form_submit | AI chat message sent (explicit exception to chrome skip) | How many messages do users send in the ordinance flow chat? | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceFlowChat.tsx |
+| 2 | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112 | form_submit | primary CTA / outcome | How many users successfully name and save a recommended audience list? | packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx |
+
+(1 more new gaps — see the state file.)
+
 ## 2026-09-28
 
 ### Potential instrumentation gaps

@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { Badge, Button, Checkbox, Flex, Text } from '@radix-ui/themes'
+import { Badge, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
   type ComplianceStateOutput,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
+import { formatLocalDateString } from '@/lib/utils/date'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useToast } from '@/components/Toast'
@@ -16,9 +17,9 @@ import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import {
   getCampaignComplianceState,
   listCampaigns,
-  resendCvPin,
   setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
+import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'
 import { useUser } from '../context/UserContext'
 import { CvValidationHold } from './CvValidationHold'
 import { EditCommitteeNameAction } from './EditCommitteeNameAction'
@@ -63,6 +64,25 @@ const STAGE_BADGE_COLORS: Record<
   [ComplianceStage.tcr_rejected]: 'red',
 }
 
+type TextingWindow = NonNullable<ComplianceStateOutput['smsCompliance']>
+
+const TEXTING_WINDOW_LABELS: Record<TextingWindow, string> = {
+  open: 'Open',
+  closing: 'Last week',
+  closed: 'Closed',
+  not_applicable: 'Made the cutoff',
+}
+
+const TEXTING_WINDOW_BADGE_COLORS: Record<
+  TextingWindow,
+  'amber' | 'green' | 'red' | 'gray'
+> = {
+  open: 'green',
+  closing: 'amber',
+  closed: 'red',
+  not_applicable: 'gray',
+}
+
 interface ComplianceInfo {
   campaignId: number
   state: ComplianceStateOutput
@@ -83,8 +103,6 @@ function CvPinStatusContent() {
   const { id: userId, email } = useUser()
   const { showToast } = useToast()
   const [info, setInfo] = useState<ComplianceInfo | null>(null)
-  const [resending, setResending] = useState(false)
-  const [resent, setResent] = useState(false)
   const [savingApproval, setSavingApproval] = useState(false)
 
   useEffect(() => {
@@ -114,29 +132,10 @@ function CvPinStatusContent() {
     state.stage === ComplianceStage.awaiting_pin &&
     state.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED
 
-  const testingApproved = state.internalTestingApprovedAt !== null
+  const testingApproved = state.internalTestingAt !== null
   // A record created by the real compliance flow must never be overwritten
   // or deleted from here — the endpoints refuse it, so disable the toggle.
   const hasRealComplianceRecord = state.hasComplianceRecord && !testingApproved
-
-  async function handleResend() {
-    setResending(true)
-    try {
-      const { error } = await resendCvPin(campaignId)
-      if (error) {
-        showToast(error)
-      } else {
-        setResent(true)
-        showToast('CV PIN resent')
-      }
-    } catch (error) {
-      // A rejection here never reached gp-api (deploy skew, expired session),
-      // so this catch is the failure's only trace anywhere — report it.
-      Sentry.captureException(error)
-      showToast(describeActionFailure(error, 'Failed to resend CV PIN'))
-    }
-    setResending(false)
-  }
 
   async function handleApprovalToggle(checked: boolean) {
     setSavingApproval(true)
@@ -183,6 +182,29 @@ function CvPinStatusContent() {
     </Flex>
   )
 
+  const textingWindowRow = state.smsCompliance && (
+    <Flex direction="column" gap="1">
+      <Flex align="center" gap="3" wrap="wrap">
+        <Badge
+          color={TEXTING_WINDOW_BADGE_COLORS[state.smsCompliance]}
+          size="2"
+        >
+          Texting window: {TEXTING_WINDOW_LABELS[state.smsCompliance]}
+        </Badge>
+        <Text size="2" color="gray">
+          General election:{' '}
+          {formatLocalDateString(state.generalElectionDate, 'Not set')}
+        </Text>
+        <Text size="2" color="gray">
+          Cutoff: {formatLocalDateString(state.smsCutoffDate, 'Not set')}
+        </Text>
+      </Flex>
+      <Text size="1" color="gray">
+        Wrong date? Fix it by editing the election date in the campaign form.
+      </Text>
+    </Flex>
+  )
+
   const internalTestingToggle = isInternalEmail(email) && (
     <ProtectedContent
       requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
@@ -220,6 +242,7 @@ function CvPinStatusContent() {
           {committeeNameRow}
           {internalTestingToggle}
         </Flex>
+        {textingWindowRow}
         {state.stage === ComplianceStage.filing_review_hold && (
           <CvValidationHold
             campaignId={campaignId}
@@ -236,27 +259,26 @@ function CvPinStatusContent() {
   }
 
   return (
-    <Flex gap="3" align="center" wrap="wrap">
-      <Badge color="amber" size="2">
-        {state.pinDelivery
-          ? `PIN sent via ${state.pinDelivery.method} to ` +
-            state.pinDelivery.displayString
-          : 'PIN sent, not yet entered'}
-      </Badge>
-      <ProtectedContent
-        requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
-        hideWhenUnauthorized
-      >
-        <Button
-          variant="outline"
-          onClick={handleResend}
-          disabled={resending || resent}
+    <Flex direction="column" gap="2">
+      <Flex gap="3" align="center" wrap="wrap">
+        <Badge color="amber" size="2">
+          {state.pinDelivery
+            ? `PIN sent via ${state.pinDelivery.method} to ` +
+              state.pinDelivery.displayString
+            : 'PIN sent, not yet entered'}
+        </Badge>
+        <ProtectedContent
+          requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+          hideWhenUnauthorized
         >
-          <HiOutlineMail className="w-4 h-4" />
-          {resent ? 'PIN resent' : resending ? 'Resending...' : 'Resend CV PIN'}
-        </Button>
-      </ProtectedContent>
-      {committeeNameRow}
+          <ResendCvPinButton
+            campaignId={campaignId}
+            icon={<HiOutlineMail className="w-4 h-4" />}
+          />
+        </ProtectedContent>
+        {committeeNameRow}
+      </Flex>
+      {textingWindowRow}
     </Flex>
   )
 }

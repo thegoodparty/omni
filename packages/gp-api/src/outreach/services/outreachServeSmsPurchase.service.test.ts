@@ -1,3 +1,4 @@
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { BadRequestException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
@@ -9,6 +10,12 @@ import { calcTextAmountInCents } from '@/shared/util/textPricing.util'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { QueueType } from 'src/queue/queue.types'
+import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachReportBackService } from './outreachReportBack.service'
+import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { SlackChannel } from 'src/vendors/slack/slackService.types'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { OutreachServeSmsPurchaseHandlerService } from './outreachServeSmsPurchase.service'
 
 const OUTREACH_ID = 4242
@@ -31,20 +38,38 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
   let prisma: {
     outreach: {
       findFirst: ReturnType<typeof vi.fn>
+      findUnique: ReturnType<typeof vi.fn>
       updateMany: ReturnType<typeof vi.fn>
     }
   }
+  let slack: { message: ReturnType<typeof vi.fn> }
+  let analytics: { track: ReturnType<typeof vi.fn> }
   let queueProducer: { sendMessage: ReturnType<typeof vi.fn> }
+  let priorityStatus: { recordOutreachSent: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
-    prisma = { outreach: { findFirst: vi.fn(), updateMany: vi.fn() } }
+    prisma = {
+      outreach: {
+        findFirst: vi.fn(),
+        findUnique: vi.fn(),
+        updateMany: vi.fn(),
+      },
+    }
+    slack = { message: vi.fn() }
+    analytics = { track: vi.fn() }
     queueProducer = { sendMessage: vi.fn() }
+    priorityStatus = { recordOutreachSent: vi.fn() }
 
     const module = await Test.createTestingModule({
       providers: [
         OutreachServeSmsPurchaseHandlerService,
         { provide: PrismaService, useValue: prisma },
         { provide: QueueProducerService, useValue: queueProducer },
+        { provide: PriorityStatusService, useValue: priorityStatus },
+        { provide: StripeService, useValue: {} },
+        { provide: SlackService, useValue: slack },
+        { provide: AnalyticsService, useValue: analytics },
+        { provide: OutreachReportBackService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -72,7 +97,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
       expect(amount).not.toBe(calcTextAmountInCents(1))
     })
 
-    it('scopes the lookup to a Serve text draft in the caller’s org', async () => {
+    it('scopes the lookup to a Serve text or poll draft in the caller’s org', async () => {
       prisma.outreach.findFirst.mockResolvedValue({
         status: OutreachStatus.pending_payment,
         textCount: 10,
@@ -86,7 +111,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
             id: OUTREACH_ID,
             organizationSlug: ORG,
             campaignId: null,
-            outreachType: OutreachType.text,
+            outreachType: { in: [OutreachType.text, OutreachType.poll] },
           },
         }),
       )
@@ -143,7 +168,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
   describe('executePostPurchase — claim and enqueue', () => {
     it('claims pending_payment -> pending and enqueues the send', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 300 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 300,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
@@ -173,10 +201,17 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
           deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${OUTREACH_ID}-1`,
         },
       )
+      // Paid and scheduled is when a text from a priority's check is out.
+      expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
+        OUTREACH_ID,
+      )
     })
 
     it('serializes deliveries per outreach and dedupes a racing duplicate', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 10 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 10,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
@@ -190,7 +225,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
     })
 
     it('does not persist a synthetic free-purchase session id', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 10 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 10,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
 
       await service.executePostPurchase('free_confirmed_123', stripeMetadata)
@@ -213,18 +251,28 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
   describe('executePostPurchase — idempotency on redelivery', () => {
     it('does not claim or enqueue twice when the row already moved on', async () => {
       prisma.outreach.findFirst
-        .mockResolvedValueOnce({ textCount: 300 })
+        .mockResolvedValueOnce({
+          textCount: 300,
+          outreachType: OutreachType.text,
+        })
         .mockResolvedValueOnce({ status: OutreachStatus.in_progress })
       prisma.outreach.updateMany.mockResolvedValue({ count: 0 })
 
       await service.executePostPurchase(SESSION_ID, stripeMetadata)
 
       expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      // Recorded again, so a status write that failed the first time heals.
+      expect(priorityStatus.recordOutreachSent).toHaveBeenCalledWith(
+        OUTREACH_ID,
+      )
     })
 
     it('re-enqueues a claimed-but-unproven send rather than assuming it happened', async () => {
       prisma.outreach.findFirst
-        .mockResolvedValueOnce({ textCount: 300 })
+        .mockResolvedValueOnce({
+          textCount: 300,
+          outreachType: OutreachType.text,
+        })
         .mockResolvedValueOnce({ status: OutreachStatus.pending })
       prisma.outreach.updateMany.mockResolvedValue({ count: 0 })
 
@@ -240,7 +288,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
     it('throws a retryable error when a lost claim left the row unpaid-looking', async () => {
       prisma.outreach.findFirst
-        .mockResolvedValueOnce({ textCount: 300 })
+        .mockResolvedValueOnce({
+          textCount: 300,
+          outreachType: OutreachType.text,
+        })
         .mockResolvedValueOnce({ status: OutreachStatus.pending_payment })
       prisma.outreach.updateMany.mockResolvedValue({ count: 0 })
 
@@ -257,7 +308,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
     it('refuses to send against a canceled draft', async () => {
       prisma.outreach.findFirst
-        .mockResolvedValueOnce({ textCount: 300 })
+        .mockResolvedValueOnce({
+          textCount: 300,
+          outreachType: OutreachType.text,
+        })
         .mockResolvedValueOnce({ status: OutreachStatus.canceled })
       prisma.outreach.updateMany.mockResolvedValue({ count: 0 })
 
@@ -270,7 +324,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
 
   describe('executePostPurchase — failure after the claim', () => {
     it('reverts the claim and rethrows when the enqueue fails', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 300 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 300,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
       queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
 
@@ -278,6 +335,7 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         service.executePostPurchase(SESSION_ID, stripeMetadata),
       ).rejects.toThrow('sqs down')
 
+      expect(priorityStatus.recordOutreachSent).not.toHaveBeenCalled()
       expect(prisma.outreach.updateMany).toHaveBeenCalledTimes(2)
       expect(prisma.outreach.updateMany).toHaveBeenLastCalledWith({
         where: {
@@ -290,7 +348,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
     })
 
     it('leaves the checkout session id on the reverted row', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 300 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 300,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
       queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
 
@@ -303,7 +364,10 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
     })
 
     it('surfaces an enqueue failure as retryable, not permanently rejected', async () => {
-      prisma.outreach.findFirst.mockResolvedValue({ textCount: 300 })
+      prisma.outreach.findFirst.mockResolvedValue({
+        textCount: 300,
+        outreachType: OutreachType.text,
+      })
       prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
       queueProducer.sendMessage.mockRejectedValue(new Error('sqs down'))
 
@@ -312,6 +376,95 @@ describe('OutreachServeSmsPurchaseHandlerService', () => {
         .catch((err: unknown) => err)
 
       expect(error).not.toBeInstanceOf(BadRequestException)
+    })
+  })
+
+  describe('executePostPurchase — poll', () => {
+    const pollRow = { textCount: 250, outreachType: OutreachType.poll }
+    const pollRecord = {
+      message: 'Hi, do you support the park?',
+      textCount: 250,
+      organization: {
+        slug: ORG,
+        customPositionName: null,
+        owner: { id: 9, firstName: 'Ada', lastName: 'Lovelace' },
+      },
+    }
+
+    it('holds the paid poll at pending: no enqueue, one Slack notice', async () => {
+      prisma.outreach.findFirst.mockResolvedValue(pollRow)
+      prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
+      prisma.outreach.findUnique.mockResolvedValue(pollRecord)
+
+      await service.executePostPurchase(SESSION_ID, stripeMetadata)
+
+      expect(prisma.outreach.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: OUTREACH_ID,
+          organizationSlug: ORG,
+          campaignId: null,
+          outreachType: OutreachType.poll,
+          status: OutreachStatus.pending_payment,
+        },
+        data: {
+          status: OutreachStatus.pending,
+          billableTextCount: 250,
+          stripeCheckoutSessionId: SESSION_ID,
+        },
+      })
+      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+      expect(priorityStatus.recordOutreachSent).not.toHaveBeenCalled()
+      expect(slack.message).toHaveBeenCalledTimes(1)
+      const [message, channel] = firstOrThrow(slack.message.mock.calls)
+      expect(channel).toBe(SlackChannel.botTevynApi)
+      expect(JSON.stringify(message)).toContain('New poll awaiting review')
+      expect(JSON.stringify(message)).toContain(ORG)
+      expect(JSON.stringify(message)).toContain('Hi, do you support the park?')
+      expect(JSON.stringify(message)).toContain('250')
+      expect(analytics.track).toHaveBeenCalledWith(
+        9,
+        EVENTS.Polls.PollSubmitted,
+        { outreachId: OUTREACH_ID, recipientCount: 250 },
+        undefined,
+        `${EVENTS.Polls.PollSubmitted}-${OUTREACH_ID}`,
+      )
+    })
+
+    it('posts no second notice and does not enqueue on a redelivered webhook', async () => {
+      prisma.outreach.findFirst
+        .mockResolvedValueOnce(pollRow)
+        .mockResolvedValueOnce({ status: OutreachStatus.pending })
+      prisma.outreach.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.executePostPurchase(SESSION_ID, stripeMetadata)
+
+      expect(slack.message).not.toHaveBeenCalled()
+      expect(queueProducer.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('keeps the claim when the review notice fails', async () => {
+      prisma.outreach.findFirst.mockResolvedValue(pollRow)
+      prisma.outreach.updateMany.mockResolvedValue({ count: 1 })
+      prisma.outreach.findUnique.mockResolvedValue(pollRecord)
+      slack.message.mockRejectedValue(new Error('slack down'))
+
+      await expect(
+        service.executePostPurchase(SESSION_ID, stripeMetadata),
+      ).resolves.toBeUndefined()
+      expect(prisma.outreach.updateMany).toHaveBeenCalledTimes(1)
+    })
+
+    it('prices a poll draft like a text', async () => {
+      prisma.outreach.findFirst.mockResolvedValue({
+        id: OUTREACH_ID,
+        status: OutreachStatus.pending_payment,
+        textCount: 250,
+        reportBackForOutreachId: null,
+      })
+
+      await expect(service.calculateAmount(metadata)).resolves.toBe(
+        calcTextAmountInCents(250),
+      )
     })
   })
 })

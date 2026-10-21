@@ -11,25 +11,48 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type ProposalLink,
   type RecommendedListVariant,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  COMMUNITY_INPUT_PURPOSE,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+  rememberLaunchSource,
+  type OutreachFlowSource,
+  type OutreachLaunchSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { ChannelBadge } from '../channelMeta'
+import type {
+  OutreachEventDetails,
+  ProposalEvent,
+} from '@goodparty_org/contracts'
+import { EventDetailsStep } from '../EventDetailsStep'
+import {
+  EVENT_DETAILS_TITLE,
+  isEventInvite,
+  useEventDetails,
+} from '../eventDetails'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { EXPLAINER_COPY } from '../gate/gateCopy'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -41,6 +64,7 @@ import {
 import {
   intentForOutreachPurpose,
   useOutreachAudience,
+  type ProposedAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import {
@@ -54,12 +78,40 @@ import {
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
+import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import { outreachLandingStep } from '../landingStep'
 
-type StepId = 'purpose' | 'who' | 'script' | 'sheets' | 'download'
-const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
+type StepId =
+  | 'purpose'
+  | 'details'
+  | 'question'
+  | 'who'
+  | 'script'
+  | 'sheets'
+  | 'download'
+
+// Two purposes each insert one step after `purpose`, and no purpose inserts
+// both — so the order is DERIVED rather than one constant per shape. That is
+// also what keeps the progress bar honest: a hardcoded length would draw five
+// segments for a six-step flow. The question purpose is the same slug on both
+// surfaces: Win's "Hear from voters" and Serve's community input.
+//
+// The question step is NOT gated on either issue-capture flag. The create
+// contract requires a question whenever the purpose is community_input, so a
+// flow that skipped this step would 400 on save with nothing on screen
+// explaining why.
+const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
+  isEventInvite(purpose)
+    ? ['purpose', 'details', 'who', 'script', 'sheets', 'download']
+    : purpose === COMMUNITY_INPUT_PURPOSE
+      ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
+      : ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  details: EVENT_DETAILS_TITLE,
+  question: 'What do you want to learn?',
   who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
@@ -68,6 +120,13 @@ const STEP_TITLES: Record<StepId, string> = {
   // either variant exactly would make it collide with the visible one for
   // that variant while staying non-unique text across the two states.
   download: 'Download your call sheets',
+}
+
+// Serve's promises the read-back an official gets; Win's says only what is
+// already true of the script this flow drafts.
+const QUESTION_STEP_BODY = {
+  win: 'Your callers will ask this on every call.',
+  serve: 'We will read this back to you with what people said.',
 }
 
 const GENERIC_CREATE_ERROR_MESSAGE =
@@ -134,7 +193,9 @@ const PHONE_BANKING_COUNT_OVERLAY = { hasAnyPhone: true }
 
 // The purpose union across every surface the flow can render — same
 // convention as SocialFlow's SocialFlowPurpose.
-type PhoneBankingFlowPurpose = PhoneBankingPurpose | ServePhoneBankingPurpose
+export type PhoneBankingFlowPurpose =
+  | PhoneBankingPurpose
+  | ServePhoneBankingPurpose
 
 interface PhoneBankingFlowDraftInput {
   purpose: PhoneBankingFlowPurpose
@@ -142,14 +203,21 @@ interface PhoneBankingFlowDraftInput {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  communityInputQuestion?: string
+  event?: OutreachEventDetails
 }
 
-interface PhoneBankingFlowCreateInput {
+interface PhoneBankingFlowCreateInput extends ProposalLink {
   name: string
   script: string
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
+  // community_input only, where the contract requires it on both surfaces.
+  communityInputQuestion?: string
+  // Win only: the campaign-plan task the flow was opened from, which the
+  // task list marks done once the list is built.
+  trackerTaskId?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -189,11 +257,28 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
       )
       return data.draft
     },
-    createList: async (input) => {
-      const { data } = await clientRequest(
-        'POST /v1/phone-banking/lists',
-        input as PhoneBankingCreate,
-      )
+    createList: async ({
+      name,
+      script,
+      sheetCount,
+      purpose,
+      communityInputQuestion,
+      voterFileFilterId,
+      trackerTaskId,
+      proposalKey,
+    }) => {
+      // Named, not rest-spread: Win's create is strict and takes a
+      // Campaign Manager card's key alone, never the rest of a Serve link.
+      const { data } = await clientRequest('POST /v1/phone-banking/lists', {
+        name,
+        script,
+        sheetCount,
+        purpose,
+        communityInputQuestion,
+        voterFileFilterId,
+        trackerTaskId,
+        ...(proposalKey !== undefined && { proposalKey }),
+      } as PhoneBankingCreate)
       return data
     },
   },
@@ -236,6 +321,33 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A script already written, from a chat card's outreach proposal. Opens on
+  // the who step under `custom`, the same seed SmsFlow's `initialScript` is.
+  initialScript?: string
+  // Opens past the purpose picker on this purpose and drafts for it, as an
+  // entry that already answered it (a civic panel plan's call step).
+  initialPurpose?: PhoneBankingFlowPurpose
+  // The list name a chat card proposal already knows, so the script step does
+  // not stop on an empty required field. Editable like any typed name.
+  initialName?: string
+  // An audience a chat card counted but did not save: the who step opens on
+  // the list builder already filled in, and saves it when the official
+  // confirms and names it.
+  proposedAudience?: ProposedAudience
+  // The chat card proposal this flow was opened from. Rides on the create so
+  // the list is linked to its priority, and a second completion of the same
+  // proposal hands back the first list rather than building another.
+  proposalLink?: ProposalLink
+  // The tracker task this flow was launched from, carried onto the created
+  // list so every call logged against it joins back to the task.
+  tracker?: OutreachTrackerOrigin
+  // Where the flow was opened from, for its stage events and the Pro gate.
+  source: OutreachFlowSource
+  // The agent surface that launched this call list, for the Outreach events.
+  launchSource?: OutreachLaunchSource
+  // What an agent's proposal knows about the event it invites people to; the
+  // details step opens on it.
+  initialEvent?: ProposalEvent
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -249,12 +361,22 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  initialScript,
+  initialPurpose,
+  initialName,
+  proposedAudience,
+  proposalLink,
+  tracker,
+  source,
+  launchSource,
+  initialEvent,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
   // the deliverable and nothing exists until create — so the gate stands in
   // front of the one write instead of behind a saved row.
   const gate = useOutreachGate('phone-bank')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step, so its
   // explainer can open the gate long before the candidate has reached the
@@ -263,19 +385,37 @@ export const PhoneBankingFlow = ({
   const [gateOrigin, setGateOrigin] = useState<'create' | 'explainer' | null>(
     null,
   )
+  // The label of the button that opened the gate, for Flow Started.
+  const [gateCta, setGateCta] = useState<string | undefined>(undefined)
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  // The civic panel invite is offered behind the panel's flag, as on texts.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
+  const offeredPurposes = surface.purposes.filter(
+    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
+  )
+  // What this effort is asking, collected on the step that follows a
+  // community_input purpose. Required there by contract, so the step's
+  // Continue stays disabled until it is filled in.
+  const [question, setQuestion] = useState('')
+  const eventDetails = useEventDetails({
+    enabled: open && isEventInvite(purpose),
+    isServe: surface.isServe,
+    proposed: initialEvent,
+  })
+  const { reset: resetEventDetails } = eventDetails
+  // The details the current script was written from, so an unchanged
+  // Continue back through the details step keeps the script.
+  const draftedEventRef = useRef<string | null>(null)
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
-  // Tracks whether the box holds unmodified AI output vs. candidate-typed
-  // text — same purpose as SocialFlow's manuallyEdited, scoped narrower:
-  // phone banking has no per-tone memory/Undo, so this only gates whether a
-  // tone change is allowed to send the current text as previousDraft (an
-  // explicit Regenerate click still does, since that's the candidate asking
-  // to discard whatever's on screen).
-  const [scriptManuallyEdited, setScriptManuallyEdited] = useState(false)
+  // Whether the words are the candidate's (typed, seeded or polished) rather
+  // than an untouched fresh draft, as on SMS and social: a tone change
+  // polishes them instead of replacing them, and a walkback never re-drafts
+  // over them.
+  const [ownWords, setOwnWords] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [sheetCount, setSheetCount] = useState(1)
   // Whether the candidate has manually changed the sheet count — gates the
@@ -290,6 +430,10 @@ export const PhoneBankingFlow = ({
   // Guards against an out-of-order draft response (or one from a closed
   // flow) clobbering a newer draft — same convention as SocialFlow.
   const draftRequestRef = useRef(0)
+  // Whether the last draft call was an Improve, so Try again repeats the
+  // kind of call that failed (a Regenerate or an Improve) with what is on
+  // screen now, such as instructions edited since.
+  const lastDraftWasImproveRef = useRef(false)
 
   // Reference equality against the Win singleton default, not a purpose
   // check: recommended lists are Win-only (the endpoint 400s an eo- org
@@ -310,6 +454,7 @@ export const PhoneBankingFlow = ({
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedRecommendedVariant,
+    ...(proposedAudience && { proposedAudience }),
   })
   const {
     reset: resetAudience,
@@ -335,6 +480,13 @@ export const PhoneBankingFlow = ({
         sheetCount,
         purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
+        ...(purpose === COMMUNITY_INPUT_PURPOSE
+          ? { communityInputQuestion: question.trim() }
+          : {}),
+        ...(tracker && !surface.isServe
+          ? { trackerTaskId: tracker.trackerTaskId }
+          : {}),
+        ...proposalLink,
       })
     },
     onSuccess: (response) => {
@@ -342,13 +494,45 @@ export const PhoneBankingFlow = ({
       setSaved(true)
       setStepId('download')
       trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
-        product: 'phoneBanking',
+        product: outreachProduct(surface.isServe),
         // Always true now: every audience is a saved VoterFileFilter (picked
         // or just built) — even an all-voters list built with no criteria
         // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
+        ...(purpose ? { purpose } : {}),
+        ...(proposalLink?.priorityId
+          ? { priorityId: proposalLink.priorityId }
+          : {}),
+        ...(launchSource ? { launchSource } : {}),
       })
+      // The cross-channel sibling of the event above. Phone banking is
+      // one-to-one, so creating the list is NOT reaching anyone — completion
+      // is every entry being called. This event is what a created →
+      // contacted → completed funnel counts, and it is uniform across
+      // channels where `ListCreated`'s batch-sizing fields are not.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+        ...outreachEventProps({
+          channel: 'phoneBanking',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: response.personCount,
+          ...(response.outreachId != null
+            ? { outreachCampaignId: response.outreachId }
+            : {}),
+          listId: response.id,
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+          ...(purpose ? { purpose } : {}),
+          ...(proposalLink?.priorityId
+            ? { priorityId: proposalLink.priorityId }
+            : {}),
+          launchSource,
+        }),
+      })
+      rememberLaunchSource('phoneBanking', response.id, launchSource)
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)
       }
@@ -367,39 +551,62 @@ export const PhoneBankingFlow = ({
     // purpose its intent maps onto: the candidate answered that question by
     // picking the card. It drafts for that purpose too, below, exactly as a
     // tap on the card would.
-    const carriedPurpose = preselectedRecommendedVariant
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
-    setStepId(carriedPurpose ? 'who' : 'purpose')
-    setPurpose(carriedPurpose)
+    // A seeded script wins over a carried purpose: the words are already
+    // chosen, so drafting for a purpose would throw them away.
+    const carriedPurpose = initialScript
+      ? null
+      : (initialPurpose ??
+        (preselectedRecommendedVariant
+          ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+          : null))
+    // The list is not resolved yet, so this lands on the who step at most;
+    // the preselection below moves on to the script once it resolves.
+    setStepId(
+      outreachLandingStep({
+        purposeSettled: carriedPurpose !== null,
+        audienceSettled: false,
+        messageSettled: Boolean(initialScript),
+      }) === 'purpose'
+        ? 'purpose'
+        : 'who',
+    )
+    setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
-    setScript('')
-    setScriptManuallyEdited(false)
+    setScript(initialScript ?? '')
+    setOwnWords(Boolean(initialScript))
     setInstructions('')
     setSheetCount(1)
     setSheetCountEdited(false)
-    setName('')
-    setNameEdited(false)
+    setName(initialName ?? '')
+    setNameEdited(Boolean(initialName))
     setSaved(false)
     setCreateResponse(null)
     setGateOpen(false)
     setGateOrigin(null)
+    setGateCta(undefined)
     setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-    if (carriedPurpose) {
+    resetEventDetails()
+    draftedEventRef.current = null
+    // An event invite drafts once its details are in, off the details step.
+    const carriedEvent =
+      carriedPurpose !== null && isEventInvite(carriedPurpose)
+    if (carriedEvent) setStepId('details')
+    if (carriedPurpose && !carriedEvent) {
       // requestDraft's own body, inlined: it reads the instructions state,
       // which the reset above has not flushed yet, and this effect cannot
       // depend on a closure that is fresh every render.
       const requestId = ++draftRequestRef.current
+      lastDraftWasImproveRef.current = false
       draftMutate(
         { purpose: carriedPurpose, tone: 'warm' },
         {
           onSuccess: (generated) => {
             if (requestId !== draftRequestRef.current) return
             setScript(generated)
-            setScriptManuallyEdited(false)
+            setOwnWords(false)
           },
         },
       )
@@ -409,8 +616,12 @@ export const PhoneBankingFlow = ({
     resetDraftMutation,
     resetCreateMutation,
     resetAudience,
+    resetEventDetails,
     draftMutate,
     preselectedRecommendedVariant,
+    initialScript,
+    initialPurpose,
+    initialName,
   ])
 
   // Applies the handed-over preselected list to the who step's picker once
@@ -437,6 +648,20 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      // A caller that handed over the script, or a purpose to draft one for
+      // (a civic panel plan's call step), as well as the list lands on the
+      // script, but only once the list really resolved: a script with no
+      // audience behind it would strand the official on a step whose
+      // Continue cannot pass. An event invite stays on its details step.
+      const landing = outreachLandingStep({
+        purposeSettled:
+          !initialScript &&
+          initialPurpose !== undefined &&
+          !isEventInvite(initialPurpose),
+        audienceSettled: true,
+        messageSettled: Boolean(initialScript),
+      })
+      if (landing === 'message') setStepId('script')
     }
   }, [
     open,
@@ -444,6 +669,8 @@ export const PhoneBankingFlow = ({
     audienceLists,
     audienceListsFetching,
     selectAudienceList,
+    initialScript,
+    initialPurpose,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead
@@ -471,7 +698,8 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepOrder = stepOrderFor(purpose)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
 
@@ -498,28 +726,41 @@ export const PhoneBankingFlow = ({
     if (!nextPurpose) return
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
+    lastDraftWasImproveRef.current = currentDraft !== undefined
     const trimmedInstructions = instructionsOverride.trim()
+    // Read here and passed as a variable, the way `instructions` is: the
+    // question is what a community-input effort exists to ask, so the script
+    // has to close on it rather than on a generic issue question.
+    const askedQuestion =
+      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
+    const event = isEventInvite(nextPurpose) ? eventDetails.event : null
     draftMutate(
       {
         purpose: nextPurpose,
         tone: nextTone,
+        ...(event ? { event } : {}),
         ...(currentDraft === undefined ? {} : { currentDraft }),
         ...(previousDraft === undefined ? {} : { previousDraft }),
         ...(trimmedInstructions === ''
           ? {}
           : { instructions: trimmedInstructions }),
+        ...(askedQuestion === ''
+          ? {}
+          : { communityInputQuestion: askedQuestion }),
       },
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
           setScript(generated)
-          setScriptManuallyEdited(false)
+          setOwnWords(currentDraft !== undefined)
         },
       },
     )
   }
 
   const handleSelectPurpose = (selected: PhoneBankingFlowPurpose) => {
+    // A draft that failed for another purpose is not this one's to retry.
+    if (selected !== purpose) resetDraftMutation()
     setPurpose(selected)
     // Reset tone/script/instructions state on every purpose pick (including
     // re-picks after Back), not just the first one — otherwise picking
@@ -531,32 +772,64 @@ export const PhoneBankingFlow = ({
     // draft request.
     setTone('warm')
     setScript('')
-    setScriptManuallyEdited(false)
+    setOwnWords(false)
     setInstructions('')
+    // Same staleness as the four above, and the one with teeth: the question
+    // step's Continue only guards emptiness, so a question typed for an
+    // earlier community-input pick would sail through as this effort's.
+    setQuestion('')
+    draftedEventRef.current = null
+    // Two purposes are not fully specified by this pick, and both defer the
+    // draft to the step that completes them: an event invite has no date or
+    // place yet, and a community-input effort has not been asked what it is
+    // asking. A script drafted here would be written before the one thing it
+    // has to carry. Every other purpose is complete, so it drafts now.
+    if (isEventInvite(selected)) {
+      setStepId('details')
+      return
+    }
+    if (selected === COMMUNITY_INPUT_PURPOSE) {
+      setStepId('question')
+      return
+    }
     setStepId('who')
     requestDraft(selected, 'warm', undefined, undefined, '')
+  }
+
+  const handleEventDetailsContinue = () => {
+    const drafted = JSON.stringify(eventDetails.event)
+    if (draftedEventRef.current !== drafted) {
+      draftedEventRef.current = drafted
+      setTone('warm')
+      setScript('')
+      setOwnWords(false)
+      requestDraft(purpose, 'warm')
+    }
+    setStepId('who')
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
     if (nextTone === tone) return
     setTone(nextTone)
+    // The candidate's own words are polished in the new tone, never
+    // replaced by a fresh draft in it.
+    if (ownWords) {
+      if (script.trim()) requestDraft(purpose, nextTone, script.trim())
+      return
+    }
     if (!purpose || purpose === 'custom') return
-    // A tone change is not the candidate asking to discard their edits —
-    // only send previousDraft (and so invite the model to diverge) when the
-    // box still holds an unmodified AI generation. An explicit Regenerate
-    // click below is a discard request, so it always sends the current text.
-    requestDraft(
-      purpose,
-      nextTone,
-      undefined,
-      scriptManuallyEdited ? undefined : script.trim() || undefined,
-    )
+    // An untouched draft is the model's, so the new tone is a fresh draft
+    // that should not repeat it.
+    requestDraft(purpose, nextTone, undefined, script.trim() || undefined)
   }
 
   const handleScriptChange = (value: string) => {
     setScript(value)
-    setScriptManuallyEdited(true)
-    if (draftMutation.isError) resetDraftMutation()
+    setOwnWords(true)
+    // An edit wins over a reply still in flight, which would otherwise land
+    // on top of it. Dropping the call also clears a failed one's error.
+    draftRequestRef.current += 1
+    if (draftMutation.isPending || draftMutation.isError) resetDraftMutation()
   }
 
   // Auto-suggests the campaign name from the purpose on entering the script
@@ -608,7 +881,7 @@ export const PhoneBankingFlow = ({
       audience.resetBuilder()
       return
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the who step discards the picked list so a re-entry starts
     // from an empty picker instead of resuming a selection the user just
@@ -676,10 +949,11 @@ export const PhoneBankingFlow = ({
 
   const openGateFromExplainer = (): void => {
     setGateOrigin('explainer')
+    setGateCta(EXPLAINER_COPY.ctaJoin)
     setGateOpen(true)
   }
 
-  const cta: FlowShellCta | null = gateOpen
+  const baseCta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
     : saved
@@ -690,49 +964,81 @@ export const PhoneBankingFlow = ({
             // The caller page is shared across surfaces by design: it is
             // auth-only (no campaign required) and fetches org-scoped, so
             // serve lists open here too (ENG-10970) — not a per-surface path.
+            // The envelope rides along when there is one, so the page can
+            // link to what people said on the list (the list read has none).
             router.push(
-              `/dashboard/outreach/phone-banking/${createResponse.id}`,
+              createResponse.outreachId === null
+                ? `/dashboard/outreach/phone-banking/${createResponse.id}`
+                : `/dashboard/outreach/phone-banking/${createResponse.id}?outreachId=${createResponse.outreachId}`,
             )
             onClose()
           },
         }
-      : stepId === 'who'
-        ? audienceCta
-        : stepId === 'script'
-          ? {
-              label: 'Continue',
-              onClick: () => setStepId('sheets'),
-              disabled:
-                script.trim().length === 0 ||
-                draftMutation.isPending ||
-                name.trim().length === 0,
-            }
-          : stepId === 'sheets'
+      : stepId === 'question'
+        ? {
+            label: 'Continue',
+            onClick: () => {
+              setStepId('who')
+              // The draft deferred at the purpose pick, now that there is a
+              // question to write it from. Never over an edited script: a
+              // walkback to change the question must not throw away wording
+              // the official has already made theirs — Regenerate is how they
+              // ask for a rewrite.
+              if (!ownWords) {
+                requestDraft(purpose, tone, undefined, undefined, instructions)
+              }
+            },
+            // Required by contract, so a blank question would 400 on save
+            // several steps later with nothing on screen explaining why.
+            disabled: question.trim().length === 0,
+          }
+        : stepId === 'who'
+          ? audienceCta
+          : stepId === 'script'
             ? {
                 label: 'Continue',
-                onClick: () => {
-                  // Nothing is written until the candidate can have the list:
-                  // a gated Continue shows the ready screen as a preview, and
-                  // the gate opens from there (design: the download step's
-                  // download and Continue both open it).
-                  if (gate.requirement !== null) {
-                    setStepId('download')
-                    return
-                  }
-                  createMutation.mutate()
-                },
-                disabled: createMutation.isPending,
-                loading: createMutation.isPending,
+                onClick: () => setStepId('sheets'),
+                disabled:
+                  script.trim().length === 0 ||
+                  draftMutation.isPending ||
+                  name.trim().length === 0,
               }
-            : stepId === 'download'
+            : stepId === 'sheets'
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    setGateOrigin('create')
-                    setGateOpen(true)
+                    // Nothing is written until the candidate can have the list:
+                    // a gated Continue shows the ready screen as a preview, and
+                    // the gate opens from there (design: the download step's
+                    // download and Continue both open it).
+                    if (gate.requirement !== null) {
+                      setStepId('download')
+                      return
+                    }
+                    createMutation.mutate()
                   },
+                  disabled: createMutation.isPending,
+                  loading: createMutation.isPending,
                 }
-              : null
+              : stepId === 'download'
+                ? {
+                    label: 'Continue',
+                    onClick: () => {
+                      setGateOrigin('create')
+                      setGateCta('Continue')
+                      setGateOpen(true)
+                    },
+                  }
+                : null
+
+  const cta: FlowShellCta | null =
+    stepId === 'details' && !gateOpen && !saved
+      ? {
+          label: 'Continue',
+          onClick: handleEventDetailsContinue,
+          disabled: eventDetails.event === null,
+        }
+      : baseCta
 
   return (
     <OutreachFlowShell
@@ -746,7 +1052,7 @@ export const PhoneBankingFlow = ({
         />
       }
       currentStep={stepIndex + 1}
-      totalSteps={STEP_ORDER.length}
+      totalSteps={stepOrder.length}
       onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -760,6 +1066,11 @@ export const PhoneBankingFlow = ({
           />
         ) : undefined
       }
+      channel="phone-bank"
+      source={source}
+      locked={lockedAtOpen}
+      trackedStep={gateOpen || saved ? null : stepId}
+      settled={saved}
       dirty={dirty}
     >
       <GateExplainerModal
@@ -777,6 +1088,9 @@ export const PhoneBankingFlow = ({
           state={gate}
           open
           showInterstitial={false}
+          source={source}
+          cta={gateCta}
+          tracker={tracker}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)
@@ -798,9 +1112,33 @@ export const PhoneBankingFlow = ({
             body="This helps us tailor your script and who to call."
           />
           <PurposeStep
-            purposes={surface.purposes}
+            purposes={offeredPurposes}
             selected={purpose}
             onSelect={handleSelectPurpose}
+          />
+        </div>
+      ) : stepId === 'details' ? (
+        <EventDetailsStep
+          details={eventDetails.details}
+          onChange={eventDetails.setDetails}
+          destination="call script"
+          prefillNote={eventDetails.prefillNote}
+        />
+      ) : stepId === 'question' ? (
+        <div className="space-y-6">
+          <Intro
+            channel="phoneBanking"
+            title={STEP_TITLES.question}
+            body={
+              surface.isServe
+                ? QUESTION_STEP_BODY.serve
+                : QUESTION_STEP_BODY.win
+            }
+          />
+          <CommunityInputQuestionStep
+            question={question}
+            onChange={setQuestion}
+            isServe={surface.isServe}
           />
         </div>
       ) : stepId === 'who' ? (
@@ -892,6 +1230,16 @@ export const PhoneBankingFlow = ({
           canImprove={script.trim().length > 0 && !draftMutation.isPending}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
+          onRetry={() =>
+            lastDraftWasImproveRef.current
+              ? requestDraft(purpose, tone, script.trim())
+              : requestDraft(
+                  purpose,
+                  tone,
+                  undefined,
+                  script.trim() || undefined,
+                )
+          }
           isCustomPurpose={purpose === 'custom'}
         />
       ) : stepId === 'sheets' ? (
@@ -902,7 +1250,11 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          isServe={surface.isServe}
+        />
       ) : stepId === 'download' ? (
         // The gated preview: what the list will be, priced off the picked
         // audience, with nothing written yet.
@@ -915,8 +1267,10 @@ export const PhoneBankingFlow = ({
             sheetCount,
           }}
           audienceLabel={audienceLabel}
-          onDownloadGated={() => {
+          isServe={surface.isServe}
+          onDownloadGated={(cta) => {
             setGateOrigin('create')
+            setGateCta(cta)
             setGateOpen(true)
           }}
         />

@@ -31,8 +31,9 @@ writes.
 
 ## Prerequisites
 
-- AWS access via SSO profile `gp-admin` (`aws --profile gp-admin sts get-caller-identity`;
-  if it fails, the human runs `aws sso login --profile gp-admin`). Region us-west-2.
+- AWS access via SSO profile `gp-engineer` (`aws --profile gp-engineer sts get-caller-identity`;
+  if it fails, the human runs `aws sso login --profile gp-engineer`). Region us-west-2.
+  S3 reads are all this needs, so it does not need admin.
 - The human must be **logged into their local dev webapp** — `/dev/briefings` is not a
   public route, so Clerk middleware redirects an unauthenticated browser to `/login`.
   (The render path itself needs no auth; annotations/feedback API calls 500 without a

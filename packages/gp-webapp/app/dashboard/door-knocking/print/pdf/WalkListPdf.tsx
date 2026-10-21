@@ -12,6 +12,7 @@ import {
   FOOTER_TAGLINE,
   MARK_INSTRUCTION,
   answerBoxes,
+  civicPanelBoxes,
   walkColumns,
   WALK_COLUMNS,
   walkSummary,
@@ -155,6 +156,11 @@ const styles = StyleSheet.create({
   // — the three widest measure about 102pt against the 122pt the 17% column
   // gives them — and degrades by crowding rather than by breaking a word.
   option: { flexGrow: 1, alignItems: 'center' },
+  // Serve's second question in the same column, set off by a gap wider than
+  // the one between two boxes of one question.
+  answerRuns: { flexDirection: 'row' },
+  firstRun: { flexGrow: 3 },
+  secondRun: { flexGrow: 2, marginLeft: px(14) },
   box: {
     width: px(12),
     height: px(12),
@@ -215,9 +221,11 @@ const MarkBoxes = ({
 const AnswerCells = ({
   row,
   isServe,
+  asksCivicPanel,
 }: {
   row: WalkListRow
   isServe: boolean
+  asksCivicPanel: boolean
 }) => {
   // A flagged or already-logged door gets the instruction across all three
   // answer columns instead of boxes: there is nothing to ask, and a blank form
@@ -240,6 +248,7 @@ const AnswerCells = ({
     )
   }
 
+  const panelBoxes = civicPanelBoxes(asksCivicPanel)
   return (
     <>
       {/* The app's first question, whole and in its order — the grid used to
@@ -255,7 +264,18 @@ const AnswerCells = ({
       <View
         style={[styles.cell, styles.supportCell, { width: COLUMN.support }]}
       >
-        <MarkBoxes options={answerBoxes(isServe)} />
+        {panelBoxes === null ? (
+          <MarkBoxes options={answerBoxes(isServe)} />
+        ) : (
+          <View style={styles.answerRuns}>
+            <View style={styles.firstRun}>
+              <MarkBoxes options={answerBoxes(isServe)} />
+            </View>
+            <View style={styles.secondRun}>
+              <MarkBoxes options={panelBoxes} />
+            </View>
+          </View>
+        )}
       </View>
       {/* Empty and stays empty: this is the column the canvasser writes in. */}
       <View style={[styles.cell, styles.lastCell, { width: COLUMN.notes }]} />
@@ -266,9 +286,11 @@ const AnswerCells = ({
 const ResidentRow = ({
   row,
   isServe,
+  asksCivicPanel,
 }: {
   row: WalkListRow
   isServe: boolean
+  asksCivicPanel: boolean
 }) => (
   <View
     style={[styles.row, row.firstInHousehold ? styles.household : styles.mate]}
@@ -327,28 +349,38 @@ const ResidentRow = ({
     <View style={[styles.cell, { width: COLUMN.phone }]}>
       {row.phone !== null && <Text style={styles.phoneText}>{row.phone}</Text>}
     </View>
-    <AnswerCells row={row} isServe={isServe} />
+    <AnswerCells row={row} isServe={isServe} asksCivicPanel={asksCivicPanel} />
   </View>
 )
 
 // `fixed` repeats this at the top of every page, so page four is still a table
 // and not eight unlabelled columns of handwriting.
-const HeadRow = ({ isServe }: { isServe: boolean }) => (
+const HeadRow = ({
+  isServe,
+  asksCivicPanel,
+  civicPanelOnly,
+}: {
+  isServe: boolean
+  asksCivicPanel: boolean
+  civicPanelOnly: boolean
+}) => (
   <View style={styles.headRow} fixed>
-    {walkColumns(isServe).map(({ key, label }, index) => (
-      <Text
-        key={key}
-        style={[
-          styles.headCell,
-          index === 0 ? styles.firstCell : {},
-          key === 'support' ? styles.supportCell : {},
-          index === WALK_COLUMNS.length - 1 ? styles.lastCell : {},
-          { width: COLUMN[key] },
-        ]}
-      >
-        {label}
-      </Text>
-    ))}
+    {walkColumns(isServe, asksCivicPanel, civicPanelOnly).map(
+      ({ key, label }, index) => (
+        <Text
+          key={key}
+          style={[
+            styles.headCell,
+            index === 0 ? styles.firstCell : {},
+            key === 'support' ? styles.supportCell : {},
+            index === WALK_COLUMNS.length - 1 ? styles.lastCell : {},
+            { width: COLUMN[key] },
+          ]}
+        >
+          {label}
+        </Text>
+      ),
+    )}
   </View>
 )
 
@@ -405,14 +437,21 @@ const Footer = () => (
 interface WalkListPdfProps {
   turfName: string
   payload: DoorKnockingRoutePayload
+  // serve-citizen-panels, resolved by the route.
+  citizenPanelsEnabled?: boolean
 }
 
 // The downloadable half of the v1 offline story: the same walk list as the
 // printable page, ruled into a grid a canvasser fills in and someone else
 // transcribes. Deliberately rendered on the server — see the route handler.
-export const WalkListPdf = ({ turfName, payload }: WalkListPdfProps) => {
+export const WalkListPdf = ({
+  turfName,
+  payload,
+  citizenPanelsEnabled = false,
+}: WalkListPdfProps) => {
   // Absent reads as Win, for the reason the printable page's does.
   const isServe = Boolean(payload.isServe)
+  const asksCivicPanel = isServe && citizenPanelsEnabled
   const rows = walkListRows(payload.stops, isServe)
 
   return (
@@ -428,9 +467,18 @@ export const WalkListPdf = ({ turfName, payload }: WalkListPdfProps) => {
           <Text style={styles.empty}>This route has no stops.</Text>
         ) : (
           <>
-            <HeadRow isServe={isServe} />
+            <HeadRow
+              isServe={isServe}
+              asksCivicPanel={asksCivicPanel}
+              civicPanelOnly={Boolean(payload.civicPanelOnly)}
+            />
             {rows.map((row) => (
-              <ResidentRow key={row.key} row={row} isServe={isServe} />
+              <ResidentRow
+                key={row.key}
+                row={row}
+                isServe={isServe}
+                asksCivicPanel={asksCivicPanel}
+              />
             ))}
             <View style={styles.gridBottom} />
           </>

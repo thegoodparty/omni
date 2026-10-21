@@ -135,6 +135,8 @@ module "broker" {
   sns_topic_arn = try(data.terraform_remote_state.fargate.outputs.sns_topic_arn, "")
 
   agent_run_inputs_read_policy_arn = try(data.terraform_remote_state.agent_run_inputs[0].outputs.read_policy_arn, "")
+
+  replay_enabled = true
 }
 
 output "security_group_id" {

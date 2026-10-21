@@ -19,11 +19,20 @@ import {
   buildSearchSql,
   buildVoterFiltersSql,
   buildPersonSql,
+  buildDoorKnockingEvaluateSql,
+  buildDoorKnockingResidentsSql,
+  buildPackSql,
   createBag,
   MAX_PRECINCT_OPTIONS,
-  VOTER_TABLE,
+  peopleTable,
   type DbxDistrict,
 } from './databricksVoterSql.util'
+import { buildDistrictStatsSql } from './databricksDistrictStatsSql.util'
+import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
+
+const VOTERS_TABLE = 'goodparty_data_catalog.mart_gp_api.gp_api_voters'
+const CONSTITUENTS_TABLE =
+  'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
 
 const CONGRESSIONAL: DbxDistrict = {
   districtId: '635757db-0000-0000-0000-000000000000',
@@ -31,6 +40,8 @@ const CONGRESSIONAL: DbxDistrict = {
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const STATEWIDE: DbxDistrict = {
@@ -39,6 +50,8 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'CA',
   useVoterOnlyPath: true,
+  dataset: 'voters',
+  table: VOTERS_TABLE,
 }
 
 const noFilters = (): FilterData => filtersSchema.parse({})
@@ -74,10 +87,10 @@ describe('buildScopeSql', () => {
     expect(sql.toLowerCase()).not.toContain('join')
   })
 
-  // The service principal holds a least-privilege grant on exactly two tables.
-  // Any other table name reaching a query is a permission error in production,
-  // so pin the whole builder surface to those two.
-  it('only ever names the two tables the grant covers', () => {
+  // The service principal's grant is scoped to the mart_gp_api schema. Any
+  // other table name reaching a query is a permission error in production, so
+  // pin the whole builder surface to the one people table the district names.
+  it('only ever names the people table the district resolved to', () => {
     const scope = { district: CONGRESSIONAL, filters: noFilters() }
     const statements = [
       buildCountSql(scope),
@@ -96,7 +109,7 @@ describe('buildScopeSql', () => {
       const tables = sql.match(qualified) ?? []
       expect(new Set(tables).size).toBeLessThanOrEqual(1)
       for (const table of tables) {
-        expect(table).toBe(VOTER_TABLE)
+        expect(table).toBe(VOTERS_TABLE)
       }
     }
   })
@@ -275,6 +288,7 @@ describe('buildVoterFiltersSql', () => {
       homeowner: { in: ['Yes'] },
       gender: { in: ['F'] },
       voterStatus: { in: ['Super'] },
+      earlyVoteStatus: { in: ['Likely'] },
       politicalParty: { in: ['Democratic'] },
       language: { in: ['English'] },
       estimatedIncomeAmountInt: { gte: 50000 },
@@ -395,6 +409,47 @@ describe('buildVoterFiltersSql', () => {
       ),
     ).toBe('v.`Voter_Independent_Affinity` = FALSE')
     expect(noBag.params).toEqual([])
+  })
+
+  it("reads the campaign's experiment column when one is given", () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        'Indep_Openness_DOnly_Inc',
+      ),
+    ).toBe('v.`Indep_Openness_DOnly_Inc` = TRUE')
+  })
+
+  it('scopes to the experiment column on voters but never on constituents', () => {
+    const filters = parseFilters({ independentAffinity: { eq: 'Yes' } })
+    const scope = (dataset: DbxDistrict['dataset']) =>
+      buildScopeSql(createBag(), {
+        district: { ...CONGRESSIONAL, dataset },
+        filters,
+        affinityColumn: 'Indep_Openness_Haystaq',
+      })
+    expect(scope('voters')).toContain('v.`Indep_Openness_Haystaq` = TRUE')
+    // The experiment columns exist only on the voter table.
+    expect(scope('constituents')).toContain(
+      'v.`Voter_Independent_Affinity` = TRUE',
+    )
+    expect(scope('constituents')).not.toContain('Indep_Openness')
+  })
+
+  it('refuses an affinity column outside the allowlist', () => {
+    expect(() =>
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ independentAffinity: { eq: 'Yes' } }),
+        undefined,
+        undefined,
+        // @ts-expect-error -- an identifier that is not an affinity column
+        'Voter_Status; DROP TABLE x',
+      ),
+    ).toThrow()
   })
 
   it('emits no independentAffinity clause when both values are selected', () => {
@@ -563,6 +618,86 @@ describe('buildVoterFiltersSql', () => {
     expect(bag.params).toEqual([{ name: 'p0', value: '31', type: 'INT' }])
   })
 
+  it('matches a NULL Voter_Status when Unknown is the only voterStatus', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { eq: 'Unknown' } }),
+    )
+
+    expect(sql).toBe('(v.`Voter_Status` = :p0 OR v.`Voter_Status` IS NULL)')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('matches a NULL Voter_Status when Unknown is among other voterStatus values', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { in: ['Super', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`Voter_Status` IN (:p0, :p1) OR v.`Voter_Status` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Super', type: 'STRING' },
+      { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('leaves NULL Voter_Status out when Unknown is not selected', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ voterStatus: { in: ['Super', 'Likely'] } }),
+    )
+
+    expect(sql).toBe('v.`Voter_Status` IN (:p0, :p1)')
+    expect(sql).not.toContain('IS NULL')
+  })
+
+  it('matches a NULL Early_Vote_Status when Unknown is among the values', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { in: ['Very Likely', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`Early_Vote_Status` IN (:p0, :p1)' +
+        ' OR v.`Early_Vote_Status` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very likely', type: 'STRING' },
+      { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('binds a Title Case early-vote value as the column spells it', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Very Unlikely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very unlikely', type: 'STRING' },
+    ])
+  })
+
+  it('leaves NULL Early_Vote_Status out when Unknown is not selected', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Likely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
+  })
+
   it('scopes idOverrides to the voterStatus clause only', () => {
     const include = ['11111111-1111-1111-1111-111111111111']
     const exclude = ['22222222-2222-2222-2222-222222222222']
@@ -634,7 +769,7 @@ describe('aggregate and page queries', () => {
         ' COUNT_IF((v.`Residence_Addresses_AddressLine` IS NOT NULL' +
         " AND v.`Residence_Addresses_AddressLine` != ''))" +
         ' AS doorKnocking' +
-        ` FROM ${VOTER_TABLE} v` +
+        ` FROM ${VOTERS_TABLE} v` +
         ' WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
     expect(params).toEqual([
@@ -710,9 +845,10 @@ describe('aggregate and page queries', () => {
       'AND v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL',
     )
     expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    // Only the slice is sorted, by the same seeded hash that cut it, so the
+    // LIMIT takes a uniform draw rather than the first rows Spark scans.
+    expect(sql).toContain('ORDER BY xxhash64(v.`id`, :p2), v.`id` LIMIT :p4')
     expect(sql.endsWith('LIMIT :p4')).toBe(true)
-    // No ORDER BY: sorting the population was 3-6s where the slice is ~2s.
-    expect(sql).not.toContain('ORDER BY')
     expect(params).toEqual([
       { name: 'p0', value: 'CA', type: 'STRING' },
       { name: 'p1', value: '29', type: 'STRING' },
@@ -722,8 +858,8 @@ describe('aggregate and page queries', () => {
     ])
   })
 
-  it('drops the hash cut when the divisor is 1, rather than emitting pmod', () => {
-    const { sql } = buildSampleSql({
+  it('orders the whole pool by the seeded hash when the divisor is 1', () => {
+    const { sql, params } = buildSampleSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       columns: ['id'],
@@ -733,6 +869,70 @@ describe('aggregate and page queries', () => {
     })
 
     expect(sql).not.toContain('pmod')
+    expect(sql).toContain('ORDER BY xxhash64(v.`id`, :p2), v.`id` LIMIT :p3')
+    expect(params).toEqual(
+      expect.arrayContaining([
+        { name: 'p2', value: '7', type: 'INT' },
+        { name: 'p3', value: '500', type: 'INT' },
+      ]),
+    )
+  })
+
+  it('draws within an audience: its filters, its frozen ids, the same slice', () => {
+    const member = '0ac8551e-b5ab-2ef0-a941-94e8b43b1e1e'
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: parseFilters({
+        hasCellPhone: true,
+        homeowner: { in: ['No'] },
+        id: { in: [member] },
+      }),
+      columns: ['id'],
+      size: 4000,
+      seed: 7,
+      hashDivisor: 4,
+    })
+
+    const where = sql.slice(sql.indexOf('WHERE'), sql.indexOf('pmod'))
+    expect(where).toContain(
+      'v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL',
+    )
+    expect(where).toContain('v.`Homeowner_Probability_Model`')
+    expect(where).toContain(member)
+    // The audience narrows the population; the seeded slice still cuts it,
+    // so the same seed over the same audience takes the same people.
+    expect(sql).toMatch(/AND pmod\(xxhash64\(v\.`id`, :p\d+\), :p\d+\) = 0/)
+    expect(params).toEqual(
+      expect.arrayContaining([
+        { name: expect.any(String), value: '7', type: 'INT' },
+        { name: expect.any(String), value: '4', type: 'INT' },
+        { name: expect.any(String), value: '4000', type: 'INT' },
+      ]),
+    )
+    expect(sql).toMatch(/ORDER BY xxhash64\(v\.`id`, :p\d+\), v\.`id`/)
+  })
+
+  it('orders a weighted draw by -ln(u) / w, u the same seeded hash', () => {
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 500,
+      seed: 7,
+      hashDivisor: 400,
+      weight: (bag) => `CAST(${bag.bind('2')} AS DOUBLE)`,
+    })
+
+    // Still cut to the slice first; only the order within it changes.
+    expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    expect(sql).toContain(
+      'ORDER BY -ln((pmod(xxhash64(v.`id`, :p2), 4294967296) + 0.5)' +
+        ' / 4294967296) / (CAST(:p4 AS DOUBLE)), v.`id` LIMIT :p5',
+    )
+    expect(params.slice(4)).toEqual([
+      { name: 'p4', value: '2', type: 'STRING' },
+      { name: 'p5', value: '500', type: 'INT' },
+    ])
   })
 
   it('excludes the requested ids and negates hasCellPhone', () => {
@@ -815,6 +1015,20 @@ describe('buildCsvSql', () => {
 
     expect(sql).not.toContain('`Registered Party`')
     expect(sql).toContain('`First Name`')
+  })
+
+  // The exclusion is the only thing keeping the L2 id out of a Serve CSV, and
+  // the header is a prefix of `State Voter ID` — so assert the delimited form,
+  // or a projection still carrying the id would read as absent.
+  it('omits the L2 voter id column when excluded', () => {
+    const { sql } = buildCsvSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      excludeColumns: ['LALVOTERID'],
+    })
+
+    expect(sql).not.toContain('`Voter ID`')
+    expect(sql).toContain('`State Voter ID`')
   })
 })
 
@@ -984,7 +1198,7 @@ describe('buildPrecinctsSql', () => {
     const { sql } = buildPrecinctsSql({ district: CONGRESSIONAL })
     expect(sql).toContain('COUNT(*) AS voters')
     expect(sql).toContain('GROUP BY v.`County`, v.`Precinct`')
-    expect(sql).toContain(`FROM ${VOTER_TABLE} v`)
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
   })
 
   it('scopes to the district the same way every other read does', () => {
@@ -1020,4 +1234,74 @@ describe('buildPrecinctsSql', () => {
     expect(sql).toContain('v.`State` = :p0')
     expect(sql).not.toContain('v.`State` = :p0 AND v.`State`')
   })
+})
+
+describe('people table selection', () => {
+  it('maps each dataset to its mart table', () => {
+    expect(peopleTable('voters')).toBe(VOTERS_TABLE)
+    expect(peopleTable('constituents')).toBe(CONSTITUENTS_TABLE)
+  })
+
+  const statementsFor = (district: DbxDistrict) => {
+    const scope = { district, filters: noFilters() }
+    return [
+      buildCountSql(scope),
+      buildAggregatesSql(scope),
+      buildListDetailAggregatesSql(scope),
+      buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
+      buildPageSql({
+        ...scope,
+        columns: ['id'],
+        take: 1,
+        skip: 0,
+        groupByHousehold: true,
+      }),
+      buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
+      buildPersonSql({
+        ...scope,
+        columns: ['id'],
+        id: '11111111-1111-1111-1111-111111111111',
+      }),
+      buildPrecinctsSql({ district }),
+      buildSampleSql({
+        ...scope,
+        columns: ['id'],
+        size: 10,
+        seed: 1,
+        hashDivisor: 2,
+      }),
+      buildCsvSql(scope),
+      buildDoorKnockingEvaluateSql({
+        ...scope,
+        bbox: { minLat: 0, maxLat: 1, minLng: 0, maxLng: 1 },
+        maxPeople: 10,
+      }),
+      buildDoorKnockingResidentsSql({
+        district,
+        addressKeys: ['1 MAIN ST||12345'],
+        residentsCap: 10,
+      }),
+      buildPackSql({ district }),
+      buildDistrictStatsSql(district),
+      buildRankPrecinctsSql(scope),
+    ]
+  }
+
+  it.each([
+    ['voters', VOTERS_TABLE, CONSTITUENTS_TABLE],
+    ['constituents', CONSTITUENTS_TABLE, VOTERS_TABLE],
+  ] as const)(
+    'every builder reads the %s table and never the other',
+    (dataset, table, otherTable) => {
+      const district: DbxDistrict = {
+        ...CONGRESSIONAL,
+        dataset,
+        table: peopleTable(dataset),
+      }
+      for (const { sql } of statementsFor(district)) {
+        expect(sql).toContain(`FROM ${table} v`)
+        expect(sql).not.toContain(otherTable)
+      }
+    },
+  )
 })

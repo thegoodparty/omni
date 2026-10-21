@@ -8,6 +8,12 @@ import {
   Wand2,
   type LucideIcon,
 } from 'lucide-react'
+import {
+  CalendarCheckIcon,
+  ListChecksIcon,
+  MegaphoneIcon,
+  UsersRoundIcon,
+} from '@styleguide/components/ui/icons'
 
 /**
  * Step set + per-branch ordering for the net-new elected-official ("serve")
@@ -32,8 +38,23 @@ export type ServeStepId =
   | 'office'
   | 'term-dates'
   | 'confirm'
-  | 'constituents'
+  | ServeStoryStepId
+  | 'priorities'
   | 'pledge'
+
+// The district story serve-citizen-panels shows after the term: one
+// persistent map that changes mode on each step.
+export const SERVE_STORY_STEPS = [
+  'story-represent',
+  'story-loudest',
+  'story-sample',
+  'story-grow',
+] as const
+
+export type ServeStoryStepId = (typeof SERVE_STORY_STEPS)[number]
+
+export const isServeStoryStep = (step: ServeStepId): step is ServeStoryStepId =>
+  (SERVE_STORY_STEPS as readonly string[]).includes(step)
 
 export type ServeBranch = 'prefill' | 'net-new'
 
@@ -56,7 +77,8 @@ const PREFILL_STEPS: ServeStepId[] = [
   'inOffice',
   'party',
   'confirm',
-  'constituents',
+  ...SERVE_STORY_STEPS,
+  'priorities',
   'pledge',
 ]
 
@@ -66,12 +88,25 @@ const NET_NEW_STEPS: ServeStepId[] = [
   'party',
   'office',
   'term-dates',
-  'constituents',
+  ...SERVE_STORY_STEPS,
+  'priorities',
   'pledge',
 ]
 
-export const getServeBranchSteps = (branch: ServeBranch): ServeStepId[] =>
-  branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+// The district story and the `priorities` step are serve-citizen-panels
+// only. Without the flag the flow goes from the term straight to `pledge`.
+export const getServeBranchSteps = (
+  branch: ServeBranch,
+  citizenPanels = false,
+): ServeStepId[] => {
+  const steps = branch === 'prefill' ? PREFILL_STEPS : NET_NEW_STEPS
+  if (citizenPanels) return steps
+  return steps.filter((s) => !isServeStoryStep(s) && s !== 'priorities')
+}
+
+// The first step after the office and term are settled.
+export const firstStepAfterTerm = (citizenPanels = false): ServeStepId =>
+  citizenPanels ? SERVE_STORY_STEPS[0] : 'pledge'
 
 /**
  * Which of the data-collecting answers are already persisted on the EO/org
@@ -139,20 +174,22 @@ export const resolveServeBranch = ({
  *    reviewed/edited on the `confirm` hub, so an incomplete pair resumes there;
  *    in the net-new branch they are their own steps.
  *
- * Never returns `pledge`: a completed office is redirected away before the flow
- * renders, and the pledge is the completion action the user must always take.
+ * With every answer saved it resumes at the first step after the term: the
+ * pledge itself with serve-citizen-panels off. A completed office is redirected
+ * away before the flow renders, so the pledge is always still to take.
  */
 export const computeServeResumeStep = (
   branch: ServeBranch,
   { hasParty, hasOffice, hasDates }: ServeResumeState,
+  citizenPanels = false,
 ): ServeStepId => {
   if (!hasParty) return 'welcome'
   if (branch === 'prefill') {
-    return hasOffice && hasDates ? 'constituents' : 'confirm'
+    return hasOffice && hasDates ? firstStepAfterTerm(citizenPanels) : 'confirm'
   }
   if (!hasOffice) return 'office'
   if (!hasDates) return 'term-dates'
-  return 'constituents'
+  return firstStepAfterTerm(citizenPanels)
 }
 
 /**
@@ -178,7 +215,7 @@ const maxDataSufficientStep = (
 /**
  * Resume target that honors the persisted step checkpoint (written on every
  * "Continue") so a returning user lands on the EXACT most recent step — even
- * steps with no data field (`inOffice`, `constituents`) that the data-derived
+ * steps with no data field (`inOffice`, the district story) that the data-derived
  * `computeServeResumeStep` cannot pinpoint.
  *
  *  - No checkpoint (legacy rows / sales prefills provisioned before this
@@ -193,11 +230,14 @@ export const resolveServeResumeStep = (
   branch: ServeBranch,
   checkpoint: ServeStepId | null | undefined,
   dataState: ServeResumeState,
+  citizenPanels = false,
 ): ServeStepId => {
-  if (!checkpoint) return computeServeResumeStep(branch, dataState)
-  const steps = getServeBranchSteps(branch)
+  if (!checkpoint) {
+    return computeServeResumeStep(branch, dataState, citizenPanels)
+  }
+  const steps = getServeBranchSteps(branch, citizenPanels)
   if (!steps.includes(checkpoint)) {
-    return computeServeResumeStep(branch, dataState)
+    return computeServeResumeStep(branch, dataState, citizenPanels)
   }
   const furthestSafe = maxDataSufficientStep(branch, dataState)
   return steps.indexOf(checkpoint) > steps.indexOf(furthestSafe)
@@ -251,8 +291,9 @@ export const shouldSeedInOfficeOnResume = (step: ServeStepId): boolean =>
 export const getServeProgress = (
   branch: ServeBranch,
   step: ServeStepId,
+  citizenPanels = false,
 ): { current: number; total: number } => {
-  const steps = getServeBranchSteps(branch)
+  const steps = getServeBranchSteps(branch, citizenPanels)
   const total = steps.length
   let index = steps.indexOf(step)
   if (index === -1) {
@@ -268,7 +309,10 @@ export interface ServeStepCopy {
   whyWeAsk?: string
 }
 
-export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
+export const SERVE_STEP_COPY: Record<
+  Exclude<ServeStepId, ServeStoryStepId>,
+  ServeStepCopy
+> = {
   welcome: {
     title: 'Meet your virtual chief of staff in 5 minutes',
     description:
@@ -279,47 +323,121 @@ export const SERVE_STEP_COPY: Record<ServeStepId, ServeStepCopy> = {
     description:
       "We'll tailor your experience based on where you are in your journey.",
     whyWeAsk:
-      'Your status determines your timeline. We use this to tailor whether you see transition resources or governing tools.',
+      "If you've just been elected, you'll see help getting started. If you're already serving, you'll see tools for the job.",
   },
   party: {
     title: "What's your party designation?",
     description:
       'This is the party designation that you were elected under, not your personal voting history or party preference.',
     whyWeAsk:
-      'Your party designation determines how we approach solving the issues that are most important to your community.',
+      'We only work with officials who are independent of both major parties.',
   },
   office: {
     title: 'What office do you currently hold?',
-    description:
-      "We'll use this to analyze local constituent data, trends, & news.",
+    description: "We'll use this to find what's happening in your community.",
     whyWeAsk:
-      'Your office and location let us pull the right constituent data, legislation, meetings, and budgets to help you drive change.',
+      'This is how we find your meetings, budgets and the people you represent.',
   },
   'term-dates': {
     title: 'When does your term run?',
     description:
       'Tell us when your current term starts and ends so we can keep your briefings and timeline accurate.',
-    whyWeAsk:
-      'Your term dates let us schedule the right briefings at the right time, and make sure your offices never overlap.',
+    whyWeAsk: 'These dates tell us how much time you have left in this term.',
   },
   confirm: {
     title: 'Does this look right?',
     description:
-      'We pulled this from public records. Confirm your office and term dates, or change anything that looks off.',
-    whyWeAsk:
-      'These details ensure we pull the right information and data to help you serve your community',
+      "Is this your office and term? Change anything that's not right.",
+    whyWeAsk: 'This keeps your briefings and meetings accurate.',
   },
-  constituents: {
-    title: "Here's everything to know about your constituents",
-    description:
-      'We crunch constituent data and local news to prioritize the most important issues for your office.',
-    whyWeAsk:
-      "Understanding your constituents' makeup and concerns helps you prioritize where to focus and how to communicate.",
+  priorities: {
+    title: 'Turn what you ran on into what you work on',
+    description: 'Pick a few to start with. You can change them any time.',
+    whyWeAsk: 'We use these to help you plan and decide what to ask residents.',
   },
   pledge: {
     title: 'Take our pledge to get your chief of staff',
     description:
       'We only work with officials who are independent of both major parties, and the corrupting influence of big money.',
+  },
+}
+
+// With serve-citizen-panels on, the welcome and pledge reframe onboarding
+// around hearing from the community instead of the chief of staff.
+export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
+  Record<ServeStepId, ServeStepCopy>,
+  'welcome' | 'pledge'
+> = {
+  welcome: {
+    title:
+      'Hear from everyone in your community, not only the people who show up',
+    description:
+      "Tell us what office you hold and where, and we'll take it from there.",
+  },
+  pledge: {
+    title: 'Take our pledge to get started',
+    description: SERVE_STEP_COPY.pledge.description,
+  },
+}
+
+export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
+
+// The district story's copy. Titles are split so the accent words can be
+// colored without a second string to keep in sync.
+export interface ServeStoryTitle {
+  lead: string
+  accent: string
+  tail: string
+}
+
+export const SERVE_STORY_COPY = {
+  represent: {
+    title: (people: string): ServeStoryTitle => ({
+      lead: 'You represent',
+      accent: people,
+      tail: 'people',
+    }),
+    titleWithoutCount: 'You represent every resident of your district',
+    description: (perDot: string, place: string): string =>
+      `Each dot is about ${perDot} people in ${place}, and you speak for all of them.`,
+    descriptionWithoutCount: (place: string): string =>
+      `Each dot is a group of people in ${place}, and you speak for all of them.`,
+    defaultPlace: 'your district',
+  },
+  loudest: {
+    title: {
+      lead: "Until now, you've heard from the",
+      accent: 'loudest voices',
+      tail: 'only',
+    } satisfies ServeStoryTitle,
+    description:
+      "That's the people who come to meetings or send you emails, and most residents never get the chance.",
+    heardFrom: 'Heard from',
+    notHeardFrom: 'Not heard from yet',
+  },
+  sample: {
+    title: {
+      lead: 'A few voices from',
+      accent: 'every group',
+      tail: 'tell you where your community stands',
+    } satisfies ServeStoryTitle,
+    description:
+      'We pick people at random from every part of your district, so you hear what everyone thinks.',
+    howWeGotIt: 'How we aim for this',
+    explanation:
+      'We aim to hear from every age group, neighborhood, race and gender in your district.',
+  },
+  grow: {
+    title: "We'll help you hear from more of your community over time",
+    description:
+      'Ask residents, see what matters, act on it, and tell them what you did.',
+    loop: [
+      'Ask residents',
+      'See what matters most',
+      'Vote with what you learned',
+      'Tell them what you did',
+    ],
+    again: 'Each time you ask, you hear from more people.',
   },
 }
 
@@ -352,6 +470,29 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   },
 ]
 
+export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
+  {
+    icon: UsersRoundIcon,
+    title: 'Ask residents before you vote',
+    desc: "We'll help you ask a mix of residents what they think, so you know before you vote.",
+  },
+  {
+    icon: MegaphoneIcon,
+    title: 'Know what your community is talking about',
+    desc: 'We keep an eye on local news and meetings, and tell you what residents care about most.',
+  },
+  {
+    icon: ListChecksIcon,
+    title: 'Follow through on the issues you were elected to solve',
+    desc: 'Get a plan for each priority, craft solutions that work, and report back on what you did.',
+  },
+  {
+    icon: CalendarCheckIcon,
+    title: 'Be ready for your next meeting',
+    desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
+  },
+]
+
 export interface ServeOption<T extends string> {
   value: T
   title: string
@@ -362,12 +503,12 @@ export const SERVE_IN_OFFICE_OPTIONS: ServeOption<InOfficeStatus>[] = [
   {
     value: 'in-office',
     title: "I'm an elected official",
-    desc: 'I currently hold an elected position, or am about to be sworn in.',
+    desc: "I hold an elected office, or I'm about to be sworn in.",
   },
   {
     value: 'campaigning',
     title: "I'm still campaigning",
-    desc: 'Running in an upcoming or active election.',
+    desc: "I'm running for office.",
   },
   {
     value: 'testing',

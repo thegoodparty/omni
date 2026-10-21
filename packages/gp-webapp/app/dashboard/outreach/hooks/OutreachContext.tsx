@@ -9,6 +9,7 @@ type OutreachType =
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
+  | 'poll'
 type OutreachStatus =
   | 'pending'
   | 'approved'
@@ -37,6 +38,14 @@ export interface Outreach {
   date?: Date | string | null
   imageUrl?: string | null
   voterFileFilterId?: number | null
+  // Set on a priority text's follow-up: the first text it was bought with.
+  roundOneOutreachId?: number | null
+  canceledBy?: string | null
+  // Rides the row for a follow-up, whose list reads as picked or not.
+  voterFileFilter?: {
+    sampleSize?: number | null
+    sampledAt?: Date | string | null
+  } | null
   // The frozen route a nativeDoorKnocking envelope belongs to (unique on the
   // Prisma model). It has always ridden the list payload — `findByCampaignId`
   // selects the whole row — and is declared here because it is the only join

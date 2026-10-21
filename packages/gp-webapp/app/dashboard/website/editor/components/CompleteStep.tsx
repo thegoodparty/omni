@@ -8,9 +8,9 @@ import { FaCheck } from 'react-icons/fa'
 import Body1 from '@shared/typography/Body1'
 import MarketingH4 from '@shared/typography/MarketingH4'
 import Image from 'next/image'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { getWebsiteUrl } from '../../util/website.util'
 import { Domain } from 'helpers/types'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 
 interface CompleteStepProps {
   vanityPath: string
@@ -24,6 +24,8 @@ const CompleteStep = ({
   const suggestedUrl = `${vanityPath}.com`
   const url = getWebsiteUrl(vanityPath, false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
+  const { smsCompliance } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
   return (
     <div className="text-center flex flex-col items-center gap-4">
       <div className="relative h-24 w-24 cursor-pointer">
@@ -54,38 +56,40 @@ const CompleteStep = ({
               <MarketingH4>Unlock digital outreach with a domain</MarketingH4>
               <Body2 className="text-gray-500 mt-2">({suggestedUrl})</Body2>
               <div className="mt-12">
-                <div className="flex items-center gap-2 mb-4">
-                  <FaCheck />
-                  <Body1>Get 5,000 texts</Body1>
-                </div>
-                <div className="flex items-center gap-2 mb-4">
+                {!smsClosed && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <FaCheck />
+                    <Body1>Get 5,000 texts</Body1>
+                  </div>
+                )}
+                <div
+                  className={`flex items-center gap-2 ${smsClosed ? '' : 'mb-4'}`}
+                >
                   <FaCheck />
                   <Body1>Target the right voters</Body1>
                 </div>
-                <div className="flex items-center gap-2">
-                  <FaCheck />
-                  <Body1>Make your campaign compliant</Body1>
-                </div>
+                {!smsClosed && (
+                  <div className="flex items-center gap-2">
+                    <FaCheck />
+                    <Body1>Make your campaign compliant</Body1>
+                  </div>
+                )}
               </div>
-              <Button
-                asChild
-                className="mt-12"
-                onClick={() =>
-                  trackEvent(EVENTS.CandidateWebsite.StartedDomainSelection)
-                }
-              >
+              <Button asChild className="mt-12">
                 <Link href="/dashboard/website/domain">Add a domain</Link>
               </Button>
             </div>
-            <div className="md:w-1/2 flex justify-center items-center">
-              <Image
-                src="/images/website/texting.png"
-                alt="texting"
-                width={265}
-                height={330}
-                priority
-              />
-            </div>
+            {!smsClosed && (
+              <div className="md:w-1/2 flex justify-center items-center">
+                <Image
+                  src="/images/website/texting.png"
+                  alt="texting"
+                  width={265}
+                  height={330}
+                  priority
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : (

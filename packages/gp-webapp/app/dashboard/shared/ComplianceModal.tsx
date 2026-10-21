@@ -6,7 +6,13 @@ import H1 from '@shared/typography/H1'
 import Body2 from '@shared/typography/Body2'
 import { Button } from '@styleguide'
 import Link from 'next/link'
+import type { SmsComplianceWindow } from '@goodparty_org/contracts'
+import { CalendarClockIcon } from '@styleguide/components/ui/icons'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
 import type { TcrCompliance } from 'helpers/types'
 
 export const SUBMIT_PIN_PATH =
@@ -25,12 +31,18 @@ interface ComplianceModalProps {
     TcrCompliance,
     'status' | 'peerlyIdentityId' | 'cvValidationFailedAt'
   > | null
+  // gp-api's SMS compliance window, for the countdown while closing. The
+  // text gate shows the cutoff notice itself once it has closed.
+  smsCompliance?: SmsComplianceWindow
+  smsCutoffDate?: string | null
   onClose: () => void
 }
 
 export function ComplianceModal({
   open,
   tcrCompliance,
+  smsCompliance = 'open',
+  smsCutoffDate = null,
   onClose,
 }: ComplianceModalProps): React.JSX.Element {
   const helpTrailer = (
@@ -56,7 +68,8 @@ export function ComplianceModal({
   let title: string,
     description: string | React.ReactNode,
     cta: string,
-    ctaHref: string | undefined
+    ctaHref: string | undefined,
+    countdown: string | null = null
 
   switch (tcrCompliance?.status) {
     case TCR_COMPLIANCE_STATUS.SUBMITTED:
@@ -134,6 +147,11 @@ export function ComplianceModal({
       )
       cta = 'Start Registration'
       ctaHref = ELECTION_FILING_PATH
+      if (smsCompliance === 'closing' && smsCutoffDate) {
+        countdown = SMS_CUTOFF_COPY.countdownDeadline(
+          formatSmsCutoffDate(smsCutoffDate),
+        )
+      }
       break
   }
 
@@ -146,6 +164,12 @@ export function ComplianceModal({
     >
       <div className="p-0 sm:p-2 md:p-8">
         <H1 className="m-0 sm:whitespace-nowrap">{title}</H1>
+        {countdown && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-warning-light px-4 py-2.5 text-sm text-warning-dark">
+            <CalendarClockIcon className="size-4 shrink-0" aria-hidden />
+            {countdown}
+          </div>
+        )}
         <Body2 className="my-4">{description}</Body2>
         <div className="flex justify-between gap-4 mt-8">
           <Button size="large" variant="neutral" onClick={onClose}>

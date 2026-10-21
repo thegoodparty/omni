@@ -20,6 +20,7 @@ import { HttpStatus } from '@nestjs/common'
 import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { FeaturesService } from '@/features/services/features.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -93,6 +94,16 @@ beforeEach(async () => {
       details: { state: 'TX', zip: '78634' },
       data: {},
       aiContent: {},
+    },
+  })
+
+  // The resume's phoneListId has to name a list this campaign uploaded.
+  await service.prisma.peerlyPhoneList.create({
+    data: {
+      organizationSlug: orgSlug,
+      campaignId: CAMPAIGN_ID,
+      token: 'phone-list-token',
+      peerlyListId: 3180213,
     },
   })
 
@@ -291,6 +302,7 @@ describe('POST /v1/outreach/drafts', () => {
       callbackNumber: '+15125550123',
       // Unpriced until the resume's pay step, so the history reads n/a.
       billableCount: null,
+      settleState: RobocallSettleState.draft,
     })
 
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
@@ -303,6 +315,21 @@ describe('POST /v1/outreach/drafts', () => {
     expect(satellite.audioKey).toBe(AUDIO_KEY)
     expect(satellite.complianceAudioEtag).toBe(AUDIO_ETAG)
     expect(satellite.compliancePassedAt).not.toBeNull()
+  })
+
+  it('keeps the campaign-plan task a robocall draft was started from', async () => {
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      { ...robocallDraftBody(), trackerTaskId: 'tracker-task-1' },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    // So a later resume that schedules it still closes that task.
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.id },
+    })
+    expect(row.trackerTaskId).toBe('tracker-task-1')
   })
 
   it('accepts a robocall draft sent as multipart with no file', async () => {
@@ -393,6 +420,7 @@ describe('GET /v1/outreach/:id', () => {
       callbackNumber: '+15125550123',
       // Unpriced until the resume's pay step, so the history reads n/a.
       billableCount: null,
+      settleState: RobocallSettleState.draft,
     })
   })
 
@@ -580,13 +608,20 @@ describe('resuming a draft', () => {
   })
 
   // The body the webapp's review step sends on a resume: today's create body
-  // plus draftOutreachId, and no file.
-  const resumeP2p = (draftOutreachId: number) => {
+  // plus draftOutreachId, and no file. `phoneListId` omitted on `null` (a
+  // default PARAMETER value only applies when the caller's argument is
+  // `undefined`, so `null` — not `undefined` — is the explicit "omit it"
+  // sentinel here) so a build-mode resume — no list yet, pay-before-build —
+  // round-trips faithfully.
+  const resumeP2p = (
+    draftOutreachId: number,
+    phoneListId: string | null = '3180213',
+  ) => {
     const form = new FormData()
     form.append('campaignId', String(CAMPAIGN_ID))
     form.append('outreachType', 'p2p')
     form.append('script', resumeScript)
-    form.append('phoneListId', '3180213')
+    if (phoneListId !== null) form.append('phoneListId', phoneListId)
     form.append('voterFileFilterId', String(filterId))
     form.append('date', sendAt)
     form.append('scheduledLocalTime', '18:00')
@@ -648,6 +683,77 @@ describe('resuming a draft', () => {
     expect(row.campaignPlanDueDate).toBe('2026-04-19')
     expect(row.script).toBe(resumeScript)
     expect(row.message).toBe(resumeScript)
+  })
+
+  it('refuses a resume naming a phone list this campaign never uploaded, leaving the draft as it was', async () => {
+    const draft = await createP2pDraft()
+
+    const res = await resumeP2p(draft.data.id, '999999')
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(row.status).toBe(OutreachStatus.draft)
+    expect(row.phoneListId).toBeNull()
+  })
+
+  // Win SMS hold pay-before-build, RESUME SIDE (ENG money-safety): the
+  // win_sms_hold_billing flag is per-user and evaluated fresh at every
+  // entry, so it can differ at resume/pay time from what it was when the
+  // draft was first created. A draft created under the flag may carry no
+  // phoneListId (pay-before-build); resuming it must re-check the CURRENT
+  // flag, never trust the earlier decision — a resume that would otherwise
+  // take the immediate-charge path (flag now off) and has no phoneListId
+  // must be refused BEFORE payment, since submitDraftToPeerly cannot send it
+  // and the candidate would be charged for a send that never goes out.
+  describe('build-mode draft (no phoneListId) resumed with the flag evaluated fresh', () => {
+    it('flag OFF: refuses the resume before any charge — not left pending_payment', async () => {
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+      const draft = await createP2pDraft()
+
+      const res = await resumeP2p(draft.data.id, null)
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      const row = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.data.id },
+      })
+      expect(row.status).toBe(OutreachStatus.draft)
+      expect(row.phoneListId).toBeNull()
+    })
+
+    it('flag ON: the pay-before-build resume proceeds with no phoneListId', async () => {
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(true)
+      const draft = await createP2pDraft()
+
+      const res = await resumeP2p(draft.data.id, null)
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const row = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.data.id },
+      })
+      expect(row.status).toBe(OutreachStatus.pending_payment)
+      expect(row.phoneListId).toBeNull()
+    })
+
+    it('a draft resumed WITH a phoneListId is unaffected by the flag (never evaluated)', async () => {
+      const isFeatureEnabled = vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      )
+      const draft = await createP2pDraft()
+
+      const res = await resumeP2p(draft.data.id, '3180213')
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(isFeatureEnabled).not.toHaveBeenCalled()
+    })
   })
 
   it('409s a p2p row that is no longer a draft', async () => {

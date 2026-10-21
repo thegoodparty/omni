@@ -13,6 +13,7 @@ import type { OutreachGateState } from '../useOutreachGate'
 
 const DEFAULT_STATE: OutreachGateState = {
   enabled: false,
+  resolved: true,
   requirement: null,
   twoStep: true,
   membership: null,

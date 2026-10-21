@@ -19,6 +19,9 @@ export interface ServiceConfig {
   hostedZoneId: string
   domain: string
   certificateArn: string
+  // Set on preview stacks once the shared preview ALB exists: the preview
+  // then routes through a host-header rule on it instead of its own ALB.
+  sharedPreviewListenerArn?: string
 
   secrets: pulumi.Input<Record<string, pulumi.Input<string>>>
   environmentVariables: pulumi.Input<Record<string, pulumi.Input<string>>>
@@ -50,6 +53,7 @@ export function createService({
   hostedZoneId,
   domain,
   certificateArn,
+  sharedPreviewListenerArn,
   secrets,
   environmentVariables,
   permissions,
@@ -71,98 +75,156 @@ export function createService({
     { dependsOn },
   )
 
-  const albSecurityGroup = new aws.ec2.SecurityGroup('albSecurityGroup', {
-    name: select({
-      preview: `gp-api-preview-${stage}-sg`,
-      dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
-      prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
-    }),
-    // This is false now, but these names are immutable :sob:
-    description: 'Managed by SST',
-    vpcId,
-    ingress: [
-      {
-        protocol: 'tcp',
-        fromPort: 80,
-        toPort: 80,
-        cidrBlocks: ['0.0.0.0/0'],
-        description: 'HTTP',
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 443,
-        toPort: 443,
-        cidrBlocks: ['0.0.0.0/0'],
-        description: 'HTTPS',
-      },
-    ],
-    egress: [
-      {
-        protocol: '-1',
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ['0.0.0.0/0'],
-      },
-    ],
-  })
-
-  const loadBalancer = new aws.lb.LoadBalancer('loadBalancer', {
-    name: select({
-      preview: `gpapi-${stage}`,
-      dev: 'develop-gpapidevelopLoad',
-      prod: 'master-gpapimasterLoadBa',
-    }),
-    internal: false,
-    loadBalancerType: 'application',
-    securityGroups: [albSecurityGroup.id],
-    subnets: publicSubnetIds,
-    enableCrossZoneLoadBalancing: true,
-    // 5 minutes — large CSV exports (e.g. constituent contacts proxied from
-    // people-api) can stream for several minutes on slow consumer
-    // connections. The ALB severs any TCP connection idle longer than this,
-    // so we budget room for occasional backpressure stalls without dropping
-    // the download. Bytes ordinarily flow continuously.
-    idleTimeout: 300,
-  })
-
-  const targetGroup = new aws.lb.TargetGroup('targetGroup', {
+  const targetGroupArgs: aws.lb.TargetGroupArgs = {
     namePrefix: 'HTTP',
     port: 80,
     protocol: 'HTTP',
     targetType: 'ip',
     vpcId,
-    deregistrationDelay: isProd ? 120 : 15,
+    // A preview has no traffic worth draining, and the drain sat on the
+    // critical path of every preview deploy.
+    deregistrationDelay: select({ preview: 0, dev: 15, prod: 120 }),
+    // Round robin kept handing a task its full share while the hourly
+    // outreachInboundSweep cron parsed Peerly CSVs on its one thread, and on
+    // 2026-10-21 that task saturated while the others idled. Routing to the
+    // task with the fewest requests in flight sends traffic around a busy one.
+    loadBalancingAlgorithmType: 'least_outstanding_requests',
     healthCheck: {
       path: '/v1/health',
-      // `deploymentMinimumHealthyPercent: 100` keeps the old task serving until
-      // the new one is healthy, so `interval * healthyThreshold` is on the
-      // critical path of every deploy. At 60s that alone was two of the five
-      // minutes Pulumi waits for the service to stabilize, and preview deploys
-      // failed the wait by seconds. Non-prod trades probe volume for a 30s
-      // handover; prod keeps 60s.
-      interval: isProd ? 60 : 15,
-      timeout: 5,
+      // `interval * healthyThreshold` is on the critical path of every deploy:
+      // the new task is not "healthy" until that many probes pass. At 60s that
+      // alone was two of the five minutes Pulumi waits for the service to
+      // stabilize, and preview deploys failed the wait by seconds. Dev trades
+      // probe volume for a 30s handover and preview for a 10s one; prod keeps
+      // 60s. The ALB requires the timeout to be shorter than the interval.
+      interval: select({ preview: 5, dev: 15, prod: 60 }),
+      timeout: select({ preview: 4, dev: 5, prod: 5 }),
       healthyThreshold: 2,
       unhealthyThreshold: 3,
       matcher: '200',
     },
-  })
+  }
 
-  new aws.lb.Listener('httpListener', {
-    loadBalancerArn: loadBalancer.arn,
-    port: 80,
-    protocol: 'HTTP',
-    defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
-  })
+  let targetGroup: aws.lb.TargetGroup
+  let listenerRule: aws.lb.ListenerRule | undefined
+  if (sharedPreviewListenerArn) {
+    // A fresh logical name: a stack moving off its own ALB gets a new target
+    // group here, since one target group cannot sit behind two load balancers
+    // while the old listeners are still being torn down.
+    targetGroup = new aws.lb.TargetGroup('previewTargetGroup', targetGroupArgs)
+    listenerRule = new aws.lb.ListenerRule('previewListenerRule', {
+      listenerArn: sharedPreviewListenerArn,
+      // PR numbers are unique, so they double as unique rule priorities.
+      priority: Number(stage.replace('pr-', '')),
+      conditions: [{ hostHeader: { values: [domain] } }],
+      actions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+  } else {
+    const albSecurityGroup = new aws.ec2.SecurityGroup('albSecurityGroup', {
+      name: select({
+        preview: `gp-api-preview-${stage}-sg`,
+        dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
+        prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
+      }),
+      // This is false now, but these names are immutable :sob:
+      description: 'Managed by SST',
+      vpcId,
+      ingress: [
+        {
+          protocol: 'tcp',
+          fromPort: 80,
+          toPort: 80,
+          cidrBlocks: ['0.0.0.0/0'],
+          description: 'HTTP',
+        },
+        {
+          protocol: 'tcp',
+          fromPort: 443,
+          toPort: 443,
+          cidrBlocks: ['0.0.0.0/0'],
+          description: 'HTTPS',
+        },
+      ],
+      egress: [
+        {
+          protocol: '-1',
+          fromPort: 0,
+          toPort: 0,
+          cidrBlocks: ['0.0.0.0/0'],
+        },
+      ],
+    })
 
-  new aws.lb.Listener('httpsListener', {
-    loadBalancerArn: loadBalancer.arn,
-    port: 443,
-    protocol: 'HTTPS',
-    certificateArn,
-    sslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
-    defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
-  })
+    const loadBalancer = new aws.lb.LoadBalancer('loadBalancer', {
+      name: select({
+        preview: `gpapi-${stage}`,
+        dev: 'develop-gpapidevelopLoad',
+        prod: 'master-gpapimasterLoadBa',
+      }),
+      internal: false,
+      loadBalancerType: 'application',
+      securityGroups: [albSecurityGroup.id],
+      subnets: publicSubnetIds,
+      enableCrossZoneLoadBalancing: true,
+      // 5 minutes — large CSV exports (e.g. constituent contacts proxied from
+      // people-api) can stream for several minutes on slow consumer
+      // connections. The ALB severs any TCP connection idle longer than this,
+      // so we budget room for occasional backpressure stalls without dropping
+      // the download. Bytes ordinarily flow continuously.
+      idleTimeout: 300,
+    })
+
+    targetGroup = new aws.lb.TargetGroup('targetGroup', targetGroupArgs)
+
+    new aws.lb.Listener('httpListener', {
+      loadBalancerArn: loadBalancer.arn,
+      port: 80,
+      protocol: 'HTTP',
+      defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+
+    new aws.lb.Listener('httpsListener', {
+      loadBalancerArn: loadBalancer.arn,
+      port: 443,
+      protocol: 'HTTPS',
+      certificateArn,
+      sslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
+      defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    })
+    // Preview stacks are ephemeral and their per-PR DNS records routinely drift
+    // out of Pulumi state (e.g. a stack whose state was cleared while the record
+    // lingered in Route53), which makes a redeploy fail with "record already
+    // exists". Adopt/overwrite the existing record for preview so a drifted
+    // record self-heals; keep the fail-if-exists default for dev/prod.
+    const allowOverwrite = environment === 'preview'
+
+    new aws.route53.Record('dnsARecord', {
+      zoneId: hostedZoneId,
+      name: domain,
+      type: 'A',
+      allowOverwrite,
+      aliases: [
+        {
+          name: loadBalancer.dnsName,
+          zoneId: loadBalancer.zoneId,
+          evaluateTargetHealth: true,
+        },
+      ],
+    })
+    new aws.route53.Record('dnsAAAARecord', {
+      zoneId: hostedZoneId,
+      name: domain,
+      type: 'AAAA',
+      allowOverwrite,
+      aliases: [
+        {
+          name: loadBalancer.dnsName,
+          zoneId: loadBalancer.zoneId,
+          evaluateTargetHealth: true,
+        },
+      ],
+    })
+  }
 
   const logGroup = new aws.cloudwatch.LogGroup('logGroup', {
     name: `/sst/cluster/gp-${stage}-fargateCluster/gp-api-${stage}/gp-api-${stage}`,
@@ -233,7 +295,12 @@ export function createService({
     ],
   })
 
-  const cpu = isProd ? '1024' : '512'
+  // A full vCPU everywhere. Preview's boot is on the critical path of every
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev's single task
+  // takes the release train's E2E (16 Playwright workers): at half a vCPU it
+  // ran at its CPU quota for the whole run, gp-api medians went from ~5ms to
+  // ~600ms, and webapp server renders hit Vercel's function timeout.
+  const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
@@ -292,13 +359,15 @@ export function createService({
     ),
   })
 
-  new aws.ecs.Service(
+  const prodMinTasks = 4
+
+  const ecsService = new aws.ecs.Service(
     'ecsService',
     {
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      desiredCount: isProd ? 2 : 1,
+      desiredCount: isProd ? prodMinTasks : 1,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,
@@ -314,16 +383,23 @@ export function createService({
       ],
       // Must exceed the slowest boot, or the faster non-prod probe interval
       // starts failing tasks mid-startup. Preview containers are the slow case:
-      // ensure-database, `prisma migrate deploy`, seed, then ~45s of Nest boot.
+      // ensure-database, `prisma migrate deploy`, then ~45s of Nest boot.
       healthCheckGracePeriodSeconds: 300,
       deploymentCircuitBreaker: {
         enable: true,
         rollback: false,
       },
-      // 100 (not 0) in every env: a 0 floor lets ECS drain the old task
-      // before the new one is healthy, creating a brief no-healthy-target
-      // window that flaps the health-probe alert on every non-prod deploy.
-      deploymentMinimumHealthyPercent: 100,
+      // 100 on dev and prod: a 0 floor lets ECS drain the old task before the
+      // new one is healthy, creating a brief no-healthy-target window that
+      // flaps the health-probe alert. Preview has no such alert and nobody
+      // reads it mid-deploy (the webapp E2E waits on this deploy), so it takes
+      // the 0: the old task stops while the new one boots instead of after,
+      // which took ~60s off every preview redeploy.
+      deploymentMinimumHealthyPercent: select({
+        preview: 0,
+        dev: 100,
+        prod: 100,
+      }),
       deploymentMaximumPercent: 200,
       enableExecuteCommand: true,
       // Propagate the task-definition's Project tag onto the running tasks so
@@ -331,47 +407,82 @@ export function createService({
       // task-def tags otherwise).
       propagateTags: 'TASK_DEFINITION',
       enableEcsManagedTags: true,
-      waitForSteadyState: true,
+      // Preview does not wait: gp-api.yml's "Verify the preview is serving
+      // this commit" step polls the commit the preview reports instead. ECS
+      // marked a deployment complete ~40s after the new task was already
+      // serving, and on a new service Pulumi returned before the app was up
+      // anyway.
+      waitForSteadyState: environment !== 'preview',
     },
     // Headroom, not a gate: a real crash-on-boot is caught by the deployment
     // circuit breaker, so the only thing a tight wait buys is a red deploy on a
     // service that stabilizes seconds later.
-    { customTimeouts: { create: '10m', update: '10m' } },
+    {
+      customTimeouts: { create: '10m', update: '10m' },
+      // ECS rejects a target group that no load balancer forwards to yet.
+      dependsOn: listenerRule ? [listenerRule] : [],
+      // Autoscaling owns the prod task count. Without this, a deploy can reset
+      // it to the minimum mid-traffic.
+      ignoreChanges: isProd ? ['desiredCount'] : [],
+    },
   )
 
-  // Preview stacks are ephemeral and their per-PR DNS records routinely drift
-  // out of Pulumi state (e.g. a stack whose state was cleared while the record
-  // lingered in Route53), which makes a redeploy fail with "record already
-  // exists". Adopt/overwrite the existing record for preview so a drifted
-  // record self-heals; keep the fail-if-exists default for dev/prod.
-  const allowOverwrite = environment === 'preview'
+  if (isProd) {
+    // Register and Put are upserts, so these adopt the SST-era target and
+    // policies by name instead of creating duplicates. The register is only an
+    // upsert while it carries no tags: AWS treats a tagged
+    // RegisterScalableTarget as create-only and rejects it when the target
+    // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
+    // it. A provider without defaultTags keeps the adoption working.
+    const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+      region: aws.config.region,
+    })
+    const scalableTarget = new aws.appautoscaling.Target(
+      'scalableTarget',
+      {
+        serviceNamespace: 'ecs',
+        scalableDimension: 'ecs:service:DesiredCount',
+        resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+        minCapacity: prodMinTasks,
+        maxCapacity: 24,
+      },
+      { provider: untaggedProvider },
+    )
 
-  new aws.route53.Record('dnsARecord', {
-    zoneId: hostedZoneId,
-    name: domain,
-    type: 'A',
-    allowOverwrite,
-    aliases: [
-      {
-        name: loadBalancer.dnsName,
-        zoneId: loadBalancer.zoneId,
-        evaluateTargetHealth: true,
-      },
-    ],
-  })
-  new aws.route53.Record('dnsAAAARecord', {
-    zoneId: hostedZoneId,
-    name: domain,
-    type: 'AAAA',
-    allowOverwrite,
-    aliases: [
-      {
-        name: loadBalancer.dnsName,
-        zoneId: loadBalancer.zoneId,
-        evaluateTargetHealth: true,
-      },
-    ],
-  })
+    // The SST-era policies scaled in with a 0s cooldown: on 2026-10-19 they
+    // removed a task every minute, 16 down to 2, and the 2 left saturated
+    // under election traffic. Average CPU then hid it, because each saturated
+    // task failed health checks and its booting replacement read near 0%.
+    const scalingPolicy = (
+      name: string,
+      policyName: string,
+      metricType: string,
+    ) =>
+      new aws.appautoscaling.Policy(name, {
+        name: policyName,
+        policyType: 'TargetTrackingScaling',
+        serviceNamespace: scalableTarget.serviceNamespace,
+        scalableDimension: scalableTarget.scalableDimension,
+        resourceId: scalableTarget.resourceId,
+        targetTrackingScalingPolicyConfiguration: {
+          targetValue: 50,
+          predefinedMetricSpecification: { predefinedMetricType: metricType },
+          scaleInCooldown: 600,
+          scaleOutCooldown: 0,
+        },
+      })
+
+    scalingPolicy(
+      'cpuScalingPolicy',
+      'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu',
+      'ECSServiceAverageCPUUtilization',
+    )
+    scalingPolicy(
+      'memoryScalingPolicy',
+      'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft',
+      'ECSServiceAverageMemoryUtilization',
+    )
+  }
 
   return {
     url: pulumi.interpolate`https://${domain}`,

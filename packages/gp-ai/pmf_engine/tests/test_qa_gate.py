@@ -287,6 +287,10 @@ def test_qa_folder_without_main_py_is_skipped(workspace, gate_base):
     )
     assert isinstance(verdict, Verdict)
     assert verdict.status == "skipped"
+    # A KNOWN zero, not a withheld one. No qa files means no stage ran, so
+    # nothing could have spent — and a reader has to be able to tell that from
+    # an evaluator that ran and could not say what it cost.
+    assert verdict.cost_usd == 0.0
     assert verdict.checks == []
     assert verdict.verdict_version == 1
 
@@ -340,6 +344,8 @@ def test_insufficient_budget_returns_error_without_invoking_main(workspace, gate
     assert not os.path.exists(main_marker), "main.py must not run when budget is insufficient"
     # Surfaces the reason in a discoverable way.
     assert any("insufficient_budget" in v for v in verdict.violations)
+    # This branch exists to avoid spawning anything, so its zero is known too.
+    assert verdict.cost_usd == 0.0
     # Required budget reflects ONLY the deterministic timeout (no agent term).
     assert any("120" in v for v in verdict.violations)
 
@@ -1248,6 +1254,11 @@ def test_evaluator_runner_raising_is_stage_error_fail_open(workspace, gate_base)
     )
     assert verdict.status == "error"
     assert verdict.pass_ is None
+    # AND THE COST IS UNKNOWN, not zero. The runner raised, so whatever the
+    # evaluator spent before it blew up is exactly what nobody measured —
+    # reporting 0.0 there claims a free run on the one path where the spend is
+    # least knowable.
+    assert verdict.cost_usd is None
 
 
 def test_eval_md_present_without_runner_is_stage_error(workspace, gate_base):
@@ -1450,6 +1461,76 @@ def test_verdict_cost_sums_evaluator_model_cost(workspace, gate_base):
     )
     assert verdict.status == "evaluated"
     assert verdict.cost_usd == pytest.approx(0.0731)
+
+
+def test_verdict_cost_is_none_when_the_evaluator_withheld_it(workspace, gate_base):
+    """An evaluator that cannot say what it spent makes the gate's total
+    UNKNOWN, not unchanged. Summing a missing term as 0 reports the gate as
+    cheaper than it was, and nothing downstream can tell that from a gate that
+    genuinely spent nothing."""
+    fake = FakeEvaluator(
+        fragments=[{"name": "faithfulness", "passed": True}],
+        result=EvaluatorResult(
+            fragments=[{"name": "faithfulness", "passed": True}],
+            cost_usd=None,
+            status="ok",
+        ),
+    )
+    fake.write_file = True
+    verdict = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"main.py": _MAIN_PASS, "eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=fake,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert verdict.status == "evaluated"
+    assert verdict.cost_usd is None
+    # And it stays None on the wire rather than serializing as 0.
+    assert verdict.to_dict()["cost_usd"] is None
+
+
+def test_unknown_evaluator_cost_is_distinguishable_from_a_free_gate(workspace, gate_base):
+    """The two cases that an `or 0` collapses into one. A deterministic-only
+    gate makes no model calls, so its 0.0 is a figure we have; an evaluator
+    that withheld leaves us without one. They must not look the same."""
+    free = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"main.py": _MAIN_PASS}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=_never_called_evaluator,
+            gate_base_dir=gate_base,
+        )
+    )
+    withheld_eval = FakeEvaluator(
+        fragments=[{"name": "faithfulness", "passed": True}],
+        result=EvaluatorResult(
+            fragments=[{"name": "faithfulness", "passed": True}],
+            cost_usd=None,
+            status="ok",
+        ),
+    )
+    withheld_eval.write_file = True
+    unknown = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=withheld_eval,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert free.cost_usd == 0.0
+    assert unknown.cost_usd is None
 
 
 def test_evaluator_fragment_detail_redacts_broker_token(workspace, gate_base):
@@ -2244,3 +2325,28 @@ def test_read_bounded_keeps_complete_output_when_child_lingers_after_eof(monkeyp
         qa_gate_mod._kill_quietly(proc)
     # The fix killed the lingering child; nothing should be left running.
     assert proc.poll() is not None
+
+
+def test_internal_error_withholds_the_cost_rather_than_claiming_zero(workspace, gate_base, monkeypatch):
+    """The fail-open catch wraps the WHOLE body, including everything after the
+    evaluator is spawned, so whatever was spent before the throw is unknown.
+    The skipped and insufficient-budget returns are provably free and say 0.0;
+    this one must not, because it cannot know."""
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("gate internals blew up")
+
+    monkeypatch.setattr(qa_gate_mod, "_resolve_budgets", boom)
+    verdict = _verdict(
+        run_qa_gate(
+            artifact_bytes=ARTIFACT,
+            qa_envelope=_envelope(files={"eval.md": "judge"}),
+            workspace_dir=workspace,
+            broker_env=_broker_env(),
+            remaining_budget_seconds=BIG_BUDGET,
+            evaluator_runner=_never_called_evaluator,
+            gate_base_dir=gate_base,
+        )
+    )
+    assert verdict.status == "error"
+    assert verdict.cost_usd is None

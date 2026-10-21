@@ -3,14 +3,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
+  isCivicPanelOnlyList,
   RecordPhoneBankingCall,
   RecordPhoneBankingCallResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { mapWillVoteToLikelihood } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import {
+  CivicPanelStatus,
   ContactInteractionPhoneBanking,
   ContactStatusField,
   ContactStatusSource,
@@ -23,6 +27,7 @@ import {
   SupportAnswer,
   WillVoteAnswer,
 } from '../../generated/prisma'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import { PhoneBankingAccessService } from './phoneBankingAccess.service'
 
 type EntryWithPersons = Prisma.PhoneBankingListEntryGetPayload<{
@@ -38,6 +43,8 @@ type RowInput = {
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
   followUp: FollowUpAnswer | null
+  joinCivicPanel: FollowUpAnswer | null
+  stayOnCivicPanel: FollowUpAnswer | null
   note: string | null
   actorUserId: number
 }
@@ -52,6 +59,25 @@ type RowInput = {
 // first's insert has committed.
 const PHONE_BANKING_LIST_LOCK_NAMESPACE = 25714
 
+// Prisma's 5s interactive-transaction default also covers waiting on the
+// per-list advisory lock, a pooled connection, and any stall of the process
+// itself. An 11.4s container freeze on 2026-10-19 (P2028 -> 503) otherwise
+// fails a call the volunteer just made.
+const RECORD_CALL_TX_TIMEOUT_MS = 20_000
+
+// `completed` is the ratchet the response reports on every later call;
+// `completedNowId` is set only on the call that flipped it, so a re-logged
+// call on a finished list does not start another synthesis run.
+type EnvelopeCompletion = {
+  completed: boolean
+  completedNowId: number | null
+}
+
+const NOT_COMPLETED: EnvelopeCompletion = {
+  completed: false,
+  completedNowId: null,
+}
+
 @Injectable()
 export class PhoneBankingCallService extends createPrismaBase(
   MODELS.ContactInteractionPhoneBanking,
@@ -59,6 +85,7 @@ export class PhoneBankingCallService extends createPrismaBase(
   constructor(
     private readonly contactStatus: ContactStatusService,
     private readonly access: PhoneBankingAccessService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -72,11 +99,18 @@ export class PhoneBankingCallService extends createPrismaBase(
   ): Promise<RecordPhoneBankingCallResponse> {
     const list = await this.client.phoneBankingList.findFirst({
       where: { id: listId, organizationSlug },
-      select: { id: true },
+      select: {
+        id: true,
+        voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
+      },
     })
     if (!list) {
       throw new NotFoundException('Phone banking list not found')
     }
+    // Only a list of panel members asks whether they want to stay on, so an
+    // answer from any other list answers nothing and must not take a member
+    // off the panel.
+    const civicPanelOnly = isCivicPanelOnlyList(list.voterFileFilter)
     await this.access.assertVolunteerAccess(listId, role, actorUserId)
 
     const entry = await this.client.phoneBankingListEntry.findFirst({
@@ -94,16 +128,18 @@ export class PhoneBankingCallService extends createPrismaBase(
     }
 
     const occurredAt = new Date()
-    const { rows, envelopeCompleted } = await this.client.$transaction((tx) =>
-      this.applyOutcome(
-        tx,
-        organizationSlug,
-        listId,
-        entry,
-        input,
-        occurredAt,
-        actorUserId,
-      ),
+    const { rows, envelope } = await this.client.$transaction(
+      (tx) =>
+        this.applyOutcome(
+          tx,
+          organizationSlug,
+          listId,
+          entry,
+          civicPanelOnly ? input : { ...input, stayOnCivicPanel: undefined },
+          occurredAt,
+          actorUserId,
+        ),
+      { timeout: RECORD_CALL_TX_TIMEOUT_MS },
     )
 
     // The DB-level upserts above are done; the likelihood override write has
@@ -113,6 +149,26 @@ export class PhoneBankingCallService extends createPrismaBase(
     // recordIdempotent() use.
     await this.emitLikelihoodEvents(rows)
     await this.emitFollowUpEvents(rows)
+    await this.emitCivicPanelEvents(rows)
+
+    // The list just finished: its memos can be summarized. Fire-and-forget,
+    // resolved lazily like the turf's trigger. The call is already saved, so
+    // nothing here may fail the request.
+    if (envelope.completedNowId !== null) {
+      try {
+        this.moduleRef
+          .get(FeedbackSynthesisService, { strict: false })
+          .requestRunOnEffortCompleted({
+            organizationSlug,
+            outreachId: envelope.completedNowId,
+          })
+      } catch (err) {
+        this.logger.error(
+          { err, organizationSlug, outreachId: envelope.completedNowId },
+          'Could not start synthesis for a completed list',
+        )
+      }
+    }
 
     return {
       entryId: entry.id,
@@ -123,10 +179,12 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: row.supportAnswer,
           willVote: row.willVote,
           followUp: row.followUp,
+          joinCivicPanel: row.joinCivicPanel,
+          stayOnCivicPanel: row.stayOnCivicPanel,
           occurredAt: row.occurredAt,
         },
       })),
-      envelopeCompleted,
+      envelopeCompleted: envelope.completed,
     }
   }
 
@@ -140,7 +198,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     actorUserId: number,
   ): Promise<{
     rows: ContactInteractionPhoneBanking[]
-    envelopeCompleted: boolean
+    envelope: EnvelopeCompletion
   }> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHONE_BANKING_LIST_LOCK_NAMESPACE}::int, ${listId}::int)`
 
@@ -175,6 +233,8 @@ export class PhoneBankingCallService extends createPrismaBase(
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
           followUp: input.followUp ?? null,
+          joinCivicPanel: input.joinCivicPanel ?? null,
+          stayOnCivicPanel: input.stayOnCivicPanel ?? null,
           note: input.note ?? null,
           actorUserId,
         }),
@@ -205,6 +265,8 @@ export class PhoneBankingCallService extends createPrismaBase(
             supportAnswer: null,
             willVote: null,
             followUp: null,
+            joinCivicPanel: null,
+            stayOnCivicPanel: null,
             note: input.note ?? null,
             actorUserId,
           }),
@@ -227,8 +289,8 @@ export class PhoneBankingCallService extends createPrismaBase(
       }
     }
 
-    const envelopeCompleted = await this.maybeCompleteEnvelope(tx, listId)
-    return { rows, envelopeCompleted }
+    const envelope = await this.maybeCompleteEnvelope(tx, listId)
+    return { rows, envelope }
   }
 
   // Fills bare `answered` rows for the entry's other household members,
@@ -265,6 +327,8 @@ export class PhoneBankingCallService extends createPrismaBase(
         supportAnswer: null,
         willVote: null,
         followUp: null,
+        joinCivicPanel: null,
+        stayOnCivicPanel: null,
         note: null,
         actorUserId,
       })),
@@ -299,13 +363,15 @@ export class PhoneBankingCallService extends createPrismaBase(
   private async maybeCompleteEnvelope(
     tx: Prisma.TransactionClient,
     listId: number,
-  ): Promise<boolean> {
+  ): Promise<EnvelopeCompletion> {
     const outreach = await tx.outreach.findUnique({
       where: { phoneBankingListId: listId },
       select: { id: true, status: true },
     })
-    if (!outreach) return false
-    if (outreach.status === OutreachStatus.completed) return true
+    if (!outreach) return NOT_COMPLETED
+    if (outreach.status === OutreachStatus.completed) {
+      return { completed: true, completedNowId: null }
+    }
 
     const [totalPersons, loggedCount] = await Promise.all([
       tx.phoneBankingListEntryPerson.count({
@@ -315,13 +381,13 @@ export class PhoneBankingCallService extends createPrismaBase(
         where: { phoneBankingListId: listId },
       }),
     ])
-    if (loggedCount < totalPersons) return false
+    if (loggedCount < totalPersons) return NOT_COMPLETED
 
     await tx.outreach.update({
       where: { id: outreach.id },
       data: { status: OutreachStatus.completed },
     })
-    return true
+    return { completed: true, completedNowId: outreach.id }
   }
 
   // Shared willVote->voter_likelihood mapping and eo- skip with
@@ -384,6 +450,41 @@ export class PhoneBankingCallService extends createPrismaBase(
         // Nobody is born flagged, so an answer of "no" against no prior flag
         // is a no-op rather than a logged transition that never happened.
         fallbackFromValue: FollowUpStatus.cleared,
+      })
+    }
+  }
+
+  // Serve-only, like follow-up. On the join question only a yes writes:
+  // declining on one call is not leaving the panel, so a "no" must never
+  // demote an existing member. The stay question, asked only on a list of
+  // panel members (recordCall drops it anywhere else), is the one a no
+  // answers: it takes them off. Unlike the follow-up twin, the sourceId is
+  // stable per call and answer: re-saving a yes on someone who has since
+  // left must not put them back, nor a no take off someone who rejoined.
+  private async emitCivicPanelEvents(
+    rows: ContactInteractionPhoneBanking[],
+  ): Promise<void> {
+    for (const row of rows) {
+      if (!row.organizationSlug.startsWith('eo-')) continue
+      const toValue =
+        row.joinCivicPanel === FollowUpAnswer.yes
+          ? CivicPanelStatus.member
+          : row.stayOnCivicPanel === FollowUpAnswer.no
+            ? CivicPanelStatus.left
+            : null
+      if (!toValue) continue
+      await this.contactStatus.changeStatus({
+        organizationSlug: row.organizationSlug,
+        personId: row.personId,
+        field: ContactStatusField.civic_panel,
+        toValue,
+        source: ContactStatusSource.phone_banking,
+        actorUserId: row.actorUserId,
+        sourceId:
+          toValue === CivicPanelStatus.member
+            ? `${row.id}:${row.joinCivicPanel}`
+            : `${row.id}:stay:${row.stayOnCivicPanel}`,
+        fallbackFromValue: CivicPanelStatus.left,
       })
     }
   }

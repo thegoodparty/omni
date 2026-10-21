@@ -54,6 +54,11 @@ export type CheckoutPaymentProps = {
   // where fulfillment happens via the webhook and the form just confirms.
   onPaymentConfirmed?: () => void | Promise<void>
   onPaymentError?: (errorMessage: string) => void
+  // Stripe's total in dollars, re-reported whenever it changes (a promo code
+  // applying or being removed). The session amount the parent holds is the
+  // pre-discount price, so anything outside the form that states the charge
+  // has to read this instead.
+  onTotalChange?: (totalDollars: number) => void
   submitLabel?: string
   // Lays out chrome around the form (card, order summary) inside the
   // CheckoutProvider so it can read the live total via Stripe's useCheckout —
@@ -65,6 +70,7 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
   onPaymentSuccess,
   onPaymentConfirmed,
   onPaymentError,
+  onTotalChange,
   submitLabel,
   renderLayout,
 }) => {
@@ -77,6 +83,7 @@ const CheckoutPayment: React.FC<CheckoutPaymentProps> = ({
       onSuccess={onPaymentSuccess}
       onConfirmed={onPaymentConfirmed}
       onError={onPaymentError}
+      onTotalChange={onTotalChange}
       sessionId={checkoutSession.id}
       submitLabel={submitLabel}
     />

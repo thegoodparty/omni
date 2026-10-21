@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
@@ -71,6 +72,12 @@ vi.mock('./StatusRow', () => ({
   ),
 }))
 
+// CivicPanelRow.test.tsx covers its toggle; here it only has to mount.
+vi.mock('./CivicPanelRow', () => ({
+  __esModule: true,
+  default: () => null,
+}))
+
 // Same reasoning as StatusRow above — FollowUpRow.test.tsx covers its
 // self-gating, the toggle, its mutation and analytics.
 vi.mock('./FollowUpRow', () => ({
@@ -91,15 +98,6 @@ vi.mock('./FollowUpRow', () => ({
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
-
-// Contact Viewed also fires from this overlay, so a total trackEvent call
-// count can't answer "how many times did the outreach timeline fire".
-const outreachTimelineFires = () =>
-  vi
-    .mocked(trackEvent)
-    .mock.calls.filter(
-      ([event]) => event === EVENTS.Contacts.OutreachTimelineViewed,
-    ).length
 
 type ContextValue = ReturnType<typeof useContactsTable>
 type SelectedPerson = ContextValue['currentlySelectedPerson']
@@ -375,11 +373,6 @@ describe('<PersonOverlay>', () => {
     expect(
       screen.queryByRole('link', { name: /transit survey/i }),
     ).not.toBeInTheDocument()
-    // The Win outreach timeline rendering rows fires the adoption event once.
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      { context: 'win', personId: 'p_42' },
-    )
   })
 
   it('renders a mixed page of every entry type without falling through into the poll branch', () => {
@@ -496,7 +489,7 @@ describe('<PersonOverlay>', () => {
     ).toBeInTheDocument()
   })
 
-  it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
+  it('shows the empty state when the Win feed is empty', () => {
     setContext({
       isElectedOfficial: false,
       isWinContext: true,
@@ -507,18 +500,13 @@ describe('<PersonOverlay>', () => {
     render(<PersonOverlay />)
 
     expect(screen.getByText('Data not available.')).toBeInTheDocument()
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      expect.anything(),
-    )
   })
 
-  it('keeps rendering stale rows (not the empty state) on a failed background refetch, but does not fire Outreach Timeline Viewed', () => {
+  it('keeps rendering stale rows (not the empty state) on a failed background refetch', () => {
     // useInfiniteQuery keeps prior successful data on a failed refetch, so
     // activities can be non-empty while isErrorActivities is true. A failed
     // background refetch must not blank an already-populated feed — the
-    // renderer keeps showing the stale rows — but the adoption event still
-    // must not fire while isError is true.
+    // renderer keeps showing the stale rows.
     const activities: ConstituentActivity[] = [
       {
         type: 'OUTREACH',
@@ -541,158 +529,6 @@ describe('<PersonOverlay>', () => {
 
     expect(screen.getByText('Texted')).toBeInTheDocument()
     expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      expect.anything(),
-    )
-  })
-
-  it('does not fire Outreach Timeline Viewed until the win context is ready', () => {
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'OUTREACH',
-        date: '2026-05-10T00:00:00.000Z',
-        data: {
-          activityId: 1,
-          outreachType: 'text',
-          attributionSource: 'segmentDerived',
-        },
-      },
-    ]
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      isWinContextReady: false,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-
-    render(<PersonOverlay />)
-
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      expect.anything(),
-    )
-  })
-
-  it('fires Outreach Timeline Viewed once per person across an error-recovery re-render', () => {
-    // The feed stays mounted (isWinContext true) but a failed refetch flips
-    // isErrorActivities true (stale rows retained) then false on recovery.
-    // That re-runs the effect for the same person; the per-person latch must
-    // keep the event at exactly one fire.
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'OUTREACH',
-        date: '2026-05-10T00:00:00.000Z',
-        data: {
-          activityId: 1,
-          outreachType: 'text',
-          attributionSource: 'segmentDerived',
-        },
-      },
-    ]
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-
-    const { rerender } = render(<PersonOverlay />)
-
-    expect(outreachTimelineFires()).toBe(1)
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      { context: 'win', personId: 'p_42' },
-    )
-
-    // Refetch fails: stale rows retained, isError true (no fire).
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities, isErrorActivities: true },
-    })
-    rerender(<PersonOverlay />)
-
-    // Recovery: rows present again, isError false. Latch must suppress.
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-    rerender(<PersonOverlay />)
-
-    expect(outreachTimelineFires()).toBe(1)
-  })
-
-  it('re-arms Outreach Timeline Viewed when a different person is opened', () => {
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'OUTREACH',
-        date: '2026-05-10T00:00:00.000Z',
-        data: {
-          activityId: 1,
-          outreachType: 'text',
-          attributionSource: 'segmentDerived',
-        },
-      },
-    ]
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-
-    const { rerender } = render(<PersonOverlay />)
-    expect(outreachTimelineFires()).toBe(1)
-
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_99',
-      selectedPerson: { activities },
-    })
-    rerender(<PersonOverlay />)
-
-    expect(outreachTimelineFires()).toBe(2)
-    expect(trackEvent).toHaveBeenLastCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      { context: 'win', personId: 'p_99' },
-    )
-  })
-
-  it('does not fire Outreach Timeline Viewed outside the Win context', () => {
-    // Serve poll-interaction timeline is shown via the Serve flag, but the
-    // outreach-adoption event is Win-only.
-    mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'POLL_INTERACTIONS',
-        date: '2026-05-02',
-        data: {
-          pollId: 'poll_1',
-          pollTitle: 'Transit Survey',
-          events: [{ type: 'SENT', date: '2026-05-02T00:00:00.000Z' }],
-        },
-      },
-    ]
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: false,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-
-    render(<PersonOverlay />)
-
-    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      expect.anything(),
-    )
   })
 
   it('hides the Win Activity Feed when not in Win context', () => {
@@ -933,7 +769,7 @@ describe('<PersonOverlay>', () => {
       ).toBeInTheDocument()
     })
 
-    it('shows real feed content (not the empty state) for a page containing only new entry types, and does not fire Outreach Timeline Viewed', () => {
+    it('shows real feed content (not the empty state) for a page containing only new entry types', () => {
       const doorKnockOnly: ConstituentActivity[] = [newTypeActivities[0]!]
       setContext({
         isElectedOfficial: false,
@@ -946,10 +782,6 @@ describe('<PersonOverlay>', () => {
 
       expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
       expect(screen.getByText('Left a flyer')).toBeInTheDocument()
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.Contacts.OutreachTimelineViewed,
-        expect.anything(),
-      )
     })
   })
 
@@ -1048,6 +880,277 @@ describe('<PersonOverlay>', () => {
       expect(
         screen.queryByText('Support Status updated'),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // What a voter told a Win canvasser shows on their record, behind Win's
+  // own capture flag, the way a constituent's does behind Serve's.
+  describe('what they told us, on Win', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [],
+            },
+          ],
+        },
+      })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_1',
+      })
+    })
+
+    it('shows the section when issue-capture is on', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+
+      render(<PersonOverlay />)
+
+      expect(await screen.findByText('What they told us')).toBeInTheDocument()
+      expect(screen.getByText('Road bond')).toBeInTheDocument()
+    })
+
+    // One conversation can name several issues, each with where the person
+    // stands on it and what they want.
+    it('lists each issue a conversation named', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'Wants the bond spent on roads, and the park lit.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+                {
+                  id: 'issue-park-lighting',
+                  position: 1,
+                  issueLabel: 'Park lighting',
+                  stance: 'opposes',
+                  desiredOutcome: null,
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const issues = await screen.findByRole('list', { name: 'Issues' })
+      const items = within(issues).getAllByRole('listitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Road bond· For itWants: Spend it on the roads',
+        'Park lighting· Against it',
+      ])
+    })
+
+    it('lists the tags a memo carries', async () => {
+      mockedUseFlagOn.mockImplementation((key) => ({
+        ready: true,
+        on: key === 'issue-capture',
+      }))
+      api.mock('GET /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          feedback: [
+            {
+              id: 'feedback-1',
+              personId: 'p_1',
+              occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+              channel: 'door_knock',
+              transcript: 'She wants the bond spent on the roads.',
+              issues: [
+                {
+                  id: 'issue-road-bond',
+                  position: 0,
+                  issueLabel: 'Road bond',
+                  stance: 'supports',
+                  desiredOutcome: 'Spend it on the roads',
+                },
+              ],
+              extractionStatus: 'extracted',
+              confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+              outreachId: 7,
+              actorName: 'Kamal Al Sawafi',
+              tags: [
+                { id: 'tag-1', name: 'Road repair', status: 'accepted' },
+                { id: 'tag-2', name: 'Taxes', status: 'accepted' },
+              ],
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      const tags = await screen.findByRole('list', { name: 'Tags' })
+      expect(
+        within(tags)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['Road repair', 'Taxes'])
+    })
+
+    it('shows nothing when issue-capture is off', async () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+
+      render(<PersonOverlay />)
+
+      // Long enough for the memo request to land had the section mounted.
+      await expect(
+        screen.findByText('What they told us', {}, { timeout: 500 }),
+      ).rejects.toThrow()
+      expect(screen.queryByText('Road bond')).not.toBeInTheDocument()
+    })
+  })
+  describe('what they have told the office, on Serve', () => {
+    const flagsOn = (...keys: string[]) =>
+      mockedUseFlagOn.mockImplementation((key: string) => ({
+        ready: true,
+        on: keys.includes(key),
+      }))
+    const answers = {
+      results: [
+        {
+          id: 'a1',
+          source: 'text' as const,
+          answer: 'yes' as const,
+          priorityId: 'pri_1',
+          priorityTitle: 'Safer streets near schools',
+        },
+        {
+          id: 'a2',
+          source: 'door_knocking' as const,
+          answer: 'mixed' as const,
+          priorityId: 'pri_2',
+          priorityTitle: 'Pool hours',
+        },
+      ],
+    }
+
+    it('lists each priority they answered, with its answer and channel', async () => {
+      flagsOn('serve-citizen-panels')
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', {
+        status: 200,
+        data: answers,
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(await screen.findByText('Their answers')).toBeVisible()
+      expect(
+        screen.getByRole('link', { name: 'Safer streets near schools' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri_1')
+      expect(screen.getByText(/^Yes/)).toBeInTheDocument()
+      expect(screen.getByText(/By text/)).toBeInTheDocument()
+      expect(screen.getByText(/At the door/)).toBeInTheDocument()
+    })
+
+    it('stays out of the card until they have answered something', async () => {
+      flagsOn('serve-citizen-panels')
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: { results: [] } }
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+      await waitFor(() => expect(asked).toBe(true))
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
+    })
+
+    it('never asks on a Win contact card', async () => {
+      flagsOn('serve-citizen-panels')
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: answers }
+      })
+      setContext({ isElectedOfficial: false })
+
+      render(<PersonOverlay />)
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(asked).toBe(false)
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
+    })
+
+    it('stays out of the card with the civic panel flag off', async () => {
+      flagsOn()
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: answers }
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(asked).toBe(false)
+    })
+
+    it('says plainly that no poll issues have come in', () => {
+      flagsOn('serve-contacts-activities-and-issues')
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Top Issues')).toBeInTheDocument()
+      expect(screen.getByText('No issues from your polls yet.')).toBeVisible()
+      expect(screen.queryAllByText('Data not available.')).toHaveLength(1)
     })
   })
 })

@@ -61,10 +61,11 @@ export interface StreamingTurnHandlers {
   // Intercept a stream event before default handling. Return true to consume it
   // (default text/pill/result/error handling is skipped for that event).
   // `textLength` is the interleaved-text length so far, for anchoring a widget
-  // after the text that preceded its tool call.
+  // after the text that preceded its tool call. `conversationId` is the one
+  // this turn was sent to, which a widget can derive an id from.
   onEvent?: (
     event: ChatStreamEvent,
-    ctx: { textLength: () => number },
+    ctx: { textLength: () => number; conversationId: string },
   ) => boolean
   // Reset scope-specific live state at the start of a turn.
   onTurnStart?: () => void
@@ -293,6 +294,7 @@ export function useStreamingTurn(
           const event = step.value
           const consumed = scope.onEvent?.(event, {
             textLength: () => segmentsTextLength(segments),
+            conversationId,
           })
           // Recorded before the consumed check, and regardless of whether the
           // tool has a visible label: the transcript keeps every tool call,
@@ -331,20 +333,14 @@ export function useStreamingTurn(
             })
             setLiveSegments([...segments])
           } else if (event.type === 'tool_call') {
-            const hasLabel = !!scope.toolLabel(event.toolName)
-            // Only track tool segments for labeled tools (rendered as pills) or
-            // compose_handoff (needs to reach InlineSegments as a CTA card).
-            // Unlabeled tools that are not compose_handoff are internal
-            // bookkeeping; pushing them breaks the ThinkingRow shimmer on surfaces
-            // that check visibleSegments.length === 0 (DraftChat, OrdinanceFlowChat).
-            if (hasLabel || event.toolName === 'compose_handoff') {
+            // Unlabeled tools are internal bookkeeping (or widgets the surface
+            // consumed in onEvent); pushing them breaks the ThinkingRow shimmer
+            // on surfaces that check visibleSegments.length === 0.
+            if (scope.toolLabel(event.toolName)) {
               segments.push({
                 kind: 'tool',
                 toolName: event.toolName,
-                // Only shimmer for labeled tools (those rendered as pills).
-                ...(hasLabel && { running: true }),
-                // Carry the args so InlineSegments can render a CTA from the
-                // payload without a separate extraction pass.
+                running: true,
                 ...(event.args !== undefined && { payload: event.args }),
               })
               setLiveSegments([...segments])

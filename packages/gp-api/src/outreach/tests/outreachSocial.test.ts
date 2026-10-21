@@ -668,10 +668,61 @@ describe('POST /v1/outreach/social', () => {
     expect(scheduled[0]).toEqual([
       service.user.id,
       EVENTS.Outreach.CampaignScheduled,
-      { channel: 'social', outreachId: res.data.id, platformCount: 2 },
+      {
+        channel: 'social',
+        medium: 'socialMedia',
+        outreachId: res.data.id,
+        platformCount: 2,
+      },
       undefined,
       `${res.data.id}:campaign_scheduled`,
     ])
+  })
+
+  it("saves a Campaign Manager card's post once under its key", async () => {
+    const proposalKey = randomUUID()
+
+    const first = await postSave({ ...validSaveBody(), proposalKey })
+    const second = await postSave({
+      ...validSaveBody(),
+      name: 'Again',
+      proposalKey,
+    })
+
+    expect(first.status).toBe(HttpStatus.CREATED)
+    expect(second.status).toBe(HttpStatus.CREATED)
+    expect(second.data.id).toBe(first.data.id)
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { proposalKey },
+      }),
+    ).toMatchObject({ id: first.data.id, campaignId: campaign.id })
+    expect(
+      await service.prisma.outreach.count({
+        where: { outreachType: OutreachType.socialMedia },
+      }),
+    ).toBe(1)
+  })
+
+  it("409s a key another organization's outreach holds", async () => {
+    const proposalKey = randomUUID()
+    const otherSlug = `campaign-other-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: otherSlug,
+        outreachType: OutreachType.socialMedia,
+        status: OutreachStatus.completed,
+        name: 'Theirs',
+        proposalKey,
+      },
+    })
+
+    const res = await postSave({ ...validSaveBody(), proposalKey })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
   })
 
   // ENG-10989: save is the persistence path even without a preceding
@@ -935,6 +986,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     registeredVoter: 'Yes',
     estimatedIncomeAmount: null,
     voterStatus: null,
+    earlyVoteStatus: null,
     maritalStatus: null,
     hasChildrenUnder18: null,
     veteranStatus: null,

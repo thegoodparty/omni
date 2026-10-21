@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
+import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Alert,
   AlertAction,
@@ -26,7 +27,9 @@ import { useWalkSession } from 'app/dashboard/door-knocking/native/useWalkSessio
 import { useLiveLocation } from 'app/dashboard/door-knocking/native/useLiveLocation'
 import { useWalkCompletion } from 'app/dashboard/door-knocking/native/walkCompletion'
 import { routeQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import { StartKnockingDialog } from 'app/dashboard/door-knocking/native/StartKnockingDialog'
 import { DoorKnockingSurface } from 'app/dashboard/door-knocking/native/doorKnockingSurface'
+import { useOfflineQueueDrain } from 'app/dashboard/shared/dictation/useOfflineMemo'
 
 // Same seam VoterMapCanvas has behind `NativeDoorKnockingPage` — this page is
 // the second mount site (ENG-11055), so it needs its own dynamic import to
@@ -95,7 +98,10 @@ export default function VolunteerWalkPage({
   turfId: number
 }): React.JSX.Element {
   const router = useRouter()
-  const walk = useWalkSession()
+  const queryClient = useQueryClient()
+  // Doors logged with no signal wait on the phone; this sends them when it
+  // returns, whether or not a door's form is open.
+  useOfflineQueueDrain()
   // The turf itself, for its name (the walk session needs one to start) and
   // for `useWalkCompletion`, which needs the full row to derive whether the
   // walk is finished. GET /v1/door-knocking/turfs/:id admits an assigned
@@ -108,16 +114,24 @@ export default function VolunteerWalkPage({
       }).then((res) => res.data),
   })
   // Same key `useWalkMapSession` and `WalkView` read, so this shares one fetch
-  // with both — and, read here too, lets a revoked route's 404 surface as
-  // soon as it lands rather than waiting on the turf metadata call to settle
-  // first. `useWalkMapSession` gets the id straight from the URL rather than
+  // with both, and is fetched beside the turf call rather than after it.
+  // `useWalkMapSession` gets the id straight from the URL rather than
   // waiting on `walk.turf`, for the same reason: the route depends only on
   // the id, and gating it behind the turf-metadata round trip would toggle
   // this query from disabled to enabled a beat later, firing a second,
   // avoidable fetch against a key this instance already holds.
   const routeQuery = useQuery(routeQueryOptions(turfId))
+  // Declared after the route query on purpose: the walk's events are named per
+  // product, and this page learns its surface from the route payload rather
+  // than from an organization a volunteer cannot read. `start`/`end` are
+  // rebuilt each render, so they close over the settled value by the time a
+  // walk can begin.
+  const walk = useWalkSession(routeQuery.data?.isServe ?? false)
   const walkMap = useWalkMapSession({ id: turfId })
-  const completeFinishedWalk = useWalkCompletion(turfQuery.data ?? null)
+  const completeFinishedWalk = useWalkCompletion(
+    turfQuery.data ?? null,
+    routeQuery.data?.isServe ?? false,
+  )
   const [locationEnabled, setLocationEnabled] = useState(false)
   const location = useLiveLocation(locationEnabled)
   const [mapControlsOffset, setMapControlsOffset] = useState<number | null>(16)
@@ -157,13 +171,23 @@ export default function VolunteerWalkPage({
   // disambiguate. `startedRef` rather than a `walk.turf` dependency: the
   // session object is a fresh literal every render, so depending on it would
   // need the same escape hatch this ref is.
+  //
+  // An unrouted turf waits for the travel question below; the route that
+  // answer buys is what starts the walk, as a new route.
   const startedRef = useRef(false)
+  const builtRouteRef = useRef(false)
   useEffect(() => {
-    if (startedRef.current || !turfQuery.data) return
+    if (
+      startedRef.current ||
+      !turfQuery.data ||
+      turfQuery.data.routeSeconds === null
+    ) {
+      return
+    }
     startedRef.current = true
     walk.start(
       { id: turfQuery.data.id, name: turfQuery.data.name },
-      'existingRoute',
+      builtRouteRef.current ? 'newRoute' : 'existingRoute',
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turfQuery.data])
@@ -179,12 +203,30 @@ export default function VolunteerWalkPage({
     router.push('/volunteer')
   }
 
+  // Reset rather than invalidated: the route read 404'd while the turf had
+  // no route, and an invalidate keeps that error up while it refetches, which
+  // reads as a revoked route for the length of the round trip.
+  const handleRouteBuilt = (routed: DoorKnockingTurf) => {
+    builtRouteRef.current = true
+    void queryClient.resetQueries({
+      queryKey: routeQueryOptions(turfId).queryKey,
+    })
+    queryClient.setQueryData(['door-knocking-turf', turfId], routed)
+  }
+
+  // A route 404 means revoked only on a turf that has a route. On one that
+  // does not, it is the "not knocked yet" refusal, and the volunteer is the
+  // one who buys the route (ENG-11229).
+  const unrouted = turfQuery.data?.routeSeconds === null
   const revoked =
     (turfQuery.error instanceof FetchError && turfQuery.error.status === 404) ||
-    (routeQuery.error instanceof FetchError && routeQuery.error.status === 404)
+    (!unrouted &&
+      turfQuery.data !== undefined &&
+      routeQuery.error instanceof FetchError &&
+      routeQuery.error.status === 404)
   if (revoked) return <NotAssignedCard />
 
-  if (turfQuery.isError || routeQuery.isError) {
+  if (turfQuery.isError || (routeQuery.isError && !unrouted)) {
     return (
       <LoadErrorCard
         onRetry={() => {
@@ -192,6 +234,20 @@ export default function VolunteerWalkPage({
           void routeQuery.refetch()
         }}
       />
+    )
+  }
+
+  if (unrouted) {
+    return (
+      <div className="h-[calc(100dvh-3.5rem)] w-full">
+        <StartKnockingDialog
+          turf={turfQuery.data ?? null}
+          onOpenChange={(open) => {
+            if (!open) router.push('/volunteer')
+          }}
+          onRouteBuilt={handleRouteBuilt}
+        />
+      </div>
     )
   }
 

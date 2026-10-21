@@ -166,13 +166,15 @@ export class OutreachSocialController {
       input.purpose,
       input.assets.map((asset) => asset.platform),
     )
+    const { proposalKey, ...save } = input
     return this.socialService.saveSocialOutreach(
       {
         campaignId: campaign.id,
         organizationSlug: campaign.organizationSlug,
         userId: campaign.userId,
+        ...(proposalKey !== undefined && { proposalKey }),
       },
-      input,
+      save,
     )
   }
 

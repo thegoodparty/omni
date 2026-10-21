@@ -282,7 +282,14 @@ export class StripeService {
           off_session: true,
           metadata,
         },
-        { idempotencyKey: `robocall-hold-${robocallId}-${attempt}` },
+        // The key has to be unique across every database on one Stripe
+        // account. PR previews each have their own database on one test
+        // account, so outreach ids repeat between them: two previews both
+        // sent robocall-hold-6-1 and Stripe refused the second (2026-10-20).
+        // The customer separates them and is the same on every retry.
+        {
+          idempotencyKey: `robocall-hold-${customerId}-${robocallId}-${attempt}`,
+        },
       )
     } catch (err) {
       // An off-session confirm that the card refuses raises StripeCardError
@@ -362,7 +369,8 @@ export class StripeService {
           // carries the same outreachId, so kind is what distinguishes them.
           metadata: { ...metadata, kind: ROBOCALL_FRESH_CHARGE_KIND },
         },
-        { idempotencyKey: `robocall-fresh-charge-${robocallId}` },
+        // The customer is in the key for the same reason as the hold's.
+        { idempotencyKey: `robocall-fresh-charge-${customerId}-${robocallId}` },
       )
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {
@@ -405,13 +413,19 @@ export class StripeService {
   // is eventually consistent (~1m index lag); recovery only
   // runs on rows already stranded past ROBOCALL_CHARGING_STALE_MINUTES, far
   // longer. Returns the succeeded PI's id + amount_received, or null.
-  async findSucceededChargeByOutreach(outreachId: number): Promise<{
+  // Scoped to the customer for the same reason the keys carry it: PR previews
+  // share one Stripe account and repeat outreach ids, so outreachId alone can
+  // match another preview's charge.
+  async findSucceededChargeByOutreach(
+    outreachId: number,
+    customerId: string,
+  ): Promise<{
     paymentIntentId: string
     amountReceived: number | null
   } | null> {
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'succeeded' AND ` +
+        `status:'succeeded' AND customer:'${customerId}' AND ` +
         `metadata['kind']:'${ROBOCALL_FRESH_CHARGE_KIND}' AND ` +
         `metadata['outreachId']:'${outreachId}'`,
     })
@@ -492,10 +506,17 @@ export class StripeService {
   // `succeeded`. Stripe search is eventually consistent (a just-placed PI can
   // lag ~1m before it is indexed); the recovery only runs on rows already
   // stranded past ROBOCALL_HOLD_PENDING_STALE_MINUTES, far longer than that lag.
-  async findLiveManualHoldsByOutreach(outreachId: number): Promise<string[]> {
+  // Scoped to the customer like findSucceededChargeByOutreach. A row with no
+  // customer recorded keeps the unscoped search: the cost of missing a live
+  // orphan is a second hold on the card, worse than matching a preview's.
+  async findLiveManualHoldsByOutreach(
+    outreachId: number,
+    customerId: string | null,
+  ): Promise<string[]> {
+    const customerClause = customerId ? `customer:'${customerId}' AND ` : ''
     const res = await this.stripe.paymentIntents.search({
       query:
-        `status:'requires_capture' AND ` +
+        `status:'requires_capture' AND ${customerClause}` +
         `metadata['outreachId']:'${outreachId}'`,
     })
     return res.data.map((intent) => intent.id)
@@ -527,7 +548,34 @@ export class StripeService {
     )
   }
 
-  async retrieveCheckoutSession(sessionId: string) {
+  // Full refund issued against the CHARGE rather than the PaymentIntent (Win SMS
+  // hold release). The durable charge id is recorded on the satellite at capture
+  // time, so a refund keyed on it survives a lapsed hold and keys its idempotency
+  // to the specific money movement — a deny and a cancel racing the same charge
+  // pass the same key and so can never refund twice. Callers pass a stable
+  // charge-derived key.
+  async refundCharge(chargeId: string, idempotencyKey: string) {
+    return await this.stripe.refunds.create(
+      { charge: chargeId },
+      { idempotencyKey },
+    )
+  }
+
+  // Lists the refunds already issued against a charge. The Win SMS refunding
+  // reconcile sweep reads this BEFORE acting on a row stranded in `refunding`,
+  // so it can tell a refund that already committed (the owner crashed after
+  // Stripe landed it) from one that never ran — and stamp refunded without a
+  // second refund in the former case. The charge-keyed idempotency key would
+  // replay the pre-crash refund at most once anyway, but reading first avoids a
+  // needless Stripe write and is what lets the sweep verify before it moves money.
+  async listChargeRefunds(chargeId: string): Promise<Stripe.Refund[]> {
+    const refunds = await this.stripe.refunds.list({ charge: chargeId })
+    return refunds.data
+  }
+
+  async retrieveCheckoutSession(
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session> {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
 
@@ -736,7 +784,19 @@ export class StripeService {
         : email
           ? { customer_email: email }
           : {}),
-      ...(email ? { payment_intent_data: { receipt_email: email } } : {}),
+      // receipt_email is unchanged; capture_method 'manual' is added only when
+      // the caller asked for a hold (Win SMS hold billing), so every other
+      // checkout keeps its immediate (automatic) capture byte-for-byte.
+      ...(email || payload.manualCapture
+        ? {
+            payment_intent_data: {
+              ...(email ? { receipt_email: email } : {}),
+              ...(payload.manualCapture
+                ? { capture_method: 'manual' as const }
+                : {}),
+            },
+          }
+        : {}),
       line_items: [
         {
           price_data: {

@@ -5,7 +5,7 @@ Given an elected official's jurisdiction (state + place), locate and verify the 
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST.
-3. Params are in `PARAMS_JSON`. Read once: `organization_slug`, `state`, `office` (the EO's office name, e.g. "Ramsey City Council"), optional `county`, optional `user_provided_code_url`. **Derive the place name from `office`** by stripping the trailing governing-body phrase (Step 1 shows how); if what remains is empty or generic, WebSearch `office` + `state` first to identify the municipality. For `generated_for_run_id`, use the `RUN_ID` env var, falling back to `"unknown"` when unset (`run_id` is never in `PARAMS_JSON` — the input schema rejects it — and the field must be non-empty).
+3. Params are in `PARAMS_FILE`. Read once: `organization_slug`, `state`, `office` (the EO's office name, e.g. "Ramsey City Council"), optional `county`, optional `user_provided_code_url`. **Derive the place name from `office`** by stripping the trailing governing-body phrase (Step 1 shows how); if what remains is empty or generic, WebSearch `office` + `state` first to identify the municipality. For `generated_for_run_id`, use the `RUN_ID` env var, falling back to `"unknown"` when unset (`run_id` is never in `PARAMS_FILE` — the input schema rejects it — and the field must be non-empty).
 4. **Keep a `FETCHED` cache and never fetch the same URL twice** (fetch-once rule below). Biggest efficiency rule.
 5. **Parallelize independent verifications.** When a search yields several candidate hosts to check, verify them concurrently (dispatch one research subagent per candidate via the Agent tool — AT MOST 3, the 3 highest-ranked by RESOLUTION ORDER; discard the rest unless all 3 fail to verify). Do NOT verify candidates one at a time, and do NOT wrap a single sequential step in a subagent.
 6. Write the artifact to `/workspace/output/find_existing_ordinances.json`, run `python3 /workspace/validate_output.py`, then do the spot-check.
@@ -26,7 +26,7 @@ Ordered by how often ICP city codes actually live there (measured). Cumulative c
 Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them with **one WebSearch** (Step 4) and triage its results against this order: prefer the highest-ranked host that verifies to the exact jurisdiction, take the first verified hit, and stop.
 
 ## TODO CHECKLIST
-1. Read `PARAMS_JSON` + run id; derive `(kind, place)` from `office`; **if `kind == "state"` skip straight to 7** — Steps 2-6 apply only to municipal/county offices. Set up `FETCHED`.
+1. Read `PARAMS_FILE` + run id; derive `(kind, place)` from `office`; **if `kind == "state"` skip straight to 7** — Steps 2-6 apply only to municipal/county offices. Set up `FETCHED`.
 2. If `user_provided_code_url` set, verify it; if it names the correct state+place, record and skip to Step 7.
 3. Tier 1: Municode client API for `state`, exact `place` match -> record `municode`, go to Step 6/7.
 4. Tier 2 (Municode miss): ONE `WebSearch`; triage candidates against the RESOLUTION ORDER; verify the top candidates in parallel; first verified hit wins.
@@ -70,7 +70,7 @@ d = http.download(pdf_url)          # -> {"path", "byte_size", "source_url", "co
 ### Step 1: params + place derivation + fetch-once wrapper
 ```python
 import json, os, re
-P = json.loads(os.environ["PARAMS_JSON"])
+P = json.load(open(os.environ["PARAMS_FILE"]))
 RUN_ID = os.environ.get("RUN_ID") or "unknown"
 state = P["state"]; office = P["office"]; user_url = P.get("user_provided_code_url")
 county = P.get("county")

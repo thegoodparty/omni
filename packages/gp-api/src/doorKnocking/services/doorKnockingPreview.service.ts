@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   DoorKnockingAddressPreviewResponse,
   DoorKnockingPreviewLocation,
@@ -12,6 +12,7 @@ import {
   NotAVoterStatus,
   Organization,
 } from '../../generated/prisma'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
@@ -49,28 +50,31 @@ const EMPTY_COUNTS = {
 // route would freeze.
 //
 // Nothing here is persisted and no Geoapify credit is spent; the only cost is
-// one people-db scan per explicit request. See ADR 0010 for why that request
-// is explicit rather than debounced.
-// Touches no table of its own. It used to extend the spend ledger's Prisma
-// base to read the org's remaining daily stops off it; that allowance is gone,
-// and with it the only reason this service held a client.
+// one people-db scan per request, and that cost is why the request is
+// explicit rather than debounced.
+// Reads one table, the saved list a draft was picked from, so a list's frozen
+// boundary and sample narrow the preview the way they narrow the create.
 @Injectable()
-export class DoorKnockingPreviewService {
+export class DoorKnockingPreviewService extends createPrismaBase(
+  MODELS.VoterFileFilter,
+) {
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
-  ) {}
+  ) {
+    super()
+  }
 
   async preview(
     organization: Organization,
     input: DoorKnockingAddressPreview,
   ): Promise<DoorKnockingAddressPreviewResponse> {
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
+    const { districtId, dataset } =
+      await this.contacts.resolveEligibleDistrict(organization)
 
-    // ADR 0007 and ADR 0008, deduped into one exclusion list exactly as the
-    // knock builds it. A door whose every resident is flagged therefore has
+    // Do-not-knock and not-a-voter, deduped into one exclusion list exactly as
+    // the knock builds it. A door whose every resident is flagged therefore has
     // nobody left to evaluate and does not appear at all — which is not the
     // preview hiding it but the route not containing it, since a knock of
     // this shape would drop the same people.
@@ -95,9 +99,28 @@ export class DoorKnockingPreviewService {
     // the list would not knock — the exact drift this endpoint exists to
     // close. It also carries the Win-only party and contacts-made gates, so
     // an elected-office org gets the same 400 here as at knock time.
+    //
+    // A picked list resolves off its own row, as the create does. Its
+    // boundary and sample are member rows the draft has no way to carry, so
+    // previewing the draft drew every matching person in the ring while the
+    // create kept only the list's members: the draw step showed doors and
+    // the save said nobody was inside the turf.
+    const savedList =
+      input.voterFileFilterId === undefined
+        ? null
+        : await this.findFirst({
+            where: {
+              id: input.voterFileFilterId,
+              organizationSlug: organization.slug,
+            },
+            include: { activityConditions: true },
+          })
+    if (input.voterFileFilterId !== undefined && !savedList) {
+      throw new NotFoundException('Voter file filter not found')
+    }
     const resolved = await this.contacts.resolveSavedFilterForQuery(
       organization,
-      input.filters,
+      savedList ?? input.filters,
     )
     // Nobody survives the draft's own filters. Creating a turf raises a 400
     // here because a list is being committed; a shape still being drawn is
@@ -117,10 +140,15 @@ export class DoorKnockingPreviewService {
 
     const { people } = await this.peopleApi.evaluate({
       districtId,
+      dataset,
       bbox: polygonBbox(input.geoPoly),
       filters: resolved.filters,
       idOverrides: resolved.idOverrides,
       contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      affinityColumn: await this.contacts.affinityColumnFor(
+        organization,
+        resolved.filters,
+      ),
       excludePersonIds,
     })
 

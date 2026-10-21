@@ -490,6 +490,56 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       expect(names).not.toContain('Setup Checklist')
     })
 
+    it('leaves out text sends once texting is closed for the race', async () => {
+      // Texting closes 19 days before the general election.
+      const closedElection = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
+      const campaign = await makeCampaign({ electionDate: closedElection })
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, {
+          title: `Dynamic ${i}`,
+          flowType: CampaignTaskType.education,
+          week: 10,
+        })
+      }
+      await makeTask(campaign.id, {
+        title: 'Intro Text',
+        flowType: CampaignTaskType.text,
+        week: 10,
+        isDefaultTask: true,
+        date: new Date('2026-04-21T00:00:00.000Z'),
+      })
+      await makeTask(campaign.id, {
+        title: 'Intro Robocall',
+        flowType: CampaignTaskType.robocall,
+        week: 10,
+        isDefaultTask: true,
+        date: new Date('2026-04-22T00:00:00.000Z'),
+      })
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(4)
+      expect(properties.task_name_1).toBe('Intro Robocall')
+      expect([
+        properties.task_name_1,
+        properties.task_name_2,
+        properties.task_name_3,
+      ]).not.toContain('Intro Text')
+    })
+
     it('does not send a tracker digest when a campaign has only non-outreach default rows and no dynamic generation', async () => {
       const campaign = await makeCampaign()
       // Setup checklist materialized eagerly, but no dynamic generation and no

@@ -1,21 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from '../shared/candidateAccess'
 import { getServerUser } from 'helpers/userServerHelper'
-import { serverRequest } from 'gpApi/server-request'
 import CampaignPlanRouter from './components/CampaignPlanRouter'
-
-// The dedicated existence endpoint, not a field on the campaign payload.
-// Fails closed — an error reads as "no plan", so CampaignPlanRouter falls
-// through to the story-completeness gate rather than a tracker that can't
-// populate.
-const strategyExists = async (): Promise<boolean> => {
-  try {
-    const res = await serverRequest('GET /v1/campaignStrategy/mine/exists', {})
-    return res.data.exists === true
-  } catch {
-    return false
-  }
-}
 
 const meta = pageMetaData({
   title: 'Campaign Plan | GoodParty.org',
@@ -28,11 +14,6 @@ export const dynamic = 'force-dynamic'
 
 export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
-  const [initialUser, planExists] = await Promise.all([
-    getServerUser(),
-    strategyExists(),
-  ])
-  return (
-    <CampaignPlanRouter initialUser={initialUser} planExists={planExists} />
-  )
+  const initialUser = await getServerUser()
+  return <CampaignPlanRouter initialUser={initialUser} />
 }

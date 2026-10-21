@@ -9,10 +9,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
-import {
-  ringsToGeoJsonShape,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { shapesToSave, type ListShape } from 'app/dashboard/shared/listShapes'
 import { listPeopleQueryKey } from '../map/useListPeople'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
@@ -49,6 +46,7 @@ import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 
 type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
 
@@ -72,12 +70,11 @@ interface CreateListWizardProps {
 }
 
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
-// branch-specific conditions -> name + build. Serve has no outreach
-// (deferred by design, ENG-10750), so its flow drops the branch chooser and
-// opens directly on the constituent-file filters, and it alone gains the
-// boundary step between the conditions and the name — this derived `steps`
-// array is THE Serve gate; when Serve outreach ships, reopen the branch
-// here.
+// branch-specific conditions -> boundary -> name + build. Serve has no
+// outreach (deferred by design, ENG-10750), so its flow drops the branch
+// chooser and opens directly on the constituent-file filters — this derived
+// `steps` array is THE Serve gate; when Serve outreach ships, reopen the
+// branch here.
 export default function CreateListWizard({
   open,
   onOpenChange,
@@ -93,6 +90,8 @@ export default function CreateListWizard({
     voterDataUnavailable,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const { enabled: citizenPanelsEnabled } =
+    useServeCitizenPanelsFlag(isElectedOfficial)
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -107,7 +106,7 @@ export default function CreateListWizard({
     : // The page's "Create new list" button is disabled until
       // isWinContextReady, so the wizard never opens on an unsettled mode.
       isWinContext
-      ? ['branch', 'conditions', 'name']
+      ? ['branch', 'conditions', 'boundary', 'name']
       : ['conditions', 'boundary', 'name']
 
   const [stepIndex, setStepIndex] = useState(0)
@@ -128,10 +127,11 @@ export default function CreateListWizard({
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
   const [name, setName] = useState('')
-  // Held as the open ring the map draws, not as the GeoJSON it is saved as,
-  // so Back onto the boundary step restores the shape with its handles
-  // rather than a closed polygon that has to be reopened to be edited.
-  const [boundaryRings, setBoundaryRings] = useState<PolygonRing[]>([])
+  // Held as the open rings the map draws, with their names and colours, not
+  // as the GeoJSON they are saved as, so Back onto the boundary step
+  // restores each shape with its handles rather than a closed polygon that
+  // has to be reopened to be edited.
+  const [boundaryShapes, setBoundaryShapes] = useState<ListShape[]>([])
 
   // Serve never renders the branch chooser, so its branch is a constant —
   // derived, not set on open, so no frame can render the activity branch
@@ -175,7 +175,7 @@ export default function CreateListWizard({
         : [blankActivityCondition()],
     )
     setName(editingSegment?.name ?? '')
-    setBoundaryRings([])
+    setBoundaryShapes([])
     setOpenSession((session) => session + 1)
     // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
     // OR of two independent sources (the page's create button and the
@@ -316,9 +316,9 @@ export default function CreateListWizard({
   // isLoading/isStale both false — an errored count is unknown, not zero.
   const isZeroMatch = !isLoading && !isStale && !isError && count === 0
 
-  const geoPoly = useMemo(
-    () => ringsToGeoJsonShape(boundaryRings),
-    [boundaryRings],
+  const { geoPoly, geoPolyLabels } = useMemo(
+    () => shapesToSave(boundaryShapes),
+    [boundaryShapes],
   )
 
   // The shape's own count. It supersedes the live count from the boundary
@@ -425,6 +425,7 @@ export default function CreateListWizard({
     } else if (stepName === 'boundary' && !isBoundaryBlocked) {
       trackEvent(EVENTS.Contacts.ListWizard.BoundaryCompleted, {
         context: isWinContext ? 'win' : 'serve',
+        ...(activeBranch ? { branch: activeBranch } : {}),
         hasBoundary,
       })
       setStepIndex(stepIndex + 1)
@@ -626,7 +627,7 @@ export default function CreateListWizard({
     createMutation.mutate({
       name: trimmedName,
       ...backendPayload,
-      ...(geoPoly ? { geoPoly } : {}),
+      ...(geoPoly ? { geoPoly, geoPolyLabels } : {}),
     })
   }
 
@@ -819,6 +820,7 @@ export default function CreateListWizard({
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
           showRecommendedListFilters
+          showCitizenPanelFilters={citizenPanelsEnabled}
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (
@@ -829,8 +831,8 @@ export default function CreateListWizard({
       )}
       {stepName === 'boundary' && (
         <BoundaryStep
-          rings={boundaryRings}
-          onRingsChange={setBoundaryRings}
+          shapes={boundaryShapes}
+          onShapesChange={setBoundaryShapes}
           labels={labels}
           filters={backendPayload}
           count={polygonCount}

@@ -27,6 +27,13 @@ Each folder in gp-ai maps to a Braintrust project. Pass the project name in code
 | `serve/analyze_texts` | `analyze-texts` |
 | `hubspot_ddhq_match` | `hubspot-ddhq-match` |
 
+Within `hierarchical-discovery`, `ClusterAnalyzer` loads one of two prompt slugs
+to name a cluster's theme, picked by the v1_pipeline orchestrator from the
+run's `SOURCE_TYPE`: `cluster-analysis` for poll runs (SMS poll replies), and
+`feedback-cluster-analysis` for issue-capture feedback runs (canvasser notes,
+product-neutral wording since the run doesn't know Win vs. Serve) -- see
+`serve/v1_pipeline/README.md` § Feedback source.
+
 ## Usage
 
 ```python
@@ -53,12 +60,26 @@ result = traced_llm_call(
     tags=["production", "v1"]  # Optional: tags for filtering in UI
 )
 
-# Load prompts from Braintrust (with local fallback)
+# Load prompts from Braintrust (with local fallback). Hosted prompts render in
+# strict mode: a placeholder the variables do not cover raises, and the call
+# falls back to fallback_prompt with a warning instead of sending blanks.
 prompt = load_prompt_from_braintrust(
     prompt_name="cluster-analysis-v1",
     fallback_prompt="Analyze this: {input}",
     variables={"input": data}
 )
+
+# Which source load_prompt() used for this name ("hosted" or "fallback"),
+# across every call made for it since the client was (re)initialized, or
+# None if it was never called. Sticky to "fallback": one run calls
+# load_prompt() once per cluster, and once any of those calls falls back
+# this stays "fallback" even if a later call for the same name renders
+# hosted. The v1_pipeline orchestrator reads this for "cluster-analysis"
+# and carries it onto the pollAnalysisComplete / feedbackSynthesisComplete
+# completion events as promptSource, so a fallback is visible in gp-api's
+# logs (which reach Grafana, unlike this service's) and pages through the
+# shared-synthesis-prompt-fallback alert there.
+source = get_client().get_prompt_source("cluster-analysis-v1")
 
 # Flush logs before shutdown
 flush_logs()

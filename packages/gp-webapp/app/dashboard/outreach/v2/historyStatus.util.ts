@@ -1,14 +1,18 @@
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // The two legacy status vocabularies the unified history has to keep
 // rendering. One DELIBERATE divergence from the legacy table's vocabulary:
 // `completed` renders "Done" here (the v2 design's vocabulary, per the
 // prototype's history table) rather than "Sent" — a product call, not drift.
 
-export interface HistoryRow extends Outreach {
-  p2pJob?: { status?: string; start_date?: string }
-}
+// The row as the dashboard receives it. It used to carry an extra `p2pJob`
+// object — the texting vendor's live view of the job, fetched on every page
+// load — and the status column read from it. It does not any more: the vendor is
+// read by the hourly status sweep instead, which writes what it learns onto the
+// row's own `status`, so everything below is derived from columns we store.
+export type HistoryRow = Outreach
 
 type StatusKey =
   | 'pending'
@@ -75,6 +79,7 @@ export const DRAFT_LABELS = {
   inReview: 'Verification in review',
   pin: 'PIN needed',
   ready: 'Ready to schedule',
+  closed: SMS_CUTOFF_COPY.closedLabel,
 } as const
 
 export const draftLabelFor = (
@@ -82,10 +87,13 @@ export const draftLabelFor = (
   membership: MembershipState | null,
 ): string | null => {
   if (!membership) return null
-  if (membership.tier === 'free') return DRAFT_LABELS.pro
   // Only the texting channels gate on TCR/CV verification — a robocall or
   // other Pro-only draft has nothing left to clear but the send itself.
   const texting = row.outreachType === 'p2p' || row.outreachType === 'text'
+  // Closed texting outranks the tier, as it does in useOutreachGate: Pro
+  // would not get this draft sent.
+  if (texting && membership.texting === 'closed') return DRAFT_LABELS.closed
+  if (membership.tier === 'free') return DRAFT_LABELS.pro
   if (!texting) return DRAFT_LABELS.ready
   switch (membership.texting) {
     case 'needs_verification':
@@ -96,6 +104,8 @@ export const draftLabelFor = (
       return DRAFT_LABELS.pin
     case 'cleared':
       return DRAFT_LABELS.ready
+    case 'closed':
+      return DRAFT_LABELS.closed
   }
 }
 
@@ -120,17 +130,42 @@ export const draftLabelFor = (
 const isServeSmsRow = (row: HistoryRow, isServe: boolean): boolean =>
   isServe && row.outreachType === 'text' && row.phoneListId == null
 
+// A priority text's follow-up reads Draft until its recipients are picked
+// and Scheduled once they are. Only a follow-up still waiting on its send
+// comes through here; the rest read from their status as any text does.
+export const isFollowUpRow = (row: HistoryRow): boolean =>
+  row.roundOneOutreachId != null
+
+export const followUpPickedAt = (row: HistoryRow): string | Date | null =>
+  isFollowUpRow(row) ? (row.voterFileFilter?.sampledAt ?? null) : null
+
+// Set by gp-api when a follow-up's draw finds nobody left to text.
+export const FOLLOW_UP_DREW_NOBODY = 'round_two_drew_nobody'
+
+export const followUpDrewNobody = (row: HistoryRow): boolean =>
+  isFollowUpRow(row) &&
+  row.status === 'canceled' &&
+  row.canceledBy === FOLLOW_UP_DREW_NOBODY
+
+const getFollowUpLabel = (row: HistoryRow): string | null => {
+  if (!isFollowUpRow(row) || row.status !== 'pending') return null
+  return followUpPickedAt(row) === null ? 'Draft' : 'Scheduled'
+}
+
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
-  const { p2pJob, status } = row
+  const { status } = row
   if (!status || !isStatusKey(status)) {
     return null
   }
-  // Cancel deletes the vendor job, so a canceled row has no p2pJob to
-  // merge — requiring one here read every canceled campaign as "n/a".
+  // Cancel deletes the vendor job and clears nothing on our side, so a canceled
+  // row is read from its own status before anything else.
   if (status === 'canceled') {
     return p2pStatusLabels.canceled
   }
-  if (!p2pJob?.status) {
+  // No vendor job minted for this row yet (projectId is written when the job is
+  // created at the vendor), so there is no send to describe. This is the case
+  // that used to be "we fetched the vendor's jobs and yours was not among them".
+  if (!row.projectId) {
     return null
   }
   // Done is the spine's word, never the vendor's. Peerly's job status has no
@@ -145,33 +180,32 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   if (status === 'completed') {
     return p2pStatusLabels.completed
   }
-  // A queued job (not yet loaded by a Peerly agent) has sent nothing even
-  // past its date — a stale schedule that was never picked up.
-  if (p2pJob.status === 'pending') {
+  // `pending` is the sweep's word for "this send has not started": either its
+  // day has not come, or a Peerly agent never picked the job up — a stale
+  // schedule that sent nothing even past its date. Both read Scheduled, which
+  // is what the live vendor read used to say for a queued job. The sweep is
+  // hourly, so a send that began within the last hour can still read Scheduled
+  // for a few more minutes; the ratchet only ever moves forward, so the label
+  // never goes back.
+  if (status === 'pending') {
     return p2pStatusLabels.paid
   }
-  // Sending begins at the candidate's own send time. The row's `date` is the
-  // instant they picked; the job's start_date is a bare calendar day and
-  // stands in only for legacy rows that carry no timestamp.
+  // Sending begins at the candidate's own send time. The sweep moves the row to
+  // in_progress once the vendor's job is past its start day, and this is the
+  // row's own instant, so the two agree to within the sweep's hour.
   const sendStart = sendStartMs(row)
   if (sendStart !== null) {
     return Date.now() < sendStart ? p2pStatusLabels.paid : 'Sending'
   }
-  // A pending row WITH a vendor job is a scheduled send awaiting its start
-  // day, not an unfinished draft — draft-first finalize leaves the spine at
-  // `pending` until the completion sweep advances it, so 'Draft' would be a
-  // lie the moment verification cleared.
-  return p2pStatusLabels[status === 'pending' ? 'paid' : status]
+  return p2pStatusLabels[status]
 }
 
+// The instant the candidate chose. Rows created before that was captured carry
+// no date at all, and fall through to their status's own label.
 const sendStartMs = (row: HistoryRow): number | null => {
   if (row.date) {
     const fromRow = new Date(row.date).getTime()
     if (!Number.isNaN(fromRow)) return fromRow
-  }
-  if (row.p2pJob?.start_date) {
-    const fromJob = Date.parse(`${row.p2pJob.start_date}T00:00:00Z`)
-    if (!Number.isNaN(fromJob)) return fromJob
   }
   return null
 }
@@ -243,12 +277,20 @@ export const getHistoryStatusLabel = (
   // because this state spans the send AND the days of replies after it —
   // "Sending" would name only its first half.
   if (isServeSmsRow(row, isServe)) {
+    const followUp = getFollowUpLabel(row)
+    if (followUp) return followUp
     if (status === 'pending') {
       return 'Scheduled'
     }
     if (status === 'in_progress') {
       return 'In progress'
     }
+  }
+  // A paid poll is HELD for staff approval, so `pending` stays "In review" (the
+  // map's word, and what the official was told at checkout). Once approved it
+  // is delivered and collecting replies, which "Scheduled" would misname.
+  if (row.outreachType === 'poll' && status === 'in_progress') {
+    return 'In progress'
   }
   return nonP2pStatusLabels[status]
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignTrackerController } from './campaignTracker.controller'
 
 // The generate route is a non-prod-only override gated on IS_NON_PROD_DEPLOY,
@@ -10,7 +11,10 @@ import { CampaignTrackerController } from './campaignTracker.controller'
 describe('CampaignTrackerController.generateTasks (env gate)', () => {
   it('404s and does not dispatch when not a non-prod deploy', async () => {
     const service = { generateNow: vi.fn() }
-    const controller = new CampaignTrackerController(service as never)
+    const controller = new CampaignTrackerController(
+      service as never,
+      createMockLogger() as never,
+    )
     await expect(
       controller.generateTasks({ id: 42 } as never),
     ).rejects.toBeInstanceOf(NotFoundException)

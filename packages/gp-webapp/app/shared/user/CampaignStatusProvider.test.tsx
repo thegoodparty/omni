@@ -12,16 +12,6 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockUseOrganization(),
 }))
 
-const mockUseTeamAccountsFlag = vi.fn(() => ({
-  ready: true,
-  enabled: false,
-  failed: false,
-}))
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: (...args: unknown[]) =>
-    mockUseTeamAccountsFlag(...(args as [])),
-}))
-
 const mockUseCampaign = vi.fn(() => [null])
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => mockUseCampaign(),
@@ -43,11 +33,6 @@ const StatusConsumer = () => {
 
 beforeEach(() => {
   mockUseOrganization.mockReset().mockReturnValue(undefined)
-  mockUseTeamAccountsFlag.mockReset().mockReturnValue({
-    ready: true,
-    enabled: false,
-    failed: false,
-  })
   mockUseCampaign.mockReset().mockReturnValue([null])
   mockUseUser.mockReset().mockReturnValue([{ id: 1 }])
 })
@@ -56,13 +41,8 @@ describe('CampaignStatusProvider', () => {
   // ENG-11072: gp-api's UseCampaignGuard fails closed on a volunteer
   // membership, so this always 403s for one. The effect must not fire the
   // request at all for a volunteer's active org.
-  it('does not request GET /v1/campaigns/mine/status when the active org is volunteer and the flag is on', async () => {
+  it('does not request GET /v1/campaigns/mine/status when the active org is volunteer', async () => {
     mockUseOrganization.mockReturnValue({ role: 'volunteer' })
-    mockUseTeamAccountsFlag.mockReturnValue({
-      ready: true,
-      enabled: true,
-      failed: false,
-    })
     let requested = false
     api.mock('GET /v1/campaigns/mine/status', () => {
       requested = true
@@ -84,41 +64,11 @@ describe('CampaignStatusProvider', () => {
     expect(requested).toBe(false)
   })
 
-  it('still requests GET /v1/campaigns/mine/status for a volunteer-role org when the flag is off', async () => {
-    mockUseOrganization.mockReturnValue({ role: 'volunteer' })
-    mockUseTeamAccountsFlag.mockReturnValue({
-      ready: true,
-      enabled: false,
-      failed: false,
-    })
-    api.mock('GET /v1/campaigns/mine/status', {
-      status: 200,
-      data: { status: 'candidate' },
-    })
-
-    render(
-      <CampaignStatusProvider>
-        <StatusConsumer />
-      </CampaignStatusProvider>,
-    )
-
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="status"]'),
-      ).toHaveTextContent('candidate'),
-    )
-  })
-
   // Without clearing on the skip branch, a campaign-org → volunteer-org
   // switch would leave the previous org's status (e.g. 'candidate') in
   // context for the rest of the session.
   it('clears a previously loaded status when the active org switches to a volunteer org', async () => {
     mockUseOrganization.mockReturnValue({ role: 'owner' })
-    mockUseTeamAccountsFlag.mockReturnValue({
-      ready: true,
-      enabled: true,
-      failed: false,
-    })
     api.mock('GET /v1/campaigns/mine/status', {
       status: 200,
       data: { status: 'candidate' },
@@ -149,13 +99,8 @@ describe('CampaignStatusProvider', () => {
     )
   })
 
-  it('requests GET /v1/campaigns/mine/status for a non-volunteer active org even with the flag on', async () => {
+  it('requests GET /v1/campaigns/mine/status for a non-volunteer active org', async () => {
     mockUseOrganization.mockReturnValue({ role: 'owner' })
-    mockUseTeamAccountsFlag.mockReturnValue({
-      ready: true,
-      enabled: true,
-      failed: false,
-    })
     api.mock('GET /v1/campaigns/mine/status', {
       status: 200,
       data: { status: 'candidate' },

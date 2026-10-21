@@ -1,16 +1,21 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { trackEvent } from 'helpers/analyticsHelper'
 import { useFeatureFlags } from 'app/shared/experiments/FeatureFlagsProvider'
 import {
   OUTREACH_PRO_GATING_V2_FLAG_KEY,
   useOutreachProGatingV2Flag,
 } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from './deriveMembershipState'
 import { useMembershipState } from './useMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
@@ -18,23 +23,43 @@ import { ProPitchDialog } from './ProPitchDialog'
 import { PinDialog } from './PinDialog'
 import {
   isMembershipSurfaceVisible,
+  MEMBERSHIP_CLICK_EVENTS,
+  MEMBERSHIP_SCHEDULE_HREF,
   resolveMembershipAction,
 } from './MembershipBanner'
 
 const CHIP_CLASS_NAME =
   'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-info-50 px-2.5 text-xs font-semibold text-primary'
 
-const verificationLabel = (state: MembershipState): string => {
-  if (state.texting === 'awaiting_pin') return MEMBERSHIP_COPY.chip.awaitingPin
-  if (state.texting === 'in_review') return MEMBERSHIP_COPY.chip.inReview
-  return MEMBERSHIP_COPY.chip.needsVerification
+// Same shape as the banner's copy: a countdown while the window is closing,
+// and nothing for a closed Pro campaign, which never shows the chip.
+const verificationLabel = (
+  state: MembershipState,
+  countdownCutoff: string | null,
+): string | null => {
+  switch (state.texting) {
+    case 'needs_verification':
+      return countdownCutoff
+        ? SMS_CUTOFF_COPY.countdownChip(countdownCutoff)
+        : MEMBERSHIP_COPY.chip.needsVerification
+    case 'in_review':
+      return MEMBERSHIP_COPY.chip.inReview
+    case 'awaiting_pin':
+      return MEMBERSHIP_COPY.chip.awaitingPin
+    case 'cleared':
+      return MEMBERSHIP_COPY.chip.cleared
+    case 'closed':
+      return null
+  }
 }
 
 export const MembershipChip = (): React.JSX.Element | null => {
   const router = useRouter()
+  const pathname = usePathname()
   const { enabled } = useOutreachProGatingV2Flag(false)
   const { exposure } = useFeatureFlags()
   const { ready, state, tcrCompliance } = useMembershipState({ enabled })
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -48,27 +73,25 @@ export const MembershipChip = (): React.JSX.Element | null => {
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
 
-  // One view per appearance, the banner's rule: a texting transition while
-  // the chip stays on screen is not a second view.
-  const stateRef = useRef(state)
-  stateRef.current = state
-  useEffect(() => {
-    if (!visible) return
-    trackEvent(EVENTS.ProUpgrade.Membership.ChipViewed, {
-      tier: stateRef.current?.tier,
-      texting: stateRef.current?.texting,
-    })
-  }, [visible])
-
   if (!visible || !state) return null
 
   const action = resolveMembershipAction(state)
+  const label = verificationLabel(
+    state,
+    smsCompliance === 'closing' && smsCutoffDate
+      ? formatSmsCutoffDate(smsCutoffDate)
+      : null,
+  )
+  if (state.tier === 'pro' && label === null) return null
 
   const handleClick = () => {
-    trackEvent(EVENTS.ProUpgrade.Membership.ChipClicked, { action })
+    if (action) {
+      trackEvent(MEMBERSHIP_CLICK_EVENTS[action], { path: pathname })
+    }
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
+    else if (action === 'schedule') router.push(MEMBERSHIP_SCHEDULE_HREF)
   }
 
   const body =
@@ -81,7 +104,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
     ) : (
       <>
         <ShieldCheckIcon className="size-3.5" aria-hidden />
-        {verificationLabel(state)}
+        {label}
       </>
     )
 
@@ -99,7 +122,14 @@ export const MembershipChip = (): React.JSX.Element | null => {
           {body}
         </span>
       )}
-      {pitchOpen && <ProPitchDialog open onOpenChange={setPitchOpen} />}
+      {pitchOpen && (
+        <ProPitchDialog
+          open
+          onOpenChange={setPitchOpen}
+          source="navigation"
+          channel="generic"
+        />
+      )}
       {pinOpen && (
         <PinDialog
           open

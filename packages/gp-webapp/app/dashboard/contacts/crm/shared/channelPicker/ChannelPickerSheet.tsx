@@ -1,6 +1,14 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRightIcon, cn, DrawerTitle } from '@styleguide'
+import { MessageSquareOff } from 'lucide-react'
+import {
+  ChevronRightIcon,
+  cn,
+  DrawerTitle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import {
@@ -8,9 +16,17 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { CHANNEL_META } from 'app/dashboard/outreach/v2/channelMeta'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
 import { getContactsLabels } from '../../../../shared/contactsLabels'
 import { useContactsTable } from '../../ContactsTableProvider'
-import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { recommendedListDetailQueryOptions } from '../../recommended/recommendedListDetail.query'
 import CrmSheet from '../CrmSheet'
 import { ALL_SEGMENTS } from '../constants'
@@ -52,16 +68,8 @@ const pricePerContact = (channel: ChannelPickerChannel): number =>
   OUTREACH_OPTIONS.find((option) => option.type === OUTREACH_TYPES[channel])
     ?.cost ?? 0
 
-// Integer tenth-cents, rounded to the cent, so the figure here is the figure
-// gp-api's pricing utils produce for the flow's own card — float math on
-// 16,449 x 0.035 lands a cent short of what checkout charges.
-const costLabel = (reach: number, price: number): string => {
-  const cents = Math.round((reach * Math.round(price * 1000)) / 10)
-  return `$${(cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
+const costLabel = (reach: number, price: number): string =>
+  formatOutreachCost(outreachCostCents(reach, price))
 
 // The prototype's "Choose a channel" drawer: the list name and size in the
 // header, one row per channel with how many of the list it can reach and
@@ -74,16 +82,12 @@ export default function ChannelPickerSheet({
   const orgSlug = useOrganization()?.slug
   const { canUseProFeatures, isWinContext, voterDataUnavailable } =
     useContactsTable()
-  // Door knocking's row is the only one that links out of the hub's `?compose=`
-  // vocabulary, into `/dashboard/door-knocking?create=1` — a param only the
-  // native page reads. With the flag off that link lands on the eCanvasser
-  // dashboard, which has no audience step to hand this list to, so the row
-  // would promise a hand-off it cannot make. Read without exposure: the
-  // door-knocking page gate is the treatment surface.
-  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
-  const showDoorKnocking =
-    nativeDoorKnocking.ready && nativeDoorKnocking.enabled
   const labels = getContactsLabels(isWinContext)
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const smsClosed = smsCompliance === 'closed'
+  const smsClosedReason = SMS_CUTOFF_COPY.closedReason(
+    smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+  )
   const enabled = target !== null && canUseProFeatures && !voterDataUnavailable
 
   // Same keys the detail sheets and the list rows use, so a picker opened
@@ -140,13 +144,15 @@ export default function ChannelPickerSheet({
 
   // The prototype orders rows by how many of the list each channel reaches;
   // social has no audience and always sits last. Left in channel order until
-  // the counts land, so the rows do not reshuffle under the pointer.
-  const offered = CHANNELS.filter(
-    (channel) => channel !== 'doorKnocking' || showDoorKnocking,
-  )
-  const rows = reachability
-    ? [...offered].sort((a, b) => (reachOf(b) ?? -1) - (reachOf(a) ?? -1))
-    : offered
+  // the counts land, so the rows do not reshuffle under the pointer. Once
+  // gp-api closes texting, SMS drops below social: it is the one row that
+  // goes nowhere.
+  const sortedRows = reachability
+    ? [...CHANNELS].sort((a, b) => (reachOf(b) ?? -1) - (reachOf(a) ?? -1))
+    : CHANNELS
+  const rows: ChannelPickerChannel[] = smsClosed
+    ? [...sortedRows.filter((channel) => channel !== 'text'), 'text']
+    : sortedRows
 
   return (
     <CrmSheet
@@ -171,6 +177,34 @@ export default function ChannelPickerSheet({
         <div className="flex flex-col gap-3">
           {rows.map((channel) => {
             const meta = CHANNEL_META[OUTREACH_TYPES[channel]]
+            // Touch has no hover, so the reason is the subtitle there.
+            if (channel === 'text' && smsClosed) {
+              return (
+                <Tooltip key={channel}>
+                  <TooltipTrigger asChild>
+                    <div
+                      aria-disabled="true"
+                      tabIndex={0}
+                      className="flex cursor-default items-center gap-3 rounded-2xl border border-border bg-muted px-4 py-3 opacity-70"
+                    >
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-grayscale-200 text-foreground [&>svg]:size-4">
+                        <MessageSquareOff aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <h3 className="text-sm font-semibold">{meta.label}</h3>
+                        <span className="block text-xs text-muted-foreground pointer-coarse:hidden">
+                          {SMS_CUTOFF_COPY.closedLabel}
+                        </span>
+                        <span className="hidden text-xs text-muted-foreground pointer-coarse:block">
+                          {smsClosedReason}
+                        </span>
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{smsClosedReason}</TooltipContent>
+                </Tooltip>
+              )
+            }
             const reach = reachOf(channel)
             const price = pricePerContact(channel)
             const detail =

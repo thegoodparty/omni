@@ -27,6 +27,9 @@ describe('getHistoryStatusLabel', () => {
     )
   })
 
+  // No projectId means no job was ever minted at the vendor for this row, so
+  // there is no send to describe. This used to be "we fetched the vendor's job
+  // list on page load and this row was not in it".
   it('still returns null for a non-canceled p2p row with no vendor job', () => {
     expect(getHistoryStatusLabel(p2pRow({ status: 'pending' }))).toBeNull()
   })
@@ -91,6 +94,41 @@ describe('getHistoryStatusLabel — draft rows read the next step from membershi
     ).toBe('Ready to schedule')
   })
 
+  it('labels a texting draft Texting closed once the window closes, free or Pro', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'free', texting: 'closed' }),
+      ),
+    ).toBe('Texting closed')
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'closed' }),
+      ),
+    ).toBe('Texting closed')
+  })
+
+  it('keeps a robocall draft on its own label when texting is closed', () => {
+    const draftRobocallRow = {
+      id: 2,
+      outreachType: 'robocall',
+      status: 'draft',
+    } as HistoryRow
+    expect(
+      getHistoryStatusLabel(
+        draftRobocallRow,
+        membership({ tier: 'free', texting: 'closed' }),
+      ),
+    ).toBe('Pro needed')
+    expect(
+      getHistoryStatusLabel(
+        draftRobocallRow,
+        membership({ tier: 'pro', texting: 'closed' }),
+      ),
+    ).toBe('Ready to schedule')
+  })
+
   it('does not assume Pro needed when no membership is passed', () => {
     expect(getHistoryStatusLabel(draftP2pRow, null)).toBeNull()
     expect(getHistoryStatusLabel(draftP2pRow)).toBeNull()
@@ -100,112 +138,64 @@ describe('getHistoryStatusLabel — draft rows read the next step from membershi
 describe('getHistoryStatusLabel — a p2p send reads Scheduled → Sending → Done', () => {
   const hour = 60 * 60 * 1000
   const day = 24 * hour
-  const isoDay = (offsetDays: number) =>
-    new Date(Date.now() + offsetDays * day).toISOString().slice(0, 10)
   const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString()
+  // Every row here has a job at the vendor; what the vendor currently says about
+  // it reaches this row as `status`, written by the hourly sweep.
+  const sentRow = (overrides: Partial<HistoryRow>): HistoryRow =>
+    p2pRow({ projectId: 'job-1', ...overrides })
 
-  it('labels an active job Scheduled while the send time is in the future', () => {
-    // CAS activates at approve, weeks before the send — an activated but
-    // unstarted job must never read Done (2026-09-16).
+  it('labels a send Scheduled while its send time is in the future', () => {
+    // CAS activates the vendor job at approve, weeks before the send — an
+    // activated but unstarted job must never read Done (2026-09-16), and the
+    // sweep leaves the row pending until its day arrives.
     expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'pending',
-          date: at(19 * day),
-          p2pJob: { status: 'active', start_date: isoDay(19) },
-        }),
-      ),
+      getHistoryStatusLabel(sentRow({ status: 'pending', date: at(19 * day) })),
     ).toBe('Scheduled')
   })
 
   it('labels the row Sending once the send time has passed and the row is not completed', () => {
     expect(
       getHistoryStatusLabel(
-        p2pRow({
-          status: 'in_progress',
-          date: at(-2 * hour),
-          p2pJob: { status: 'active', start_date: isoDay(0) },
-        }),
+        sentRow({ status: 'in_progress', date: at(-2 * hour) }),
       ),
     ).toBe('Sending')
   })
 
-  it('labels a completed row Done whatever the vendor job says', () => {
-    // Peerly extends end_date to start + 15 days the morning after a send
-    // and the job stays active; the spine's completion is the only Done.
+  it('labels a completed row Done', () => {
+    // Peerly extends end_date to start + 15 days the morning after a send and
+    // the job stays active; the sweep's completion is the only Done.
     expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'completed',
-          date: at(-1 * day),
-          p2pJob: { status: 'active', start_date: isoDay(-1) },
-        }),
-      ),
-    ).toBe('Done')
-    expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'completed',
-          date: at(-1 * day),
-          p2pJob: { status: 'paused', start_date: isoDay(-1) },
-        }),
-      ),
+      getHistoryStatusLabel(sentRow({ status: 'completed', date: at(-day) })),
     ).toBe('Done')
   })
 
-  it('reads the send time off the row, not the job day', () => {
+  it('reads the send time off the row, not the send day', () => {
     // A 6pm send on a day that began at midnight UTC is still Scheduled at
-    // noon; the job's start_date alone would call it Sending.
+    // noon; the vendor's bare start_date day alone would call it Sending.
     expect(
       getHistoryStatusLabel(
-        p2pRow({
-          status: 'in_progress',
-          date: at(6 * hour),
-          p2pJob: { status: 'active', start_date: isoDay(0) },
-        }),
+        sentRow({ status: 'in_progress', date: at(6 * hour) }),
       ),
     ).toBe('Scheduled')
   })
 
-  it('falls back to the job day for a row with no send timestamp', () => {
+  it('reads the status alone for a row with no send timestamp', () => {
     expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'in_progress',
-          date: null,
-          p2pJob: { status: 'active', start_date: isoDay(-1) },
-        }),
-      ),
+      getHistoryStatusLabel(sentRow({ status: 'in_progress', date: null })),
     ).toBe('Sending')
     expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'pending',
-          date: null,
-          p2pJob: { status: 'paused', start_date: isoDay(3) },
-        }),
-      ),
+      getHistoryStatusLabel(sentRow({ status: 'pending', date: null })),
     ).toBe('Scheduled')
   })
 
-  it('keeps a queued (pending) job Scheduled even past its send time', () => {
+  // A job no Peerly agent ever picked up has sent nothing even past its date.
+  // The sweep leaves exactly that row at `pending` — its one-way ratchet only
+  // advances a job the vendor reports as started — so Scheduled is still the
+  // honest label, as it was when the page read the queued job live.
+  it('keeps a send the vendor never started Scheduled, even past its send time', () => {
     expect(
-      getHistoryStatusLabel(
-        p2pRow({
-          status: 'in_progress',
-          date: at(-1 * day),
-          p2pJob: { status: 'pending', start_date: isoDay(-1) },
-        }),
-      ),
+      getHistoryStatusLabel(sentRow({ status: 'pending', date: at(-day) })),
     ).toBe('Scheduled')
-  })
-
-  it('reads the spine alone when the job carries no dates', () => {
-    expect(
-      getHistoryStatusLabel(
-        p2pRow({ status: 'in_progress', p2pJob: { status: 'active' } }),
-      ),
-    ).toBe('Sending')
   })
 })
 
@@ -222,16 +212,9 @@ describe('getHistoryStatusLabel — send failures', () => {
 })
 
 describe('getHistoryStatusLabel — scheduled paid rows', () => {
-  it('labels a pending p2p row with a live vendor job Scheduled, not Draft', () => {
+  it('labels a pending p2p row with a vendor job Scheduled, not Draft', () => {
     expect(
-      getHistoryStatusLabel(
-        p2pRow({ status: 'pending', p2pJob: { status: 'paused' } }),
-      ),
-    ).toBe('Scheduled')
-    expect(
-      getHistoryStatusLabel(
-        p2pRow({ status: 'pending', p2pJob: { status: 'pending' } }),
-      ),
+      getHistoryStatusLabel(p2pRow({ status: 'pending', projectId: 'job-1' })),
     ).toBe('Scheduled')
   })
 })
@@ -382,5 +365,63 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
         true,
       ),
     ).toBe('Canceled')
+  })
+})
+
+describe('getHistoryStatusLabel — a Serve poll', () => {
+  const pollRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 9, outreachType: 'poll', status }) as HistoryRow
+
+  it('reads In review while held, In progress once delivering', () => {
+    expect(getHistoryStatusLabel(pollRow('pending'), null, true)).toBe(
+      'In review',
+    )
+    expect(getHistoryStatusLabel(pollRow('in_progress'), null, true)).toBe(
+      'In progress',
+    )
+  })
+})
+
+describe('getHistoryStatusLabel — a priority text follow-up', () => {
+  const followUp = (
+    status: HistoryRow['status'],
+    sampledAt: string | null,
+  ): HistoryRow =>
+    ({
+      id: 9,
+      outreachType: 'text',
+      phoneListId: null,
+      status,
+      roundOneOutreachId: 4,
+      voterFileFilter: { sampleSize: 300, sampledAt },
+    }) as HistoryRow
+
+  it('is a Draft until its recipients are picked, never In review', () => {
+    expect(getHistoryStatusLabel(followUp('pending', null), null, true)).toBe(
+      'Draft',
+    )
+  })
+
+  it('is Scheduled once its recipients are picked', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('pending', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('reads from its own status after that, like any Serve text', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('in_progress', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('In progress')
+    expect(getHistoryStatusLabel(followUp('canceled', null), null, true)).toBe(
+      'Canceled',
+    )
   })
 })

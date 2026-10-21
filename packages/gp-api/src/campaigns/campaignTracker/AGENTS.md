@@ -7,16 +7,41 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Key files
 
-| File                                          | Role                                                                                                                                                                                                                                   |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                                                   |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                                            |
+| File                                          | Role                                                                                                                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                           |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                    |
 | `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
-| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                                                                                                |
-| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                                             |
-| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                            |
+| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + skip/unskip + `POST generate` (non-prod manual override).                                                                          |
+| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                     |
+| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                    |
 
 ## Patterns / non-obvious logic
+
+- **Tasks are dated on the campaign's timeline.** `resolveTrackerTaskDate` and
+  `campaignPhaseWindows` (contracts' `CampaignTimeline.ts`) turn a catalog
+  task's timing into a date inside its phase's window, counted back from the
+  election. Rows dated before that, or before the candidate changed their
+  race, are moved on read: `alignTrackerTaskDates` runs (best-effort) before
+  the GET returns, on open default rows whose timing is signup-relative,
+  and on the voter-contact sends. A send still ahead keeps its
+  election-relative date; a late joiner's sends already past at the start
+  are compressed into the time before the next one (`voterContactSendDate`),
+  and the plan document uses the same rule. The CAS outreach post reads these
+  row dates, so a new Pro campaign's ClickUp tasks match; one already posted
+  keeps the dates it was sent with. Other election-relative rows (the GOTV
+  dates) are never moved.
+
+- **Skipping is not completing.** `PUT /skip/:id` records why the candidate set
+  a task aside. `later` moves its `date` three days out
+  (`trackerTaskPutOffDate`); from then on the date is the candidate's, so
+  `alignTrackerTaskDates` leaves the date alone. Tasks dated by fact (the Election
+  admin dates, Election Day) 400 on it (`canPutOffTask`). `notForMe` holds until
+  `DELETE /skip/:id`; ballot access 400s on it (`canSetTaskAsideForGood`), while
+  finance reporting doesn't, since not every candidate must file. Neither
+  touches `completed`, so a skipped task still counts as open work everywhere
+  that reads completion; only the webapp's next-task pick passes over a
+  `notForMe` task (`isTrackerTaskSetAside`). `snoozedUntil` is no longer set.
 
 - **Append, never replace (the central rule).** `onExperimentRunCompleted`
   stamps each run's rows with `week = max(existing dynamic week) + 1` and never
@@ -24,20 +49,17 @@ overview: `docs/features/campaign-tracker-v3.md`.
   keeps history for the weekly agent's prior-task lookup. Consequence: every
   reader must scope to the latest generation. The frontend (`buildTrackerStrategy`)
   and the digest (`weeklyTasksDigestHandler`, a separate `latest_gen` CTE) both do.
-- **Bootstrap is gated on campaign story, then an atomic claim.**
-  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
-  proceeds if a `campaign_story` row exists. The tracker takes the story as
-  input, so story-off (legacy) campaigns generate their plan but never bootstrap
-  the tracker. The gate is on the story _data_ — it never depended on the
-  webapp's `campaign-story` flag (removed in ENG-11013; the legacy cohort is
-  now only reachable by a pre-existing campaign with no story row). Then: two
-  plan sections complete on independent SQS
-  messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
-  with one conditional `updateMany` (false->true); only the winner materializes +
+- **Bootstrap is claimed atomically, and is not gated on the campaign story.**
+  `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) proceeds
+  as soon as both plan sections persist. The story is input that sharpens the
+  tasks, not a precondition — a campaign with no story row gets the same
+  generic rows. Two plan sections complete on independent SQS messages, so
+  `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped` with one
+  conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
 - **Static rows materialize eagerly, at plan-generation start.**
-  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
-  best-effort) so the static checklist + outreach render immediately, without
+  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks`
+  (best-effort) so the static checklist + outreach render immediately, without
   waiting for the SQS-driven completion bootstrap (which never fires in local
   dev). The dynamic `dispatchGeneration` still runs only from the completion
   bootstrap (it needs the finished plan). `materializeStaticTasks` is idempotent
@@ -45,6 +67,41 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
   and the count-check alone isn't atomic, so the eager call and the bootstrap
   call can't double-insert the catalog.
+- **The story task mirrors story state through its completion, not its
+  existence.** The catalog's `Campaign story` category
+  (`CAMPAIGN_STORY_CATEGORY` in contracts) holds one `static` task, materialized
+  for every campaign and never deleted. `completed` tracks whether the Campaign
+  Story is finished, in both directions:
+  `reconcileCampaignStoryTask` (same advisory lock as the ballot-access
+  reconcile, called from `dispatchGeneration`) ticks it when the story is
+  complete and reopens it when the story is emptied again, so the row can never
+  disagree with the card pinned above the rail. The row is the record of the
+  work; making it vanish would lose that.
+- **The tracker read ticks it too.** The story is finished on other surfaces —
+  the story page, the manager chat — so `completeCampaignStoryTaskIfDone` runs
+  on `GET /campaigns/tracker-tasks` and closes the task there rather than
+  leaving the list stale until the next generation. It is the open->complete
+  direction only, and it short-circuits on an indexed count when the row is
+  already ticked, so polling the list does not pay for a story read it cannot
+  use. The full reconcile still owns the reverse.
+- **It sits early in Launch.** `phase: 'preLaunch'` with `preLaunch` timing,
+  which resolves a week past the timeline's start. `buildCampaignStoryTrackerTaskRows`
+  exists separately from `buildStaticTrackerTaskRows` only because the row
+  carries `link`/`cta`, which the catalog schema does not model. When the
+  reconcile re-adds it to a campaign materialized long ago it recovers that
+  campaign's original anchor from its earliest pre-launch row rather than
+  taking a fresh one, so the row lands with its siblings instead of a week out
+  from today.
+- **A task its button finishes closes itself once the work is scheduled.**
+  The button that opens a text, robocall, call list, social post or door
+  knocking flow passes the task's id (`trackerTaskId`), and the create stores
+  it on the outreach row (`Outreach.trackerTaskId`; door knocking on the
+  anchor turf's envelope only). `completeTasksWithScheduledOutreach` runs on
+  the GET: an outreach past `draft`/`pending_payment` (and not canceled,
+  denied or failed) ticks its task and has its link cleared in the same
+  transaction, so it happens once and a later "Mark not done" sticks. Only
+  that campaign's tasks can be ticked, so a stray id does nothing. Work
+  started anywhere else carries no id and leaves the task alone.
 - **Ballot access is gated on the candidate's ballot stage.** The catalog's
   `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
   materialization for a candidate who answered onboarding's "Are you already on
@@ -71,6 +128,32 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **No text sends once texting is closed.** When `smsComplianceWindow`
+  (`campaigns/util/eligibility.util.ts`) reads `closed` for the campaign (it
+  did not file and pay before the cutoff, 19 days before the general), each
+  text send becomes a robocall on the same date, per
+  `TEXT_SEND_ROBOCALL_SWAPS` (contracts `VoterContactSchedule.data.ts`, which
+  the webapp plan document also reads):
+  - Introduction Text -> Early Introduction Robocall
+  - Persuasion Text -> Early Persuasion Robocall
+  - Early Voting Text -> Early Voting Robocall
+  - Election Day Reminder Text has no swap and is dropped (the reminder
+    robocall lands the day before).
+
+  A text whose date already has a robocall is dropped instead of doubled. New
+  rows get this in `buildOutreachTrackerTaskRows`; existing open rows get it
+  on the GET in `alignTrackerTaskDates`, which dates a swap off the text send
+  it replaced. The swaps have their own titles because align finds a row's
+  catalog entry by title, and the catalog robocall titles sit on other dates.
+  Completed text rows are never touched. A put-off text row keeps the
+  candidate's date and its skip state; only its channel and title change.
+  Rows only swap on that read, so the two CAS posts run the same align first
+  (the one-time schedule post would otherwise miss the swapped robocalls for
+  good) and list no text rows. The legacy `campaign_task` Pro-upgrade post
+  (`sendCampaignPlanSlackMessage`) lists each text as its swapped robocall by
+  the same rule without changing the legacy rows, and the weekly digest SQL
+  leaves text rows out for a closed race.
+
 - **A past election date anchors nothing.** `resolveElectionDate` takes the
   general date, falls back to the primary, and ignores whichever has already
   passed; with no upcoming date `buildOutreachTrackerTaskRows` emits **no**
@@ -150,9 +233,3 @@ true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
   latest generation index; and it is a `LEFT JOIN latest_gen` so a campaign with
   outreach dated in the window still surfaces if its dynamic generation is
   momentarily absent. Outreach ranks ahead of the dynamic picks.
-- **A pre-existing campaign with no `campaign_story` row never bootstraps the
-  tracker** (gating is purely on story data, not a flag), so it has no
-  `campaign_tracker_tasks` rows and gets no weekly digest. Its legacy
-  `campaign_task` rows (if any were generated before ENG-11015) are still
-  readable/completable via `CampaignTasksController`, but nothing generates new
-  ones or emails a digest for them anymore.

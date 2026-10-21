@@ -2,13 +2,17 @@
 
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
+import { SdkError } from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import { gpAction } from '@/shared/util/gpClient.util'
 import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsVendorAccount,
 } from '@goodparty_org/contracts'
+import type { SmsActionResult } from './types'
 
 const ADMIN_ROLE = 'org:admin'
 
@@ -36,6 +40,24 @@ export const getSmsQueue = async (): Promise<SmsApprovalQueueResponse> => {
   }
   return gpAction(async (client) => client.smsOutreachAdmin.getQueue())
 }
+
+// A vendor hiccup must not take the queue down with it: the balance is
+// header context, so any failure renders as "unavailable".
+export const getSmsVendorBalance =
+  async (): Promise<SmsVendorAccount | null> => {
+    const { has } = await auth()
+    if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+      throw new Error('Missing read_campaigns permission')
+    }
+    try {
+      const { account } = await gpAction(async (client) =>
+        client.smsOutreachAdmin.getBalance()
+      )
+      return account
+    } catch {
+      return null
+    }
+  }
 
 export const getSmsDetail = async (
   id: number
@@ -70,14 +92,26 @@ export const denySms = async (
   return item
 }
 
-export const cancelSms = async (id: number): Promise<SmsApprovalQueueItem> => {
-  const { email } = await requireApprover()
-  const item = await gpAction(async (client) =>
-    client.smsOutreachAdmin.cancel(id, { canceledBy: email })
-  )
+export const cancelSms = async (id: number): Promise<SmsActionResult> => {
+  const fallback = 'Failed to cancel campaign'
+  try {
+    const { email } = await requireApprover()
+    await gpAction(async (client) =>
+      client.smsOutreachAdmin.cancel(id, { canceledBy: email })
+    )
+  } catch (error) {
+    return {
+      error:
+        error instanceof SdkError
+          ? extractApiErrorMessage(error, fallback)
+          : error instanceof Error
+            ? error.message
+            : fallback,
+    }
+  }
   revalidatePath('/dashboard/sms-outreach')
   revalidatePath(`/dashboard/sms-outreach/${id}`)
-  return item
+  return { error: null }
 }
 
 // Rescheduling moves the vendor send window (and rebooks canvassers on a

@@ -1,6 +1,16 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { emptyPriorityStatus } from '@goodparty_org/contracts'
+import {
+  PRIORITY_STEP_IDS,
+  PRIORITY_STEP_LABELS,
+  emptyPriorityStatus,
+  PROPOSAL_SENT_MARKER,
+  REPORT_BACK_MARKER,
+  GET_ANSWERS_MARKER,
+  type PriorityReadStatus,
+} from '@goodparty_org/contracts'
+import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
+import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
 import {
@@ -8,6 +18,10 @@ import {
   type ChatScopeHandler,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import {
+  CLAIM_STRENGTH_RULE,
+  LEGAL_VALUES_RULE,
+} from '../services/claimConfidence'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import {
   PRIORITY_FLOW_MODELS,
@@ -18,6 +32,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { HELD_BACK_NOTE } from '../chat-tools/readOutreachFeedback.tool'
 
 const USER_ID = 11
 const ORG = 'eo-maple'
@@ -39,15 +54,17 @@ const baseCtx = (): PriorityFlowContext => ({
   organizationSlug: ORG,
   organization: { slug: ORG } as Organization,
   officeTitle: 'City Council Member',
+  officialName: 'Bryan Ortiz',
   jurisdiction: null,
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
   source: 'user_stated',
-  targetDate: null,
+  sourceCommunityIssueId: null,
   status: emptyPriorityStatus(),
   anchorSummaries: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  peopleDataset: 'voters',
 })
 
 describe('PriorityFlowHandler', () => {
@@ -70,6 +87,7 @@ describe('PriorityFlowHandler', () => {
     context = {
       load: vi.fn(() => Promise.resolve(baseCtx())),
       assertPriorityOwnership: vi.fn(() => Promise.resolve()),
+      panelHoursPerWeek: vi.fn(() => Promise.resolve(null)),
     } as unknown as PriorityFlowContextService
     outreach = {} as unknown as PriorityFlowOutreachService
     priorityStatus = {
@@ -92,7 +110,7 @@ describe('PriorityFlowHandler', () => {
       context,
       outreach,
       priorityStatus,
-      [],
+      { voters: [], constituents: [] },
       undefined,
       districtResolver as never,
     )
@@ -228,14 +246,67 @@ describe('PriorityFlowHandler', () => {
   it('builds the priority tool belt', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
-      'present_contacts',
+      'ask_clarify_question',
+      'present_authority_finding',
+      'present_comparables',
+      'present_current_law_summary',
       'present_outreach_proposal',
+      'present_outside_contact',
       'present_past_outreach',
       'read_past_outreach',
+      'size_outreach_sample',
       'update_priority_status',
       'web_search',
     ])
-    expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith('pri-1')
+    expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith(
+      'pri-1',
+      expect.objectContaining({
+        offered: expect.any(Function),
+        startedAt: expect.any(String),
+      }),
+    )
+  })
+
+  it('reads outreach feedback only with serve-citizen-panels on', () => {
+    const on = { ...baseCtx(), outreachFeedbackEnabled: true }
+    expect(Object.keys(build().buildTools(on))).toContain(
+      'read_outreach_feedback',
+    )
+    expect(build().buildSystemPrompt(on)).toContain(
+      'call read_outreach_feedback before you say anything about it',
+    )
+
+    expect(Object.keys(build().buildTools(baseCtx()))).not.toContain(
+      'read_outreach_feedback',
+    )
+    expect(build().buildSystemPrompt(baseCtx())).not.toContain(
+      'read_outreach_feedback',
+    )
+  })
+
+  it('tells the status tool when a card or a question went out this turn', async () => {
+    const tools = build().buildTools(baseCtx())
+    const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+      ?.offered
+    if (offered === undefined) throw new Error('expected the offer reader')
+    expect(offered()).toBe(false)
+
+    const ask = tools.ask_clarify_question
+    if (ask === undefined || !('execute' in ask)) {
+      throw new Error('expected an executable tool')
+    }
+    await ask.execute({
+      questionId: 'q1',
+      question: 'Want to check this with them?',
+      options: [{ label: 'Ask both groups' }, { label: 'Not yet' }],
+    })
+    expect(offered()).toBe(true)
+
+    const fresh = build()
+    fresh.buildTools(baseCtx())
+    const nextTurn = vi.mocked(priorityStatus.buildStatusTool).mock
+      .calls[1]?.[1]?.offered
+    expect(nextTurn?.()).toBe(false)
   })
 
   it('adds the CRM and community-issue tools when those services resolve', () => {
@@ -244,10 +315,10 @@ describe('PriorityFlowHandler', () => {
       context,
       outreach,
       priorityStatus,
-      [],
+      { voters: [], constituents: [] },
       undefined,
       undefined,
-      { getDetail: vi.fn() },
+      { list: vi.fn(), getDetail: vi.fn() },
       {
         getFilterDimensions: vi.fn(() => []),
         countContacts: vi.fn(),
@@ -259,7 +330,440 @@ describe('PriorityFlowHandler', () => {
     expect(names).toContain('describe_filter_dimensions')
     expect(names).toContain('count_contacts')
     expect(names).toContain('crud_saved_filters')
+    expect(names).toContain('list_precincts')
     expect(names).toContain('read_community_issues')
+  })
+
+  const buildWithCrm = () =>
+    new PriorityFlowHandler(
+      store,
+      context,
+      outreach,
+      priorityStatus,
+      { voters: [], constituents: [] },
+      undefined,
+      undefined,
+      undefined,
+      {
+        getFilterDimensions: vi.fn(() => []),
+        countContacts: vi.fn(),
+        countSegment: vi.fn(),
+      } as never,
+      {} as never,
+    )
+
+  it('reads the constituent table its org resolves to, once per turn', async () => {
+    const resolve = vi.fn(() => Promise.resolve('constituents' as const))
+    const handler = new PriorityFlowHandler(
+      store,
+      context,
+      outreach,
+      priorityStatus,
+      {
+        voters: [{ table: 'serve_agent_voters', dimensions: ['Voters_Age'] }],
+        constituents: [
+          { table: 'serve_agent_constituents', dimensions: ['Voters_Age'] },
+        ],
+      },
+      { query: vi.fn() },
+      {
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({ state: 'MI', l2DistrictName: 'Lansing' }),
+        ),
+        toMandatoryFilters: vi.fn(() => [
+          { column: 'state_postal_code', value: 'MI' },
+        ]),
+      } as never,
+      undefined,
+      undefined,
+      undefined,
+      { resolve } as never,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    const tool = handler.buildTools(ctx).query_constituent_data
+
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(ctx.peopleDataset).toBe('constituents')
+    expect(tool && 'description' in tool && tool.description).toContain(
+      'FROM serve_agent_constituents',
+    )
+  })
+
+  it("tells the assistant what day it is, in the office state's zone", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
+    try {
+      const prompt = buildWithCrm().buildSystemPrompt({
+        ...baseCtx(),
+        state: 'TX',
+      })
+      expect(prompt).toContain(
+        'Today is Monday, October 5, 2026 (Central Time).',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('counts a text audience by cell phone and asks options as choices', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Has Cell Phone for a text')
+    expect(prompt).toContain('one option per choice')
+  })
+
+  // The list is saved when the official starts the outreach, not by the
+  // agent, and the card shows no why, so the agent's message carries it.
+  it('counts the check audience without saving it, on one channel, signed', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Do not save the list.')
+    expect(prompt).toContain('audienceFilters')
+    expect(prompt).toContain('Pick ONE channel')
+    expect(prompt).toContain('Never expect the card to say it.')
+    expect(prompt).toContain('signed as the official by full name and office')
+    expect(prompt).toContain("Official's full name: Bryan Ortiz")
+  })
+
+  it('puts the options step to them as one multi-select question', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('as one multiSelect ask_clarify_question')
+    expect(prompt).toContain('Never list the options in prose')
+    expect(prompt).toContain(
+      'Set multiSelect when more than one answer can be true',
+    )
+    expect(prompt).toContain(
+      'Leave it off when the answers rule each other out',
+    )
+  })
+
+  it('takes an answer that picks several options as one problem', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('One problem can show up as several symptoms')
+    expect(prompt).toContain('Never tell them to pick just one')
+  })
+
+  it('offers a stage-gate check only for a gap nothing else fills', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('CHECKING A STEP WITH THE PEOPLE IT LANDS ON')
+    expect(prompt).toContain('comes back at most 3 times')
+    expect(prompt).toContain('None of them needs one')
+    expect(prompt).toContain('work out what is actually missing')
+    expect(prompt).toContain('Constituents are not a data source')
+    expect(prompt).toContain('when the official says they have already heard')
+    expect(prompt).toContain(
+      'A check is never the default way to gather evidence',
+    )
+    expect(prompt).toContain('holds for the whole priority, not one step')
+    expect(prompt).toContain(
+      'A check you offer has two sides, and you offer both',
+    )
+    expect(prompt).toContain('Never frame them as less important')
+    expect(prompt).toContain('never counts as constituents agreeing')
+    expect(prompt).toContain('never say a check is out')
+    expect(prompt).not.toContain('Every one of the four gets the offer')
+    expect(prompt).not.toContain('offered a check with the people the plan')
+    expect(prompt).not.toContain('HOW TO CHOOSE WHO TO HEAR FROM')
+    expect(prompt).not.toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
+  })
+
+  it('adds the affectedness method and the list work with the CRM tools', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('HOW TO CHOOSE WHO TO HEAR FROM')
+    expect(prompt).toContain('Pick for exposure only')
+    expect(prompt).toContain('A district or ward seat is NOT the city')
+    expect(prompt).toContain('Never quietly fall back to the whole city')
+    expect(prompt).toContain('fewer than about 100 people')
+    expect(prompt).toContain(
+      'a check you offer also gets the least affected group',
+    )
+    expect(prompt).toContain(
+      'Present it as its own present_outreach_proposal, right after the first',
+    )
+    expect(prompt).toContain('never filter on it')
+    expect(prompt).toContain('BUILD THE CHECK BEFORE YOU OFFER IT')
+    expect(prompt).toContain(
+      'Present it with present_outreach_proposal, whatever the channel, ' +
+        'door knocking included',
+    )
+    expect(prompt).not.toContain('/dashboard/door-knocking')
+    expect(prompt).toContain('present_outside_contact')
+    expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
+      prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
+    )
+  })
+
+  it('holds claims and legal readings to the shared confidence rules', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(CLAIM_STRENGTH_RULE)
+    expect(prompt).toContain(LEGAL_VALUES_RULE)
+  })
+
+  it('backstops a legal reading with the professional-advice line', () => {
+    expect(
+      build().finalizeAssistantText('Under RCW 35.21.766 you can do this.'),
+    ).toContain('not a substitute for professional advice')
+    expect(build().finalizeAssistantText('Potholes cluster downtown.')).toBe(
+      null,
+    )
+  })
+
+  it('puts research and people on cards rather than in prose', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('Research goes on the cards made for it')
+    expect(prompt).toContain('write no lead-in of your own above it')
+    expect(prompt).toContain('in date when the page was published')
+    expect(prompt).toContain('present_comparables')
+    expect(prompt).toContain('present_current_law_summary')
+    expect(prompt).toContain('present_authority_finding')
+    expect(prompt).toContain(
+      'Never put a phone number, email or address in your message',
+    )
+    expect(prompt).toContain('their card is the last thing in the turn')
+    expect(prompt).toContain('Never recap what the cards say')
+    expect(prompt).toContain('Never narrate the research itself')
+    expect(prompt).toContain('A figure in your message carries its source')
+    expect(prompt).toContain('HOW A RESEARCH TURN ENDS')
+    expect(prompt).toContain('Nothing comes after a contact card')
+    expect(prompt).toContain('Never use a pronoun for someone you found')
+  })
+
+  it('offers the finding cards as display-only tools', async () => {
+    const tools = build().buildTools(baseCtx())
+    for (const name of [
+      'present_comparables',
+      'present_current_law_summary',
+      'present_authority_finding',
+    ]) {
+      expect(tools[name]).toBeDefined()
+    }
+    const authority = tools.present_authority_finding as {
+      execute: (input: unknown) => unknown
+    }
+    expect(await authority.execute({})).toEqual({ presented: true })
+  })
+
+  it('lets the outreach cards be the choice, never asked about or rebuilt', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'The cards are the choice, so never ask about them',
+    )
+    expect(prompt).toContain('The one exception is a card already on screen')
+    expect(prompt).toContain('Never present it again unless they ask')
+    expect(prompt).not.toContain('ask both groups, just the most affected')
+  })
+
+  it('asks every question as a card, open ones included', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'Every question to them goes through ask_clarify_question',
+    )
+    expect(prompt).toContain('in your own words')
+    expect(prompt).toContain('Never write a list of questions')
+    expect(prompt).toContain('The opening turn is the same')
+  })
+
+  it('previews the path by rail step before any workflow', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('PREVIEW THE PATH BEFORE THE WORK')
+    expect(prompt).toContain('by the names the rail shows')
+    expect(prompt).toContain('like Public Works')
+    expect(prompt).toContain('one multiSelect ask_clarify_question')
+    expect(prompt).toContain('say in one line which step it is for')
+    expect(prompt).toContain('unless they picked hearing from them')
+    expect(prompt).toContain('preview the affected steps again, once')
+    expect(prompt.indexOf('PREVIEW THE PATH BEFORE THE WORK')).toBeLessThan(
+      prompt.indexOf('CHECKING A STEP WITH THE PEOPLE IT LANDS ON'),
+    )
+  })
+
+  it('asks for a source, a link and a date on what it brings in', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('SAYING WHERE IT CAME FROM')
+    expect(prompt).toContain("put it in that option's source")
+    expect(prompt).toContain('Never build or guess a URL')
+    expect(prompt).toContain('more than about two years old')
+    expect(prompt).toContain('comes from a tool you called or a source')
+    expect(prompt).not.toContain('"what I found"')
+  })
+
+  it('sizes a check as a random sample, one per side', () => {
+    const prompt = buildWithCrm().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('HOW MANY PEOPLE TO ASK')
+    expect(prompt).toContain('Size a text sample with size_outreach_sample')
+    expect(prompt).toContain('never work out a sample or a cost yourself')
+    expect(prompt).toContain('When wholeAudience comes back true')
+    expect(prompt).toContain('take replyRate from past texts')
+    expect(prompt).toContain('Each side of a check gets its own sample')
+    expect(prompt).toContain('Never sample more people than the audience holds')
+    expect(prompt).toContain('not by a reply rate')
+    expect(prompt).toContain("I'd text 2,767 of the 58,520, picked at random")
+    expect(prompt).toContain('Never call it statistically proven')
+    expect(prompt).toContain('It is directional')
+    expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(
+      prompt.indexOf('HOW MANY PEOPLE TO ASK'),
+    )
+  })
+
+  it('holds a thin read back from confirming a check, and offers to widen', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).not.toContain('HOW MANY PEOPLE TO ASK')
+    expect(prompt).toContain('READING WHAT CAME BACK')
+    expect(prompt).toContain(
+      'more than 75 replies, or replies from at least 10% of that side',
+    )
+    expect(prompt).toContain('Short of both, the read is thin')
+    expect(prompt).toContain('do not record that side confirmed or revised')
+    expect(prompt).toContain('widensOutreachIds')
+    expect(prompt).toContain('repliesAlready set to the replies already in')
+    expect(prompt).toContain('alreadyAsked set to how many people')
+    expect(prompt).toContain('audience set to the full count_contacts count')
+  })
+
+  it('says a sample no smaller than its audience goes to all of it', async () => {
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Maple Ave households',
+      count: 312,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      why: 'These are the households on the blocks being repaired.',
+      deepLinkOnly: false,
+    }
+    expect(await tool.execute({ ...proposal, sampleSize: 80 })).toEqual({
+      presented: true,
+      deepLinkOnly: false,
+    })
+    expect(await tool.execute({ ...proposal, sampleSize: 400 })).toMatchObject({
+      wholeAudience: expect.stringContaining('312 people'),
+    })
+  })
+
+  describe('a proposal kept to the parts not reached yet', () => {
+    const AREA = {
+      type: 'Polygon' as const,
+      coordinates: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 0],
+        ] as [number, number][],
+      ],
+    }
+    const withArea = (
+      area: typeof AREA | null,
+      inside: number,
+    ): {
+      tool: { execute: (input: never) => Promise<unknown> }
+      polygonPreview: ReturnType<typeof vi.fn>
+    } => {
+      const polygonPreview = vi.fn(() =>
+        Promise.resolve({ count: inside, audienceEmpty: false }),
+      )
+      const handler = new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        { polygonPreview } as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { unreachedAreaFor: vi.fn(() => Promise.resolve(area)) } as never,
+      )
+      const tool = handler.buildTools(baseCtx()).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      return { tool: tool as never, polygonPreview }
+    }
+    const proposal = {
+      audience: 'Renters in the parts we have not reached',
+      count: 120,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      audienceFilters: { homeownerNo: true },
+      areaTarget: 'unreached' as const,
+      deepLinkOnly: false,
+    }
+
+    it('presents when the count is the audience inside the area', async () => {
+      const { tool, polygonPreview } = withArea(AREA, 120)
+      expect(await tool.execute(proposal as never)).toMatchObject({
+        presented: true,
+      })
+      expect(polygonPreview).toHaveBeenCalledWith(
+        { geoPoly: AREA, filters: { homeownerNo: true } },
+        expect.anything(),
+      )
+    })
+
+    it('tells the agent the count inside the area', async () => {
+      const { tool } = withArea(AREA, 45)
+      expect(await tool.execute(proposal as never)).toEqual({
+        error: expect.stringContaining(
+          'that audience is 45 people. Present it again with count 45.',
+        ),
+      })
+    })
+
+    it('refuses when every part has answered', async () => {
+      const { tool } = withArea(null, 0)
+      expect(await tool.execute(proposal as never)).toEqual({
+        error: expect.stringContaining('Every part of the district'),
+      })
+    })
+  })
+
+  it('renders a step check in the status block', () => {
+    const status = emptyPriorityStatus()
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      status: {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                summary: 'Cracked slabs on four blocks',
+                check: {
+                  state: 'deferred' as const,
+                  who: 'Households on the four blocks',
+                  question: 'Is the sidewalk what keeps you off it?',
+                  when: 'after the budget hearing',
+                  raised: 1,
+                  contrast: {
+                    state: 'declined' as const,
+                    who: 'Households across town',
+                    question: 'Would you pay toward this?',
+                    heard: 'Not if it raises the fee',
+                  },
+                },
+              }
+            : step,
+        ),
+      },
+    })
+    expect(prompt).toContain(
+      'define (The problem): settled. Cracked slabs on four blocks ' +
+        'Check: deferred. Who: Households on the four blocks. ' +
+        'Question: Is the sidewalk what keeps you off it? ' +
+        'Timing: after the budget hearing. Raised 1 of 3 times. ' +
+        'Least affected: declined. Who: Households across town. ' +
+        'Question: Would you pay toward this? Heard: Not if it raises the ' +
+        'fee.',
+    )
+    expect(prompt).toContain(
+      'evidence (What we know): open. Nothing recorded yet.\n',
+    )
   })
 
   it('sets deepLinkOnly from the channel, not from what the model passed', async () => {
@@ -271,7 +775,8 @@ describe('PriorityFlowHandler', () => {
       audience: 'Maple Ave households',
       count: 312,
       channel: 'social' as const,
-      message: 'Sidewalk repairs start next month.',
+      message:
+        'Hi, this is Bryan Ortiz, your City Council Member. Repairs start soon.',
       why: 'These are the households on the blocks being repaired.',
       deepLinkOnly: false,
     }
@@ -282,6 +787,297 @@ describe('PriorityFlowHandler', () => {
     expect(
       await tool.execute({ ...proposal, channel: 'phoneBanking' as const }),
     ).toEqual({ presented: true, deepLinkOnly: false })
+    expect(
+      await tool.execute({ ...proposal, channel: 'doorKnocking' as const }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
+  it('refuses a draft that is not signed by the official', async () => {
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const text = {
+      audience: 'Maple Ave households',
+      count: 312,
+      channel: 'text' as const,
+      why: 'These are the households on the blocks being repaired.',
+      deepLinkOnly: false,
+    }
+    expect(
+      await tool.execute({
+        ...text,
+        message: 'Hi, this is [Your Name] from the city. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        message: 'Hi, this is the City Council. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is the sidewalk it?',
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+    expect(
+      await tool.execute({
+        ...text,
+        channel: 'phoneBanking' as const,
+        message: 'Hi, I am calling for the City Council. Is the sidewalk it?',
+      }),
+    ).toHaveProperty('error')
+    expect(
+      await tool.execute({
+        ...text,
+        channel: 'phoneBanking' as const,
+        message:
+          'Hi, I am calling for Bryan Ortiz, your City Council Member. Is it the ' +
+          'sidewalk?',
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
+  })
+
+  // A side that went out has been asked; offering it again would ask the
+  // same people twice.
+  it('refuses to offer a side of a check that already went out', async () => {
+    const status = emptyPriorityStatus()
+    priorityStatus.read = vi.fn(() =>
+      Promise.resolve({
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters on the flood blocks',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                  sentProposalKey: '3c9a7e51-0d2b-4f6e-9a18-5b7c2d4e6f80',
+                },
+              }
+            : step,
+        ),
+      }),
+    )
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Renters on the flood blocks',
+      count: 260,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      deepLinkOnly: false,
+      stepId: 'define' as const,
+    }
+
+    expect(await tool.execute({ ...proposal, side: 'main' })).toHaveProperty(
+      'error',
+      expect.stringContaining('already went out'),
+    )
+    expect(await tool.execute({ ...proposal, side: 'contrast' })).toEqual({
+      presented: true,
+      deepLinkOnly: false,
+    })
+    expect(
+      await tool.execute({
+        ...proposal,
+        stepId: 'evidence' as const,
+        side: 'main',
+      }),
+    ).toHaveProperty('error')
+  })
+
+  // A thin read is widened by asking new people on the same side, which the
+  // already-sent refusal above must not block, and must not let a plain
+  // re-propose through either.
+  it('lets a sent side widen only over sends of that same side', async () => {
+    const status = emptyPriorityStatus()
+    priorityStatus.read = vi.fn(() =>
+      Promise.resolve({
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters on the flood blocks',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                  sentProposalKey: '3c9a7e51-0d2b-4f6e-9a18-5b7c2d4e6f80',
+                },
+              }
+            : step,
+        ),
+      }),
+    )
+    const allPutOutCheck = vi.fn(
+      (...args: [string, string, string, number[]]) =>
+        Promise.resolve(args[3].every((id) => id === 501)),
+    )
+    outreach.allPutOutCheck = allPutOutCheck
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Renters on the flood blocks',
+      count: 58_520,
+      channel: 'phoneBanking' as const,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      deepLinkOnly: false,
+      stepId: 'define' as const,
+      side: 'main' as const,
+      sampleSize: 80,
+    }
+
+    expect(
+      await tool.execute({ ...proposal, widensOutreachIds: [501] }),
+    ).toEqual({ presented: true, deepLinkOnly: false })
+    expect(allPutOutCheck).toHaveBeenCalledWith(
+      baseCtx().priorityId,
+      'define',
+      'main',
+      [501],
+    )
+    // A send of some other check, or someone else's, does not count.
+    expect(
+      await tool.execute({ ...proposal, widensOutreachIds: [777] }),
+    ).toHaveProperty('error', expect.stringContaining('this same side'))
+    // Without naming what it widens, it is the same people asked twice.
+    expect(await tool.execute(proposal)).toHaveProperty(
+      'error',
+      expect.stringContaining('already went out'),
+    )
+  })
+
+  it('refuses a proposal whose audience counted nobody', async () => {
+    const tool = build().buildTools(baseCtx()).present_outreach_proposal
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    const proposal = {
+      audience: 'Nobody',
+      count: 0,
+      message: 'I am calling for Bryan Ortiz, your City Council Member.',
+      deepLinkOnly: false,
+      sampleSize: 100,
+    }
+
+    const empty = await tool.execute({
+      ...proposal,
+      channel: 'phoneBanking' as const,
+    })
+    expect(empty).toHaveProperty('error', expect.stringContaining('nobody'))
+    expect(empty).not.toHaveProperty('wholeAudience')
+    // A post has no audience to count.
+    expect(
+      await tool.execute({
+        ...proposal,
+        channel: 'social' as const,
+        sampleSize: undefined,
+      }),
+    ).toEqual({ presented: true, deepLinkOnly: true })
+  })
+
+  it('tells the agent a sent side is out on its own and never offered again', () => {
+    const status = emptyPriorityStatus()
+    const prompt = buildWithCrm().buildSystemPrompt({
+      ...baseCtx(),
+      status: {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                state: 'settled' as const,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-09-30T12:00:00Z',
+                },
+              }
+            : step,
+        ),
+      },
+    })
+    expect(prompt).toContain(
+      'Check: out. Who: Renters. Question: Is it the drains? Sent: 2026-09-30T12:00:00Z.',
+    )
+    expect(prompt).toContain(
+      'a side sent from its card is recorded as out on its own',
+    )
+    expect(prompt).toContain('Never present it again')
+    expect(prompt).toContain('say in one line that it is out, once')
+    expect(prompt).toContain(`starts with ${PROPOSAL_SENT_MARKER}`)
+    expect(prompt).toContain('stepId (the step the check is on) and side main')
+    expect(prompt).toContain('with the same stepId and side contrast')
+  })
+
+  it('does not count a refused question as offered', async () => {
+    const tools = build().buildTools(baseCtx())
+    const offered = vi.mocked(priorityStatus.buildStatusTool).mock.calls[0]?.[1]
+      ?.offered
+    const ask = tools.ask_clarify_question
+    if (offered === undefined || ask === undefined || !('execute' in ask)) {
+      throw new Error('expected the offer reader and the ask tool')
+    }
+    expect(
+      await ask.execute({
+        questionId: 'q1',
+        question: 'Which pets?',
+        options: [{ label: 'Dogs' }, { label: 'Dogs and Cats' }],
+        multiSelect: true,
+      }),
+    ).toHaveProperty('error')
+    expect(offered()).toBe(false)
+  })
+
+  it('asks a structured question without touching the status', async () => {
+    const tool = build().buildTools(baseCtx()).ask_clarify_question
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which blocks do you want repaired first?',
+        options: [{ label: 'The two by the school' }, { label: 'Maple Ave' }],
+      }),
+    ).toEqual({ asked: true, questionId: 'q1' })
+  })
+
+  it('tells the agent to ask with the tool rather than in prose', async () => {
+    const handler = build()
+    const ctx = await handler.loadContext('c1', USER_ID)
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).toContain('goes through ask_clarify_question, never prose')
+    expect(prompt).toContain('One question at a time')
+  })
+
+  it('never lets the agent write the clarify question as chat text', async () => {
+    const handler = build()
+    const ctx = await handler.loadContext('c1', USER_ID)
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).not.toContain('lead-in line')
+    expect(prompt).toContain('never write it, or any rewording of it')
+    expect(prompt).toContain('it never ends in a question')
+    expect(prompt).toContain(
+      'Never end a message with an either/or or a pick-one question in prose',
+    )
   })
 
   it('raises maxSteps above the default so a research turn can finish', () => {
@@ -300,7 +1096,39 @@ describe('PriorityFlowHandler', () => {
     )
     expect(prompt).toContain('plan (The plan): open. Nothing recorded yet.')
     expect(prompt).toContain('Nothing has been left in this thread yet.')
-    expect(prompt).toContain('THE STEPS ARE A SPINE, NOT A WIZARD')
+    expect(prompt).toContain('ONE STEP AT A TIME')
+    expect(prompt).toContain('WHEN TO GO BACK')
+  })
+
+  it('defines every step with what it is, its bar and what it unlocks', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    for (const id of PRIORITY_STEP_IDS) {
+      expect(prompt).toContain(`- ${id} (${PRIORITY_STEP_LABELS[id]})`)
+    }
+    expect(prompt.match(/ {2}What it is: /g)).toHaveLength(7)
+    expect(prompt.match(/ {2}Settled when: /g)).toHaveLength(7)
+    expect(prompt.match(/ {2}Unlocks: /g)).toHaveLength(7)
+    expect(prompt).toContain('Exactly one step is active at any moment')
+    expect(prompt).toContain(
+      'New information has to meaningfully invalidate what that step',
+    )
+  })
+
+  it('names the community issue a priority came from in <priority>', () => {
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      source: 'community_issue',
+      sourceCommunityIssueId: 'issue-7',
+    })
+    expect(prompt).toContain(
+      'Where it came from: community_issue\nCame from community issue: issue-7\n',
+    )
+  })
+
+  it('leaves the community issue line out when the priority has none', () => {
+    expect(build().buildSystemPrompt(baseCtx())).not.toContain(
+      'Came from community issue',
+    )
   })
 
   it('renders the thread block from the resolved anchor summaries', () => {
@@ -340,5 +1168,976 @@ describe('PriorityFlowHandler', () => {
       toMandatoryFilters,
     }).loadContext('c1', USER_ID)
     expect(ctx.jurisdiction).toBeNull()
+  })
+
+  describe('behind serve-citizen-panels, round one on doors, calls and a text', () => {
+    const panelsOn = (
+      members: number,
+      hours: number | null = 2,
+    ): PriorityFlowContext => ({
+      ...baseCtx(),
+      outreachFeedbackEnabled: true,
+      civicPanelMembers: members,
+      panelHoursPerWeek: hours,
+    })
+    const thinRead: PriorityReadStatus = {
+      answers: 54,
+      needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['women'],
+      checkOut: true,
+    }
+    const buildWithPanels = () =>
+      new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+          countSegment: vi.fn(),
+          countByGroupWithin: vi.fn(
+            (_org: never, _criteria: never, within?: string[]) =>
+              Promise.resolve([
+                {
+                  ageBand: '18to64',
+                  gender: null,
+                  tract: 't1',
+                  race: null,
+                  count: within === undefined ? 5_000 : 60,
+                },
+              ]),
+          ),
+          resolveGeoMemberIds: vi.fn(() => Promise.resolve(['p-1'])),
+        } as never,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        {
+          districtCensus: vi.fn(() => Promise.resolve(null)),
+          roundOneDoorArea: vi.fn(
+            (_org: never, _id: never, _criteria: never, households: number) =>
+              Promise.resolve(
+                Array.from({ length: households }, (_, index) => ({
+                  lat: 35.6 + index * 0.0001,
+                  lng: -82.55,
+                  personIds: [`p-${index}`],
+                })),
+              ),
+          ),
+        } as unknown as PriorityResultsService,
+      )
+
+    it('proposes door, call and text cards together, each sized by size_round_one', () => {
+      const handler = buildWithPanels()
+      expect(Object.keys(handler.buildTools(panelsOn(42)))).toContain(
+        'size_round_one',
+      )
+      const prompt = handler.buildSystemPrompt(panelsOn(42))
+      expect(prompt).toContain('ROUND ONE')
+      expect(prompt).toContain('Civic panel: 42 members')
+      expect(prompt).toContain(
+        'door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn',
+      )
+      expect(prompt).toContain('Size the round with size_round_one')
+      expect(prompt).toContain(
+        'count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for these cards',
+      )
+      expect(prompt).toContain(
+        'Present every card it returns with present_outreach_proposal',
+      )
+      expect(prompt).toContain(
+        '- door knocking, with what to say at the door as the message, and walkableArea exactly as returned, with no sampleSize.',
+      )
+      expect(prompt).toContain(
+        '- phone banking, with the script a caller reads as the message.',
+      )
+      expect(prompt).toContain(
+        '- text, with the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned.',
+      )
+      expect(prompt).toContain('the stepId the check is on and side main')
+      expect(prompt).toContain('The official gives 2 hours a week.')
+      expect(prompt).toContain('When coversEveryGroup comes back false')
+      expect(prompt).toContain('doors and calls reach people a text misses')
+      expect(prompt).toContain(
+        'never mention weights, quotas, targets or answer rates',
+      )
+      expect(prompt).not.toContain('size_panel_ask')
+      expect(prompt).not.toContain('panelSampleSize')
+      // The targeted groups wait for the read: no contrast card up front.
+      expect(prompt).not.toContain(
+        'Present it as its own present_outreach_proposal, right after the first',
+      )
+      expect(prompt).not.toContain('A check you offer has two sides')
+      expect(prompt).not.toContain(
+        'So a check you offer also gets the least affected group',
+      )
+      expect(prompt).toContain(
+        'Do not find, count or describe the most or least affected group. The round is residents across the district.',
+      )
+      expect(prompt).toContain(
+        'set widensOutreachIds to every send this check has had',
+      )
+      expect(prompt).toContain('they can send it from its card')
+    })
+
+    it('leaves the weekly time to size_round_one when there is no panel plan', () => {
+      const prompt = buildWithPanels().buildSystemPrompt(panelsOn(42, null))
+      expect(prompt).toContain(
+        'How much time the official can give each week is not known yet. size_round_one says how to ask it.',
+      )
+      expect(prompt).not.toContain('The official gives')
+      expect(buildWithPanels().buildSystemPrompt(panelsOn(42, 1))).toContain(
+        'The official gives 1 hour a week.',
+      )
+    })
+
+    // The least affected side waits for the read, so a yes on the round's
+    // cards must not decline it: a declined side would block the targeted
+    // card.
+    it('never declines the side a yes on the round left unoffered', () => {
+      const prompt = buildWithPanels().buildSystemPrompt(panelsOn(42))
+      expect(prompt).toContain(
+        'They can take any of the cards in the round, or none.',
+      )
+      expect(prompt).not.toContain('the least affected side waits')
+      expect(prompt).toContain('Record nothing on the other side.')
+      expect(prompt).toContain(
+        'only once they passed on every card of it, never on a side that was not offered',
+      )
+      expect(prompt).not.toContain('They can take both sides, take one')
+      expect(prompt).not.toContain('Record declined on a side they passed on')
+      expect(prompt).not.toContain('Record declined on both sides')
+    })
+
+    it('never builds a most and least affected follow-up, or widens a thin read', () => {
+      const prompt = buildWithPanels().buildSystemPrompt(panelsOn(42))
+      expect(prompt).toContain(
+        'A thin read is never widened to more of the same people',
+      )
+      expect(prompt).toContain('Every side is main')
+      expect(prompt).not.toContain('The least affected is side contrast')
+      expect(prompt).not.toContain('the least affected side contrast')
+      expect(prompt).not.toContain(
+        'The one follow-up is the group it is missing',
+      )
+      expect(prompt).not.toContain('Then offer to widen it')
+      expect(prompt).not.toContain('repliesAlready set to the replies')
+
+      const off = buildWithPanels().buildSystemPrompt(baseCtx())
+      expect(off).toContain('Then offer to widen it')
+      expect(off).toContain('Record declined on both sides')
+      expect(off).not.toContain('is never widened')
+    })
+
+    it('runs the same round with nobody on the panel yet', () => {
+      const prompt = buildWithPanels().buildSystemPrompt(panelsOn(0))
+      expect(prompt).toContain('ROUND ONE')
+      expect(prompt).toContain('Civic panel: 0 members')
+      expect(prompt).toContain('Size the round with size_round_one')
+    })
+
+    it('keeps the two-sided check where round one cannot be sized', () => {
+      const prompt = buildWithCrm().buildSystemPrompt(panelsOn(42))
+      expect(prompt).not.toContain('ROUND ONE')
+      expect(prompt).toContain('A check you offer has two sides')
+      expect(
+        Object.keys(buildWithCrm().buildTools(panelsOn(42))),
+      ).not.toContain('size_round_one')
+    })
+
+    it('behaves as before with the flag off: no panel, both sides up front', () => {
+      const prompt = buildWithPanels().buildSystemPrompt(baseCtx())
+      expect(prompt).not.toContain('ROUND ONE')
+      expect(prompt).not.toContain('size_round_one')
+      expect(prompt).not.toContain('Civic panel:')
+      expect(prompt).not.toContain('civicPanelAsk')
+      expect(prompt).toContain('A check you offer has two sides')
+      expect(prompt).toContain(
+        'Present it as its own present_outreach_proposal, right after the first',
+      )
+      expect(prompt).toContain('they can send either or both from its card')
+
+      const tool =
+        buildWithPanels().buildTools(baseCtx()).present_outreach_proposal
+      if (tool === undefined || !('inputSchema' in tool) || !tool.inputSchema) {
+        throw new Error('expected a schema')
+      }
+      const parsed = tool.inputSchema.parse({
+        audience: 'Residents',
+        count: 900,
+        channel: 'text',
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
+        civicPanelAsk: true,
+        panelSampleSize: 50,
+      })
+      expect(parsed).not.toHaveProperty('civicPanelAsk')
+      expect(parsed).not.toHaveProperty('panelSampleSize')
+    })
+
+    it('reads the panel and its weekly hours only with the flag on', async () => {
+      const countCivicPanelMembers = vi.fn(() => Promise.resolve(42))
+      const panelHoursPerWeek = vi.fn(() => Promise.resolve(3))
+      context.countCivicPanelMembers = countCivicPanelMembers
+      context.panelHoursPerWeek = panelHoursPerWeek
+      const handlerWith = (enabled: boolean) =>
+        new PriorityFlowHandler(
+          store,
+          context,
+          outreach,
+          priorityStatus,
+          { voters: [], constituents: [] },
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+          } as never,
+        )
+
+      const on = await handlerWith(true).loadContext('c1', USER_ID)
+      expect(on.civicPanelMembers).toBe(42)
+      expect(on.panelHoursPerWeek).toBe(3)
+      expect(countCivicPanelMembers).toHaveBeenCalledWith(ORG)
+      expect(panelHoursPerWeek).toHaveBeenCalledWith('office-1')
+
+      countCivicPanelMembers.mockClear()
+      panelHoursPerWeek.mockClear()
+      const off = await handlerWith(false).loadContext('c1', USER_ID)
+      expect(off.civicPanelMembers).toBeUndefined()
+      expect(off.panelHoursPerWeek).toBeUndefined()
+      expect(countCivicPanelMembers).not.toHaveBeenCalled()
+      expect(panelHoursPerWeek).not.toHaveBeenCalled()
+    })
+
+    it('has size_round_one ask the weekly time without a panel plan', async () => {
+      const tool = buildWithPanels().buildTools(
+        panelsOn(42, null),
+      ).size_round_one
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      expect(await tool.execute({})).toHaveProperty(
+        'error',
+        expect.stringContaining('How much time can you give each week?'),
+      )
+    })
+
+    it('takes a door card without an area when round one sized none this turn', async () => {
+      priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
+      const tool = buildWithPanels().buildTools(
+        panelsOn(42),
+      ).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      expect(
+        await tool.execute({
+          audience: 'Renters on the flood blocks',
+          deepLinkOnly: false,
+          stepId: 'define' as const,
+          side: 'contrast' as const,
+          channel: 'doorKnocking' as const,
+          count: 120,
+          audienceFilters: { homeownerNo: true },
+          message: 'Hi, I am here for Bryan Ortiz. Is it the drains?',
+        }),
+      ).toEqual({ presented: true, deepLinkOnly: true })
+    })
+
+    it('still checks a panel part as a text with the join ask on', async () => {
+      priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
+      const tool = buildWithPanels().buildTools(
+        panelsOn(42),
+      ).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      const combined = {
+        audience: 'Your civic panel and residents across the district',
+        count: 18_400,
+        channel: 'text' as const,
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
+        deepLinkOnly: false,
+        stepId: 'define' as const,
+        side: 'main' as const,
+        sampleSize: 84,
+        civicPanelAsk: true,
+      }
+
+      expect(await tool.execute(combined)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(
+        await tool.execute({ ...combined, channel: 'phoneBanking' as const }),
+      ).toHaveProperty('error')
+    })
+
+    it('checks the follow-up size against the split, and offers no third text', async () => {
+      priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
+      const textCard = {
+        audience: 'Residents across the district',
+        count: 18_400,
+        channel: 'text' as const,
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
+        deepLinkOnly: false,
+        stepId: 'define' as const,
+        side: 'main' as const,
+        sampleSize: 84,
+        civicPanelAsk: true,
+      }
+      const run = async (ctx: PriorityFlowContext, input: object) => {
+        const tool = buildWithPanels().buildTools(ctx).present_outreach_proposal
+        if (tool === undefined || !('execute' in tool)) {
+          throw new Error('expected an executable tool')
+        }
+        return tool.execute({ ...textCard, ...input })
+      }
+
+      expect(await run(panelsOn(42), { roundTwoSize: 84 })).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(await run(panelsOn(42), { roundTwoSize: 900 })).toHaveProperty(
+        'error',
+        expect.stringContaining('size_round_one'),
+      )
+      expect(
+        await run(
+          {
+            ...panelsOn(42),
+            readStatus: {
+              ...thinRead,
+              followUp: { scheduledLocalDate: '2026-11-20', texts: 84 },
+            },
+          },
+          {},
+        ),
+      ).toHaveProperty('error', expect.stringContaining('already scheduled'))
+      expect(
+        await run(
+          { ...panelsOn(42), readStatus: { ...thinRead, followUpSent: true } },
+          {},
+        ),
+      ).toHaveProperty('error', expect.stringContaining('no third text'))
+      expect(
+        await run(
+          { ...panelsOn(42), readStatus: { ...thinRead, followUpSent: true } },
+          { channel: 'doorKnocking', civicPanelAsk: undefined },
+        ),
+      ).toEqual({ presented: true, deepLinkOnly: true })
+    })
+
+    it('presents each round one card on its own channel, side main', async () => {
+      priorityStatus.read = vi.fn(() => Promise.resolve(emptyPriorityStatus()))
+      const tools = buildWithPanels().buildTools(panelsOn(42))
+      const { present_outreach_proposal: tool, size_round_one: size } = tools
+      if (
+        tool === undefined ||
+        !('execute' in tool) ||
+        size === undefined ||
+        !('execute' in size)
+      ) {
+        throw new Error('expected executable tools')
+      }
+      const base = {
+        audience: 'Residents across the district',
+        deepLinkOnly: false,
+        stepId: 'define' as const,
+        side: 'main' as const,
+      }
+      const sized = (await size.execute({})) as {
+        cards: Array<{
+          channel: string
+          walkableArea?: {
+            west: number
+            south: number
+            east: number
+            north: number
+          }
+        }>
+      }
+      const walkableArea = sized.cards.find(
+        (card) => card.channel === 'doorKnocking',
+      )?.walkableArea
+      if (walkableArea === undefined) throw new Error('expected a door area')
+      const door = {
+        ...base,
+        channel: 'doorKnocking' as const,
+        count: 60,
+        walkableArea,
+        audienceFilters: { notContactedRecently: true },
+        message: 'Hi, I am here for Bryan Ortiz. Is it the drains?',
+      }
+      expect(await tool.execute(door)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      // Only the area gp-api picked, kept whole, on a door card.
+      expect(
+        await tool.execute({
+          ...door,
+          walkableArea: { ...walkableArea, west: walkableArea.west - 0.01 },
+        }),
+      ).toHaveProperty(
+        'error',
+        expect.stringContaining('not one size_round_one returned'),
+      )
+      expect(await tool.execute({ ...door, sampleSize: 40 })).toHaveProperty(
+        'error',
+        expect.stringContaining('Leave out sampleSize'),
+      )
+      expect(
+        await tool.execute({
+          ...door,
+          channel: 'phoneBanking' as const,
+          message:
+            'I am calling for Bryan Ortiz, your City Council Member. Is it the drains?',
+        }),
+      ).toHaveProperty('error', expect.stringContaining('door knocking only'))
+      // Once round one picked an area, a door card without it would save a
+      // district-wide list.
+      expect(
+        await tool.execute({ ...door, walkableArea: undefined }),
+      ).toHaveProperty(
+        'error',
+        expect.stringContaining('This door card has no walkableArea'),
+      )
+      expect(
+        await tool.execute({
+          ...base,
+          channel: 'phoneBanking' as const,
+          count: 12_000,
+          sampleSize: 30,
+          audienceFilters: { notContactedRecently: true, hasAnyPhone: true },
+          message:
+            'I am calling for Bryan Ortiz, your City Council Member. Is it the drains?',
+        }),
+      ).toEqual({ presented: true, deepLinkOnly: false })
+      expect(
+        await tool.execute({
+          ...base,
+          channel: 'text' as const,
+          count: 9_000,
+          sampleSize: 817,
+          targetResponses: 24,
+          assumedReplyRate: 0.03,
+          civicPanelAsk: true,
+          audienceFilters: { notContactedRecently: true, hasCellPhone: true },
+          message:
+            'this is Bryan Ortiz, your City Council Member. Is it the drains?',
+        }),
+      ).toEqual({ presented: true, deepLinkOnly: true })
+    })
+
+    // The targeted group after a thin read leaves out everyone the first send
+    // asked, which is a send of the other side when it is the least affected.
+    it('lets an unsent side leave out a send of the other side', async () => {
+      const status = emptyPriorityStatus()
+      priorityStatus.read = vi.fn(() =>
+        Promise.resolve({
+          ...status,
+          steps: status.steps.map((step) =>
+            step.id === 'define'
+              ? {
+                  ...step,
+                  state: 'settled' as const,
+                  check: {
+                    state: 'out' as const,
+                    who: 'The panel and new residents',
+                    question: 'Is it the drains?',
+                    raised: 0,
+                    sentAt: '2026-09-30T12:00:00Z',
+                    sentProposalKey: '3c9a7e51-0d2b-4f6e-9a18-5b7c2d4e6f80',
+                  },
+                }
+              : step,
+          ),
+        }),
+      )
+      outreach.allPutOutCheck = vi.fn(
+        (...args: [string, string, string | null, number[]]) =>
+          Promise.resolve(
+            args[2] === null && args[3].every((id) => id === 501),
+          ),
+      )
+      const contrast = {
+        audience: 'Owners outside the flood blocks',
+        count: 6_000,
+        channel: 'text' as const,
+        message:
+          'this is Bryan Ortiz, your City Council Member. Is it the drains?',
+        deepLinkOnly: false,
+        stepId: 'define' as const,
+        side: 'contrast' as const,
+        sampleSize: 400,
+        widensOutreachIds: [501],
+      }
+      const on = buildWithCrm().buildTools(
+        panelsOn(42),
+      ).present_outreach_proposal
+      const off = buildWithCrm().buildTools(baseCtx()).present_outreach_proposal
+      if (
+        on === undefined ||
+        !('execute' in on) ||
+        off === undefined ||
+        !('execute' in off)
+      ) {
+        throw new Error('expected executable tools')
+      }
+
+      expect(await on.execute(contrast)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(await off.execute(contrast)).toHaveProperty(
+        'error',
+        expect.stringContaining('this same side'),
+      )
+      // The sent side still widens only over its own sends.
+      expect(
+        await on.execute({ ...contrast, side: 'main' as const }),
+      ).toHaveProperty('error', expect.stringContaining('this same side'))
+    })
+  })
+
+  describe('behind serve-citizen-panels, reporting back to the people asked', () => {
+    const send = {
+      outreachId: 77,
+      priorityId: 'pri-1',
+      priorityTitle: 'Sidewalk repairs on Maple Ave',
+      sentOn: '2026-10-05',
+      audience:
+        'Everyone you texted about Sidewalk repairs on Maple Ave on October 5',
+      reached: 240,
+      canReach: 236,
+      answered: 31,
+      themes: [{ title: 'Trip hazards near the school', people: 14 }],
+      reportBack: null,
+    }
+    let listForOffice: ReturnType<typeof vi.fn>
+
+    const withReportBack = (enabled = true) => {
+      listForOffice = vi.fn(() => Promise.resolve([send]))
+      return new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)) } as never,
+        { listForOffice } as unknown as OutreachReportBackService,
+      )
+    }
+    const on = (): PriorityFlowContext => ({
+      ...baseCtx(),
+      outreachFeedbackEnabled: true,
+      reportBacks: [send],
+    })
+    const card = {
+      audience: send.audience,
+      count: send.canReach,
+      channel: 'text' as const,
+      message:
+        'this is Bryan Ortiz, your City Council Member. Thanks for answering. ' +
+        'Most of you named trip hazards near the school. I will ask for ' +
+        'those blocks to be fixed first.',
+      deepLinkOnly: false,
+      reportBackForOutreachId: send.outreachId,
+    }
+    const proposal = (handler: PriorityFlowHandler) => {
+      const tool = handler.buildTools(on()).present_outreach_proposal
+      if (tool === undefined || !('execute' in tool)) {
+        throw new Error('expected an executable tool')
+      }
+      return tool
+    }
+
+    it('reads the sends whose replies are in only with the flag on', async () => {
+      context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
+      const ctx = await withReportBack(true).loadContext('c1', USER_ID)
+      expect(ctx.reportBacks).toEqual([send])
+      expect(listForOffice).toHaveBeenCalledWith(ORG, 'office-1', {
+        priorityId: 'pri-1',
+      })
+      expect(Object.keys(withReportBack().buildTools(on()))).toContain(
+        'read_report_back',
+      )
+
+      const off = await withReportBack(false).loadContext('c1', USER_ID)
+      expect(off.reportBacks).toBeUndefined()
+      expect(listForOffice).not.toHaveBeenCalled()
+      expect(Object.keys(withReportBack().buildTools(baseCtx()))).not.toContain(
+        'read_report_back',
+      )
+      const prompt = withReportBack().buildSystemPrompt(baseCtx())
+      expect(prompt).not.toContain('REPORTING BACK')
+      expect(prompt).not.toContain('<report_backs>')
+    })
+
+    it('starts on the priority the app names, and walks the official through it', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('REPORTING BACK TO THE PEOPLE YOU ASKED')
+      expect(prompt).toContain(
+        `starts with ${REPORT_BACK_MARKER} comes from the app`,
+      )
+      expect(prompt).toContain('Call read_report_back first')
+      expect(prompt).toContain(
+        'who it goes to (its audience), how many people answered, and the top themes',
+      )
+      expect(prompt).toContain(
+        `outreach:77 — ${send.audience}. 31 people answered across texts, calls and doors. Report back: not sent yet.`,
+      )
+    })
+
+    it('asks for the next step and never makes one up', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('ask what they are going to do next')
+      expect(prompt).toContain('Never write a next step they have not told you')
+      expect(prompt).toContain('never guess one to fill the draft')
+      expect(prompt).toContain('Show the draft in your message')
+      expect(prompt).toContain(
+        'Every report back ends on a clear next step or a plain status',
+      )
+    })
+
+    it('is one report back for everyone who answered on any channel', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain(
+        'one report back for the priority, to everyone who answered on any text, call or door, each person counted once',
+      )
+    })
+
+    it('never quotes or points at an individual resident', () => {
+      const prompt = withReportBack().buildSystemPrompt(on())
+      expect(prompt).toContain('Never quote a reply')
+      expect(prompt).toContain('any detail that could point to who said it')
+      expect(prompt).toContain('never ask anyone to join the civic panel')
+    })
+
+    it("knows a report back already went out, so it doesn't ask", () => {
+      const prompt = withReportBack().buildSystemPrompt({
+        ...on(),
+        reportBacks: [
+          { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+        ],
+      })
+      expect(prompt).toContain('Report back: sent 2026-10-12.')
+      expect(prompt).toContain(
+        'never ask the official whether they reported back',
+      )
+    })
+
+    it('presents a report back only to the people the send reached', async () => {
+      const handler = withReportBack()
+      const tool = proposal(handler)
+
+      expect(await tool.execute(card)).toEqual({
+        presented: true,
+        deepLinkOnly: true,
+      })
+      expect(listForOffice).toHaveBeenLastCalledWith(ORG, 'office-1', {
+        priorityId: 'pri-1',
+        outreachId: 77,
+      })
+      expect(await tool.execute({ ...card, count: 240 })).toHaveProperty(
+        'error',
+        expect.stringContaining('count to 236'),
+      )
+      expect(
+        await tool.execute({ ...card, audience: 'Residents' }),
+      ).toHaveProperty('error', expect.stringContaining(send.audience))
+      expect(
+        await tool.execute({
+          ...card,
+          audienceFilters: { hasCellPhone: true },
+        }),
+      ).toHaveProperty('error', expect.stringContaining('audienceFilters'))
+      expect(
+        await tool.execute({ ...card, civicPanelAsk: true }),
+      ).toHaveProperty('error', expect.stringContaining('civicPanelAsk'))
+      expect(
+        await tool.execute({
+          ...card,
+          stepId: 'define' as const,
+          side: 'main' as const,
+        }),
+      ).toHaveProperty('error', expect.stringContaining('stepId'))
+      expect(
+        await tool.execute({ ...card, channel: 'phoneBanking' as const }),
+      ).toHaveProperty('error', expect.stringContaining('is a text'))
+    })
+
+    it('never offers a second report back, or one too few can get', async () => {
+      const handler = withReportBack()
+      const tool = proposal(handler)
+      listForOffice.mockResolvedValueOnce([
+        { ...send, reportBack: { outreachId: 90, sentOn: '2026-10-12' } },
+      ])
+      expect(await tool.execute(card)).toHaveProperty(
+        'error',
+        expect.stringContaining('already went out'),
+      )
+      listForOffice.mockResolvedValueOnce([{ ...send, canReach: 12 }])
+      expect(await tool.execute({ ...card, count: 12 })).toHaveProperty(
+        'error',
+        expect.stringContaining('at least 25'),
+      )
+      listForOffice.mockResolvedValueOnce([])
+      expect(await tool.execute(card)).toHaveProperty(
+        'error',
+        expect.stringContaining('read_report_back'),
+      )
+    })
+
+    it('takes no report back with the flag off', () => {
+      const tool =
+        withReportBack().buildTools(baseCtx()).present_outreach_proposal
+      if (tool === undefined || !('inputSchema' in tool) || !tool.inputSchema) {
+        throw new Error('expected a schema')
+      }
+      expect(tool.inputSchema.parse(card)).not.toHaveProperty(
+        'reportBackForOutreachId',
+      )
+    })
+  })
+
+  describe('behind serve-citizen-panels, before a good read', () => {
+    const thin: PriorityReadStatus = {
+      answers: 54,
+      needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['women', 'age65plus'],
+    }
+    let readStatuses: ReturnType<typeof vi.fn>
+
+    const withReadStatus = (enabled = true) => {
+      readStatuses = vi.fn(() => Promise.resolve(new Map([['pri-1', thin]])))
+      return new PriorityFlowHandler(
+        store,
+        context,
+        outreach,
+        priorityStatus,
+        { voters: [], constituents: [] },
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+          countSegment: vi.fn(),
+        } as never,
+        {} as never,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)) } as never,
+        undefined,
+        { readStatuses } as unknown as PriorityResultsService,
+      )
+    }
+    const at = (readStatus: typeof thin): PriorityFlowContext => ({
+      ...baseCtx(),
+      outreachFeedbackEnabled: true,
+      readStatus,
+    })
+
+    it('reads the status only with the flag on', async () => {
+      context.countCivicPanelMembers = vi.fn(() => Promise.resolve(0))
+      const ctx = await withReadStatus(true).loadContext('c1', USER_ID)
+      expect(ctx.readStatus).toEqual(thin)
+      expect(readStatuses).toHaveBeenCalledWith(ORG, ['pri-1'])
+
+      const off = await withReadStatus(false).loadContext('c1', USER_ID)
+      expect(off.readStatus).toBeUndefined()
+      expect(readStatuses).not.toHaveBeenCalled()
+      const prompt = withReadStatus().buildSystemPrompt(baseCtx())
+      expect(prompt).not.toContain('BEFORE A GOOD READ')
+      expect(prompt).not.toContain('Groups heard from')
+    })
+
+    it('tells the agent where the read stands in <priority>', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        'Groups heard from: 9 of 12. Status: A few groups need more answers. Hear more from: women and people 65 and over. Good read: no.',
+      )
+      const good = withReadStatus().buildSystemPrompt(
+        at({
+          answers: 103,
+          needed: 96,
+          groupsHeard: 12,
+          groupsTotal: 12,
+          good: true,
+          status: 'representative',
+          underrepresented: [],
+        }),
+      )
+      expect(good).toContain(
+        'Groups heard from: 12 of 12. Status: Every group heard. Hear more from: nobody in particular. Good read: yes.',
+      )
+    })
+
+    it('aims outreach at who to hear more from, and never at weights', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain('Then offer outreach aimed at those groups.')
+      expect(prompt).toContain(
+        'you could not check which groups they came from, and never say every group was heard',
+      )
+      expect(prompt).toContain('set areaTarget to unreached on the proposal')
+      expect(prompt).toContain(
+        'Never mention weights, weighting, raking, models, quotas or confidence ranges',
+      )
+    })
+
+    it('holds results back and nudges toward more answers', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain('BEFORE A GOOD READ')
+      expect(prompt).toContain(
+        'Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said"',
+      )
+      expect(prompt).toContain('Nudge toward a good read instead')
+    })
+
+    it('answers a direct question honestly and says it is too early', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        'If they ask directly what people have said so far, answer honestly in one or two sentences',
+      )
+      expect(prompt).toContain('say it is too early to act on')
+    })
+
+    it('keeps what people said out of read_outreach_feedback until a good read', async () => {
+      const send = {
+        outreachId: 7,
+        audience: 'Residents across the district',
+        channel: 'text',
+        sentOn: '2026-10-01',
+        heardFrom: 240,
+        verbatims: [{ text: 'Fix the crosswalk on Main' }],
+        verbatimsLeftOut: 0,
+        themes: [
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ],
+      }
+      const pooledThemes = vi.fn(() =>
+        Promise.resolve([
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ]),
+      )
+      outreach.feedbackFor = vi.fn(() =>
+        Promise.resolve([send]),
+      ) as unknown as PriorityFlowOutreachService['feedbackFor']
+      outreach.pooledThemes =
+        pooledThemes as unknown as PriorityFlowOutreachService['pooledThemes']
+
+      const early = withReadStatus().buildTools(at(thin))
+        .read_outreach_feedback as unknown as {
+        description: string
+        execute: (input: object) => Promise<object>
+      }
+      const held = await early.execute({})
+      expect(held).toEqual({
+        heldBack: HELD_BACK_NOTE,
+        sends: [
+          {
+            outreachId: 7,
+            audience: 'Residents across the district',
+            channel: 'text',
+            sentOn: '2026-10-01',
+            heardFrom: 240,
+          },
+        ],
+      })
+      expect(JSON.stringify(held)).not.toContain('Crosswalk')
+      expect(pooledThemes).not.toHaveBeenCalled()
+      expect(early.description).toContain('you share none')
+
+      const good = withReadStatus().buildTools(
+        at({ ...thin, good: true, status: 'representative' }),
+      ).read_outreach_feedback as unknown as {
+        execute: (input: object) => Promise<object>
+      }
+      expect(await good.execute({})).toEqual({
+        priorityThemes: [
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ],
+        sends: [send],
+      })
+    })
+
+    it('treats Get answers as a detour that proposes outreach and returns', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        `A message that starts with ${GET_ANSWERS_MARKER} comes from the app`,
+      )
+      expect(prompt).toContain('GET ANSWERS (a detour that returns)')
+      expect(prompt).toContain(
+        'a text, calls and doors, built as BUILD THE CHECK BEFORE YOU OFFER IT says',
+      )
+      expect(prompt).toContain(
+        'never call update_priority_status because of it',
+      )
+      expect(prompt).toContain(
+        'Back to the calls: start with the Historic Resources Commission.',
+      )
+      expect(prompt).toContain(
+        'never say anything was sent, and never send anything yourself',
+      )
+    })
+
+    it('never starts the civic panel from a priority thread', () => {
+      const prompt = withReadStatus().buildSystemPrompt(at(thin))
+      expect(prompt).toContain(
+        'This thread never starts, offers or sets up the civic panel',
+      )
+      expect(prompt).toContain(
+        '[Build your civic panel](/dashboard/contacts/citizens-panel)',
+      )
+    })
+
+    it('says what is out, and gives no third text', () => {
+      const out = withReadStatus().buildSystemPrompt(
+        at({ ...thin, checkOut: true }),
+      )
+      expect(out).toContain('Check out with residents: yes.')
+      expect(out).not.toContain('Follow-up text:')
+      expect(
+        withReadStatus().buildSystemPrompt(
+          at({
+            ...thin,
+            checkOut: true,
+            followUp: { scheduledLocalDate: '2026-11-20', texts: 84 },
+          }),
+        ),
+      ).toContain('Do not offer another text for this check.')
+      expect(
+        withReadStatus().buildSystemPrompt(
+          at({ ...thin, checkOut: true, followUpSent: true }),
+        ),
+      ).toContain('A check gets no third text.')
+    })
   })
 })

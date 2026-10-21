@@ -1,15 +1,11 @@
 'use client'
 
-import {
-  ExternalLink,
-  HelpCircle,
-  Microscope,
-  TriangleAlert,
-} from 'lucide-react'
+import { ExternalLink, HelpCircle, Map, TriangleAlert } from 'lucide-react'
 import { Button, Card, CardContent } from '@goodparty_org/styleguide'
 import { data } from '../lib/data'
 
 const SLACK = 'https://goodpartyorg.slack.com/archives/C0BECEK0603'
+const MAP = 'https://claude.ai/artifact/1P4qyB56ZNPJ9VPaMjDLLZ'
 
 /**
  * There is deliberately no "request an event" exit. Nobody arrives wanting an event;
@@ -35,12 +31,12 @@ const actions = (formUrl: string) => [
     cta: 'Open #product-analytics',
   },
   {
-    icon: Microscope,
-    title: 'Dig into an area',
+    icon: Map,
+    title: 'See it on the product map',
     blurb:
-      'See every event, gap and question for one product area in one place.',
-    href: '',
-    cta: 'Coming soon',
+      'The same events laid over the product as people walk through it: each flow, each step, and the steps where nothing fires.',
+    href: MAP,
+    cta: 'Open the product map',
   },
 ]
 

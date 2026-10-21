@@ -12,7 +12,6 @@ const mockUseOrganization = vi.fn()
 const mockUseOrganizations = vi.fn()
 const mockSetOrganizationSlug = vi.fn()
 const mockHandleLogOut = vi.fn()
-const mockUseTeamAccountsFlag = vi.fn()
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseUser(),
@@ -32,9 +31,6 @@ vi.mock('helpers/useSnackbar', () => ({
     successSnackbar: vi.fn(),
     errorSnackbar: vi.fn(),
   }),
-}))
-vi.mock('@shared/experiments/teamAccountsFlag', () => ({
-  useTeamAccountsFlag: (...args: unknown[]) => mockUseTeamAccountsFlag(...args),
 }))
 
 import VolunteerSidebar from './VolunteerSidebar'
@@ -99,7 +95,6 @@ describe('VolunteerSidebar', () => {
     mockUseUser.mockReturnValue([user])
     mockUseOrganization.mockReturnValue(orgOne)
     mockUseOrganizations.mockReturnValue([orgOne])
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
   })
 
   it('renders the sidebar user block and a logout row, with the active campaign name and no org picker or profile dropdown', () => {

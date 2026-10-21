@@ -5,7 +5,23 @@ import {
   PACK_AGE_BUCKETS,
   encodeAgeBucket,
 } from '@goodparty_org/contracts'
-import { convertVoterFileFilterToFilters } from './voterFileFilter.utils'
+import {
+  convertVoterFileFilterToFilters,
+  savedFilterBlockedForElectedOffice,
+} from './voterFileFilter.utils'
+
+describe('convertVoterFileFilterToFilters shape names', () => {
+  // The one array column that is not criteria. Through the generic branch
+  // it would become an `in` filter on a voter column that does not exist.
+  it('never turns a boundary part name into a filter', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        genderFemale: true,
+        geoPolyLabels: [{ name: 'Downtown', color: '#2563eb' }],
+      }),
+    ).toEqual(convertVoterFileFilterToFilters({ genderFemale: true }))
+  })
+})
 
 // ENG-10752: the wizard offers mutually exclusive ranges; rows saved before
 // the change keep the exact (overlapping) bounds they were created with.
@@ -108,12 +124,12 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
   })
 })
 
-// ADR 0010, for age. The door-knocking map shades from the pack's age buckets
-// while knock time sends the `ageInt` bounds above to people-api, so the two
-// have to select the same people for every key and every age — otherwise the
-// count under the map and the list it previews are two answers to one
-// question, which is worse than the honest "the map can't shade this" the
-// disclosure used to give for 65+.
+// One quantity, one number, for age. The door-knocking map shades from the
+// pack's age buckets while knock time sends the `ageInt` bounds above to
+// people-api, so the two have to select the same people for every key and
+// every age — otherwise the count under the map and the list it previews are
+// two answers to one question, which is worse than the honest "the map can't
+// shade this" the disclosure used to give for 65+.
 //
 // Both sides now read one table (contracts' AGE_FILTER_KEY_RANGES): this
 // conversion builds its ranges from it and PackAgeBuckets cuts the buckets
@@ -193,6 +209,35 @@ describe('convertVoterFileFilterToFilters voter status', () => {
   })
 })
 
+describe('convertVoterFileFilterToFilters early vote status', () => {
+  it('maps a single selection with eq', () => {
+    expect(
+      convertVoterFileFilterToFilters({ earlyVoteVeryLikely: true }),
+    ).toEqual({ earlyVoteStatus: { eq: 'Very Likely' } })
+  })
+
+  it('maps several selections with in, Unknown included', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        earlyVoteVeryUnlikely: true,
+        earlyVoteUnknown: true,
+      }),
+    ).toEqual({ earlyVoteStatus: { in: ['Very Unlikely', 'Unknown'] } })
+  })
+
+  it('stays separate from voterStatus', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        audienceSuperVoters: true,
+        earlyVoteLikely: true,
+      }),
+    ).toEqual({
+      voterStatus: { eq: 'Super' },
+      earlyVoteStatus: { eq: 'Likely' },
+    })
+  })
+})
+
 // The precincts branch is the converter's most failure-prone path: the saved
 // column is `precincts` but the filter key is `precinct`, and the filter
 // accepts only `in`. Falling through to the generic array branch would emit
@@ -259,5 +304,40 @@ describe('excludes recommendation provenance from the payload', () => {
         recommendedIntent: 'persuade',
       }),
     ).toEqual({ politicalParty: { eq: 'Democratic' } })
+  })
+})
+
+describe('savedFilterBlockedForElectedOffice', () => {
+  it('blocks a saved list carrying a party filter', () => {
+    expect(savedFilterBlockedForElectedOffice({ partyDemocrat: true })).toBe(
+      true,
+    )
+  })
+
+  it('blocks ethnicity, ideology, affinity, and contacts-made filters', () => {
+    expect(savedFilterBlockedForElectedOffice({ ethnicityAsian: true })).toBe(
+      true,
+    )
+    expect(
+      savedFilterBlockedForElectedOffice({ ideologyConservative: true }),
+    ).toBe(true)
+    expect(
+      savedFilterBlockedForElectedOffice({ independentAffinity: true }),
+    ).toBe(true)
+    // contacts-made never reaches the converted FilterObject, so this proves
+    // the predicate's raw-input branch.
+    expect(savedFilterBlockedForElectedOffice({ contactsMade0: true })).toBe(
+      true,
+    )
+  })
+
+  it('allows a list built only from Serve-safe dimensions', () => {
+    expect(
+      savedFilterBlockedForElectedOffice({
+        genderFemale: true,
+        hasLandline: true,
+        audienceSuperVoters: true,
+      }),
+    ).toBe(false)
   })
 })

@@ -9,7 +9,7 @@ import {
 } from 'app/dashboard/contacts/crm/person/ActivityFeedEntry'
 import SheetSectionHeader from './SheetSectionHeader'
 
-// ADR 0009. What this campaign already did to this resident, newest first,
+// What this campaign already did to this resident, newest first,
 // read off the route payload rather than fetched — the sheet has to render a
 // block into a walk with no signal, which is the ordinary case rather than the
 // edge one.

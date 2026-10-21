@@ -562,6 +562,11 @@ describe('CommunityIssueService analytics events', () => {
       topIssue1Title: 'Issue 1',
       topIssue1Summary: 'Summary for issue 1.',
       topIssue1Priority: 'high',
+      topIssue1ShortTitle: 'Issue 1',
+      topIssue1Teaser: 'Summary for issue 1.',
+      trendingIssue1ShortTitle: 'Issue 1',
+      leadIssueTitle: 'Issue 1',
+      leadIssueTeaser: 'Summary for issue 1.',
       trendingIssue1Title: 'Issue 1',
       trendingIssue1Priority: 'high',
     })
@@ -586,6 +591,7 @@ describe('CommunityIssueService analytics events', () => {
       trendingIssueCount: 1,
       topIssue1Title: 'Issue 2',
       topIssue1Priority: 'high',
+      leadIssueTitle: 'Issue 2',
     })
     expect(
       callsFor(EVENTS.CommunityIssues.TrendingIssuesRefreshed),
@@ -607,6 +613,33 @@ describe('CommunityIssueService analytics events', () => {
       trendingIssueCount: 1,
       trendingIssue1Title: 'New Trending Issue',
     })
+    expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
+  })
+
+  it('treats the first run after onboarding starter issues as the first generation', async () => {
+    const starter = await service.prisma.communityIssue.create({
+      data: {
+        organizationSlug: ORG,
+        list: CommunityIssueList.top_community,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.high,
+        title: 'Starter issue',
+        summary: 'From onboarding.',
+        rank: 1,
+      },
+    })
+
+    await generate('trending_issues', 'trending', [makeIssue(1)])
+    expect(
+      callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
+    ).toHaveLength(0)
+
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(1, { existing_issue_id: starter.id }),
+    ])
+    expect(
+      callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
+    ).toHaveLength(1)
     expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
   })
 
@@ -633,6 +666,7 @@ describe('CommunityIssueService analytics events', () => {
         title: 'Pothole backlog',
         summary: 'Crews are behind on road repairs.',
         rank: 1,
+        lastRefreshedRunId: 'earlier-run',
       },
     })
     await generate('trending_issues', 'trending', [makeIssue(1)])

@@ -1,8 +1,13 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  DOOR_KNOCKING_BULLET,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
+import { WIN_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
 
 const service = useTestService()
 
@@ -46,20 +51,28 @@ const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 const postDraft = (body: object) =>
   service.client.post('/v1/outreach/door-knocking/draft', body, orgHeaders())
 
-const POINTS = {
-  engagementQuestion: 'What is the one thing you would fix around here?',
-  context: 'Fix our roads with a real maintenance plan, not patchwork.',
-  ask: 'Ask whether we can count on them in November.',
-}
+const POINTS = [
+  'Ask what one thing they would fix around here.',
+  'Fix our roads with a real maintenance plan, not patchwork.',
+  'Keep the library open on weekends.',
+  'Ask whether we can count on them in November.',
+]
 
-const mockPoints = (points: Partial<typeof POINTS> = {}) =>
+const completion = (object: object) =>
   jsonCompletion.mockResolvedValue({
-    object: { ...POINTS, ...points },
+    object,
     tokens: 50,
     inputTokens: 25,
     outputTokens: 25,
     model: 'claude-test',
   })
+
+const mockPoints = (points: string[] = POINTS) => completion({ points })
+
+const mockPolish = (draft: string) => completion({ draft })
+
+const asBullets = (points: string[]) =>
+  points.map((point) => `${DOOR_KNOCKING_BULLET}${point}`).join('\n')
 
 const promptOf = (role: 'system' | 'user'): string => {
   const call = jsonCompletion.mock.calls[0]?.[0] as {
@@ -74,16 +87,106 @@ const draftBody = (overrides: object = {}) => ({
   ...overrides,
 })
 
+// The lines `withField` adds to `without`, asserting that adding them is the
+// ONLY difference — so a request without the field is byte-identical to one
+// that never knew the field existed.
+const addedLines = (without: string, withField: string): string[] => {
+  const before = without.split('\n')
+  const after = withField.split('\n')
+  let start = 0
+  while (start < before.length && before[start] === after[start]) start++
+  const count = after.length - before.length
+  expect(after.slice(start + count)).toEqual(before.slice(start))
+  return after.slice(start, start + count)
+}
+
 describe('POST /v1/outreach/door-knocking/draft', () => {
-  it('returns the three generated lines, named', async () => {
+  // "Hear from voters" asks one question, and the card's ask is written from
+  // it the way Serve's community-input card is.
+  describe('the hear-from-voters question', () => {
+    const question = 'How do you feel about the road bond?'
+
+    it('adds the fenced question and its precedence, and nothing else', async () => {
+      mockPoints()
+      await postDraft(draftBody({ purpose: 'community_input' }))
+      const baseline = { system: promptOf('system'), user: promptOf('user') }
+
+      jsonCompletion.mockClear()
+      mockPoints()
+      const res = await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(promptOf('system')).toBe(baseline.system)
+      expect(addedLines(baseline.user, promptOf('user'))).toEqual([
+        'The question this effort is trying to answer:',
+        '"""',
+        question,
+        '"""',
+        expect.stringContaining(
+          'in place of the general question described above',
+        ),
+      ])
+    })
+
+    it('drafts the purpose in Win’s own voice', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'community_input',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(promptOf('user')).toContain(
+        WIN_DOOR_KNOCKING_VOICE.purposePrompts.community_input,
+      )
+      expect(`${promptOf('system')}${promptOf('user')}`).not.toMatch(
+        /constituent/i,
+      )
+    })
+
+    // One-way, as on Serve: a question folded into any other purpose's ask
+    // writes a card about something the effort is not about.
+    it('refuses a question on a purpose that asks none', async () => {
+      const res = await postDraft(
+        draftBody({
+          purpose: 'persuade_voters',
+          communityInputQuestion: question,
+        }),
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
+  })
+
+  it('returns the bullets as one draft, each line marked', async () => {
     mockPoints()
 
     const res = await postDraft(draftBody())
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    // Named fields rather than one blob: the model cannot merge or reorder
-    // the sections, and each is separately assertable.
-    expect(res.data).toEqual(POINTS)
+    expect(res.data.draft).toBe(asBullets(POINTS))
+  })
+
+  // A tab open across the deploy still reads the three sections it used to
+  // edit: first line, the middle lines, last line, markers stripped.
+  it('fills the legacy sections from the draft for one release', async () => {
+    mockPoints()
+
+    const res = await postDraft(draftBody())
+
+    expect(res.data).toMatchObject({
+      engagementQuestion: POINTS[0],
+      context: `${POINTS[1]} ${POINTS[2]}`,
+      ask: POINTS[3],
+    })
   })
 
   it('grounds the prompt in the office and the campaign materials', async () => {
@@ -188,9 +291,27 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     return postDraft(draftBody()).then(() => {
       const system = promptOf('system')
       expect(system).toContain('BULLET NOTES')
-      expect(system).toContain('Do not write')
+      expect(system).toContain('Do not write dialogue')
       expect(system).toContain('never lines to recite')
     })
+  })
+
+  it('asks for 4 or 5 bullets, one action each, about the goal', async () => {
+    mockPoints()
+
+    await postDraft(draftBody())
+
+    const system = promptOf('system')
+    expect(system).toContain('Write 4 or 5 short bullets')
+    expect(system).toContain('ONE action or idea')
+    expect(system).toContain(
+      'about what the campaign is working toward or asking for',
+    )
+    expect(system).toContain('never about the person who answers the door')
+    expect(system).toContain('No em dashes')
+    expect(system).toContain('sentence case')
+    // The model imitates its prompt.
+    expect(system).not.toContain('\u2014')
   })
 
   // The single highest-leverage sentence in the prompt. A note that compresses
@@ -204,18 +325,25 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(promptOf('system')).toContain('Name the concrete HOW')
   })
 
-  // The model is told the shape of the whole card so its three lines sit
-  // inside a conversation it can see — and told which two are not its to
-  // write, which is what keeps a URL out of the call-to-action.
-  it('states the five-section card and which lines are the app’s', async () => {
+  // Nothing is composed around the card any more, so the bullets carry the
+  // opening and the close, and a volunteer reads the same card the candidate
+  // does.
+  it('opens and closes the card in the third person', async () => {
     mockPoints()
 
     await postDraft(draftBody())
 
     const system = promptOf('system')
-    expect(system).toContain('five-section card')
-    expect(system).toContain('the app writes this from the campaign record')
+    expect(system).toContain('The first bullet is how to open')
+    expect(system).toContain('the last is how to close')
+    expect(system).toContain('never a scripted greeting or goodbye')
+    expect(system).toContain('in the third person')
+    expect(system).toContain('Refer to the candidate by first name')
+    expect(system).toContain('If no name is given, say "the candidate"')
+    expect(system).not.toContain('Renee')
+    expect(system).not.toContain("Hi, I'm")
     expect(system).toContain('Never write a URL')
+    expect(system).not.toMatch(/call.to.action/i)
   })
 
   describe('the audience block', () => {
@@ -309,17 +437,56 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(promptOf('system')).toContain('ONE request and no more')
     })
 
-    // The one line allowed to carry brackets, and only because event
-    // logistics are not modelled anywhere in this product.
-    it('permits logistics brackets only for an event invite', async () => {
+    it('writes an event invite from the details the flow sent', async () => {
+      mockPoints()
+
+      await postDraft(
+        draftBody({
+          purpose: 'event_invite',
+          event: {
+            date: '2026-10-17',
+            time: '18:30',
+            location: 'Georgetown Public Library',
+          },
+        }),
+      )
+
+      const user = promptOf('user')
+      expect(user).toContain('Date: Saturday, October 17')
+      expect(user).toContain('Time: 6:30 PM')
+      expect(user).toContain('Location: Georgetown Public Library')
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('leaves the logistics out of an event invite sent without details', async () => {
       mockPoints()
 
       await postDraft(draftBody({ purpose: 'event_invite' }))
 
-      expect(promptOf('user')).toContain('[date]')
+      const user = promptOf('user')
+      expect(user).toContain('No event date, time or place was given.')
       expect(promptOf('system')).toContain(
-        'Use a bracketed placeholder ONLY in the ask',
+        'Never write a bracketed placeholder.',
       )
+      expect(`${promptOf('system')}\n${user}`).not.toMatch(
+        /\[(date|time|location)\]/i,
+      )
+    })
+
+    it('rejects event details it cannot write in', async () => {
+      const res = await service.client.post(
+        '/v1/outreach/door-knocking/draft',
+        draftBody({
+          purpose: 'event_invite',
+          event: { date: 'Saturday', time: '6pm', location: 'Library' },
+        }),
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
     })
 
     // Fresh generation only. Improve mode polishes the author's own words, so
@@ -339,7 +506,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     })
 
     it('adapts custom points the candidate wrote', async () => {
-      mockPoints()
+      mockPolish('Roads are bad.')
 
       const res = await postDraft(
         draftBody({ purpose: 'custom', currentDraft: 'Roads are bad.' }),
@@ -352,9 +519,11 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
 
   describe('improve and regenerate', () => {
     it('polishes an existing draft rather than writing fresh', async () => {
-      mockPoints()
+      mockPolish('Fix the roads. Vote in November.')
 
-      await postDraft(draftBody({ currentDraft: 'Roads. Vote. Thanks.' }))
+      const res = await postDraft(
+        draftBody({ currentDraft: 'Roads. Vote. Thanks.' }),
+      )
 
       expect(promptOf('user')).toContain(
         'The existing talking points to polish:',
@@ -362,6 +531,43 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(promptOf('system')).toContain(
         'This is a light edit, NOT a rewrite',
       )
+      expect(res.data.draft).toBe('Fix the roads. Vote in November.')
+    })
+
+    // Free text is the candidate's: an Improve never turns sentences into
+    // bullets or bullets into sentences.
+    it('keeps the shape the candidate wrote', async () => {
+      const bullets = asBullets(['Fix the roads.', 'Ask for their vote.'])
+      mockPolish(bullets)
+
+      const res = await postDraft(draftBody({ currentDraft: bullets }))
+
+      const system = promptOf('system')
+      expect(system).toContain('Keep the shape they wrote')
+      expect(system).toContain('Never turn one into')
+      expect(system).toContain('Keep their line breaks')
+      expect(system).not.toContain('Write 4 or 5 short bullets')
+      expect(res.data.draft).toBe(bullets)
+      expect(res.data).toMatchObject({
+        engagementQuestion: 'Fix the roads.',
+        context: '',
+        ask: 'Ask for their vote.',
+      })
+    })
+
+    it('trims an over-long polish at a line, not mid-word', async () => {
+      const line = 'Fix the roads with a real plan and no patchwork'
+      const long = Array.from({ length: 60 }, () => line).join('\n')
+      mockPolish(long)
+
+      const res = await postDraft(draftBody({ currentDraft: 'Roads.' }))
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const draft: string = res.data.draft
+      expect(draft.length).toBeLessThanOrEqual(
+        DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+      )
+      expect(draft.split('\n').every((l) => l === line)).toBe(true)
     })
 
     // Regenerate: the rejected draft rides along so the re-roll varies rather
@@ -373,7 +579,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
 
       const user = promptOf('user')
       expect(user).toContain('just rejected')
-      expect(user).toContain('a different engagement question')
+      expect(user).toContain('a different angle')
       expect(promptOf('system')).not.toContain('light edit')
     })
 
@@ -410,29 +616,83 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
   })
 
-  // A recoverable over-budget line must not become an unrecoverable 502, so
+  // A recoverable over-budget bullet must not become an unrecoverable 502, so
   // the schema the model is validated against carries no .max() and the trim
-  // enforces the contract's cap instead.
-  it('trims an over-long line at a sentence boundary', async () => {
+  // enforces the budget instead.
+  it('trims an over-long bullet at a sentence boundary', async () => {
     const long = `${'Fix the roads with a real plan. '.repeat(20)}End.`
-    mockPoints({ context: long })
+    mockPoints([long, ...POINTS.slice(1)])
 
     const res = await postDraft(draftBody())
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.context.length).toBeLessThanOrEqual(400)
-    expect(res.data.context.endsWith('.')).toBe(true)
+    const first: string = res.data.draft.split('\n')[0]
+    expect(first.startsWith(DOOR_KNOCKING_BULLET)).toBe(true)
+    expect(first.length).toBeLessThanOrEqual(DOOR_KNOCKING_BULLET.length + 200)
+    expect(first.endsWith('.')).toBe(true)
   })
 
-  // The wizard stores the card's four lines newline-separated, so a wrapped
-  // line or a model-supplied bullet marker would split one section into two at
-  // the door.
-  it('flattens a wrapped line and strips a bullet marker', async () => {
-    mockPoints({ context: '- Fix the roads\n  with a real plan.' })
+  // The draft is the bullets newline-separated, so a wrapped bullet or a
+  // model-supplied marker would split one bullet into two or print twice.
+  it('flattens a wrapped bullet and strips any marker the model added', async () => {
+    mockPoints([
+      '- Fix the roads\n  with a real plan.',
+      '• Keep the library open.',
+      '3. Ask about the bus line.',
+      'Ask for their vote.',
+    ])
 
     const res = await postDraft(draftBody())
 
-    expect(res.data.context).toBe('Fix the roads with a real plan.')
+    expect(res.data.draft).toBe(
+      asBullets([
+        'Fix the roads with a real plan.',
+        'Keep the library open.',
+        'Ask about the bus line.',
+        'Ask for their vote.',
+      ]),
+    )
+  })
+
+  // The prompt asks for 4 or 5, but a reply with another count is still a
+  // draft the candidate edits, so it is kept rather than failed.
+  it.each([
+    [7, 5],
+    [3, 3],
+  ])('keeps a reply of %i bullets as %i', async (given, kept) => {
+    mockPoints(
+      Array.from({ length: given }, (_, i) => `Talk about point ${i + 1}.`),
+    )
+
+    const res = await postDraft(draftBody())
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.draft.split('\n')).toHaveLength(kept)
+  })
+
+  // A reply that is only markers or whitespace is nothing to put on the
+  // card, so it fails like a failed call rather than storing a blank draft.
+  it.each([
+    {
+      name: 'every bullet is only a marker',
+      mock: () => mockPoints(['-', '•', '   ']),
+      body: {},
+    },
+    {
+      name: 'a polish comes back blank',
+      mock: () => mockPolish('   '),
+      body: { currentDraft: 'Fix the roads.' },
+    },
+  ])('502s when $name', async ({ mock, body }) => {
+    mock()
+
+    const res = await service.client.post(
+      '/v1/outreach/door-knocking/draft',
+      draftBody(body),
+      { ...orgHeaders(), validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
   it('502s when the model call fails', async () => {

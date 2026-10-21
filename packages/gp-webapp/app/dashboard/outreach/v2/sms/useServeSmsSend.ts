@@ -1,12 +1,20 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { format } from 'date-fns'
+import { findCivicPanelJoinLine } from '@goodparty_org/contracts'
 import type {
+  ProposalLink,
   RecommendedList,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
   SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachLaunchSource,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
 import { uploadFileToS3 } from '@shared/utils/s3Upload'
 import { usePositionName } from '@shared/hooks/usePositionName'
@@ -69,11 +77,11 @@ export type ServeSmsCreateFn = (
 // Council Member", " - District 3" stripped). Reused, never re-derived, so
 // the two Serve products cannot disagree about how an office is named.
 export const useServeSmsIdentification = (
-  firstName: string,
+  fullName: string,
 ): ((tone: SocialTone) => string) => {
   const positionName = usePositionName()
   const office = grammarizeOfficeName(positionName)
-  return (tone: SocialTone) => serveIdentificationIntro(tone, firstName, office)
+  return (tone: SocialTone) => serveIdentificationIntro(tone, fullName, office)
 }
 
 // --- Send sequence -------------------------------------------------------
@@ -106,8 +114,21 @@ export interface UseServeSmsSendInput {
   image: File | null
   draftOutreachId: number | null
   audience: ServeSmsSendAudience
+  // The tracker task this flow was launched from, when it was. Serve has no
+  // tracker deep link into SMS today, so this is undefined in practice — but
+  // the interface having no path for it at all is what would make the Created
+  // event unjoinable to its task the moment the hub wires one up, and
+  // `trackerTaskId`/`phase` travel together or not at all.
+  tracker?: OutreachTrackerOrigin
+  purpose: string | null
+  proposalLink?: ProposalLink
+  reportBackForOutreachId?: number
+  // A priority text's follow-up: how many more texts the card holds for
+  // later, from the same criteria. The server settles the count and date.
+  roundTwoSize?: number
+  launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
-  setStepId: (step: 'schedule') => void
+  setStepId: (step: 'compose') => void
   setDraftOutreachId: (id: number) => void
   setDraftCreateError: (value: boolean) => void
   // The flow's own recipient-count state, which every step below review
@@ -115,6 +136,7 @@ export interface UseServeSmsSendInput {
   // screen). Serve fills it from the create response instead of from a
   // Peerly phone-list poll, which is what lets those lines stay untouched.
   setRecipientCounts: (counts: PhoneListStatusResponse) => void
+  setFollowUp: (followUp: ServeSmsCreateResponse['followUp'] | null) => void
   isDraftCreatingRef: MutableRefObject<boolean>
   draftGenerationRef: MutableRefObject<number>
 }
@@ -139,11 +161,18 @@ export const useServeSmsSend = ({
   image,
   draftOutreachId,
   audience,
+  tracker,
+  purpose,
+  proposalLink,
+  reportBackForOutreachId,
+  roundTwoSize,
+  launchSource,
   create,
   setStepId,
   setDraftOutreachId,
   setDraftCreateError,
   setRecipientCounts,
+  setFollowUp,
   isDraftCreatingRef,
   draftGenerationRef,
 }: UseServeSmsSendInput): ServeSmsSend => {
@@ -154,7 +183,7 @@ export const useServeSmsSend = ({
   // nothing but a step.
   const audienceContinue = () => {
     if (!selectedListId) return
-    setStepId('schedule')
+    setStepId('compose')
   }
 
   // Name-step continue: save the built filter through the shared audience
@@ -165,7 +194,7 @@ export const useServeSmsSend = ({
       return
     try {
       await audience.createList()
-      setStepId('schedule')
+      setStepId('compose')
     } catch {
       // audience.createListError renders the inline message in the step.
     }
@@ -181,7 +210,7 @@ export const useServeSmsSend = ({
     listName: string,
   ) => {
     await audience.createRecommendedList(recommendation, listName)
-    setStepId('schedule')
+    setStepId('compose')
   }
 
   // Draft-first create, the Serve twin of the flow's own review-step effect:
@@ -203,19 +232,26 @@ export const useServeSmsSend = ({
         // create takes a URL rather than a multipart file, so the bytes go up
         // first. Reuses the elected-office-scoped presign polls already
         // ships; there is no outreach-scoped one to use yet.
-        const imageUrl = image
-          ? await uploadFileToS3(image, apiRoutes.polls.imageUploadUrl)
-          : undefined
+        if (!image) throw new Error('Serve SMS requires an image')
+        const imageUrl = await uploadFileToS3(
+          image,
+          apiRoutes.polls.imageUploadUrl,
+        )
         const result = await create({
           name: name.trim(),
           message: composedMessage,
-          ...(imageUrl ? { imageUrl } : {}),
+          imageUrl,
           // A calendar day, not an instant: the send hour is fixed at 11am
           // local and is therefore not the client's to choose. Formatted from
           // the local date so an evening render cannot roll it forward the
           // way toISOString() would.
           scheduledLocalDate: format(scheduledAt, 'yyyy-MM-dd'),
           voterFileFilterId: selectedListId,
+          ...proposalLink,
+          ...(reportBackForOutreachId !== undefined && {
+            reportBackForOutreachId,
+          }),
+          ...(roundTwoSize !== undefined && { roundTwoSize }),
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for
@@ -225,11 +261,43 @@ export const useServeSmsSend = ({
           // Never read on this path: the only reader is the flow's Win create
           // effect, which returns at its own guard before it gets here.
           phoneListId: 0,
-          leadsLoaded: result.recipientCount,
+          // Both rounds of one purchase: what review prices and quotes.
+          leadsLoaded:
+            result.recipientCount + (result.followUp?.recipientCount ?? 0),
           excludedOptedOutCount: result.excludedOptedOutCount,
           excludedDuplicatePhoneCount: result.excludedDuplicateCount,
         })
+        setFollowUp(result.followUp ?? null)
         setDraftOutreachId(result.outreachId)
+        // Serve's own create, the sibling of the Win draft effect in
+        // SmsFlow. Always the Serve name: this path is only ever reached
+        // behind `surface.isServe`.
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+          ...outreachEventProps({
+            channel: 'text',
+            isServe: true,
+            campaignName: name.trim(),
+            recipientCount: result.recipientCount,
+            sendDate: scheduledAt,
+            outreachCampaignId: result.outreachId,
+            ...(audience.selectedListId !== null
+              ? { listId: audience.selectedListId }
+              : {}),
+            // Always a saved list on Serve — recommended lists are Win-only
+            // (gp-api 400s an `eo-` org), so there is no branch to make here.
+            // Sent rather than omitted so Created and Completed can be cut
+            // the same way on both products.
+            audienceSource: 'savedList',
+            ...(tracker ? { tracker } : {}),
+            ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
+            asksToJoinCivicPanel:
+              findCivicPanelJoinLine(composedMessage) !== null,
+            ...(launchSource ? { launchSource } : {}),
+          }),
+        })
       } catch {
         // Surfaces as the review step's "We couldn't set up your purchase"
         // card, which is checked ahead of its preparing spinner — a failed
@@ -254,6 +322,7 @@ export const useServeSmsSend = ({
     composedMessage,
     name,
     image,
+    purpose,
     create,
     setDraftOutreachId,
     setDraftCreateError,

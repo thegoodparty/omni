@@ -1,169 +1,14 @@
 import { ControllerName } from '../../src/generated/route-types'
-import { Alert, SlackGroup } from './alerting/alerts.types'
+import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
- * Which product's users each controller serves, and therefore who hears about
- * it when it breaks.
- *
- * Being in here is what enables a controller's generated route alert at all —
- * `routeAlertGroups` skips a controller with no owner. That has been true
- * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
- * entries and an empty `win-bugs`. It gained exactly one entry in the six months
- * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
- * to be here was not a set of decisions about what needs watching, it was where
- * two teams happened to opt in once. 320 of 382 routes could not report their
- * own failure, which is how GET /v1/public-person-profiles/voter-density served
- * 1,498,324 consecutive 500s over four days without paging anyone.
- *
- * One line per controller, rather than two lists to keep in sync: a fifth of
- * these are owned by both products, and expressing that as membership in two
- * arrays means 22 entries duplicated by hand. ALERT_OWNERSHIP is derived below
- * and keeps its old shape, so nothing downstream changes.
- *
- * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
- * payments and elections are used by both products, and naming one owner means
- * the other finds out second-hand. It is also the safe direction to be wrong in:
- * over-tagging costs someone a glance, under-tagging costs an outage.
- *
- * The assignments come from guards and module docs rather than from names —
- * `@UseCampaign()` for Win, `@UseElectedOffice()` for Serve, an explicit `eo-`
- * organization rejection, or an AGENTS.md that says outright who a feature is
- * for. Three are weaker and worth revisiting if they ever page the wrong team:
- * `content` (mixed content types, no webapp caller), `subscribe` (no caller in
- * the monorepo at all — presumably the marketing site), and the two public
- * controllers, whose callers live in gp-marketing.
- *
- * The group split is itself on the way out — it is one team now, and a single
- * rotation is wanted. That is deliberately NOT done here, because it changes
- * who is paged for everything in one commit. Until then, which key a controller
- * sits under matters less than that it sits under one.
- */
-const SERVE = 'serve-bugs' satisfies SlackGroup
-const WIN = 'win-bugs' satisfies SlackGroup
-const BOTH = [SERVE, WIN] satisfies SlackGroup[]
-
-const CONTROLLER_OWNERS: Partial<
-  Record<ControllerName, readonly SlackGroup[]>
-> = {
-  // Serve — officeholders governing. Almost all of these carry
-  // `@UseElectedOffice()`; the briefing, ordinance and annotation surfaces are
-  // the Chief of Staff product.
-  'elected-office': [SERVE],
-  polls: [SERVE],
-  contacts: [SERVE],
-  'contact-engagement': [SERVE],
-  organizations: [SERVE],
-  'dashboard/cards': [SERVE],
-  'dashboard/onboarding-cards': [SERVE],
-  'organizations/:slug/ordinance-code': [SERVE],
-  'outreach/serve': [SERVE],
-  // The staff results surface. Serve, not Win, despite sitting beside the CAS
-  // SMS console: the sends it takes results for are elected officials' texts
-  // to constituents, and polls joins it later on the same side.
-  'outreach/admin/results': [SERVE],
-  priorities: [SERVE],
-  // Send-from-a-chat-card. Serve because the only thing that mints a proposal
-  // key is a priority chat, and a failure here is an elected official pressing
-  // Send and getting nothing.
-  'outreach/by-proposal-key': [SERVE],
-  'admin/briefings': [SERVE],
-  'admin/elected-office': [SERVE],
-  annotations: [SERVE],
-  'meetings/:date/briefing/annotations': [SERVE],
-  'ordinances/:slug/annotations': [SERVE],
-  'meetings/:date/briefing/feedback': [SERVE],
-  'meetings/:date/briefing/items/:itemId/feedback': [SERVE],
-  'meetings/:date/briefing/review-verdict': [SERVE],
-  'community-issues': [SERVE],
-  briefings: [SERVE],
-  meetings: [SERVE],
-  ordinances: [SERVE],
-  'briefing-chats': [SERVE],
-  speech: [SERVE],
-
-  // Win — candidates campaigning. `@UseCampaign()`, a CampaignOwner guard, or a
-  // Prisma model that only relates to `Campaign`.
-  'door-knocking': [WIN],
-  campaigns: [WIN],
-  'campaign-plan-shares': [WIN],
-  'campaigns/mine/story': [WIN],
-  campaignStrategy: [WIN],
-  crm: [WIN],
-  'organizations/team': [WIN],
-  outreach: [WIN],
-  'outreach/admin/sms': [WIN],
-  'campaigns/mine/race-opponent': [WIN],
-  'campaigns/mine/recommended-lists': [WIN],
-  'campaigns/tracker-tasks': [WIN],
-  'campaigns/:id/positions': [WIN],
-  'campaigns/tasks': [WIN],
-  'campaigns/tcr-compliance': [WIN],
-  'campaigns/mine/update-history': [WIN],
-  'admin/campaign': [WIN],
-  'admin/campaigns': [WIN],
-  positions: [WIN],
-  ecanvasser: [WIN],
-  p2p: [WIN],
-  domains: [WIN],
-  websites: [WIN],
-  'campaigns/ai/chat': [WIN],
-  'campaigns/ai': [WIN],
-
-  // Shared. Platform surfaces, onboarding steps both flows render, and the two
-  // dual-product profile features.
-  authentication: BOTH,
-  content: BOTH,
-  elections: BOTH,
-  experiment: BOTH,
-  'onboarding/contacts': BOTH,
-  'onboarding/local-news': BOTH,
-  'onboarding/voter-issues': BOTH,
-  payments: BOTH,
-  'payments/purchase': BOTH,
-  'phone-banking': BOTH,
-  subscribe: BOTH,
-  'top-issues': BOTH,
-  users: BOTH,
-  'admin/agent-runs': BOTH,
-  'admin/users': BOTH,
-  eligibility: BOTH,
-  'person-profiles': BOTH,
-  'public-person-profiles': BOTH,
-  'public-campaigns': BOTH,
-  'speech/transcribe': BOTH,
-  'voters/voter-file': BOTH,
-  chats: BOTH,
-  'error-logger': BOTH,
-  // One route serving both products' tools, so BOTH is the literal answer
-  // rather than the safe one. The 13 handlers carrying `@McpTool` today are 9
-  // Win surfaces (campaigns, tracker tasks, TCR compliance, websites, domains)
-  // and 4 Serve ones (priorities, community issues, ordinance flow), and a
-  // `tools/call` is an internal proxy of whichever one the agent picked — see
-  // src/mcp/AGENTS.md § Request flow. A failure at the transport is a failure
-  // of every tool behind it, so neither team can be the one told second.
-  mcp: BOTH,
-}
-
-const ownedBy = (group: SlackGroup): ControllerName[] =>
-  (Object.keys(CONTROLLER_OWNERS) as ControllerName[]).filter((controller) =>
-    CONTROLLER_OWNERS[controller]?.includes(group),
-  )
-
-/** Map of slack group to controllers, derived from {@link CONTROLLER_OWNERS}. */
-export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
-  'serve-bugs': ownedBy(SERVE),
-  'win-bugs': ownedBy(WIN),
-}
-
-/**
  * Controllers deliberately left without a route alert.
  *
- * Every other controller is now owned in CONTROLLER_OWNERS above. This list is
- * what is left over, and it is short on purpose — each entry is a claim that
- * failure here is not worth waking anyone for, and the tests make a new
- * controller land in one place or the other rather than defaulting to silence.
+ * Every controller not listed here gets a route alert, including one added
+ * tomorrow, so the default is to be watched. This list is short on purpose —
+ * each entry is a claim that failure here is not worth waking anyone for.
  *
  * `health` is covered better elsewhere. `health-check-probe-failure` watches it
  * with a synthetic probe from outside, which tests reachability rather than just
@@ -173,6 +18,11 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * `test-fixtures` returns 404 outside dev and preview, so prod traffic to it is
  * by definition not ours; paging on it means paging for a broken test, which CI
  * already reports.
+ *
+ * `dev-env` is `test-fixtures`' twin: it 404s outside dev, it vends local
+ * `.env` values to a contributor setting a laptop up, and a failure there
+ * stalls one person's `npm run setup` — they are looking at the error already.
+ * There is no product surface behind it to page for.
  *
  * `version` echoes the build version and `queue` is a method literally named
  * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
@@ -190,8 +40,22 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'test-fixtures/judge-chat-cases',
+  'test-fixtures/vendor-mocks',
+  'dev-env',
   'version',
   'queue',
+  // 404s outside mock mode (non-prod only); prod traffic is by definition
+  // not ours, same posture as test-fixtures.
+  'vendor-mocks/geoapify',
+  // Same posture: non-prod only, 404 in live mode, 23 stub routes would
+  // push the total route map past the Loki tenant series cap (500).
+  'vendor-mocks/peerly',
+  'vendor-mocks/vercel',
+  'vendor-mocks/route53',
+  // Non-prod only and judge-only: every prod request is a 404 by design, so
+  // a rule here could only ever page on the gate working.
+  'judge',
 ]
 
 /**
@@ -267,7 +131,7 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
  * (CampaignVerifyPinNotIssuedException), precisely so the FE can distinguish
  * the two (ENG-10866). There is no fault to report either way.
  *
- * Spread across ~25 separate 10-minute windows, that was paging win-bugs about
+ * Spread across ~25 separate 10-minute windows, that was paging about
  * twice a week for people typing a wrong number. Two of the four users in the
  * 2026-09-25 firing retried and got a 200 minutes later, which is the whole
  * argument: verify_pin accepts a correct PIN, so the integration is healthy and
@@ -290,99 +154,49 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'campaigns/tcr-compliance',
 ]
 
-/**
- * Controllers whose generated route alert needs a burst rather than a single
- * error, keyed to the count a 10-minute window must EXCEED.
+/*
+ * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
+ * place: a Databricks voter query that outran its ceiling, with the message
+ * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On
+ * `contacts` that is a user building an audience too broad to count or list
+ * (POST /v1/contacts/count, GET /v1/contacts), and the response tells them what
+ * to do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
+ * GET /v1/contacts alone, so paging on each one trains people to ignore the
+ * rule that also catches the faults on these routes.
  *
- * AN ENTRY HERE ALSO BUYS THE 10-MINUTE WINDOW, which is not a separate knob:
- * `routeWindow` in alerting/route-alerts.ts derives the window from the
- * threshold, because a threshold is an accumulation and there is nothing to
- * accumulate at 0. Every other group judges a single minute and pages that
- * much sooner. So setting a threshold costs that controller nine minutes of
- * detection latency on top of the errors it stops paging for — both halves of
- * the trade are argued where the window is chosen.
- *
- * The default of 0 pages on one qualifying error, and that is right nearly
- * everywhere: on a controller that errors a handful of times a month, the
- * first error IS the incident and waiting for a second only delays the page.
- *
- * It is wrong for a high-volume public route whose failure mode includes a
- * transient upstream. `GET /v1/public-person-profiles/voter-density` serves
- * ~150k requests a day and resolves the person's district through
- * election-api on every one of them; an isolated 502 there costs one visitor
- * one heat map, on a card that is progressive enhancement to begin with, and
- * the next request succeeds. Paging on it spends attention at a rate the
- * failure does not justify, and the estate has already lost one alert that
- * way — see the `contacts` note in SERVER_ERRORS_ONLY.
- *
- * MEASURED before being set, over the 30 days to 2026-09-18, counting the
- * errors this rule actually fires on per 10-minute window:
- *
- *   - Outside a real incident, EVERY window held 1 or 2 errors. There were 18
- *     of them, spread across the month, each a single transient 502.
- *   - The 2026-08-24 outage opened with 83 in its first window and then ran
- *     2,000-4,800 per window for four days.
- *   - The 2026-09-14 burst was 52 errors split across two windows, 5 then 47.
- *
- * So `> 2` drops all 18 noise windows and keeps both incidents, and it keeps
- * them at the same evaluation they would have fired on before — the nearest
- * real window is 5, comfortably clear, and nothing measured lands on 3 or 4.
- *
- * THE COST, stated plainly: a fault that produces one or two errors per 10
- * minutes and never more will no longer page here. On this route that is a
- * fault affecting under 0.01% of requests, which is below what the ratio rule
- * would call broken anyway, and it still lands in the logs and on the
- * dashboard. A fault that grows past it pages on the window it grows in.
- *
- * This does not touch `public-person-profiles-error-ratio`, which asks the
- * other question — whether the route is substantially broken — and is
- * unchanged. The pair still separates "something failed" from "this is down";
- * this only moves where the first of those starts counting.
+ * Only the 504 status is dropped. A warehouse that is down answers 502
+ * (VOTER_DATA_UNREACHABLE), a handler bug answers 500, and a request the
+ * gateway severs has no status at all; all three still page. door-knocking is
+ * deliberately not listed: its pack-scan timeout is a fault there, not a
+ * question the caller can answer by narrowing anything.
  */
-export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
-  'public-person-profiles': 2,
-}
+export const VOTER_QUERY_TIMEOUTS_NOT_PAGED: ControllerName[] = ['contacts']
 
-/**
- * Log-query spend as a fraction of what the plan includes.
+/*
+ * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
+ * line reads a [1m] window, every minute, ending 30 seconds before the
+ * evaluation, with `for: 0m` and a `keepFiringFor`.
  *
- * The allowance is 100x ingest, so this is `bytes read / (100 * bytes
- * written)` — one expression shared by the 50% and 80% rules, because two
- * thresholds on one measurement should not be able to drift into measuring
- * two different things.
+ * The window only has to cover the gap between evaluations to see every line,
+ * and the 30-second offset is what lets it see the late ones: windows tile
+ * [t-90s, t-30s], [t-30s, t+30s], so nothing is read twice and nothing falls
+ * between (see MINUTE_WINDOW in alerting/route-alerts.ts, which works the same
+ * way). That is one read of the stream per day, 1x ingest, and a page 30 to 90
+ * seconds after the line is written.
  *
- * Both sides are 6h-averaged. `:rate5m` on either alone is spiky enough that
- * one wide ad-hoc query would clear 50% on its own, and a budget alert that
- * fires on a single query is a budget alert nobody keeps. An hour turned out
- * not to be enough of that smoothing — see the window note on the 50% rule.
+ * The query ends in `or vector(0)`, and the hold depends on it. An idle
+ * `sum(count_over_time(...))` returns no series, which `noDataState: OK`
+ * turns straight back into Normal and skips `keepFiringFor` entirely, so a
+ * burst a minute apart would page twice. The explicit zero makes an idle
+ * minute a real evaluation that fails the threshold, which is the only state
+ * `keepFiringFor` holds through. It costs nothing to read.
+ *
+ * These rules used to carry 5-minute to 1-hour windows, read as range queries,
+ * and the width was doing a different job: holding the alert open after the
+ * event, so a burst spread over a few minutes stayed one page. `keepFiringFor`
+ * does that now without reading anything. Set it to how long a reader should
+ * see one incident as one page.
  */
-const LOKI_QUERY_BUDGET_RATIO = [
-  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
-  '/',
-  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[6h])))',
-].join(' ')
-
-/**
- * How to find out which query is spending the budget.
- *
- * Attribution is per-rule and it is obtainable, which is the difference
- * between a useful budget alert and a puzzle — so the query goes in the
- * notification rather than in a doc the reader has to know exists.
- * `grafanacloud-usage-insights` is Grafana's own usage stream and does not
- * bill against the allowance it reports on, so running this while over budget
- * is safe.
- */
-const LOKI_ATTRIBUTION_PROSE = [
-  'Find the offender in Explore on the `grafanacloud-usage-insights` datasource — it reports bytes scanned per rule and does not bill against the allowance it measures:',
-  '```',
-  'topk(10, sum by (rule_name) (sum_over_time(',
-  '  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"',
-  '  | unwrap total_bytes [24h]',
-  ')))',
-  '```',
-  'Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the rules.',
-].join('\n')
-
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
   {
@@ -414,10 +228,57 @@ export const GLOBAL_ALERTS: Alert[] = [
     name: 'Health check probe failures',
     type: 'metric',
     expr: '1 - (sum(rate(probe_all_success_sum{job="gp-api-$ENV-health"}[5m])) / sum(rate(probe_all_success_count{job="gp-api-$ENV-health"}[5m])))',
-    threshold: 0.1,
+    threshold: 0.3,
     for: '2m',
+    // A query to Grafana Cloud Prometheus timing out (2026-10-21 06:46Z,
+    // ENG-11393) paged as a probe failure with the endpoint never measured.
+    // Keep the last real answer instead; a broken query path is reported by
+    // `alerting-rule-evaluations-failing`.
+    execErrState: 'KeepLast',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
+  },
+  {
+    slug: 'delegate-swarm-probe-failure',
+    name: '[Ops] Delegate agent swarm unreachable',
+    type: 'metric',
+    // Two probes every 2 minutes, so 10 minutes holds about 8 executions. One
+    // failed round (2/8) stays under 30%; two consecutive rounds page.
+    expr: '1 - (sum(rate(probe_all_success_sum{job="delegate-swarm-health"}[10m])) / sum(rate(probe_all_success_count{job="delegate-swarm-health"}[10m])))',
+    threshold: 0.3,
+    for: '2m',
+    message: [
+      'Synthetic probes to https://delegate-swarm.infra.goodparty.org/health are failing, so Delegate is probably not answering Slack mentions either.',
+      'The usual cause is the swarm host running out of memory: the single-threaded API stalls on disk and logs `[db-client] slow sync statement blocked the event loop` in the `agent-swarm-api-1` stream of CloudWatch Logs `/delegate-swarm/containers` (infrastructure account 394495727159). It normally recovers on its own once the build that caused it is killed. Diagnosis and restart steps are in the ops repo, `agent-swarm/README.md`.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'shared-synthesis-prompt-fallback',
+    name: '[Shared] Synthesis fell back to the in-repo theme prompt',
+    type: 'log',
+    // The polls and issue-feedback synthesis pipeline (packages/gp-ai) loads
+    // its cluster-naming prompt from Braintrust in strict mode: a hosted
+    // placeholder the code does not supply raises, and the pipeline falls
+    // back to its in-repo prompt and still completes the run — themes still
+    // land, so nothing on screen looks wrong. The consumer logs this one
+    // line, from both handlePollAnalysisComplete and the
+    // feedbackSynthesisComplete case, whichever product the run was for.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Synthesis run used the in-repo theme prompt"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
+    message: [
+      'A polls (Serve) or issue-feedback (Win and Serve) synthesis run named its cluster themes from the in-repo fallback prompt instead of the hosted Braintrust one, in the 60 seconds ending 30 seconds before this check. The run still produced themes from the older in-repo prompt — nothing in the report looks wrong, so this is the only signal.',
+      'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run. Then compare the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) actually supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises in strict mode and triggers the fallback.',
+    ].join('\n\n'),
   },
   // ------ Serve Alerts ------ //
   {
@@ -427,15 +288,41 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Poll-job failures only. The consumer logs the SQS message in
     // message_Body; match its `type` (pollCreation / pollExpansion /
     // pollAnalysisComplete) so sibling jobs that share the consumer (AI
-    // content, websites) don't page the serve-bugs group.
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
+    // content, websites) don't page.
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m])) or vector(0)',
     threshold: 0,
     for: '0m',
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '5m',
     message: [
-      'A Serve-related background SQS job has failed in the last 5 minutes.',
+      'A Serve-related background SQS job failed in the 60 seconds ending 30 seconds before this check.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',
     ].join('\n\n'),
-    notify: 'serve-bugs',
+  },
+  {
+    slug: 'serve-poll-review-overdue',
+    name: '[Serve] Paid poll waiting on staff review past 2 business days',
+    type: 'log',
+    // OutreachPollReviewOverdueService logs this line once an hour per paid
+    // poll still unreviewed, so an hour-wide vector read once an hour sees
+    // each emission exactly once and costs 1x ingest.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Poll awaiting review past its business-day SLA"',
+      '[1h])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    for: '0m',
+    timeRangeSeconds: 3600,
+    timeRangeOffsetSeconds: 30,
+    evaluationIntervalSeconds: 3600,
+    message: [
+      'At least one paid Serve poll has been waiting on staff review for more than 2 business days. Nothing sends until it is approved, and the official has already paid.',
+      'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
+    ].join('\n\n'),
   },
   // ------ Win Warnings ------ //
   {
@@ -452,22 +339,20 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| json',
       '| detected_level = "error"',
       '| context =~ "Peerly.+Service"',
-      '[15m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '1m',
-    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
-    // the [15m] vector to an effective 10-minute window; that has always been
-    // this alert's firing behavior and is kept as-is — widening it would
-    // lengthen re-firing after a transient error burst. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
-    timeRangeSeconds: 600,
+    // Zero, because one error has always paged here and a one-minute window
+    // sees it on exactly one evaluation, which a `for` of 1m would ignore.
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '10m',
     message: [
-      'Peerly-related endpoint errors detected in the last 10 minutes.',
+      'Peerly API errors were logged in the 60 seconds ending 30 seconds before this check.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'win-outreach-paid-not-scheduled-warning',
@@ -485,27 +370,23 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "P2P outreach finalize failed after payment"',
-      '[1h]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '5m',
-    // The [1h] range vector needs a matching fetch window; the default 600s
-    // would let the engine see only 10 minutes of logs and miss this
-    // low-frequency event.
-    timeRangeSeconds: 3600,
-    // An hour of logs on the 60s default re-read the same hour 1,440 times a
-    // day — 60x our ingest for one rule, against a query allowance of 100x that
-    // every rule and both environments share. At 5m it is 12x. `for` is 5m, so
-    // the rule still fires on its first evaluation past the threshold and the
-    // worst case is ~5 minutes later than before, on an event whose remedy is
-    // a human reading a log line.
-    evaluationIntervalSeconds: 300,
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS. This used to read a
+    // [1h] window every 5 minutes (12x ingest, and 5 to 10 minutes before it
+    // paged); the hour was only ever holding the alert open, which
+    // `keepFiringFor` now does without reading anything.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken; the draft reverted to pending_payment and the Stripe webhook will retry automatically.',
-      'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId/campaignId and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
-      'If it keeps firing for the same outreach, retries are not self-healing — the draft row holds everything needed for manual submission (script, image URL, phone list, identity).',
+      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has been charged and no texts are scheduled.',
+      'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
+      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'win-robocall-critical',
@@ -514,9 +395,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The robocall send + settlement chain (staging, dial, capture,
     // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
     // on every exceptional path a human must look at: a permanently-failed send
-    // (`send_failed`, hold voided), a delivered run we could NOT capture
-    // (`uncollectable` — money may be owed), a CallHub response-schema mismatch
-    // stranding a delivered run, a dial commit-miss (the campaign may be dialing
+    // (`send_failed`, hold voided), a delivered run we could NOT collect
+    // (a fresh-charge decline — money may be owed; a merely lapsed hold is
+    // recovered by the fresh-charge sweep and only warns), a CallHub
+    // response-schema mismatch stranding a delivered run, a dial commit-miss (the campaign may be dialing
     // with no `dialed` record), an audio ETag mismatch refused at staging, or an
     // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
     // single line filter catches every path. They should almost never fire; each
@@ -525,35 +407,65 @@ export const GLOBAL_ALERTS: Alert[] = [
       'sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "CRITICAL robocall"',
-      '[1h]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '5m',
-    // A rare event matched on a [1h] range vector; the default 600s fetch would
-    // see only 10 minutes and miss it (same reason as the paid-not-scheduled
-    // alert above).
-    timeRangeSeconds: 3600,
-    // 12x ingest rather than 60x, for the reason given on the sibling above.
-    // These events are money-integrity ones that need a human, not a rollback,
-    // so ~5 minutes of extra detection latency costs nothing real.
-    evaluationIntervalSeconds: 300,
+    // An event rule, for the reason given on the paid-not-scheduled sibling.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
     message: [
-      'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
-      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
+      'A robocall send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money- or delivery-integrity event that needs a human.',
+      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / fresh-charge decline / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run whose fresh charge declined, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
     ].join('\n\n'),
-    notify: 'win-bugs',
+  },
+  {
+    slug: 'win-sms-critical',
+    name: '[Win] p2p SMS send/settlement CRITICAL',
+    type: 'log',
+    // The Win p2p SMS hold-billing chain (capture, cancel/deny release, and the
+    // slice-F reconcile sweeps) logs `CRITICAL win sms ...` on every exceptional
+    // money path a human must look at: a hold captured at Stripe whose DB commit
+    // was lost, a captured satellite whose PI is not succeeded, a succeeded PI
+    // with no charge to refund, a free-texts offer whose restore failed after an
+    // unwind, and a stranded `refunding` row the reconcile sweep could not
+    // resolve. Every one shares the `CRITICAL win sms` prefix, so a single line
+    // filter catches every path. They should almost never fire; each is a money-
+    // integrity event, not routine error noise — the p2p SMS counterpart of
+    // win-robocall-critical above.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "CRITICAL win sms"',
+      '[1m])) or vector(0)',
+    ].join(' '),
+    threshold: 0,
+    // An event rule, for the reason given on the paid-not-scheduled sibling.
+    // It read [5m] every 5 minutes before, which was already one read per log
+    // line but paged up to 5 minutes late and, with no offset, could miss a
+    // line that reached Loki after its window closed.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '1h',
+    message: [
+      'A Win p2p SMS send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money-integrity event that needs a human.',
+      'Click *View in Grafana* and search "CRITICAL win sms" for the log line: it names the outreachId and the exact failure (capture commit lost / captured-but-PI-not-succeeded / succeeded-PI-no-charge / free-texts restore failed / stranded refunding). The refunding and captured cases are the money-sensitive ones — money owed back that no refund recorded, or a charge in an unexpected state.',
+      'These are not self-healing beyond the automatic reconcile sweeps; check the OutreachP2pSms settleState and the Stripe hold/charge/refund for the named outreachId before assuming recovery.',
+    ].join('\n\n'),
   },
   {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'metric',
     // No per-organization spend cap exists — a 500-waypoint daily budget used
-    // to sit beside this and was removed — and nothing sums across
-    // organizations, so the total bill scales with how many orgs hold the
-    // flag. This is that missing global view: a ceiling that pages rather than
-    // a hard cap, because one org's spend must not be able to fail another
-    // org's knock.
+    // to sit beside this and was removed, and so was the five-campaigns-a-day
+    // allowance (2026-09-24) — and nothing sums across organizations, so the
+    // total bill scales with how many orgs hold the flag. This is that missing
+    // global view: a ceiling that pages rather than a hard cap, because one
+    // org's spend must not be able to fail another org's knock.
     //
     // Reads the DoorKnockingSpend log line rather than
     // geoapify_credits_total: the log is exact and immune to the
@@ -568,14 +480,27 @@ export const GLOBAL_ALERTS: Alert[] = [
     // watch the pool. Assembling the window in PromQL costs nothing, so the
     // choice is now purely about what signal is wanted.
     expr: doorKnockingCredits('6h'),
-    // Roughly 900 stops routed inside six hours — about six maximum-size
-    // turfs, and close enough to two organizations' entire default daily
-    // allowance to serve as one. A stop costs a little over ten credits all
-    // in, so the two allowances are nearer 11,000; the round number stays
-    // because moving a fast-burn threshold on arithmetic alone buys nothing,
-    // and the direction it errs in is early. No legitimate pilot morning
-    // reaches that; a loop or an unintended rollout does, and it still leaves
-    // most of Geoapify's ~50k daily pool to react in.
+    // A fifth of Geoapify's ~50k daily pool inside six hours, which is a rate
+    // that empties the account in a day and leaves most of it to react in.
+    // That is what the number means; it is NOT a count of doors, and the
+    // arithmetic that used to sit here ("roughly 900 stops... about six
+    // maximum-size turfs... two organizations' daily allowance") was written
+    // against pricing we no longer pay. A route is priced per block FACE —
+    // ten credits each — plus one credit per door for the street path, so a
+    // door costs about two credits all in and a full 150-door list a few
+    // hundred. Measured in prod on 2026-10-01: 13,588 credits bought 94 lists
+    // and 6,046 doors, ~145 credits a list, 2.2 a door. So 10,000 credits is
+    // nearer 70 average lists or 30 maximum-size ones than it is to 900 doors.
+    //
+    // Which means a firing is NOT by itself evidence of a loop. One campaign
+    // preparing a large canvass reaches this legitimately: on 2026-10-01 a
+    // single press of Create campaign made ~100 lists and buying a route for
+    // each of them cost 13,588 credits, a quarter of the day's pool, with
+    // every list billed exactly once (incident 99). The threshold stays at
+    // 10,000 anyway — a fifth of the pool in six hours is worth a human look
+    // whoever spent it, and erring early is the direction to err in — but the
+    // message below has to tell the reader how to tell the two apart, because
+    // the remedy for one of them is pulling a paying customer's flag.
     threshold: 10000,
     for: '5m',
     // The [6h] range vector needs a matching fetch window; the default 600s
@@ -587,11 +512,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     // free, and 5m stays only because the firing behaviour was tuned under it.
     evaluationIntervalSeconds: 300,
     message: [
-      'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — roughly two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
+      'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — about a fifth of the 50,000-credit daily pool every organization shares, at a rate that would empty it inside a day. That is roughly 70 walk lists bought, or 30 maximum-size ones; it is not 900 doors (a door costs about two credits, not ten).',
       'Click *View in Grafana* to see the DoorKnockingSpend lines, then group by organizationSlug (`sum by (organizationSlug) (sum_over_time(... | unwrap credits [24h]))`) to find which organizations are driving it. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
-      'If the spend is legitimate growth, raise the threshold deliberately. If one org is looping, pull its flag — there is no global cap in the code, so this alert is the only thing standing between a runaway and the Geoapify bill.',
+      'Then decide which of two things you are looking at, because the remedy differs. A runaway re-buys: the same turfId appears on more than one spend line, or buys arrive faster than a person can press a button. Legitimate preparation does not: one spend line per turf, ids climbing in creation order, and a finite number of them — one press of Create campaign can make ~100 lists, and routing all of them is ~14,000 credits.',
+      'If it is a runaway, pull that org’s flag — there is no cap in the code, so this page is the only thing standing between it and the Geoapify bill. If it is a campaign preparing a real canvass, the spend is legitimate and the question is whether the day’s pool can afford it: check the 24h total against the four geoapify-daily-budget tiers before you touch anybody’s flag, and if this is simply our new normal, raise the threshold or the plan deliberately rather than per page.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   // The budget half of the same question, at 60/80/90/95% of the account's
   // daily allowance over 24h. The ceiling above measures RATE and fires first
@@ -620,16 +545,21 @@ export const GLOBAL_ALERTS: Alert[] = [
       '|= "DoorKnockingPackBuildFailed"',
       '| json',
       '| event = "DoorKnockingPackBuildFailed"',
-      '[10m]))',
+      '[1m])) or vector(0)',
     ].join(' '),
     threshold: 0,
-    for: '1m',
+    // Zero for the reason given on win-peerly-warnings: one failed build has
+    // always paged, and a one-minute window sees it on one evaluation only.
+    // An event rule: see EVENT RULES above GLOBAL_ALERTS.
+    for: '0m',
+    timeRangeSeconds: 60,
+    timeRangeOffsetSeconds: 30,
+    keepFiringFor: '10m',
     message: [
-      'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
+      'A door-knocking voter-map build failed after gp-api had already started the response, in the 60 seconds ending 30 seconds before this check.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
-      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. Every line names a `districtId`: the district resolve and the voter-data eligibility gate both run before the response head, so an organization that was never eligible answers 4xx and cannot reach this alert.',
     ].join('\n\n'),
-    notify: 'win-bugs',
     // The statement timeout is the case this whole registry was built for: the
     // Slack message for it is identical to the message for an unhandled build
     // failure, because the rule counts the event and cannot see the error
@@ -762,6 +692,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '15m',
+    // A sustained-failure rule, so the window is not shrunk to a minute the
+    // way the event rules are: `for` needs a failure inside every window for
+    // 15 minutes running, and a 5m window asks for one every 5 minutes rather
+    // than every minute. Pinned to the vector's width so Grafana shows the
+    // window that is read (5x ingest).
+    timeRangeSeconds: 300,
     message: [
       "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
       "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
@@ -824,20 +760,18 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `userId`, `from`, `to` and `blocker` off the matched lines. `blocker` names the table standing in the way — `profile`, `removal` or `claim`. Resolve the destination by hand (decide which of the two rows survives, move or delete the loser), then let the 04:00 sweep repoint the link, or call the backfill directly. Afterwards `POST /api/revalidate-person` on BOTH ids, or gp-marketing serves the two versions for up to an hour per edge.',
       'If the two ids turn out to describe DIFFERENT PEOPLE, stop and escalate rather than merging: person clusters are built partly from probabilistic matching, and a collision is one of the few places that surfaces. See ENG-11112.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
-    // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
-    // generated per-route alert was therefore provisioned `disabled` — which
-    // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
-    // of the ownership map on the grounds that the generated rule fires on a
-    // single error in the window, so on a route serving ~2 req/s it would fire
-    // continuously and be muted.
+    // Written when `public-campaigns` had no generated per-route alert —
+    // which is why 5k+ daily 500s on a public endpoint paged nobody. It was
+    // left out on the grounds that the generated rule fires on a single error
+    // in the window, so on a route serving ~2 req/s it would fire continuously
+    // and be muted.
     //
-    // It is in the map as of 2026-09, because that stopped being true: in the
+    // It has a generated rule as of 2026-09, because that stopped being true: in the
     // seven days to 09-17 this route produced ZERO errors the generated rule
     // would fire on, and the 5k-a-day era it was reasoning from is over. The
     // two rules now stack rather than substitute — the generated one answers
@@ -855,9 +789,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // too close to a plausible threshold to place one safely; against non-404s
     // the same period reads 21-100%, nowhere near the 10% below.
     //
-    // The `and` clause is a volume floor: below 20 resolvable lookups in the
-    // window a ratio is noise, and one stray 500 would page. Under the floor
-    // the query returns no data, which grafana.ts maps to OK (noDataState),
+    // The `> 20` on the denominator is a volume floor: below 20 resolvable
+    // lookups in the window a ratio is noise, and one stray 500 would page. A
+    // comparison without `bool` drops the series that fail it, so under the
+    // floor there is nothing to divide by and the query returns no data, which grafana.ts maps to OK (noDataState),
     // not Alerting. The cost is that a large drop in traffic (e.g. if
     // gp-marketing starts caching this call) silences the alert.
     //
@@ -880,22 +815,20 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| response_statusCode >= 500',
       '[10m]))',
       '/',
-      'sum(count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint = "GET /v1/public-campaigns"',
-      '| response_statusCode != 404',
-      '[10m])) )',
-      'and',
       '( sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint = "GET /v1/public-campaigns"',
       '| response_statusCode != 404',
-      '[10m])) > 20 )',
+      '[10m])) > 20 ) )',
     ].join(' '),
     threshold: 0.1,
     for: '10m',
+    // Two reads of the window, where it used to be three: the floor was a
+    // separate `and` leg that counted the denominator a second time. Filtering
+    // the denominator in place gives the same series (verified against prod
+    // on 2026-10-09) for two thirds of the bytes, 20x ingest.
+    timeRangeSeconds: 600,
     message: [
       'More than 10% of the campaign lookups that resolved to a claimed candidate returned a server error in the last 10 minutes.',
       'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
@@ -929,14 +862,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',
     type: 'log',
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [10m]))',
     threshold: 5,
     for: '5m',
-    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
-    // per 10 minutes, this alert's firing behavior since it shipped. Kept
-    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
-    // The message quotes the effective window, not the vector, so nobody
-    // triaging this searches a span the query never covered.
+    // >5 events in 10 minutes, which is what this rule has always said it
+    // does. It actually counted [15m] as a range query over a 600s fetch, so
+    // it read 25 minutes of logs every minute and counted 15 of them; as an
+    // instant query it reads exactly the ten its message quotes (10x ingest).
     timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 10 minutes.',
@@ -994,7 +926,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
       'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether election-api is still returning districts for them.',
     ].join('\n\n'),
-    notify: 'serve-bugs',
     // BOTH ARE `annotate`, NOT `suppress`, and the distinction is the whole
     // reason this alert is worth listing at all. The two shapes below are
     // genuinely understood, but this rule fires on a SPIKE across five or more
@@ -1062,17 +993,12 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The likely cause is the `gpbot-alert-filter` contact point: the filter Lambda is a single point of failure for everything routed through it, so a Lambda that is erroring or timing out stops notifications rather than merely delaying them. Check `/aws/lambda/alert-filter-prod` in CloudWatch, then Grafana Alerting → Contact points → the delivery error on `gpbot-alert-filter`.',
       'To restore alerting immediately, repoint the affected notification policy back at the plain Slack contact point. Alerts resume unfiltered, which is the state this whole feature started from and is always safe to return to.',
     ].join('\n\n'),
-    // NO `notify`, and that is deliberate rather than an omission. A subteam
-    // mention is added to the message body, and this rule's whole premise is
-    // that the path carrying message bodies is broken — so the mention would
-    // travel exactly as far as the thing it is meant to escape. What makes this
-    // alert work is its ROUTE: the notification policy must send this slug to a
-    // contact point that does not pass through the filter. That cannot be
-    // expressed here, because the policy tree is not provisioned by this repo;
-    // it is the second half of the ops step in gp-ai/alert_filter/README.md.
-    //
-    // A rule that pages nobody looks like a mistake, so: this one is a
-    // deliberate no-mention rule, and if it fires unrouted it still appears in
+    // What makes this alert work is its ROUTE: this rule's whole premise is
+    // that the path carrying notifications is broken, so the notification
+    // policy must send this slug to a contact point that does not pass through
+    // the filter. That cannot be expressed here, because the policy tree is not
+    // provisioned by this repo; it is the second half of the ops step in
+    // gp-ai/alert_filter/README.md. If it fires unrouted it still appears in
     // Grafana's own alert list, which is the last channel left when every other
     // one depends on the thing that broke.
   },
@@ -1083,12 +1009,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The rule that was missing on 2026-08-24, when GET /v1/public-person
     // -profiles/voter-density began answering every single request with a 500
     // and continued for four days. 1,498,324 of them. Nothing fired, because
-    // `public-person-profiles` had no owner in CONTROLLER_OWNERS at the time,
-    // and a controller with no owner gets no route rule at all. It ended when
+    // `public-person-profiles` had no generated route rule at the time. It
+    // ended when
     // the table it reads was created, not when anyone responded.
     //
     // Same shape as public-campaigns-lookup-error-ratio above. This controller
-    // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
+    // ALSO has a generated route alert, and
     // the two are not redundant: the generated rule trips on a burst of errors
     // and this one only when a route is substantially broken, so the pair
     // separates "something failed" from "this route is down" without either
@@ -1100,19 +1026,6 @@ export const GLOBAL_ALERTS: Alert[] = [
     // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
     // 168: a 52-error burst and one stray. So it pages about twice a week at
     // worst, and the muting risk was theoretical.
-    //
-    // THE STRAYS TURNED OUT TO BE THE PROBLEM, which is why the generated rule
-    // now needs more than 2 errors in its window (ROUTE_ERROR_THRESHOLDS). The
-    // 2 hours in 168 were counted as hours, and an hour holding one transient
-    // 502 pages exactly as loudly as an hour holding fifty — so what the
-    // measurement read as "twice a week" was mostly single failed requests on
-    // a route serving ~150k a day. Re-measured per 10-minute window over the
-    // 30 days to 2026-09-18, 18 windows held 1-2 errors and the only windows
-    // above that were the two real incidents. THIS rule is what makes raising
-    // that safe: it is unchanged, it is what catches the outage the generated
-    // rule now sleeps through the first minutes of, and against the August
-    // failure it reads 100%. Do not delete it to "simplify" the pair — a test
-    // in route-alerts.test.ts fails if you do, and says why.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a
@@ -1132,8 +1045,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     // them buries a total outage in a rounding error. Against non-404s the
     // August failure reads 100%, and normal weeks read under 0.01%.
     //
-    // The volume floor is the same 20-in-the-window guard, per route: under it
-    // the series drops out, which grafana.ts maps to OK via noDataState, so a
+    // The volume floor is the same 20-in-the-window guard, per route, applied
+    // to the denominator in place: under it the series drops out, which grafana.ts maps to OK via noDataState, so a
     // single 500 on a quiet route does not page. It also means a route that
     // stops being called cannot alert — acceptable, since a route with no
     // traffic has no users to fail.
@@ -1169,22 +1082,20 @@ export const GLOBAL_ALERTS: Alert[] = [
       '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
       '[10m]))',
       '/',
-      'sum by (request_endpoint) (count_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      '|= "Request completed" | json',
-      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) )',
-      'and',
       '( sum by (request_endpoint) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
       '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
-      '[10m])) > 20 )',
+      '[10m])) > 20 ) )',
     ].join(' '),
     threshold: 0.1,
     for: '10m',
+    // Two reads of the window rather than three, as on
+    // public-campaigns-lookup-error-ratio: the floor filters the denominator
+    // in place instead of counting it again in an `and` leg. `sum by` on both
+    // sides keeps the division one-to-one per route. 20x ingest.
+    timeRangeSeconds: 600,
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
@@ -1195,7 +1106,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   },
   // ------ Our own Grafana Cloud spend ------ //
   //
-  // These four exist because on 2026-09-28 the vendor was the first to tell us
+  // These exist because on 2026-09-28 the vendor was the first to tell us
   // anything was wrong, and it told us by refusing every Loki query with a 429.
   // 154 alert rules failed to evaluate, `exec_err_state` is `Alerting`
   // (deliberately, and it stays), and every one of them fired at once claiming
@@ -1207,52 +1118,6 @@ export const GLOBAL_ALERTS: Alert[] = [
   // against the log-query allowance they measure. That is the point: a budget
   // alert paid for out of the budget it watches goes silent exactly when it
   // matters.
-  {
-    slug: 'loki-query-budget-half',
-    name: 'Loki query budget half spent',
-    type: 'usage',
-    // The plan includes log queries up to 100x what we ingest, so ingest is the
-    // denominator and the ratio is the only number worth alerting on — an
-    // absolute GB/day threshold goes stale the moment log volume moves, in
-    // whichever direction.
-    //
-    // Both sides are averaged over SIX hours, and the pending period is two.
-    // An hour was the first guess and it flapped: on 2026-09-29 the 1h ratio
-    // swung between 0.79 and 1.5 within a single hour (and spiked to 23 on one
-    // ad-hoc query), so it crossed the 0.8 threshold several times an hour and
-    // sent a fresh page on every re-cross. `repeat_interval` is 2d, so a
-    // sustained firing is one notification — the spam was entirely the
-    // resolve/re-fire cycle. Over the same window the 6h ratio is monotone.
-    //
-    // A long window costs nothing here because of what this measures: the
-    // allowance is billed monthly, so the thing worth paging on is a trend that
-    // holds for hours. Anything that resolves faster than that was never going
-    // to show up on an invoice.
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.5,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last 6 hours. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
-      LOKI_ATTRIBUTION_PROSE,
-      'The usual cause is a rule whose fetch window is wide and whose evaluation interval is fast — a rule re-reads its whole window every interval, so a 6h window on the 60s default reads the same six hours 1,440 times a day. See gp-api `docs/observability.md` § Query cost.',
-    ].join('\n\n'),
-  },
-  {
-    slug: 'loki-query-budget-critical',
-    name: 'Loki query budget nearly spent',
-    type: 'usage',
-    expr: LOKI_QUERY_BUDGET_RATIO,
-    threshold: 0.8,
-    for: '120m',
-    timeRangeSeconds: 21600,
-    message: [
-      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
-      LOKI_ATTRIBUTION_PROSE,
-      '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
-    ].join('\n\n'),
-    notify: BOTH,
-  },
   {
     slug: 'loki-stream-count-approaching-cap',
     name: 'Loki active stream count approaching the cap',
@@ -1273,7 +1138,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'A stream is one distinct combination of stream labels, and the label set is deliberately tiny: `service_name` and `deployment_environment_name`. Nothing that varies per request or per task is in it, so the count should be roughly (services x environments) and should not move when a service scales out.',
       'Grafana Cloud promotes a fixed list of OTel **resource** attributes to stream labels and nothing else, so a new label can only arrive by someone adding a resource attribute in `src/otel.ts`. Check there first.',
     ].join('\n\n'),
-    notify: BOTH,
   },
   {
     slug: 'alerting-rule-evaluations-failing',
@@ -1303,9 +1167,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
-      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
+      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
-    notify: BOTH,
   },
   {
     slug: 'recorded-metric-not-writing',
@@ -1353,8 +1216,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'The `gp_api:door_knocking_credits:sum1m` recording rule has written nothing for 30 minutes. **Every Geoapify budget alert is blind.** The four daily budget tiers and the 6h fast-burn ceiling all read this metric, so door-knocking spend is currently unwatched — including the case where the account runs dry and list creation starts answering 502 for every organization at once.',
       'This does not mean spend is high. It means we cannot see spend. Read the raw log line directly while this is broken: `sum(sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))` in Explore on `grafanacloud-logs`, against the 50,000-credit pool in `GEOAPIFY_DAILY_CREDIT_POOL`.',
-      'Check Grafana Alerting → Recording rules for the rule named `gp-api door-knocking Geoapify credits per minute`. A `health: ok` with no output is the known failure: Grafana rejects a Loki result that is not a single unlabelled series with `unsupported time series type timeseries-multi`, and reports nothing. If the expression has been changed so it can return more than one series, that is the cause. Full history in deploy/components/alerting/provisioned-alerts.ts.',
+      'Read the rule\'s own health first, then its output. `GET /api/prometheus/grafana/api/v1/rules` carries `health` and `lastError` for the rule named `gp-api door-knocking Geoapify credits per minute`, and on 2026-09-29 that field named the cause outright: `remote write failed: failed to read dataframe / unsupported time series type "timeseries-multi"`. Two different faults produce that message. Either the query returns more than one series — check it in Explore, it has to be one unlabelled series — or it ran as a range query and returned a point per step, which is what happens when `queryType: "instant"` is missing from the model JSON in deploy/components/alerting/provisioned-alerts.ts. A `health: ok` with no output at all is a third state, and the original one: the writer failing silently, which is why this alert watches the metric and not the rule.',
     ].join('\n\n'),
-    notify: WIN,
   },
 ]

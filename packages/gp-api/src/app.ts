@@ -17,6 +17,9 @@ import cookie from '@fastify/cookie'
 import { HttpExceptionFilter } from './exceptions/http-exception.filter'
 import { PrismaExceptionFilter } from './exceptions/prisma-exception.filter'
 import { randomUUID } from 'crypto'
+import { IncomingMessage } from 'http'
+import { requestAbortSignal } from './peopleDb/databricks/peopleDbxStatement.client'
+import { stripVendorMockTrailingSlash } from './vendorMocks/vendorMockUrl.util'
 
 type BootstrapParams = {
   loggingEnabled: boolean
@@ -38,6 +41,8 @@ export const bootstrap = async (
     // only run this app behind known infrastructure that sets the header
     // honestly — never directly exposed to the internet.
     trustProxy: true,
+    rewriteUrl: (req: IncomingMessage) =>
+      stripVendorMockTrailingSlash(req.url ?? '/'),
   })
 
   /**
@@ -47,8 +52,29 @@ export const bootstrap = async (
    * It must be registered before NestFactory.create() so that it fires
    * before the pino-http middleware that nestjs-pino sets up during init.
    */
-  adapter.getInstance().addHook('onRequest', (req, _, done) => {
+  adapter.getInstance().addHook('onRequest', (req, reply, done) => {
     req.raw.route = req.routeOptions?.url
+    const aborter = new AbortController()
+    reply.raw.on('close', () => {
+      if (!reply.raw.writableFinished) aborter.abort()
+    })
+    requestAbortSignal.run(aborter.signal, done)
+  })
+
+  // The Vercel SDK sends `Content-Type: application/json` with no body on
+  // bodyless calls (DELETE, verify), which Fastify rejects as an empty JSON
+  // body. Real Vercel tolerates it, so the vendor mocks must too: drop the
+  // content type when the request carries no body. Scoped to the mocks so the
+  // real API keeps its strict parsing.
+  adapter.getInstance().addHook('onRequest', (req, _, done) => {
+    const { headers } = req.raw
+    const hasBody =
+      (headers['content-length'] !== undefined &&
+        headers['content-length'] !== '0') ||
+      headers['transfer-encoding'] !== undefined
+    if (!hasBody && req.raw.url?.startsWith('/v1/vendor-mocks/')) {
+      delete headers['content-type']
+    }
     done()
   })
 
@@ -89,7 +115,8 @@ export const bootstrap = async (
   // check in authentication.module.ts.
   if (!process.env.CORS_ORIGIN) {
     const msg =
-      'CORS_ORIGIN is required for application startup (wildcard origin is not allowed with credentials)'
+      'CORS_ORIGIN is required for application startup (wildcard origin ' +
+      'is not allowed with credentials) — run `npm run setup`'
     new NestLogger('bootstrap').error(msg)
     throw new Error(msg)
   }

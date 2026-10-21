@@ -13,7 +13,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-let mockCampaign: { id: number } | undefined = { id: 42 }
+let mockCampaign: { id: number; smsCompliance?: string } | undefined = {
+  id: 42,
+}
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign],
 }))
@@ -227,5 +229,18 @@ describe('<StandoutActionsSection>', () => {
     const pushOrder = vi.mocked(router.push!).mock.invocationCallOrder[0]!
     expect(router.push).toHaveBeenCalledTimes(1)
     expect(clickedOrder).toBeLessThan(pushOrder)
+  })
+
+  it('hides the texting action once texting is closed, and keeps the cards', () => {
+    mockCampaign = { id: 42, smsCompliance: 'closed' }
+    render(<StandoutActionsSection standoutActions={fiveActions} />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Send SMS to voters' }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('heading', { name: '5 ways to stand out' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Action body 1')).toBeInTheDocument()
   })
 })

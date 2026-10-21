@@ -10,6 +10,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 
 // The robocall settle states in which no call has been placed yet: a hold may be
@@ -18,7 +19,7 @@ import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 // dialing/dialed/settling/captured/charged are excluded on purpose — those runs
 // have dialed or are settling, cannot be un-dialed, and their capture must
 // proceed.
-const NOT_YET_DIALED_STATES = [
+export const NOT_YET_DIALED_STATES = [
   RobocallSettleState.pending_payment,
   RobocallSettleState.authorized,
   RobocallSettleState.hold_pending,
@@ -36,6 +37,7 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly holds: OutreachRobocallHoldService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
+    private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly promos: OutreachRobocallPromoService,
   ) {
     super()
@@ -74,7 +76,11 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
       // `authorized` mid-flight). voidHold is best-effort (never throws).
       const cancelled = await this.model.findUnique({
         where: { id },
-        select: { authorizationIntentId: true, outreachId: true },
+        select: {
+          authorizationIntentId: true,
+          outreachId: true,
+          callhubCampaignPkStr: true,
+        },
       })
       // A card-save made the spine visible (`pending`); reflect the cancel there
       // too so the row doesn't linger as "In review" in history.
@@ -108,17 +114,45 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
           )
         }
       }
+      // A staged draft leaves a PAUSED CallHub campaign that nothing else
+      // retires: the cleanup sweep only aborts campaigns recorded here. Record it
+      // so the orphan does not linger reserving pool capacity and STARTable into
+      // a cancelled send — parity with OutreachRobocallCancelService's own cancel
+      // path. Best-effort: a PAUSED campaign charges nothing.
+      if (cancelled?.callhubCampaignPkStr) {
+        try {
+          await this.orphanedCampaigns.record(
+            cancelled.callhubCampaignPkStr,
+            cancelled.outreachId,
+            'cancel',
+          )
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId: cancelled.outreachId },
+            'robocall: failed to record orphaned CallHub campaign after cancel',
+          )
+        }
+      }
     }
   }
 
-  // Flip the spine `pending → canceled` after the satellite cancel. Guarded on
-  // `pending` (idempotent, never touches a row that never became visible).
+  // Flip the spine → canceled after the satellite cancel. Guarded on both
+  // `pending` and `pending_payment`: a not-yet-dialed satellite pairs with
+  // either (the hold service promotes the spine to `pending` only once a hold
+  // commits), so a deferred draft canceled on a detached card flips its spine
+  // too rather than leaving it dangling at `pending_payment` while the
+  // satellite reads cancelled — matching OutreachRobocallCancelService.
   // Best-effort: the satellite cancel already committed, so a transient failure
   // must not throw and abort the loop over the customer's other drafts.
   private async markSpineCanceled(outreachId: number): Promise<void> {
     try {
       await this.client.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.pending },
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.pending_payment],
+          },
+        },
         data: { status: OutreachStatus.canceled },
       })
     } catch (err) {

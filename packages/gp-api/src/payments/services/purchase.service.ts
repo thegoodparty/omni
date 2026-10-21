@@ -17,6 +17,8 @@ import {
 import { CustomCheckoutSessionPayload, PaymentType } from '../payments.types'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PinoLogger } from 'nestjs-pino'
+import { WIN_SMS_HOLD_BILLING_FLAG } from 'src/shared/util/winSmsHold.util'
+import { FeaturesService } from '@/features/services/features.service'
 import Stripe from 'stripe'
 
 const { WEBAPP_ROOT_URL } = process.env
@@ -44,8 +46,35 @@ export class PurchaseService {
   constructor(
     private readonly stripeService: StripeService,
     private readonly logger: PinoLogger,
+    private readonly features: FeaturesService,
   ) {
     this.logger.setContext('PurchaseService')
+  }
+
+  // ENTRY: the Win p2p SMS hold-billing decision, evaluated ONCE per checkout
+  // request for the resolved user and reused for both the Stripe session's
+  // capture mode and the handler's amount calculation — so the two can never
+  // disagree within one request. Scoped to TEXT + p2p so every other purchase
+  // type never pays the Amplitude round-trip. Downstream (the webhook that
+  // records the hold, capture, and the reconcile sweeps) never calls this —
+  // they key on durable state (the PI's capture_method, or the
+  // OutreachP2pSms satellite) instead, so a flag flip after this point can
+  // never strand or unsettle a hold already placed.
+  private async resolveWinSmsHoldBillingEnabled(
+    user: User,
+    purchaseType: PurchaseType,
+    metadata: { outreachType?: string } | null | undefined,
+  ): Promise<boolean> {
+    if (
+      purchaseType !== PurchaseType.TEXT ||
+      metadata?.outreachType !== 'p2p'
+    ) {
+      return false
+    }
+    return this.features.isFeatureEnabled({
+      user,
+      feature: WIN_SMS_HOLD_BILLING_FLAG,
+    })
   }
 
   registerPurchaseHandler(
@@ -90,6 +119,7 @@ export class PurchaseService {
     id: string
     clientSecret: string
     amount: number
+    isHold: boolean
   }> {
     this.logger.info({
       user: user.id,
@@ -117,6 +147,11 @@ export class PurchaseService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       ...(dto.metadata as Record<string, unknown>),
       ...metadata,
+      // The buyer createCustomCheckoutSession stamps on the session and
+      // fulfillment reads back, so a handler can refuse before payment what
+      // its fulfillment would refuse after. completeFreePurchase passes the
+      // same. Last, so a client-sent userId never stands in for it.
+      userId: String(user.id),
     })
 
     if (existingPayment) {
@@ -124,6 +159,19 @@ export class PurchaseService {
         'This purchase has already been completed. Please refresh the page.',
       )
     }
+
+    // ENTRY: evaluate the Win SMS hold-billing flag ONCE here, for the
+    // resolved request user, before amount calculation and session creation —
+    // both read this SAME value (never the flag directly), so they can never
+    // disagree within this request. See resolveWinSmsHoldBillingEnabled.
+    const winSmsHoldBillingEnabled = await this.resolveWinSmsHoldBillingEnabled(
+      user,
+      dto.type,
+      // dto's generic Metadata is unknown at this call site (CreateCheckoutSessionDto<unknown>);
+      // the handler-specific shape is validated downstream by each PurchaseHandler.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      dto.metadata as { outreachType?: string } | null | undefined,
+    )
 
     // Merge server-side campaignId into metadata for calculateAmount.
     // Handlers like outreach need campaignId to check free texts eligibility.
@@ -133,6 +181,7 @@ export class PurchaseService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       ...(dto.metadata as Record<string, unknown>),
       ...metadata,
+      winSmsHoldBillingEnabled,
     }
 
     const amount = await handler.calculateAmount(mergedMetadata)
@@ -153,6 +202,7 @@ export class PurchaseService {
         id: freeSessionId,
         clientSecret: '',
         amount: 0,
+        isHold: false,
       }
     }
 
@@ -167,23 +217,47 @@ export class PurchaseService {
       dto.returnUrl ||
       `${WEBAPP_ROOT_URL}/dashboard/purchase/complete?session_id={CHECKOUT_SESSION_ID}`
 
+    // Win p2p SMS hold billing: a p2p text checkout authorizes a manual-capture
+    // hold instead of charging immediately — reusing the SAME flag value
+    // resolved above (already scoped to TEXT + p2p), never a second read, so
+    // this can never disagree with what calculateAmount just billed. `amount`
+    // is already the UNDISCOUNTED hold (the handler skips the free-texts
+    // discount when this is on), so the later capture can never exceed it.
+    const manualCapture = winSmsHoldBillingEnabled
+
     const checkoutPayload: CustomCheckoutSessionPayload = {
       type: this.getPaymentType(dto.type),
       purchaseType: dto.type,
       amount,
       productName,
       productDescription,
+      // A hold checkout takes promo codes too. Stripe takes the discount off
+      // the hold itself, and recordHold stamps it from the completed session
+      // (OutreachP2pSms.promoDiscountInCents) so capture takes it off the
+      // final count as well. A code that covers the whole hold completes the
+      // session with no PaymentIntent at all, which recordHold records as a
+      // covered send.
       allowPromoCodes: true,
       returnUrl,
+      manualCapture,
       metadata: {
         // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         ...(dto.metadata as Record<string, unknown>),
         ...metadata,
+        // The hold decision, stamped server-side so the webhook can tell a
+        // hold checkout a promo code covered in full (no PaymentIntent, so no
+        // capture_method to read) from an immediate one. Undefined drops any
+        // client-sent value, since the session metadata starts from dto's.
+        winSmsHoldBilling: manualCapture ? 'true' : undefined,
+        // Fulfillment trusts this as the buyer. createCustomCheckoutSession
+        // writes the same value last; stamping it here too means the session
+        // never depends on that spread order to drop a client-sent userId.
+        userId: String(user.id),
       },
     }
 
-    return this.stripeService.createCustomCheckoutSession(
+    const session = await this.stripeService.createCustomCheckoutSession(
       {
         id: user.id,
         email: user.email,
@@ -191,6 +265,10 @@ export class PurchaseService {
       },
       checkoutPayload,
     )
+    // The webapp's review step reads this to know the amount is the
+    // undiscounted hold, so it can take the free texts off the total it
+    // shows the way capture will — never its own read of the flag.
+    return { ...session, isHold: manualCapture }
   }
 
   /**
@@ -232,21 +310,61 @@ export class PurchaseService {
     // delayed-notification methods (e.g. ACH bank debit) Stripe fires
     // checkout.session.completed with payment_status still 'unpaid'; the funds
     // settle later and emit checkout.session.async_payment_succeeded, which
-    // re-invokes this handler with payment_status 'paid'. We require 'paid'
-    // specifically: these one-time checkouts always create a PaymentIntent, so a
-    // 'paid' session has the payment_intent the idempotency check below relies
-    // on — anything else is deferred.
-    if (session.payment_status !== 'paid') {
-      this.logger.info({
-        sessionId: dto.checkoutSessionId,
-        paymentStatus: session.payment_status,
-        msg: 'Checkout session payment not confirmed — deferring fulfillment',
-      })
-      // `deferred` distinguishes this not-yet-paid case from a completed
-      // fulfillment (which also returns alreadyProcessed: false) so callers —
-      // e.g. the client redirect handler — can show a pending state instead of
-      // success.
-      return { alreadyProcessed: false, deferred: true }
+    // re-invokes this handler with payment_status 'paid'. A session a
+    // promotion code covered in full reads 'paid' (or 'no_payment_required')
+    // with no PaymentIntent: nothing settles later, so it is fulfilled now
+    // (Stripe's own rule is "fulfill unless unpaid"). With no PaymentIntent
+    // the marker below is skipped and the handlers' own claims are the only
+    // guard.
+    if (session.payment_status === 'unpaid') {
+      // A Win SMS hold-billing checkout authorizes a manual-capture hold, which
+      // completes the session 'unpaid' because the funds are HELD, not captured
+      // — NOT the ACH "settles later" case the deferral below exists for.
+      // Detected off the live PI's capture_method (set once, at session
+      // creation, and never re-read from a flag here) rather than the
+      // win_sms_hold_billing flag: a flag flip between session-creation and
+      // this webhook must never make an already-placed hold fall through to
+      // the ACH deferral, which would strand it forever (a manual-capture hold
+      // has no async_payment_succeeded follow-up to ever retrigger it).
+      //
+      // Scoped to TEXT by TYPE, not by flag: manualCapture is only ever set
+      // for PurchaseType.TEXT (createCheckoutSession), so no other purchase
+      // type can ever carry a manual-capture PI. Checking first avoids an
+      // extra live Stripe read (and a new failure mode — a transient read
+      // error now throwing instead of deferring) on every ACH-paid domain/
+      // poll/pro-plan purchase, which can never be a hold.
+      const paymentIntent =
+        session.metadata?.purchaseType === PurchaseType.TEXT
+          ? await this.resolveSessionPaymentIntent(session)
+          : null
+      if (paymentIntent?.capture_method === 'manual') {
+        // Once the PI is authorized (requires_capture) fulfill now; while it is
+        // still the transient not-yet-authorized state, THROW so
+        // checkout.session.completed redelivers. The authorization is
+        // synchronous at checkout, so a redelivery resolves it; a genuinely
+        // never-authorized session just exhausts Stripe's bounded retries and
+        // the hold auto-releases (no money taken). A plain Error (not a
+        // BadRequestException) is what the webhook handler treats as retryable
+        // rather than a permanent content rejection it would ack.
+        if (paymentIntent.status !== 'requires_capture') {
+          throw new Error(
+            `Win SMS hold not yet authorized for checkout session ` +
+              `${dto.checkoutSessionId}; forcing webhook redelivery`,
+          )
+        }
+        // requires_capture: a usable hold — fall through to fulfillment.
+      } else {
+        this.logger.info({
+          sessionId: dto.checkoutSessionId,
+          paymentStatus: session.payment_status,
+          msg: 'Checkout session payment not confirmed — deferring fulfillment',
+        })
+        // `deferred` distinguishes this not-yet-paid case from a completed
+        // fulfillment (which also returns alreadyProcessed: false) so callers —
+        // e.g. the client redirect handler — can show a pending state instead
+        // of success.
+        return { alreadyProcessed: false, deferred: true }
+      }
     }
 
     // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
@@ -295,6 +413,21 @@ export class PurchaseService {
     }
 
     return { alreadyProcessed: false, result }
+  }
+
+  // Re-reads the live PaymentIntent behind a checkout session — the
+  // authoritative money state, not the session's cached payment_status —
+  // so a completed-but-'unpaid' session's capture_method and status can be
+  // read durably. Null when the session carries no PaymentIntent.
+  private async resolveSessionPaymentIntent(
+    session: Stripe.Checkout.Session,
+  ): Promise<Stripe.PaymentIntent | null> {
+    const paymentIntentId =
+      typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id
+    if (!paymentIntentId) return null
+    return this.stripeService.retrievePaymentIntent(paymentIntentId)
   }
 
   // The counterpart of the deferral in completeCheckoutSession: a
@@ -373,10 +506,24 @@ export class PurchaseService {
       )
     }
 
+    // ENTRY: same single evaluation as createCheckoutSession, for the user
+    // confirming this free purchase — a $0 p2p hold-model send still needs
+    // the SAME flag value calculateAmount used to confirm the amount is
+    // really zero (see outreachPurchase.service.ts's forgiveness floor).
+    const winSmsHoldBillingEnabled = await this.resolveWinSmsHoldBillingEnabled(
+      user,
+      purchaseType,
+      // FreePurchaseMetadata is a union of handler-specific shapes; only the
+      // outreach branch carries outreachType, validated downstream per handler.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      dto.metadata as { outreachType?: string },
+    )
+
     const mergedMetadata = {
       ...dto.metadata,
       ...(campaign?.id ? { campaignId: campaign.id } : {}),
       userId: String(user.id),
+      winSmsHoldBillingEnabled,
     }
 
     const existingPayment =

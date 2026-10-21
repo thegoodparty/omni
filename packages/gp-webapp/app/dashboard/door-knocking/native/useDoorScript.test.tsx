@@ -35,10 +35,12 @@ vi.mock('./doorKnockingSurface', () => ({
 }))
 
 import { useDoorScript } from './useDoorScript'
-import { DEPARTURE_NOTE } from './talkingPointsCard'
 
-// A card as the wizard froze it: the four sections in order, newline
-// separated, exactly as `Outreach.script` holds them.
+const bullet = (text: string) => ({ text, bullet: true })
+const line = (text: string) => ({ text, bullet: false })
+
+// A card as the wizard froze it before free text: the four sections in order,
+// newline separated, exactly as `Outreach.script` holds them.
 const STORED = [
   'What would you fix around here first?',
   'Fix our roads with a real maintenance plan.',
@@ -339,13 +341,12 @@ describe('useDoorScript', () => {
 
       const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
 
-      expect(result.current.intro).toContain('volunteer')
+      expect(result.current.intro).toBe('')
       expect(result.current.points).toEqual([
-        'What would you fix around here first?',
-        'Fix our roads with a real maintenance plan.',
-        'Point them to janedoe.org to learn more.',
-        'Ask whether we can count on them in November.',
-        DEPARTURE_NOTE,
+        line('What would you fix around here first?'),
+        line('Fix our roads with a real maintenance plan.'),
+        line('Point them to janedoe.org to learn more.'),
+        line('Ask whether we can count on them in November.'),
       ])
     })
   })
@@ -353,18 +354,17 @@ describe('useDoorScript', () => {
   // The card the candidate wrote for this LIST, frozen with it and served on
   // the route payload.
   describe('with a stored card', () => {
-    it('reads the four stored lines under the opener, and closes', () => {
+    // A card frozen before free text is shown as written too: nothing is
+    // composed around any stored card.
+    it('reads the four stored lines as written, with no opener or close', () => {
       const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
 
-      expect(result.current.intro).toBe(
-        "Hi, I'm Jane Doe, running for City Council.",
-      )
+      expect(result.current.intro).toBe('')
       expect(result.current.points).toEqual([
-        'What would you fix around here first?',
-        'Fix our roads with a real maintenance plan.',
-        'Point them to janedoe.org to learn more.',
-        'Ask whether we can count on them in November.',
-        DEPARTURE_NOTE,
+        line('What would you fix around here first?'),
+        line('Fix our roads with a real maintenance plan.'),
+        line('Point them to janedoe.org to learn more.'),
+        line('Ask whether we can count on them in November.'),
       ])
     })
 
@@ -387,22 +387,19 @@ describe('useDoorScript', () => {
       expect(clientRequestMock).not.toHaveBeenCalled()
     })
 
-    // An official's canvasser gets the card too — the Serve rail's opener with
-    // the list's own lines under it, where before it was the opener alone.
-    it('gives an official the card under the serve opener', () => {
+    // An official's canvasser gets the list's own card, where before it was
+    // the opener alone.
+    it('gives an official the stored card with no opener', () => {
       useDoorKnockingServeModeMock.mockReturnValue(true)
 
       const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
 
-      expect(result.current.intro).toBe(
-        "Hi, I'm Jane Doe, your City Council Member.",
-      )
-      expect(result.current.points).toHaveLength(5)
+      expect(result.current.intro).toBe('')
+      expect(result.current.points).toHaveLength(4)
     })
 
-    // Every list frozen before the points step shipped, plus anything this
-    // version cannot read. Both fall back to the static build rather than to
-    // half a card.
+    // Every list frozen before the points step shipped, and every blank card.
+    // Both fall back to the static build.
     it('falls back to the stances for a list with no card', async () => {
       useCampaignMock.mockReturnValue([
         campaign({
@@ -422,13 +419,65 @@ describe('useDoorScript', () => {
       expect(result.current.points).toEqual([])
     })
 
-    it('falls back for a stored value it cannot parse', () => {
+    it('falls back for a stored value with nothing in it', () => {
+      const { result } = renderHook(() => useDoorScript('\n  \n'), {
+        wrapper,
+      })
+
+      expect(result.current.points).toEqual([])
+    })
+
+    // A card written after free text: drafted bullets the candidate may have
+    // mixed with their own sentences. It carries its own opening and close, so
+    // nothing is composed around it.
+    it('reads free text exactly as written, with no opener or close', () => {
       const { result } = renderHook(
-        () => useDoorScript('Hi, this is Jane calling about…'),
+        () =>
+          useDoorScript(
+            'I am knocking about the roads.\n• Ask what they would fix first.',
+          ),
         { wrapper },
       )
 
-      expect(result.current.points).toEqual([])
+      expect(result.current.intro).toBe('')
+      expect(result.current.points).toEqual([
+        { text: 'I am knocking about the roads.', bullet: false },
+        bullet('Ask what they would fix first.'),
+      ])
+      expect(result.current.issues).toEqual([])
+      expect(clientRequestMock).not.toHaveBeenCalled()
+    })
+
+    // The opening is a note in the third person, so a volunteer and an
+    // official's canvasser read it as written too.
+    it.each([
+      [
+        'a volunteer',
+        () => {
+          useCampaignMock.mockReturnValue([null])
+          useDoorKnockingCanvasserMock.mockReturnValue({
+            isVolunteer: true,
+            representing: { name: 'Jane Doe', office: 'City Council' },
+          })
+        },
+      ],
+      ['an official', () => useDoorKnockingServeModeMock.mockReturnValue(true)],
+      [
+        'a team member',
+        () => useOrganizationRoleMock.mockReturnValue('campaignAdmin'),
+      ],
+    ])('composes no opener over free text for %s', (_, arrange) => {
+      arrange()
+
+      const { result } = renderHook(
+        () => useDoorScript('• Open warm, thank them for the time.'),
+        { wrapper },
+      )
+
+      expect(result.current.intro).toBe('')
+      expect(result.current.points).toEqual([
+        bullet('Open warm, thank them for the time.'),
+      ])
     })
 
     // A blank section drops out rather than printing an empty bullet at a
@@ -440,10 +489,9 @@ describe('useDoorScript', () => {
       )
 
       expect(result.current.points).toEqual([
-        'Question?',
-        'Context.',
-        'Ask.',
-        DEPARTURE_NOTE,
+        line('Question?'),
+        line('Context.'),
+        line('Ask.'),
       ])
     })
   })

@@ -5,16 +5,36 @@ const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
   prioritiesEnabled = false,
+  nextTaskExperience = true,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
   prioritiesEnabled?: boolean
+  nextTaskExperience?: boolean
 } = {}) =>
   getDashboardMenuItems(
     isElectedOffice,
     isElectedOfficeLoading,
     prioritiesEnabled,
+    nextTaskExperience,
   )
+
+describe('getDashboardMenuItems — next-task-experience flag', () => {
+  it('names the home tab Home, with the checklist plan icon, when on', () => {
+    const [home] = links()
+    expect(home?.label).toBe('Home')
+  })
+
+  it('keeps Campaign Manager, with Your Story above the plan, when off', () => {
+    const items = links({ nextTaskExperience: false })
+    expect(items[0]?.label).toBe('Campaign Manager')
+    expect(items.map((item) => item.id).slice(0, 3)).toEqual([
+      'campaign-tracker-dashboard',
+      'campaign-story-dashboard',
+      'campaign-plan-dashboard',
+    ])
+  })
+})
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -55,31 +75,40 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     const contacts = items.find((i) => i.id === 'contacts-dashboard')
     expect(contacts).toBeDefined()
     expect(contacts?.v2Category).toBe('elected-office')
-    // Serve reads "Constituent Data" in the sidebar (ENG-10448).
-    expect(contacts?.v2Name).toBe('Constituent Data')
+    // Serve reads "Constituents" in the sidebar (ENG-10448).
+    expect(contacts?.v2Name).toBe('Constituents')
     // The Win-specific item must never appear on the Serve path.
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
   })
 })
 
 describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
-  it('always renders "Your Story" just above the tracker', () => {
+  it('renders "Your Story" right after Voter Data', () => {
     const items = links()
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
-    const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
+    const voterDataIdx = items.findIndex(
+      (i) => i.id === 'win-contacts-dashboard',
+    )
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(items[storyIdx]?.label).toBe('Your Story')
-    // It sits directly above the Campaign Tracker tab.
-    expect(planIdx).toBe(storyIdx + 1)
+    expect(storyIdx).toBe(voterDataIdx + 1)
+  })
+
+  it('still renders right after the Voter Data upsell while the office loads', () => {
+    const items = links({ isElectedOfficeLoading: true })
+    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
+    const upsellIdx = items.findIndex((i) => i.id === 'upgrade-pro-dashboard')
+
+    expect(storyIdx).toBe(upsellIdx + 1)
   })
 })
 
-describe('getDashboardMenuItems — Campaign Tracker tab label', () => {
-  it('always labels the item "Campaign Tracker"', () => {
+describe('getDashboardMenuItems — Campaign Plan tab label', () => {
+  it('always labels the item "Campaign Plan"', () => {
     const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Tracker')
+    expect(planItem?.label).toBe('Campaign Plan')
   })
 })
 
@@ -144,7 +173,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Tracker alongside Community Issues for an elected office', () => {
+  it('still renders Campaign Plan alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
     })
@@ -195,17 +224,16 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
     expect(serveRail[1]?.id).toBe('priorities-dashboard')
   })
 
-  it('keeps Campaign Tracker under Campaign Manager when Priorities shows', () => {
+  it('keeps Campaign Plan under Campaign Manager when Priorities shows', () => {
     const items = links({ isElectedOffice: true, prioritiesEnabled: true })
     const campaignManager = items.findIndex(
       (i) => i.id === 'campaign-tracker-dashboard',
     )
-    expect(items[campaignManager + 1]?.id).toBe('campaign-story-dashboard')
-    expect(items[campaignManager + 2]?.id).toBe('campaign-plan-dashboard')
+    expect(items[campaignManager + 1]?.id).toBe('campaign-plan-dashboard')
   })
 })
 
-describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
+describe('getDashboardMenuItems — Outreach nav gating', () => {
   it('shows the item for an elected office', () => {
     const items = links({
       isElectedOffice: true,

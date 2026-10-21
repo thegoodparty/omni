@@ -91,13 +91,45 @@ Rules:
   Never invent a path you have not seen in the router.
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
+- **A named successor must exist in code.** Before writing `superseded by <event>`,
+  confirm that successor has a provenance row and has fired. **Both halves are
+  required: if either is missing** the change has not shipped and the record is a
+  prediction, not history. A successor with provenance that has never fired is the
+  common case here, because code can land before the first event arrives. **Refuse the
+  combination `not in use:` plus a successor with no provenance**, because it asserts a
+  completed transition that provably has not happened. Naming an unbuilt successor is
+  still allowed on its own: leave the predecessor `in use:` and record lineage only (see
+  the predecessor update under Mode: NEW), which is the documented transition state.
+- **More than one successor needs a stated reason.** One event carrying a property beats
+  N events. A split turns every cross-cutting total into a union of names, and missing
+  one undercounts silently with no error, which is the shape that let three per-channel
+  completion events go dark unnoticed for a month. If you write `superseded by A and B`,
+  the reason must say why a property on a single event will not do. Splitting by product
+  is never that reason; that is what the `product:` tag is for.
 - **Change reason** rides the line that records the change: the `superseded by` line, or
   the `not in use:` line for a pure retirement. Never the purpose line.
 - **Date line** — use today's date. Exactly one of `in use:` / `not in use:` is present.
   Append the PR as `(#NNNN)` when one is detected (resolve once via
   `gh pr view --json number` on the current branch; omit if none).
+- **`not in use:` requires a PR reference.** The PR that removed the call site is what
+  makes a retirement true; without it the line records an intention. `in use:` may omit
+  the PR, a retirement may not. If you cannot name the PR, the event is not retired:
+  leave it `in use:` and record lineage only.
 - **Status is never inferred from supersession.** A superseded event can still fire from
   old/cached clients — always confirm `in use` vs `not in use` with the human.
+- **Say supersession, never rename.** An Amplitude event type is immutable. What people
+  call a rename is three separate things: a new event type is created and starts being
+  ingested, the old one is retired keeping its history, and a supersession record links
+  them. Nothing carries across. Writing "renamed" in the reason invites the reader to
+  assume the history came too, which is how a live predecessor gets declared dead before
+  any code ships.
+- **Record merge state on a high-volume supersession.** Only Amplitude's merge, which is
+  UI-only and cannot be scripted, makes predecessor and successor one series. Until it
+  runs, any chart spanning the cutover has to union both names. Say which happened in the
+  `superseded by` reason, either `history merged <YYYY-MM-DD>` or `history NOT merged;
+  charts must union both names`, so the record never describes a lineage no chart can
+  follow. Note that a merge joins event types but does not backfill properties: a chart
+  reading a property added at the cutover still sees nothing before it.
 
 Also write a **`product:win | product:serve | product:shared`** tag, derived from the
 event name and confirmed by the human, plus any cross-cutting tag the human adds
@@ -111,9 +143,9 @@ whose surface moved without a rename. The analytics-event explorer files an even
 `surface:` tag when there is one and by the nav-label prefix of its display name
 otherwise, so the tag is what lets a mislabelled event be filed correctly **without**
 renaming it — and stops a rename silently re-filing an event as a side effect. Use the
-nav label, lower-kebab: `surface:campaign-details`, `surface:dashboard`,
-`surface:pro-upgrade`. `product:` says who owns the event; `surface:` says where it
-lives. Neither implies the other.
+nav label, or the page title for a page not in the nav, lower-kebab:
+`surface:campaign-details`, `surface:dashboard`, `surface:pro-upgrade`. `product:` says
+who owns the event; `surface:` says where it lives. Neither implies the other.
 
 ## Procedure
 
@@ -147,7 +179,11 @@ front.
 without it); preserve its purpose line verbatim; write
 `supersession: superseded by <new> (<reason>)`; then **explicitly confirm its status** —
 `not in use: <today> (#PR)` (common) or still `in use` during transition (leave its
-existing `in use:` line untouched, lineage only). Default the prompt to `not in use`.
+existing `in use:` line untouched, lineage only). **Default the prompt to `not in
+use` only when the successor has code provenance **and** has fired; if either is
+missing, default to `in use` (transition, lineage only) and say which half is absent.** The old unconditional
+default is what carried three live events to `not in use` on 2026-09-23 for a change
+that had not shipped.
 
 ### Mode: EXISTING (update)
 
@@ -165,6 +201,36 @@ retire are optional transitions on top.
    - **Retired** → confirm the removal; require a one-line reason (block without it);
      stamp `not in use: <today> (<reason>, #PR)`; keep the existing `supersession:`
      lineage.
+
+### Mode: RELABEL
+
+For an event that fires somewhere other than its label says (DATA-2531). Input is one
+row of `instrumentation_data/surface_drift.json` (or a `relabels:` row): the event, the
+proposed `surface:` slug, display name, `fires_on` and `url`.
+
+1. Fetch the event via `get_events` in both projects; parse the `gp-meta` block.
+2. Show the human the proposed display name, `fires_on` and `url`. The display name and
+   the trigger half of `fires_on` are drafts: confirm or edit both. The `surface:` slug
+   is mechanical unless the row lists `surface_options`: then the area has more than one
+   name (Win and Serve vocabulary for the same page), and the human picks which one the
+   event belongs under. Otherwise change it only if the human says so.
+3. Write, per project:
+   - replace any existing `surface:` tag with the new one; keep every other tag;
+   - set `fires_on:` and `url:` inside the `gp-meta` block (they are mutable);
+   - add one line **outside** the block: `Previously shown as <old display name>.`, so
+     Amplitude's semantic search, which matches descriptions, still finds the event by
+     its old name;
+   - set the display name, only in a project where `get_events` returns the event as
+     ingested. For a never-ingested event a display name lands on the tracking-plan
+     entry instead (2026-08-07, dev): skip it there and say so.
+4. **Refuse** in a relabel: any change to the status line (`in use` / `not in use`) or
+   to `supersession:`. A relabel says where an event fires, never that it was retired or
+   replaced. If either needs changing, stop and run Mode: EXISTING separately.
+5. **Refuse** for an event any semantic-layer metric counts (its explorer row has
+   `okr_metrics`): stop and ask the human, because the metric's definition may name it.
+6. Never change the raw event name. It is immutable and every chart is keyed on it.
+7. Verify as in "Verify", then report the row back to the triage skill so it can mark
+   it `applied`.
 
 ### Preview and confirm
 
@@ -306,10 +372,33 @@ The caller passes a payload; honor it instead of re-asking:
 
 Adds and removes are routed independently — the caller never pairs a removal with an add.
 
+## Record a new trap
+
+A governance write is where a bad signal becomes official, so it is where traps surface.
+If writing this status revealed one — a provenance column that meant something other than
+what it reads like, a status the monitor assigned on evidence it does not actually have, a
+successor named in prose that was never built — add a one-liner to
+`packages/runbooks/books/analytics-governance-gotchas.md`: the symptom, the mitigation, and
+a Status of `invariant` or `state · as-of YYYY-MM`. Put the full explanation in the owning
+book and link it rather than restating it. Skip if the symptom is already a row.
+
+Read that file first when a status write rests on a monitor flag: the traps that have
+produced confident, wrong retirements are already in it (DATA-2575).
+
 ## Common mistakes
 
 - Inferring `not in use` from a supersession — always confirm; old clients may still
   fire the predecessor.
+- Writing `superseded by X` where X has never been ingested, then stamping the
+  predecessor `not in use`. This records a rename that has not happened, and the two
+  halves land in the monitor as unrelated findings with nothing connecting them
+  (2026-09-23, three live events).
+- Defaulting to `not in use` when the named successor lacks provenance **or** has never
+  fired. The default in the predecessor-update step assumes a shipped change; if either
+  half of that check is missing, the answer is `in use` with lineage only. Provenance
+  alone is not enough: code can be merged before the first event arrives, and the
+  predecessor is not dead until the successor is actually firing.
+- Saying "renamed" in a supersession reason. There is no rename; see the block rules.
 - Auto-pairing an add and a removal in the same PR — supersession is only ever a human
   assertion.
 - Regenerating the purpose line on a later run — it is immutable after creation.

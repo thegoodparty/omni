@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, OnModuleDestroy } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -18,7 +18,7 @@ const registry = new FinalizationRegistry((intervalId: NodeJS.Timeout) =>
 )
 
 @Injectable()
-export class ProcessTimersService {
+export class ProcessTimersService implements OnModuleDestroy {
   private timers: ProcessTimersMap = new Map()
   private readonly checkIntervalId: NodeJS.Timeout
 
@@ -26,6 +26,13 @@ export class ProcessTimersService {
     this.logger.setContext(ProcessTimersService.name)
     this.checkIntervalId = setInterval(() => this.checkTimers(), CHECK_DELAY)
     registry.register(this, this.checkIntervalId)
+  }
+
+  // The registry only clears the interval once this instance is collected,
+  // and the interval itself keeps the instance reachable, so a one-off script
+  // that closes the app never exits. Clear it when Nest tears the module down.
+  onModuleDestroy(): void {
+    clearInterval(this.checkIntervalId)
   }
 
   start(name: string): string {

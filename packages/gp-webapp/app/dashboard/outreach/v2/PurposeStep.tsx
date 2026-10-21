@@ -3,16 +3,21 @@
 import type {
   OutreachPurpose,
   ServeOutreachPurpose,
+  ServePhoneBankingPurpose,
 } from '@goodparty_org/contracts'
 import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 
 // Every slug a goal card on this step can carry: the canonical Win outreach
-// vocabulary and its Serve counterpart. Phone banking and door knocking both
-// draw their cards from those two lists, so the step needs no channel type —
-// social's extra `issue_update` value belongs to social's own step, which
-// keeps its own copy of this for that reason.
-export type OutreachStepPurpose = OutreachPurpose | ServeOutreachPurpose
+// vocabulary and its Serve counterpart, which on calls and doors adds the
+// civic panel invite. Phone banking and door knocking both draw their cards
+// from those lists, so the step needs no channel type — social's extra
+// `issue_update` value belongs to social's own step, which keeps its own copy
+// of this for that reason.
+export type OutreachStepPurpose =
+  | OutreachPurpose
+  | ServeOutreachPurpose
+  | ServePhoneBankingPurpose
 
 interface PurposeStepProps {
   purposes: {

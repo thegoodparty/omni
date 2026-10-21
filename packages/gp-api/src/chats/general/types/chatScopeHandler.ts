@@ -1,6 +1,7 @@
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool, LlmStreamUsage } from '@/llm/services/llm.service'
 import type { ChatAnchor } from '@goodparty_org/contracts'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
 
 // Params a client sends to resolve a conversation. Scope is always present;
 // the rest is scope-specific. The default resolution keys on the authed user +
@@ -32,6 +33,14 @@ export interface ChatScopeHandler<
   models: string[]
   // Raises the tool-loop step budget for research-heavy scopes.
   readonly maxSteps?: number
+  // Braintrust trace name for the turn. Defaults to `${scope}-chat-stream`.
+  // Set it only to keep a name that predates the registry: briefing chat's
+  // traces were filtered as `briefing-chat-stream` before it registered here.
+  readonly traceName?: string
+  // Whether the first user message titles a still-untitled conversation.
+  // Defaults to true. Off for briefing chat, whose conversations are named by
+  // their annotation and were never titled on the briefing route.
+  readonly setsTitle?: boolean
   // Optional override of the session model. Leave it off to get the default
   // every conversational scope shares: one fresh conversation per open, with
   // resuming done by opening a past conversation by id (history → listMessages
@@ -51,6 +60,9 @@ export interface ChatScopeHandler<
   ) => Promise<void>
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
+  // Optional: what to tell the model about the page this turn was sent from,
+  // or null to say nothing. Appended to the system prompt for that turn only.
+  describePage?: (pagePath: string, ctx: TContext) => string | null
   buildTools: (ctx: TContext) => Record<string, LlmTool>
   // Optional pre-LLM hook: return a deterministic assistant reply for a
   // recognized message (e.g. a kickoff sentinel) to skip the model; return
@@ -65,10 +77,21 @@ export interface ChatScopeHandler<
     model: string,
   ) => void | Promise<void>
   // Optional post-generation hook: given the full assembled assistant text on a
-  // clean finish, return a line to append (e.g. the CoS professional-advice
-  // disclaimer) or null to append nothing. The shared stream service streams it
-  // as the final text chunk and persists it with the turn.
-  finalizeAssistantText?: (text: string) => string | null
+  // clean finish and the turn's tool calls with their results, return a line to
+  // append (a guardrail backstop line) or null to append nothing. The shared
+  // stream service streams it as the final text chunk and persists it with the
+  // turn. A handler that only needs the text may declare one parameter.
+  finalizeAssistantText?: (text: string, turn: FinalizeTurn) => string | null
 }
+
+// Narrows a handler to one that declares the finish-time hook, so a caller
+// can invoke it as a method (keeping `this`) without a non-null assertion.
+export const hasFinalizeAssistantText = <TContext extends object>(
+  handler: ChatScopeHandler<TContext>,
+): handler is ChatScopeHandler<TContext> & {
+  finalizeAssistantText: NonNullable<
+    ChatScopeHandler<TContext>['finalizeAssistantText']
+  >
+} => typeof handler.finalizeAssistantText === 'function'
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'

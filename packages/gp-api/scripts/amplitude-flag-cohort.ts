@@ -16,7 +16,7 @@
  *
  * Usage:
  *   npx tsx scripts/amplitude-flag-cohort.ts \
- *     --flag native-door-knocking \
+ *     --flag serve-priorities \
  *     --emails-file ./cohort.txt          # one address per line, # comments ok
  *
  *   Dry run by default — prints the diff and writes nothing. Add --execute.

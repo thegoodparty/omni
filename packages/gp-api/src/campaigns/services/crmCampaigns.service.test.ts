@@ -20,7 +20,6 @@ describe('CrmCampaignsService.trackCampaign', () => {
       {} as never,
       {} as never,
       { errorMessage } as unknown as SlackService,
-      {} as never,
       createMockLogger(),
     )
 
@@ -83,11 +82,12 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       } as unknown as HubspotService,
       {} as never,
       {} as never,
-      {} as never,
+      {
+        findUnique: vi.fn().mockResolvedValue({ testModeCreatedAt: null }),
+      } as never,
       { count: vi.fn().mockResolvedValue(0) } as never,
       { canDownload: vi.fn().mockReturnValue(false) } as never,
       { errorMessage: vi.fn() } as unknown as SlackService,
-      { findByCampaignId: vi.fn().mockResolvedValue(null) } as never,
       createMockLogger(),
     )
 
@@ -199,7 +199,6 @@ describe('CrmCampaignsService association labels (ENG-11031)', () => {
       {} as never,
       {} as never,
       {} as unknown as SlackService,
-      {} as never,
       logger,
     )
 
@@ -289,6 +288,7 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
   const companyCreate = vi.fn()
   const companyUpdate = vi.fn()
   const errorMessage = vi.fn()
+  const organizationFindUnique = vi.fn()
 
   const buildService = () =>
     new CrmCampaignsService(
@@ -306,16 +306,39 @@ describe('CrmCampaignsService.trackCampaign test-user guard', () => {
       } as unknown as HubspotService,
       {} as never,
       {} as never,
-      {} as never,
+      { findUnique: organizationFindUnique } as never,
       {} as never,
       {} as never,
       { errorMessage } as unknown as SlackService,
-      {} as never,
       createMockLogger(),
     )
 
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('skips company sync entirely for a test-mode organization', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 9,
+      userId: 3,
+      organizationSlug: 'campaign-9',
+      data: {},
+      details: {},
+    })
+    findByCampaign.mockResolvedValue({ id: 3, email: 'staff@goodparty.org' })
+    organizationFindUnique.mockResolvedValue({
+      testModeCreatedAt: new Date('2026-10-01T00:00:00Z'),
+    })
+
+    const result = await buildService().trackCampaign(9)
+
+    expect(result).toBeUndefined()
+    expect(organizationFindUnique).toHaveBeenCalledWith({
+      where: { slug: 'campaign-9' },
+      select: { testModeCreatedAt: true },
+    })
+    expect(companyCreate).not.toHaveBeenCalled()
+    expect(companyUpdate).not.toHaveBeenCalled()
   })
 
   it('skips company sync entirely for a test-user campaign', async () => {

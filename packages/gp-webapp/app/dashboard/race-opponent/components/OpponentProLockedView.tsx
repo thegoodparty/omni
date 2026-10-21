@@ -22,6 +22,9 @@ import {
 } from '@styleguide/components/ui/icons'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
+
+const UPGRADE_CTA = 'Upgrade to Pro'
 
 // $10/mo + 7-day trial are hardcoded here to match the ValuePropStep /
 // ProUpgradeModal copy. The live Stripe price is only available inside the
@@ -120,9 +123,17 @@ const OpponentProLockedView = (): React.JSX.Element => {
 
           <Button
             size="large"
-            onClick={() => router.push('/dashboard/pro-upgrade')}
+            onClick={() =>
+              router.push(
+                proUpgradeHref({
+                  source: 'opponent_research',
+                  channel: 'generic',
+                  cta: UPGRADE_CTA,
+                }),
+              )
+            }
           >
-            Upgrade to Pro
+            {UPGRADE_CTA}
           </Button>
 
           <p className="text-sm text-muted-foreground">
