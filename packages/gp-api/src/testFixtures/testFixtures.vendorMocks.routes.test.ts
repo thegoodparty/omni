@@ -786,6 +786,24 @@ describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
     expect(await overriddenAt(other.id)).toBeNull()
   })
 
+  it('403s for a non-test user and writes nothing', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'real@example.com' },
+    })
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(await overriddenAt(campaign.id)).toBeNull()
+  })
+
   it('404s in live mode and writes nothing', async () => {
     vendorMode.value = 'live'
     const campaign = await seedCampaign(service.user.id)
