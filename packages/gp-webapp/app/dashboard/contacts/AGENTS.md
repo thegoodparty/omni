@@ -101,7 +101,12 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   members yet, Missing some groups, Every group on your panel; never the
   priority's labels), then one line, "Invite more {group} next." from
   `inviteMore`, or for Too few members yet "We'll compare your panel with
-  your district once 30 people join." Never a share, weight or target. The Chief
+  your district once 30 people join." Past the goal the API also sends
+  `groupsNeedingFresh` (groups short of members who answered in the last 90
+  days) and the status reads "Every group on your panel · 3 groups need fresh
+  voices", with "Invite more {group} next." naming the thinnest, or "Every
+  group has fresh voices" once none are short. The plan start there reads
+  "Keep your panel fresh". Never a share, weight or target. The Chief
   of Staff's next step card shows the same `CivicPanelBalanceStatus`.
 - **Your time** (`CivicPanelRail`, beside the plan from `lg`, below it on a
   phone): "Your time", the weekly hours and Change (`PATCH`, only later

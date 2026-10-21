@@ -137,7 +137,7 @@ const KEEP_GOING_LABELS: Record<CivicPanelBuildChannel, string> = {
 export const civicPanelBuildCardContent = (
   panel: CivicPanelBuildPlanResponse,
 ): typeof CIVIC_PANEL_BUILD_CARD_CONTENT => {
-  const { next, plan, progress } = panel
+  const { next, plan, progress, balance } = panel
   if (!plan || plan.status !== 'active' || !next) {
     return CIVIC_PANEL_BUILD_CARD_CONTENT
   }
@@ -149,7 +149,7 @@ export const civicPanelBuildCardContent = (
         : KEEP_GOING_LABELS[next.channel]
   return {
     title: CIVIC_PANEL_ACTIVE_CARD_TITLE,
-    summary: civicPanelStandingLine(progress),
+    summary: civicPanelStandingLine(progress, balance),
     ctaLabel,
     ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
   }

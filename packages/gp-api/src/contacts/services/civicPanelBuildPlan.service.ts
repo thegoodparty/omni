@@ -11,7 +11,7 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   panelExpectedAnswers,
   panelGoalMembers,
-  PANEL_KEEP_FRESH_MEMBERS,
+  PANEL_ACTIVE_WINDOW_DAYS,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   UnderrepresentedGroupSchema,
@@ -19,7 +19,7 @@ import {
   type PrepareCivicPanelBuildStepResponse,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, isBefore, parseISO } from 'date-fns'
+import { addBusinessDays, addDays, isBefore, parseISO, subDays } from 'date-fns'
 import {
   CivicPanelBuildChannel,
   CivicPanelBuildPlanStatus,
@@ -41,6 +41,7 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
+import { answeredPersonIds } from '@/priorities/util/priorityRespondents.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -225,15 +226,15 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     if (await this.findActive(office.id)) {
       throw new ConflictException('This office already has a panel plan')
     }
-    const members = await this.memberCount(organization)
-    const goalMembers = panelGoalMembers(
+    const memberIds = await this.memberIds(organization)
+    const members = memberIds.size
+    const planGoal = panelGoalMembers(
       await this.districtAnswersNeeded(organization),
     )
-    const keepFresh = members >= goalMembers
-    const planGoal = keepFresh
-      ? members + PANEL_KEEP_FRESH_MEMBERS
-      : goalMembers
-    const gap = planGoal - members
+    const keepFresh = members >= planGoal
+    const gap = keepFresh
+      ? this.keepFreshGap(await this.steeringFor(organization, memberIds, true))
+      : planGoal - members
     const steps = sizePanelWave({
       gap,
       hoursPerWeek,
@@ -444,6 +445,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const members = memberIds.size
     const needed = await this.districtAnswersNeeded(organization)
     const districtGoal = panelGoalMembers(needed)
+    const steering = await this.steeringFor(
+      organization,
+      memberIds,
+      members >= districtGoal,
+    )
     const active = await this.findActive(office.id)
     if (active) {
       const goalMembers = active.keepFresh
@@ -460,6 +466,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         office,
         { ...active, goalMembers },
         members,
+        steering,
       )
     }
     const plan = await this.model.findFirst({
@@ -479,7 +486,6 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       plan?.status === CivicPanelBuildPlanStatus.active && !plan.keepFresh
         ? plan.goalMembers
         : districtGoal
-    const steering = await this.steeringFor(organization, memberIds)
     if (!plan) {
       return {
         plan: null,
@@ -555,6 +561,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           select: {
             status: true,
             goalMembers: true,
+            keepFresh: true,
             steps: { select: { wave: true } },
           },
         },
@@ -579,6 +586,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const steering = await this.steeringFor(
       organization,
       await this.memberIds(organization),
+      step.plan.keepFresh,
     )
     const { personIds, steeredToward } = await this.draw(
       organization,
@@ -658,6 +666,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     office: Office,
     plan: PlanRow,
     members: number,
+    steering: PanelSteering,
   ): Promise<void> {
     const now = new Date()
     for (const step of plan.steps) {
@@ -678,7 +687,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         now,
       )
     }
-    if (members >= plan.goalMembers) {
+    if (!plan.keepFresh && members >= plan.goalMembers) {
       const closed = await this.model.updateMany({
         where: { id: plan.id, status: CivicPanelBuildPlanStatus.active },
         data: {
@@ -714,7 +723,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     // Sized before the lock: the counts are people-db reads, too slow to
     // hold a transaction open for. The lock only settles who writes.
     const steps = sizePanelWave({
-      gap: plan.goalMembers - members,
+      gap: plan.keepFresh
+        ? this.keepFreshGap(steering)
+        : plan.goalMembers - members,
       hoursPerWeek: plan.hoursPerWeek,
       pools: await this.pools(organization),
     })
@@ -1042,27 +1053,65 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
 
   // Which groups the panel covers, and how the next draws lean. A panel
   // with nobody on it has no census to read, and a failed read leans nowhere.
+  // Past its goal (`pastGoal`) the panel is judged on its active members.
   private async steeringFor(
     organization: Organization,
     memberIds: Set<string>,
+    pastGoal = false,
   ): Promise<PanelSteering> {
     const members = memberIds.size
+    const mix =
+      members === 0
+        ? null
+        : await this.mixOf(organization, [...memberIds], 'members')
     return panelSteering({
       members,
-      mix:
-        members === 0 ? null : await this.mixOf(organization, [...memberIds]),
+      mix,
+      activeMix:
+        pastGoal && mix
+          ? await this.activeMixOf(organization, memberIds, mix)
+          : null,
     })
+  }
+
+  // The members who answered a priority's text, call or door in the last
+  // PANEL_ACTIVE_WINDOW_DAYS, counted the way the members are. Nobody active
+  // is the census with no one on it.
+  private async activeMixOf(
+    organization: Organization,
+    memberIds: Set<string>,
+    memberMix: PanelMix,
+  ): Promise<PanelMix | null> {
+    const answered = await answeredPersonIds(
+      this.client,
+      organization.slug,
+      null,
+      subDays(new Date(), PANEL_ACTIVE_WINDOW_DAYS),
+    )
+    const active = answered.filter((personId) => memberIds.has(personId))
+    if (active.length === 0) return { cells: [], census: memberMix.census }
+    return this.mixOf(organization, active, 'active')
+  }
+
+  // The members a keep-fresh wave is sized to: the fewest that would put
+  // every group at its active members. Null with nobody short, so the wave
+  // is the official's hours alone.
+  private keepFreshGap(steering: PanelSteering): number | null {
+    const short = steering.fresh?.membersShort ?? 0
+    return short > 0 ? short : null
   }
 
   private async mixOf(
     organization: Organization,
     personIds: string[],
+    scope: 'members' | 'active',
   ): Promise<PanelMix | null> {
     const key = createHash('sha256')
       .update([...personIds].sort().join(','))
       .digest('hex')
     const now = Date.now()
-    const cached = this.mixes.get(organization.slug)
+    const cacheKey = `${organization.slug}:${scope}`
+    const cached = this.mixes.get(cacheKey)
     if (cached && cached.key === key && cached.expiresAt > now) {
       return cached.mix
     }
@@ -1071,7 +1120,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         await this.contactsService.resolveEligibleDistrict(organization)
       const mix = await this.census.weightingInputs({ ...district, personIds })
       if (mix) {
-        this.mixes.set(organization.slug, {
+        this.mixes.set(cacheKey, {
           key,
           mix,
           expiresAt: now + MIX_CACHE_MS,
@@ -1149,10 +1198,6 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       select: { personId: true },
     })
     return rows.map((row) => row.personId)
-  }
-
-  private async memberCount(organization: Organization): Promise<number> {
-    return (await this.memberIds(organization)).size
   }
 
   private async memberIds(organization: Organization): Promise<Set<string>> {
