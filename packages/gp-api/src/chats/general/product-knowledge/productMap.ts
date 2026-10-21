@@ -140,6 +140,7 @@ const WIN_AREAS: ProductArea[] = [
       'Asking the chat to build a list of voters gets a list card with a Create list button; once pressed, the card turns into the list on a map',
       'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
       'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
+      'Where What we heard is on, asking what voters said at the doors or on calls gets the notes from the campaign’s recent door knocking and phone banking in the reply, with the themes found in them',
     ],
   },
   {

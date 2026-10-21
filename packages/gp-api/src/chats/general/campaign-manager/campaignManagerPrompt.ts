@@ -149,6 +149,9 @@ export interface CampaignManagerContext {
   // help-center block reads this so the prompt can never advertise it when it
   // did not register.
   helpCenterToolEnabled: boolean
+  // Whether read_outreach_feedback registers: the issue-capture flag for the
+  // chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
   // Whether the native web-search tool is actually registered (it needs the
   // Anthropic key). The ballot guidance below reads this so it never tells the
   // manager to search when it has no search tool.
@@ -1059,6 +1062,11 @@ const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
         ...(toolNames.includes('present_past_outreach')
           ? [
               '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
+            ]
+          : []),
+        ...(toolNames.includes('read_outreach_feedback')
+          ? [
+              '- When the candidate asks what voters said at the doors or on calls, call read_outreach_feedback and never ask the candidate what voters said. Lead with the themes and how many voters each covers, then quote two or three notes that make the point.',
             ]
           : []),
       ].join('\n')

@@ -185,7 +185,7 @@ issue rows, or for an offline memo the extraction itself. None when nothing
 was proposed or extraction failed. It exists only to
 measure extraction; nothing reads it but tests. It is kept apart from
 `issues` on purpose: the report (`summarize`, the memo list), the CSV export,
-the person record (`GET /?personId=`) and the Chief of Staff's
+the person record (`GET /?personId=`) and the assistants'
 `capturedNotes` (`priorityFlowOutreach.service.ts`) all read a memo's
 issues, and an empty list there means none of them can count or show a
 guess nobody checked.
@@ -209,7 +209,7 @@ again on the next pass.
   no name for it); **`captureMethod`** is `typed`.
 - **`outreachId` is null on purpose.** The send's report already counts its
   replies as replies (`textRepliesWhere`), and every effort read (the report,
-  the export, synthesis, the Chief of Staff's notes) keys on that column, so
+  the export, synthesis, the assistants' notes) keys on that column, so
   a set one would count the same words twice.
 - **Never confirmed.** Its issues are a model's reading nobody checked, so
   `confirmedAt` stays null and nothing that counts confirmed memos sees it.
