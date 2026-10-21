@@ -54,7 +54,7 @@ import { OutreachReportBackService } from './outreachReportBack.service'
  * step.
  *
  * Draft-first is required, not preferred: a Stripe metadata VALUE caps at 500
- * characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+ * characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
  * carrying the composed message through checkout metadata cannot work. The
  * row has to exist before checkout, and checkout then carries two ids.
  *

@@ -38,7 +38,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 // What rides in the Stripe checkout session. Deliberately just ids.
 //
 // Draft-first is required here, not preferred: a Stripe metadata VALUE caps at
-// 500 characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+// 500 characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
 // carrying the message through checkout metadata cannot work. Everything the
 // send needs is already on the row.
 //
