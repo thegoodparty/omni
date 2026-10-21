@@ -492,12 +492,10 @@ export default function CreateListWizard({
           const actionFilter = Array.from(
             new Set(validConditions.flatMap((condition) => condition.actions)),
           )
-          trackEvent(
-            isWinContext
-              ? EVENTS.VoterData.ActivityListCreated
-              : EVENTS.ConstituentData.ActivityListCreated,
-            { sourceCampaign, actionFilter },
-          )
+          trackEvent(EVENTS.VoterData.ActivityListCreated, {
+            sourceCampaign,
+            actionFilter,
+          })
         }
       }
       // A failed cache refresh must not strand the sheet open after the

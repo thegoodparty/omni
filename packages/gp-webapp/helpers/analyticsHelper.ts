@@ -523,12 +523,9 @@ export const EVENTS = {
     // seam. Same product-specific naming exception as the events above.
     // ListCreated fires once per successful voter-file-branch create with
     // { variableCount } (Win variant also carries hasParty — Serve is
-    // nonpartisan and must never see it). ActivityListCreated fires once per
-    // successful activity-branch create with { sourceCampaign, actionFilter }.
-    // ListExported fires once per confirmed-successful download with
-    // { listSize }.
+    // nonpartisan and must never see it). ListExported fires once per
+    // confirmed-successful download with { listSize }.
     ListCreated: 'Constituent Data - List Created',
-    ActivityListCreated: 'Constituent Data - Activity List Created',
     ListExported: 'Constituent Data - List Exported',
     // The boundary saved onto an existing list from the map on its detail
     // sheet. `{ listId, cleared }` — clearing a boundary is the same write
@@ -550,6 +547,9 @@ export const EVENTS = {
     ContactViewed: 'Voter Data - Contact Viewed',
     // ENG-10709: see the ConstituentData variants above for the full seam
     // description — Win-only difference is ListCreated's hasParty property.
+    // ActivityListCreated is Win-only (Serve has no activity branch) and fires
+    // once per successful activity-branch create with
+    // { sourceCampaign, actionFilter }.
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
