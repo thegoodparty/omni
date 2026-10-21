@@ -3,10 +3,17 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { CALLHUB_VB_STATUS } from '@/vendors/callhub/schemas/callhubCampaign.schema'
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, VendorMockVendor } from '@/generated/prisma'
-import { subSeconds } from 'date-fns'
+import { differenceInSeconds, subSeconds } from 'date-fns'
+import {
+  VERCEL_ORDER_STATUS,
+  VercelOrderStateSchema,
+} from '@/vendors/vercel/schemas/vercelMock.schema'
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
+const VERCEL_ORDER_KIND = 'domain_order'
+const VERCEL_ORDER_FAIL_KIND = 'order_fail'
+export const VERCEL_ORDER_COMPLETION_DELAY_SECONDS = 30
 
 // `vendor_mock_record.kind` values for the Peerly 10DLC mock. externalId is
 // the Peerly identity id for every kind, so one identity's records line up.
@@ -145,6 +152,105 @@ export class VendorMockRecordService extends createPrismaBase(
         state: { path: ['routeFail'], equals: true },
       },
       data: { state: { routeFail: false } },
+    })
+    return count > 0
+  }
+
+  // The campaign that owns a candidate domain, via its website. Undefined
+  // when no domain row exists (the record is then global, like CallHub's).
+  async campaignIdForDomain(domainName: string) {
+    const domain = await this.client.domain.findUnique({
+      where: { name: domainName },
+      select: { website: { select: { campaignId: true } } },
+    })
+    return domain?.website.campaignId
+  }
+
+  async removeVercelProjectDomain(domainName: string) {
+    this.assertNonProdDeploy()
+    await this.model.deleteMany({
+      where: {
+        vendor: VendorMockVendor.vercel,
+        kind: 'project_domain',
+        externalId: domainName,
+      },
+    })
+  }
+
+  // Pending orders read `completed` once the delay has passed since createdAt;
+  // completion persists boughtAt so getDomain sees the domain. Failed and
+  // completed orders are final.
+  async resolveVercelOrder(record: {
+    externalId: string
+    state: unknown
+    createdAt: Date
+  }) {
+    this.assertNonProdDeploy()
+    const state = VercelOrderStateSchema.parse(record.state)
+    const due =
+      differenceInSeconds(new Date(), record.createdAt) >=
+      VERCEL_ORDER_COMPLETION_DELAY_SECONDS
+    if (state.status !== VERCEL_ORDER_STATUS.pending || !due) return state
+    const completed = {
+      ...state,
+      status: VERCEL_ORDER_STATUS.completed,
+      boughtAt: Date.now(),
+    }
+    await this.model.update({
+      where: {
+        vendor_kind_externalId: {
+          vendor: VendorMockVendor.vercel,
+          kind: VERCEL_ORDER_KIND,
+          externalId: record.externalId,
+        },
+      },
+      data: { state: completed },
+    })
+    return completed
+  }
+
+  // vercel.order.fail: fails the campaign's in-flight orders and arms the
+  // campaign's next buy, since the action can land before or after the buy.
+  async failVercelOrders(campaignId: number) {
+    this.assertNonProdDeploy()
+    const pending = await this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.vercel,
+        kind: VERCEL_ORDER_KIND,
+        campaignId,
+      },
+    })
+    for (const record of pending) {
+      const state = VercelOrderStateSchema.parse(record.state)
+      if (state.status !== VERCEL_ORDER_STATUS.pending) continue
+      await this.setFlag(
+        VendorMockVendor.vercel,
+        VERCEL_ORDER_KIND,
+        record.externalId,
+        'status',
+        VERCEL_ORDER_STATUS.failed,
+      )
+    }
+    return this.upsert(
+      VendorMockVendor.vercel,
+      VERCEL_ORDER_FAIL_KIND,
+      String(campaignId),
+      { orderFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent buys can't both consume it.
+  async consumeVercelOrderFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.vercel,
+        kind: VERCEL_ORDER_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['orderFail'], equals: true },
+      },
+      data: { state: { orderFail: false } },
     })
     return count > 0
   }

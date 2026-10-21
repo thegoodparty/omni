@@ -1,6 +1,15 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OutreachType, UserRole, VendorMockVendor } from '@/generated/prisma'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  OfficeLevel,
+  OutreachType,
+  TcrComplianceStatus,
+  UserRole,
+  VendorMockVendor,
+} from '@/generated/prisma'
+import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
+import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
+import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
@@ -123,6 +132,24 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.records).toEqual([])
+  })
+
+  it('arms the next Vercel order to fail for vercel.order.fail', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action: 'vercel.order.fail' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'order_fail',
+        state: { orderFail: true },
+      }),
+    ])
   })
 
   describe('peerly 10DLC actions', () => {
@@ -249,21 +276,6 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
       },
     )
   })
-
-  it.each(['vercel.order.fail'])(
-    'returns 501 for the not-yet-implemented action %s',
-    async (action) => {
-      const campaign = await seedCampaign(service.user.id)
-
-      const res = await service.client.post(
-        '/v1/test-fixtures/vendor-mocks/actions',
-        { campaignId: campaign.id, action },
-        { validateStatus: () => true },
-      )
-
-      expect(res.status).toBe(HttpStatus.NOT_IMPLEMENTED)
-    },
-  )
 
   it('returns 403 when the campaign belongs to a different user', async () => {
     const otherUser = await service.prisma.user.create({
@@ -443,6 +455,116 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
       {},
       { validateStatus: () => true },
     )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () => {
+  const runJob = (name: string) =>
+    service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${name}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+
+  const seedTcr = async (campaignId: number, data: Record<string, unknown>) =>
+    service.prisma.tcrCompliance.create({
+      data: {
+        campaignId,
+        ein: '12-3456789',
+        postalAddress: '1 Main St',
+        committeeName: 'Fixture Committee',
+        websiteDomain: 'example.com',
+        filingUrl: 'https://example.com/filing',
+        phone: '5555555555',
+        email: 'fixture@example.com',
+        officeLevel: OfficeLevel.local,
+        peerlyIdentityId: `peerly-${Math.random().toString(36).slice(2)}`,
+        ...data,
+      },
+    })
+
+  beforeEach(async () => {
+    envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  // Restore only this suite's spies; vi.restoreAllMocks() would also undo the
+  // harness's auth-provider mocks and 401 every later test.
+  const spies: { mockRestore: () => void }[] = []
+  afterEach(() => {
+    spies.splice(0).forEach((spy) => spy.mockRestore())
+  })
+
+  it("cvStatusPoll.scanFresh polls only the caller's fresh record", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const record = await seedTcr(campaign.id, {
+      status: TcrComplianceStatus.submitted,
+      peerlySubmissionStartedAt: new Date(),
+    })
+    const peerly = service.app.get(PeerlyIdentityService)
+    const retrieve = vi
+      .spyOn(peerly, 'retrieveCampaignVerifyDetails')
+      .mockResolvedValue({
+        status: PeerlyCvVerificationStatus.IN_REVIEW,
+        pinDelivery: null,
+      } as never)
+    spies.push(retrieve)
+
+    const res = await runJob('cvStatusPoll.scanFresh')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      ranAt: expect.any(String),
+      durationMs: expect.any(Number),
+    })
+    expect(retrieve).toHaveBeenCalledTimes(1)
+    expect(retrieve.mock.calls[0]?.[0]).toBe(record.peerlyIdentityId)
+    const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { id: record.id },
+    })
+    expect(updated.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
+  })
+
+  it('tcr.usecaseSweep runs twice in the same hour', async () => {
+    const first = await runJob('tcr.usecaseSweep')
+    const second = await runJob('tcr.usecaseSweep')
+
+    expect(first.status).toBe(HttpStatus.CREATED)
+    expect(second.status).toBe(HttpStatus.CREATED)
+  })
+
+  it("tcr.complianceSweep approves the caller's pending record without SQS", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const record = await seedTcr(campaign.id, {
+      status: TcrComplianceStatus.pending,
+      peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+    })
+    spies.push(
+      vi
+        .spyOn(service.app.get(PeerlyIdentityService), 'getIdentityUseCases')
+        .mockResolvedValue([
+          { usecase: PEERLY_USECASE, activated: true },
+        ] as never),
+    )
+
+    const res = await runJob('tcr.complianceSweep')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const updated = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { id: record.id },
+    })
+    expect(updated.status).toBe(TcrComplianceStatus.approved)
+  })
+
+  it('tcr.complianceSweep 404s when the caller has no pending record', async () => {
+    await seedCampaign(service.user.id)
+
+    const res = await runJob('tcr.complianceSweep')
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })

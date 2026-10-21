@@ -56,6 +56,23 @@ export const bootstrap = async (
     done()
   })
 
+  // The Vercel SDK sends `Content-Type: application/json` with no body on
+  // bodyless calls (DELETE, verify), which Fastify rejects as an empty JSON
+  // body. Real Vercel tolerates it, so the vendor mocks must too: drop the
+  // content type when the request carries no body. Scoped to the mocks so the
+  // real API keeps its strict parsing.
+  adapter.getInstance().addHook('onRequest', (req, _, done) => {
+    const { headers } = req.raw
+    const hasBody =
+      (headers['content-length'] !== undefined &&
+        headers['content-length'] !== '0') ||
+      headers['transfer-encoding'] !== undefined
+    if (!hasBody && req.raw.url?.startsWith('/v1/vendor-mocks/')) {
+      delete headers['content-type']
+    }
+    done()
+  })
+
   await adapter.getInstance().register(websocket, {
     options: {
       maxPayload: 64 * 1024,
