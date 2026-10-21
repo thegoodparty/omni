@@ -144,25 +144,44 @@ export class TestFixturesVendorMocksController {
     }
   }
 
-  // Checks that the outreach belongs to a campaign owned by the signed-in user.
-  // 404 when no campaign is found so callers can't enumerate ids.
+  // Checks that the outreach belongs to a campaign or org owned by the
+  // signed-in user. 404 when no scoping row is found so callers can't
+  // enumerate ids.
   private async assertOutreachOwner(outreachId: number, userId: number) {
     const outreach = await this.campaigns.client.outreach.findUnique({
       where: { id: outreachId },
     })
-    if (!outreach || outreach.campaignId === null) {
+    if (!outreach) {
       throw new NotFoundException()
     }
-    const campaign = await this.campaigns.findFirst({
-      where: { id: outreach.campaignId },
-    })
-    if (!campaign) {
-      throw new NotFoundException()
-    }
-    if (campaign.userId !== userId) {
-      throw new ForbiddenException(
-        'You do not have permission to access this outreach',
-      )
+    if (outreach.campaignId !== null) {
+      const campaign = await this.campaigns.findFirst({
+        where: { id: outreach.campaignId },
+      })
+      if (!campaign) {
+        throw new NotFoundException()
+      }
+      if (campaign.userId !== userId) {
+        throw new ForbiddenException(
+          'You do not have permission to access this outreach',
+        )
+      }
+    } else {
+      // Serve outreach: campaignId null, scoped to org owner instead
+      if (!outreach.organizationSlug) {
+        throw new NotFoundException()
+      }
+      const org = await this.campaigns.client.organization.findUnique({
+        where: { slug: outreach.organizationSlug },
+      })
+      if (!org) {
+        throw new NotFoundException()
+      }
+      if (org.ownerId !== userId) {
+        throw new ForbiddenException(
+          'You do not have permission to access this outreach',
+        )
+      }
     }
   }
 
