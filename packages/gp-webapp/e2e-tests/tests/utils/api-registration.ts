@@ -319,6 +319,16 @@ export const authenticateTestUser = async (
       path: '/',
       sameSite: 'Lax',
     },
+    // The cookie notice floats above the dashboard's chat dock and intercepts
+    // clicks on whatever page control sits under it. It reads this cookie
+    // once on mount, so seeding it keeps the notice from ever rendering.
+    {
+      name: 'cookiesAccepted',
+      value: 'true',
+      domain: COOKIE_DOMAIN,
+      path: '/',
+      sameSite: 'Lax',
+    },
   ]
 
   if (campaignId) {
