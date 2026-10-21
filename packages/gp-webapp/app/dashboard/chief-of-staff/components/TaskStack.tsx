@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
@@ -50,8 +49,13 @@ const CELEBRATE_MS = 500
 const EXIT_MS = 300
 
 const PRIMARY_ON_PHONE = 'w-full sm:w-auto'
+// Grows from its own width rather than sharing the row equally, so a row with
+// three quiet buttons wraps inside the card on a phone instead of running
+// off its edge.
 const QUIET_ON_PHONE =
-  'max-sm:flex-1 max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm'
+  'max-sm:grow max-sm:h-8 max-sm:px-4 max-sm:py-2 max-sm:text-sm'
+const QUIET_ROW_CLASS =
+  'flex flex-wrap items-center gap-2 max-sm:mt-2 sm:contents'
 
 type DeckKind = 'onboarding' | DashboardCardType
 
@@ -65,8 +69,9 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
-  // The civic panel build card: it follows the meet card, and closes
-  // itself once its text has gone out.
+  // The civic panel build card: it follows the meet card, closes itself once
+  // its text has gone out, and its button opens the build chat whatever it
+  // reads.
   buildsPanel: boolean
   // The build card, or the card for the panel plan's next step that takes
   // its place once it is done: same headline, same place in the deck.
@@ -211,12 +216,15 @@ const TaskStack = ({
     variant: 'other' as const,
   }))
   // A new official meets their Chief of Staff before anything else, then
-  // builds the panel, then sets priorities.
+  // builds the panel, then sets priorities. A report back waiting to go
+  // leads the panel cards: the people who answered are waiting to hear back.
+  const leadsPanel = (card: DeckCard) => card.kind === 'report_back'
   const deck: DeckCard[] = [
     ...onboardingCards.filter((card) => card.onboardingKey === 'meet'),
+    ...dashboardCards.filter(leadsPanel),
     ...dashboardCards.filter((card) => card.peopleFirst),
     ...onboardingCards.filter((card) => card.onboardingKey !== 'meet'),
-    ...dashboardCards.filter((card) => !card.peopleFirst),
+    ...dashboardCards.filter((card) => !card.peopleFirst && !leadsPanel(card)),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]
@@ -374,9 +382,7 @@ const TaskStack = ({
                 >
                   {front.ctaLabel}
                 </Button>
-              ) : onDiscussCard &&
-                front.buildsPanel &&
-                front.ctaLabel === CIVIC_PANEL_BUILD_CARD_CTA ? (
+              ) : onDiscussCard && front.buildsPanel ? (
                 <Button
                   type="button"
                   size="medium"
@@ -409,7 +415,7 @@ const TaskStack = ({
                   </Button>
                 )
               )}
-              <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
+              <div className={QUIET_ROW_CLASS} data-testid="task-card-actions">
                 {/* Get-started and civic panel cards close themselves once
                     their goal is met (a priority card, once the priority is
                     resolved), so they offer no manual Mark done. */}

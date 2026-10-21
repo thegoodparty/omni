@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { zDate } from '../shared/Date.schema'
 import { GeoJsonPolygonSchema } from '../doorKnocking/DoorKnockingTurf.schema'
-import { UnderrepresentedGroupSchema } from '../priorities/PriorityResults.schema'
+import {
+  UNDERREPRESENTED_GROUP_NAMES,
+  UnderrepresentedGroupSchema,
+} from '../priorities/PriorityResults.schema'
 
 // Building the civic panel across texts, calls and doors, in waves
 // (/v1/contacts/civic-panel/plan). Texts are cheap and go first; calls reach
@@ -281,6 +284,120 @@ export const civicPanelStandingLine = (
   return progress.groupsTotal > 0
     ? `${members}, from ${progress.groupsCovered} of ${progress.groupsTotal} groups in your district.`
     : `${members}.`
+}
+
+// A plan step in the words the panel page, the Chief of Staff's chat card and
+// its home card all use: a title naming who to reach, and one line on who
+// they are and how long it takes.
+export const CIVIC_PANEL_STEP_COPY = {
+  stepTitle: {
+    text: (size: string) => `Text ${size} residents`,
+    phone_banking: (size: string) => `Call ${size} residents`,
+    door_knocking: (size: string, position: number) =>
+      position > 1
+        ? `Knock on ${size} doors in a second walkable area`
+        : `Knock on ${size} doors in a walkable area`,
+  },
+  stepDetail: {
+    text: 'Residents with a cell phone, picked at random.',
+    phone_banking: (time: string) =>
+      `People a text can't reach, landlines first. ${time} of your time.`,
+    door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
+  },
+  // A step's line when its draw leans toward a group the panel trails.
+  stepLean: {
+    text: (group: string) => `This batch invites more ${group}.`,
+    phone_banking: (time: string) =>
+      `People a text can't reach. ${time} of your time.`,
+    door_knocking: (time: string) =>
+      `A part of your district we haven't reached. ${time} of your time.`,
+  },
+  duration: (minutes: number) =>
+    minutes < 50
+      ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`
+      : minutes < 90
+        ? 'About an hour'
+        : `About ${Math.round(minutes / 60)} hours`,
+  calledSoFar: (called: string) => `Called ${called} so far.`,
+  knockedSoFar: (visited: string) => `Visited ${visited} residents so far.`,
+  startStep: {
+    text: 'Start the text',
+    phone_banking: 'Start the calls',
+    door_knocking: 'Start door knocking',
+  },
+  keepGoing: {
+    phone_banking: 'Keep calling',
+    door_knocking: 'Keep knocking',
+  },
+} as const
+
+const countOf = (value: number): string => value.toLocaleString('en-US')
+
+export const civicPanelStepMinutes = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'targetSize'>,
+): number =>
+  (step.targetSize /
+    (step.channel === 'door_knocking'
+      ? PANEL_DOORS_PER_HOUR
+      : PANEL_CALLS_PER_HOUR)) *
+  60
+
+// "Call 60 residents".
+export const civicPanelStepTitle = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'position' | 'targetSize'>,
+): string => {
+  const size = countOf(step.targetSize)
+  return step.channel === 'door_knocking'
+    ? CIVIC_PANEL_STEP_COPY.stepTitle.door_knocking(size, step.position)
+    : CIVIC_PANEL_STEP_COPY.stepTitle[step.channel](size)
+}
+
+// The line under a step still to take: who it reaches and how long it
+// takes, or how far a call list or walk underway has got. A text underway
+// or sent has a dated line of its own on the panel page.
+export const civicPanelOpenStepDetail = (
+  step: Pick<
+    CivicPanelBuildStep,
+    | 'channel'
+    | 'targetSize'
+    | 'status'
+    | 'reached'
+    | 'steeredToward'
+    | 'landlineFirst'
+  >,
+): string => {
+  const copy = CIVIC_PANEL_STEP_COPY
+  if (step.channel === 'text') {
+    return step.steeredToward && step.status === 'not_started'
+      ? copy.stepLean.text(UNDERREPRESENTED_GROUP_NAMES[step.steeredToward])
+      : copy.stepDetail.text
+  }
+  const calls = step.channel === 'phone_banking'
+  if (step.status === 'in_progress' && step.reached !== null) {
+    const reached = countOf(step.reached)
+    return calls ? copy.calledSoFar(reached) : copy.knockedSoFar(reached)
+  }
+  const time = copy.duration(civicPanelStepMinutes(step))
+  if (calls) {
+    return step.landlineFirst === false
+      ? copy.stepLean.phone_banking(time)
+      : copy.stepDetail.phone_banking(time)
+  }
+  return step.steeredToward === 'unreachedAreas'
+    ? copy.stepLean.door_knocking(time)
+    : copy.stepDetail.door_knocking(time)
+}
+
+// The step's button: start it, or keep going on a call list or walk
+// underway. Null when there is nothing to press, such as a text on its way.
+export const civicPanelStepAction = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'status'>,
+): string | null => {
+  if (step.status === 'not_started') {
+    return CIVIC_PANEL_STEP_COPY.startStep[step.channel]
+  }
+  if (step.status !== 'in_progress' || step.channel === 'text') return null
+  return CIVIC_PANEL_STEP_COPY.keepGoing[step.channel]
 }
 
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the

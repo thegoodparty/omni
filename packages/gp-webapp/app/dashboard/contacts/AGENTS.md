@@ -29,7 +29,11 @@ This is the **unified** voter experience shared by Serve (elected office) and Wi
 The panel page is where the panel is built, from gp-api's plan
 (`GET/POST/PATCH /v1/contacts/civic-panel/plan`, read server-side by
 `page.tsx` and held in `CitizensPanelView` state; every write returns the
-whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
+whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`,
+except a step's title, its line, and its Start and Keep going buttons, which
+live in contracts (`CIVIC_PANEL_STEP_COPY`, `civicPanelStepTitle`,
+`civicPanelOpenStepDetail`, `civicPanelStepAction`) because the Chief of
+Staff's home and chat cards say the same step in the same words.
 
 - **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
   (members, goal, expected answers, plan status, `howCloseStatus` from the
@@ -106,8 +110,8 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   days) and the status reads "Every group on your panel · 3 groups need fresh
   voices", with "Invite more {group} next." naming the thinnest, or "Every
   group has fresh voices" once none are short. The plan start there reads
-  "Keep your panel fresh". Never a share, weight or target. The Chief
-  of Staff's next step card shows the same `CivicPanelBalanceStatus`.
+  "Keep your panel fresh". Never a share, weight or target. Only this page
+  shows it; the Chief of Staff's cards show the step alone.
 - **Your time** (`CivicPanelRail`, beside the plan from `lg`, below it on a
   phone): "Your time", the weekly hours and Change (`PATCH`, only later
   waves change).

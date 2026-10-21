@@ -715,13 +715,19 @@ office's one build card (`sourceExternalId` from contracts'
 `civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) carries contracts'
 `CIVIC_PANEL_BUILD_CARD_HREF`, the panel page (`CIVIC_PANEL_PAGE_HREF`), which
 asks the weekly time question or shows the plan already made (see "Building
-the panel across channels"). Its pre-plan button, `CIVIC_PANEL_BUILD_CARD_CTA`
-(Build my panel), does not follow that link on the home: `TaskStack` sends the
-hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the chat, so every entry point
-starts the same conversation; the panel page keeps its own form. The Chief of
+the panel across channels"). Its words never change, with or without a plan
+(`CIVIC_PANEL_BUILD_CARD_CONTENT`): "Know what residents think before you
+decide", "A civic panel gives you residents from across your district who
+answer when you ask what they think.", and `CIVIC_PANEL_BUILD_CARD_CTA`
+(Build your panel). No step and no member count: the card's one job is to get
+the panel built. Its button does not follow that link on the home:
+`TaskStack` sends the hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the
+chat for the build card (`isCivicPanelBuildCard`, never the label), so every
+entry point starts the same conversation, which shows the plan's next step
+once there is one; the panel page keeps its own form. The Chief of
 Staff chat runs that same plan (`chats/general/chief-of-staff`,
 `civicPanelPlan.tools.ts` and `civicPanelBuildBlock`). Asked to build the
-panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build my
+panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build your
 panel, the intro's Build your civic panel or Grow your civic panel, or the
 explainer's Build my panel, or in their own words) with no
 plan, it explains the panel in a line or two and calls
@@ -729,11 +735,13 @@ plan, it explains the panel in a line or two and calls
 and answers (1, 2, 3, or 4 or more hours a week). The answer goes to
 `save_panel_weekly_time`, which calls `CivicPanelBuildPlanService.create`
 (4 for "4 or more", a written number as given, 1 to 20); then
-`present_panel_next_step` shows the plan's next step as a card that reads the
-plan itself (`GET …/plan`): the Next line, members of the goal, the
-panel page's status and its line naming who to invite next (`balance`), the
-page's button for that step (it opens the step's own text, call or door flow
-the way the page does, not `next.href`), and See your plan. The tools return
+`present_panel_next_step` shows the plan's next step as the standard outreach
+card, reading the plan itself (`GET …/plan`): the step in the panel page's
+words (contracts' `civicPanelStepTitle` and `civicPanelOpenStepDetail`, "Call
+60 residents" over who and how long) and the page's button for it (it opens
+the step's own text, call or door flow the way the page does, not
+`next.href`). No member count and no panel status on it. With no step to
+take, it is a See your plan row with the Next line. The tools return
 that status and group in the page's words (`panelStatus`,
 `inviteMoreNext`); the agent may repeat them, but never promises the panel
 will match the district, never mentions weights, quotas or targets, and never
@@ -752,23 +760,19 @@ priorities they want to work on and offering to record them
 panel? opens the Chief of Staff chat with the hidden turn
 `EXPLAIN_CIVIC_PANEL_MESSAGE`: the agent explains the panel and builds
 nothing unless the official says yes (`civicPanelExplainLines`).
-Once the office has an active plan, the open card follows it: the sync
-reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
-`ModuleRef` because importing the contacts module closes a module cycle, and
-before the lock, since the read is what moves the plan), and the card's
-title is always "Hear from more than the loudest voices", its summary where the panel stands
-(`civicPanelStandingLine`: "62 members so far, from 9 of 12 groups in your
-district.", without the groups when the census could not be read), its button the panel page's own words for that step ("Start the
-text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
-knocking"; "See your plan" while waiting) and its link `next.href` (the
-panel page on that step, or the page itself with no link). With no plan, an
-ended plan or nothing next, it reads "Start with the people you represent"
-and Build my panel, as before. A plan read that fails leaves the words as
-they are. Once the build card is done, the plan's ready step gets a card of
-its own (`syncCivicPanelStepCard`, `sourceExternalId` from contracts'
-`civicPanelStepCardSourceId`, `panel-step:<stepId>`), so the calls, doors and
-later rounds still reach the home: the same words as the build card would
-show, opening that step. It exists only while the plan is active, the build
+The sync reads the plan first (`CivicPanelBuildPlanService.read`, looked up
+through `ModuleRef` because importing the contacts module closes a module
+cycle, and before the lock, since the read is what moves the plan) for the
+goal and the step card. Once the build card is done, the plan's ready step
+gets a card of its own (`syncCivicPanelStepCard`, `sourceExternalId` from
+contracts' `civicPanelStepCardSourceId`, `panel-step:<stepId>`), so the
+calls, doors and later rounds still reach the home. It says the one next step
+in the panel page's words (`civicPanelStepCardContent`): the step's title
+("Call 60 residents"), its one line on who and how long ("People a text can't
+reach, landlines first. About 4 hours of your time.", or "Called 12 so far."
+underway), its button ("Start the text", "Start the calls", "Start door
+knocking"; "Keep calling", "Keep knocking") and its link `next.href`. No
+member count. A plan read that fails leaves the card as it is. It exists only while the plan is active, the build
 card is done, and `next` has a link (waiting on replies is not a step to
 take); one at a time, so a card whose step is no longer next is deleted and
 the new step gets its own. Keyed by the step, a skipped one stays skipped
@@ -779,9 +783,9 @@ next read. The card is done once any `text` row of the org with
 `asksToJoinCivicPanel` is past checkout (not `pending_payment`, `draft`,
 `canceled`, `denied` or `failed`): the purpose is not stored on the row, and
 the ask is what recruits. It is also done once the plan reaches its goal
-(`completed`). A done card keeps the start words in the archive. While it is
+(`completed`). While it is
 open its due date rolls forward so it never lapses into missed. A skipped
-card stays skipped while its words follow the plan. The webapp offers it no
+card stays skipped once there is a plan. The webapp offers it no
 Mark done, and `complete` leaves it untouched. It takes `dismiss` (Not for me, undone by
 `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
@@ -796,9 +800,10 @@ forward. It is deleted, skipped or not, once its priority is archived, and
 recreated if it is unarchived; a ready plan (null step) deletes it too,
 unless it is done, and it is recreated when a step comes open again.
 The webapp leads with the Chief of Staff's `meet` get-started card while it
-is active, then the build card (or the plan step card in its place, under
-the same People first headline), then the `priorities` get-started card, then
-the rest. `meet` is done only once its button opens the intro
+is active, then any open `report_back` card (the people who answered are
+waiting to hear back), then the build card (or the plan step card in its
+place, under the same People first headline), then the `priorities`
+get-started card, then the rest. `meet` is done only once its button opens the intro
 (`PUT /v1/dashboard/onboarding-cards/meet/complete`, an
 `OnboardingCardCompletion` row), never by any Chief of Staff conversation:
 the build card's own chat would otherwise hide it from a new official. One
