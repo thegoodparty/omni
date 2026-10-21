@@ -42,7 +42,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     tract: {
       title: "Who's on your panel, by census tract",
       name: (name: string) => `Tract ${name}`,
-      invite: (name: string) => `people in tract ${name}`,
       one: 'tract',
       many: 'tracts',
       full: 'Every tract has its share of seats filled.',
@@ -50,7 +49,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     precinct: {
       title: "Who's on your panel, by precinct",
       name: (name: string) => `Precinct ${name}`,
-      invite: (name: string) => `people in precinct ${name}`,
       one: 'precinct',
       many: 'precincts',
       full: 'Every precinct has its share of seats filled.',
@@ -60,7 +58,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     {
       title: string
       name: (name: string) => string
-      invite: (name: string) => string
       one: string
       many: string
       full: string
@@ -101,7 +98,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     `${members.toLocaleString('en-US')} residents said yes.`,
   fullMembers: ' members',
   fullPlaces: (places: number, many: string) => ` of ${places} ${many}`,
-  fullGroups: (total: number) => ` of ${total} groups`,
+  fullGroups: (total: number) => ` of ${total} groups at their share`,
   askPanel: 'Ask your panel a question',
   seatsCaption:
     'Your district as 100 seats, filling as people join your panel.',
@@ -199,13 +196,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   skipError: "We couldn't skip this step. Try again.",
   textingOff: "Texting isn't set up for your office yet.",
   callListName: 'Civic panel calls',
-  progressLabel: 'Groups of your district with enough members',
-  membersLabel: (members: number) => (members === 1 ? ' member' : ' members'),
-  inGroups: (covered: number, total: number) =>
-    `, in ${covered} of ${total} groups`,
-  groupsMissing:
-    'Invite people from the groups still missing so every part of your district has a voice.',
-  groupsComplete: 'Every part of your district has a voice on your panel.',
   yourTime: 'Your time',
   changeHours: 'Change',
   changeHoursLabel: 'Change your weekly time',
