@@ -169,11 +169,42 @@ describe('panelCoverage', () => {
   })
 })
 
+describe('panelCoverage members short', () => {
+  it('is the most a dimension still needs, since a member sits in one value of each', () => {
+    // Everyone 35 to 44 in tract A: the five other age bands (8 each) need
+    // 40, the two other tracts 16.
+    const { membersShort } = panelCoverage(
+      mixOf([cell({ count: 100, tract: A })]),
+    )
+    expect(membersShort).toBe(40)
+  })
+
+  it('is 0 once every group has its members', () => {
+    const bands = [
+      '18to24',
+      '25to34',
+      '35to44',
+      '45to54',
+      '55to64',
+      '65plus',
+    ] as const
+    const { membersShort } = panelCoverage(
+      mixOf(
+        bands.flatMap((ageBand) =>
+          [A, B, C].map((tract) => cell({ count: 8, ageBand, tract })),
+        ),
+      ),
+    )
+    expect(membersShort).toBe(0)
+  })
+})
+
 describe('panelBalance', () => {
   const coverage = (groupsCovered: number) => ({
     groupsCovered,
     groupsTotal: 12,
     missing: ['age65plus' as const],
+    membersShort: 0,
   })
 
   it('has too few members under 30', () => {
@@ -200,6 +231,33 @@ describe('panelBalance', () => {
       inviteMore: null,
     })
   })
+
+  it('counts the groups short of active members past the goal, and names the largest', () => {
+    const fresh = {
+      groupsCovered: 9,
+      groupsTotal: 12,
+      missing: ['black' as const, 'age65plus' as const],
+      membersShort: 20,
+    }
+    expect(
+      panelBalance({ members: 250, coverage: coverage(12), fresh }),
+    ).toEqual({
+      status: 'everyGroup',
+      inviteMore: 'black',
+      groupsNeedingFresh: 3,
+    })
+  })
+
+  it('has no group to invite once every group has active members', () => {
+    const fresh = { ...coverage(12), missing: [] }
+    expect(
+      panelBalance({ members: 250, coverage: coverage(12), fresh }),
+    ).toEqual({
+      status: 'everyGroup',
+      inviteMore: null,
+      groupsNeedingFresh: 0,
+    })
+  })
 })
 
 describe('doorTractFor', () => {
@@ -219,6 +277,44 @@ describe('doorTractFor', () => {
       cell({ count: 10, tract: C }),
     ])
     expect(doorTractFor(mix)).toBeNull()
+  })
+})
+
+describe('panelSteering past the goal', () => {
+  const members = mixOf([
+    cell({ count: 85, tract: A }),
+    cell({ count: 15, tract: B }),
+  ])
+
+  it('judges and leans by the active members, not the members', () => {
+    // Every member covers A and B, but only A's 30 answered lately.
+    const active = mixOf([cell({ count: 30, tract: A })])
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: active,
+    })
+    expect(steering.coverage?.groupsCovered).toBe(3)
+    expect(steering.fresh?.groupsCovered).toBe(2)
+    expect(steering.balance?.groupsNeedingFresh).toBe(7)
+    expect(steering.weights?.tract[B]).toBe(2)
+  })
+
+  it('still names groups to freshen with nobody active', () => {
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: { cells: [], census: members.census },
+    })
+    expect(steering.balance?.groupsNeedingFresh).toBe(9)
+    expect(steering.balance?.inviteMore).not.toBeNull()
+    expect(steering.weights).toBeNull()
+  })
+
+  it('does not report freshness before the goal', () => {
+    expect(
+      panelSteering({ members: 100, mix: members }).balance?.groupsNeedingFresh,
+    ).toBeUndefined()
   })
 })
 

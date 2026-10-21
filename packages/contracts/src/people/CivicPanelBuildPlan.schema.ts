@@ -40,8 +40,10 @@ export const PANEL_DOOR_SHARE_OF_HOURS = 0.5
 export const PANEL_DOORS_PER_AREA = 100
 export const PANEL_MAX_DOOR_AREAS = 2
 
-// The members a plan made past the panel's goal sets out to add.
-export const PANEL_KEEP_FRESH_MEMBERS = 50
+// A panel member is active when they answered a priority's text, call or
+// door within this many days. Past its goal the panel is kept fresh by
+// every major group holding PANEL_MEMBERS_PER_GROUP active members.
+export const PANEL_ACTIVE_WINDOW_DAYS = 90
 
 // Replies to a text arrive in batches, about three business days after it
 // goes out (the same window the results upload works to).
@@ -160,9 +162,14 @@ export const CIVIC_PANEL_BALANCE_STATUS_LABELS: Record<
   everyGroup: 'Every group on your panel',
 }
 
+// `groupsNeedingFresh` is set only once the panel is past its goal, where
+// the panel is judged on its active members: the major groups holding fewer
+// than PANEL_MEMBERS_PER_GROUP of them (PANEL_ACTIVE_WINDOW_DAYS), and
+// `inviteMore` is the thinnest of those. Absent before the goal.
 export const CivicPanelBalanceSchema = z.object({
   status: CivicPanelBalanceStatusSchema,
   inviteMore: UnderrepresentedGroupSchema.nullable(),
+  groupsNeedingFresh: z.number().int().nonnegative().optional(),
 })
 export type CivicPanelBalance = z.infer<typeof CivicPanelBalanceSchema>
 
@@ -244,14 +251,30 @@ export type CivicPanelBuildProgress = z.infer<
   typeof CivicPanelBuildProgressSchema
 >
 
+export const civicPanelFreshnessText = (groupsNeedingFresh: number): string =>
+  groupsNeedingFresh === 0
+    ? 'Every group has fresh voices'
+    : groupsNeedingFresh === 1
+      ? '1 group needs fresh voices'
+      : `${groupsNeedingFresh} groups need fresh voices`
+
 // Where the panel stands, in the words the Chief of Staff's card and chat
-// both use: "62 members so far, from 9 of 12 groups in your district."
+// both use: "62 members so far, from 9 of 12 groups in your district." Past
+// the goal it is judged on active members instead: "250 members. 3 groups
+// need fresh voices."
 export const civicPanelStandingLine = (
   progress: Pick<
     CivicPanelBuildProgress,
     'members' | 'groupsCovered' | 'groupsTotal'
   >,
+  balance: Pick<CivicPanelBalance, 'groupsNeedingFresh'> | null = null,
 ): string => {
+  if (balance?.groupsNeedingFresh != null) {
+    const members = `${progress.members.toLocaleString('en-US')} ${
+      progress.members === 1 ? 'member' : 'members'
+    }`
+    return `${members}. ${civicPanelFreshnessText(balance.groupsNeedingFresh)}.`
+  }
   const members = `${progress.members.toLocaleString('en-US')} ${
     progress.members === 1 ? 'member' : 'members'
   } so far`

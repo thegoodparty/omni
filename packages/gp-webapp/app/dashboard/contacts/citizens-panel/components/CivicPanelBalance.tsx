@@ -1,5 +1,6 @@
 import {
   CIVIC_PANEL_BALANCE_STATUS_LABELS,
+  civicPanelFreshnessText,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelBalance,
@@ -23,6 +24,17 @@ const balanceLine = (balance: CivicPanelBalance): string | null => {
     : null
 }
 
+// Past the goal the status also says how many groups have no recent voices.
+const statusLabel = (balance: CivicPanelBalance): string => {
+  const label = CIVIC_PANEL_BALANCE_STATUS_LABELS[balance.status]
+  const fresh = balance.groupsNeedingFresh
+  if (fresh === undefined) return label
+  if (fresh === 0 && balance.status === 'everyGroup') {
+    return civicPanelFreshnessText(0)
+  }
+  return `${label} · ${civicPanelFreshnessText(fresh)}`
+}
+
 // The panel's own status, then the one group to invite next while any is
 // missing. Shared by the panel page and the Chief of Staff's next step card.
 export const CivicPanelBalanceStatus = ({
@@ -39,7 +51,7 @@ export const CivicPanelBalanceStatus = ({
           className={`size-2 shrink-0 rounded-full ${PANEL_STATUS_DOT[balance.status]}`}
         />
         <span className="text-sm font-semibold text-foreground">
-          {CIVIC_PANEL_BALANCE_STATUS_LABELS[balance.status]}
+          {statusLabel(balance)}
         </span>
       </span>
       {line ? <p className="text-sm text-muted-foreground">{line}</p> : null}

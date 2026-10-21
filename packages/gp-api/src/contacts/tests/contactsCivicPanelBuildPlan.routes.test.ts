@@ -398,8 +398,8 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ])
   })
 
-  it('makes a keep-fresh plan once the panel is past its goal, and keeps it active', async () => {
-    stubPools(TEXT_ONLY)
+  it('makes a keep-fresh plan once the panel is past its goal, with no member target', async () => {
+    stubPools(LARGE)
     stubAnswersNeeded(1)
     const slug = await seedOffice()
     for (let i = 0; i < 3; i++) {
@@ -412,12 +412,39 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     expect(created.data.plan).toMatchObject({
       status: 'active',
       keepFresh: true,
-      goalMembers: 53,
+      goalMembers: 3,
     })
     expect(created.data.progress).toMatchObject({ members: 3, goal: 3 })
+    // Nobody short to measure, so only the official's calls and doors.
+    expect(created.data.plan?.steps.map((s) => s.channel)).toEqual([
+      'phone_banking',
+      'door_knocking',
+    ])
 
     const read = await readPlan(slug)
+    expect(read.data.plan).toMatchObject({
+      status: 'active',
+      keepFresh: true,
+      goalMembers: 3,
+    })
+  })
+
+  it('never closes a keep-fresh plan on its members', async () => {
+    stubPools(LARGE)
+    stubAnswersNeeded(1)
+    const slug = await seedOffice()
+    for (let i = 0; i < 3; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+    await createPlan(slug, 1)
+    for (let i = 0; i < 50; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const read = await readPlan(slug)
+
     expect(read.data.plan).toMatchObject({ status: 'active', keepFresh: true })
+    expect(read.data.progress.members).toBe(53)
   })
 
   it('makes an ordinary plan, not keep-fresh, while the panel is under its goal', async () => {
@@ -962,6 +989,142 @@ describe('steering the plan by census', () => {
     expect(read.data.next?.line).toBe(
       'Invite residents to your civic panel by text',
     )
+  })
+})
+
+// A panel past its goal is judged on its active members: those who answered
+// a priority's text in the last 90 days. The first YOUNG members are 18 to
+// 24, the rest 35 to 44, all in tract A.
+const YOUNG = 15
+
+const seedPanelPast = async (slug: string, count: number) => {
+  const ids: string[] = Array.from({ length: count }, () => randomUUID())
+  for (const id of ids) await setPanel(slug, id, CivicPanelStatus.member)
+  vi.spyOn(service.app.get(StatsService), 'findWeightingInputs')
+    .mockClear()
+    .mockImplementation(async (_districtId, _dataset, personIds) => {
+      const young = personIds.filter((id) => ids.indexOf(id) < YOUNG).length
+      return {
+        district: DISTRICT_ACS,
+        cells: [
+          members(young, { ageBand: '18to24' }),
+          members(personIds.length - young),
+        ],
+        tractAdults: TRACT_ADULTS,
+      }
+    })
+  return ids
+}
+
+const answerText = async (slug: string, personIds: string[], sentAt: Date) => {
+  const office = await service.prisma.electedOffice.findUniqueOrThrow({
+    where: { organizationSlug: slug },
+  })
+  const priority = await service.prisma.priority.create({
+    data: {
+      electedOfficeId: office.id,
+      title: 'Streets',
+      description: 'Streets',
+      source: 'user_stated',
+    },
+  })
+  const outreach = await service.prisma.outreach.create({
+    data: {
+      organizationSlug: slug,
+      outreachType: OutreachType.text,
+      status: OutreachStatus.completed,
+      priorityId: priority.id,
+    },
+  })
+  for (const personId of personIds) {
+    await service.prisma.pollIndividualMessage.create({
+      data: {
+        id: randomUUID(),
+        personId,
+        sentAt,
+        sender: 'CONSTITUENT',
+        isOptOut: false,
+        content: 'Fix the potholes',
+        outreachId: outreach.id,
+        electedOfficeId: office.id,
+      },
+    })
+  }
+}
+
+describe('keeping the panel fresh by active members', () => {
+  it('judges the panel on members only before its goal', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubAnswersNeeded(CITY)
+    await seedPanelPast(slug, 30)
+
+    const res = await readPlan(slug)
+
+    expect(res.data.balance?.status).toBe('missingGroups')
+    expect(res.data.balance?.groupsNeedingFresh).toBeUndefined()
+  })
+
+  it('counts the groups short of active members past the goal', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubAnswersNeeded(12)
+    const ids = await seedPanelPast(slug, 30)
+    // 10 of the 35 to 44s answered lately, and 5 of the 18 to 24s only long
+    // ago.
+    await answerText(slug, ids.slice(YOUNG, YOUNG + 10), subDays(new Date(), 5))
+    await answerText(slug, ids.slice(0, 5), subDays(new Date(), 120))
+
+    const res = await readPlan(slug)
+
+    // Members cover 18 to 24, 35 to 44 and tract A (3 of 9 groups); the
+    // active members cover 35 to 44 and tract A (2 of 9).
+    expect(res.data.progress).toMatchObject({
+      members: 30,
+      groupsCovered: 3,
+      groupsTotal: 9,
+    })
+    expect(res.data.balance).toMatchObject({
+      status: 'missingGroups',
+      groupsNeedingFresh: 7,
+    })
+    expect(res.data.balance?.inviteMore).not.toBeNull()
+  })
+
+  it('leaves out answers from people who are not on the panel', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubAnswersNeeded(12)
+    const ids = await seedPanelPast(slug, 30)
+    await answerText(slug, [randomUUID(), randomUUID()], new Date())
+    const before = await readPlan(slug)
+    expect(before.data.balance?.groupsNeedingFresh).toBe(9)
+
+    await answerText(slug, ids.slice(0, 8), new Date())
+    const after = await readPlan(slug)
+
+    // Eight 18 to 24s in tract A cover those two groups.
+    expect(after.data.balance?.groupsNeedingFresh).toBe(7)
+  })
+
+  it('leans a keep-fresh plan toward the groups short of active members', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubAnswersNeeded(12)
+    const ids = await seedPanelPast(slug, 30)
+    await answerText(slug, ids.slice(YOUNG), new Date())
+
+    const created = await createPlan(slug, 1)
+
+    expect(created.data.plan?.keepFresh).toBe(true)
+    // Active members are short in some groups, so the text is sized to them
+    // as well as the calls and doors.
+    expect(created.data.plan?.steps.map((s) => s.channel)).toEqual([
+      'text',
+      'phone_banking',
+      'door_knocking',
+    ])
+    expect(stepOf(created, 'text').steeredToward).toBe('unreachedAreas')
   })
 })
 

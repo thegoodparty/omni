@@ -930,18 +930,32 @@ answer rate) members. The census is read for any panel with a member, and
 both are 0 when it cannot be. Without an active plan `goal` is the
 district's, so an office whose old plan completed at 100 can make a new one.
 
-**Keep your panel fresh.** A panel past its goal is not done. `create` with
-members at or over the district's goal makes a plan with `keepFresh` true
-(`CivicPanelBuildPlan.keepFresh`) and a `goalMembers` of members plus
-`PANEL_KEEP_FRESH_MEMBERS` (50), sized from the same weekly hours question.
-Its goal stays where it was set (it does not follow the district's), the
-read's `progress.goal` stays the district's so the bar still reads "every
-group", and the plan completes once those members join, after which a new one
-can be made. Waves, steps and steering are the ordinary plan's, and steering
-already leans toward the thinnest groups. The panel page shows the hours form
-under "Keep your panel fresh" in place of the plan start, and the Chief of
-Staff's build turn asks the same question, so Grow your civic panel leads
-into it.
+**Keep your panel fresh.** A panel past its goal is not done: it is kept
+fresh by active coverage. An active member is a panel member who answered a
+priority's text, call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90)
+days (`answeredPersonIds` with no priority and a `since`, read live from the
+interaction rows, never stored; opted-out people do not count). Past the
+goal (`members >= panelGoalMembers`) every read also counts them the way it
+counts members (`activeMixOf`, the same census cells and the same groups,
+with race named only when it is for the members) and every major group is
+judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its
+member-based `status` and gains `groupsNeedingFresh`, the groups short of
+active members, with `inviteMore` the largest of those; absent before the
+goal. `create` with members at or over the district's goal makes a plan with
+`keepFresh` true (`CivicPanelBuildPlan.keepFresh`, the past-goal marker) and
+a `goalMembers` of the district's goal: it has no member target and never
+closes on its members, only `exhausted` once a wave can reach nobody. Its
+waves run on the weekly hours and steer by the active mix
+(`PanelSteering.fresh`): while groups are short the gap is the fewest more
+members that would fill them (`PanelCoverage.membersShort`), so texts, calls
+and doors are sized as for any plan; once none is short the gap is null and a
+wave is the official's calls and doors at their hours, no text, a light
+trickle. The panel page shows the hours form under "Keep your panel fresh"
+in place of the plan start, and the Chief of Staff's build turn asks the
+same question, so Grow your civic panel leads into it. The Chief of Staff
+card and `civicPanelStandingLine` follow `groupsNeedingFresh` ("250 members.
+3 groups need fresh voices."). See
+`docs/adr/2026-10-20-civic-panel-active-members-read-live.md`.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
 official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`
