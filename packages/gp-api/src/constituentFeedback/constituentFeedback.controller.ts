@@ -26,6 +26,7 @@ import {
   FeedbackThemeDetailSchema,
   IssueTagListResponseSchema,
   IssueTagSchema,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   RecordConstituentFeedbackResponseSchema,
   RecordConstituentFeedbackSchema,
   SeedFeedbackRequestSchema,
@@ -315,7 +316,10 @@ export class ConstituentFeedbackController {
   }
 
   // 404 rather than 403 when the flag is off: a surface the user has not been
-  // rolled out to should not advertise that it exists.
+  // rolled out to should not advertise that it exists. The code is for a
+  // phone replaying memos it recorded with no signal: off, or an Amplitude
+  // that did not answer (read as off), is not a refusal of the memo, so the
+  // phone keeps it rather than dropping it with the refused ones.
   //
   // Asked of the org's owner, whoever is asking (ORGANIZATION_FLAGS): a
   // rollout that buckets people would otherwise split a candidate from the
@@ -327,6 +331,11 @@ export class ConstituentFeedbackController {
       user: organization.ownerId,
       feature: ISSUE_CAPTURE_FLAG,
     })
-    if (!enabled) throw new NotFoundException()
+    if (!enabled) {
+      throw new NotFoundException({
+        message: 'Not Found',
+        errorCode: ISSUE_CAPTURE_OFF_ERROR_CODE,
+      })
+    }
   }
 }

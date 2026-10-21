@@ -103,3 +103,26 @@ const readEverything = (deps: {
     }),
   }),
 })
+
+// A campaign has no priorities and no good-read hold, so its read is the
+// campaign's door and call notes with their themes.
+export const buildCampaignManagerReadOutreachFeedbackTool = (deps: {
+  outreach: PriorityFlowOutreachService
+  campaignId: number
+}): LlmStreamTool<typeof readOutreachFeedbackInput> => ({
+  description:
+    'Read what voters told the campaign at the door or on a call: each ' +
+    'note the canvasser or caller took, with the issues and stances pulled ' +
+    'from it, and the themes the latest summary found. Without an ' +
+    "outreachId it reads the campaign's most recent door knocking and " +
+    'phone banking. Texts are not here: their replies come back as counts, ' +
+    'never words. Call it before you say anything about what voters said, ' +
+    'and never ask the candidate what voters said: read it here. Quote ' +
+    'voters’ words when they make the point, and say how many voters a ' +
+    'theme covers. A note that is not confirmed is a volunteer’s account ' +
+    'the candidate has not reviewed yet.',
+  inputSchema: readOutreachFeedbackInput,
+  execute: async ({ outreachId }): Promise<{ sends: OutreachFeedback[] }> => ({
+    sends: await deps.outreach.feedbackForCampaign(deps.campaignId, outreachId),
+  }),
+})

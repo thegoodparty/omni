@@ -53,7 +53,7 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
   It returns `{ user, client }` — `user` is the `AuthenticatedUser`, and `client` is an Axios instance pre-authed against gp-api (`Bearer` token, baseURL `${API_BASE_URL || BASE_URL}/api`) for hitting the API directly from a test.
 
   Options:
-  - `isolated` — `true` gives the test its own dedicated user; otherwise the user is **cached and shared per worker** (fast; use this unless the test mutates account-level state).
+  - `isolated` — `true` gives the test its own dedicated user; otherwise the user is **cached and shared per worker** (fast; use this unless the test mutates account-level state). A cache hit skips provisioning but still signs the test's fresh browser context in: the cookies alone carry no Clerk session, and the middleware bounces an unsigned dashboard navigation to `/login`.
   - `race: { zip, office }` — picks the race the campaign is created for (`office` can be an exact name or a predicate over the office name). Defaults to `Cheyenne City Council - Ward 1`.
   - `user` — override generated `firstName` / `lastName` / `email` / `phone`. Pass `isolated: true` with an `email` override, or a cached user with a different email comes back.
   - `skipCampaignCreation: true` — stops after user creation (no campaign); **requires `isolated: true`** so an incomplete user is never cached.

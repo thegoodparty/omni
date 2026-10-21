@@ -78,7 +78,8 @@ describe('PriorityResultsView', () => {
           groupsTotal: 12,
           good: false,
           status: 'tooEarly',
-          underrepresented: [],
+          underrepresented: ['men', 'age65plus'],
+          unheard: ['men'],
           checkOut: true,
         },
       })
@@ -99,7 +100,7 @@ describe('PriorityResultsView', () => {
 
       expect(
         screen.getByText(
-          "Some groups haven't answered yet. We'll show what we heard once every group has.",
+          "We'll show what we heard once every group has enough answers.",
         ),
       ).toBeInTheDocument()
       expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
@@ -110,6 +111,72 @@ describe('PriorityResultsView', () => {
       expect(
         screen.queryByText("Who you're hearing from"),
       ).not.toBeInTheDocument()
+    })
+
+    // The same line as the priority page's status strip, so the card says
+    // which groups are short and never that nobody answered.
+    it('names the groups with no answers apart from the ones that are short', () => {
+      renderView(early())
+
+      expect(
+        screen.getByText(
+          'Still need to hear from men, and a few more answers from people 65 and over',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/haven't answered/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Hear from more')).not.toBeInTheDocument()
+    })
+
+    it('asks for a few more answers when every group has some', () => {
+      renderView(
+        results({
+          readStatus: {
+            answers: 40,
+            needed: 46,
+            groupsHeard: 10,
+            groupsTotal: 12,
+            good: false,
+            status: 'notYetRepresentative',
+            underrepresented: ['age65plus', 'age55to64'],
+            unheard: [],
+            checkOut: true,
+          },
+        }),
+      )
+
+      expect(
+        screen.getByRole('heading', { name: 'A few groups need more answers' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Need a few more answers from people 65 and over and people 55 to 64',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Still need to hear from/)).toBeNull()
+    })
+
+    it('waits on enough answers when the district could not be read', () => {
+      renderView(
+        results({
+          readStatus: {
+            answers: 30,
+            needed: 100,
+            groupsHeard: 0,
+            groupsTotal: 0,
+            good: false,
+            status: 'tooEarly',
+            underrepresented: [],
+            checkOut: true,
+          },
+        }),
+      )
+
+      expect(
+        screen.getByText(
+          "We'll show what we heard once enough people have answered.",
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
     it('sends Get answers back to the priority to ask the agent', () => {
@@ -149,7 +216,7 @@ describe('PriorityResultsView', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('people in a few neighborhoods'),
+      screen.getByText('Still unsure what people in a few neighborhoods think'),
     ).toBeInTheDocument()
     // Every group heard but the model not sure yet: a full bar in the
     // warning tone, never the success one.

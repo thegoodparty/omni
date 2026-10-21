@@ -982,6 +982,7 @@ export {
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelStepCardSourceId,
   isCivicPanelStepCard,
+  isGoodReadReportBackCard,
   CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
@@ -1628,6 +1629,7 @@ export {
   CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_MAX_ISSUES,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   ConstituentFeedbackIssueSchema,
   type ConstituentFeedbackIssue,
   RecordConstituentFeedbackSchema,
@@ -1848,3 +1850,8 @@ export {
   EXPLAIN_CIVIC_PANEL_MARKER,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'
+
+export {
+  PICKED_NEXT_STEPS_LEAD,
+  pickedNextStepsMessage,
+} from './chats/ChiefOfStaffNextSteps'

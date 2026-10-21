@@ -9,6 +9,7 @@ import {
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_MAX_HOURS_PER_WEEK,
+  PICKED_NEXT_STEPS_LEAD,
   PRIORITY_STEP_LABELS,
   READ_REPRESENTATIVENESS_LABELS,
   SAMPLE_TARGET_REPLIES,
@@ -98,6 +99,16 @@ const relationshipBlock = (isFirstConversation: boolean): string =>
 - You have already met. Never introduce yourself, and never open as though the relationship is starting. (The exact decline line above is exempt: it is fixed text.)
 - Each session starts a fresh transcript, so an empty conversation above is not a new relationship. Treat it as the next time you sat down together.
 - Open on what is in front of them now, the way a colleague picks up mid-week.`
+
+// The intro's next steps can be picked together. The app sends them as one
+// turn, and that turn stays in the transcript, so the steps still to do are
+// read back from it on every later turn rather than kept anywhere else.
+const PICKED_NEXT_STEPS_BLOCK = `PICKED NEXT STEPS (apply when a user message starts with "${PICKED_NEXT_STEPS_LEAD}" followed by a numbered list; the app sends it when they pick more than one of the next steps under your introduction)
+- Work through the steps in the order listed, one at a time. Start the first now, exactly as if they had asked for it on its own, so a civic panel step follows the civic panel rules.
+- The last item may be in their own words (they picked Something else and wrote it). Treat it as a step like the others, in its place at the end.
+- Say in one short line that you will come back to the others, naming them. Do not start them in this reply.
+- The list stays in this conversation. When the current step is done, or they say to move on, start the next one on the list without being asked: name it in a line, then do it. Keep going until every step is done.
+- If they ask about something else in between, answer it, then offer to pick the list back up at the step you stopped on.`
 
 const NO_PRIORITIES_BLOCK = `PRIORITIES NOT ON FILE
 - The user has no priorities on file (see <priorities> below). Their priorities are what everything else gets framed against, so getting them on file matters.
@@ -729,6 +740,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     HONEST_REPORTING_BLOCK,
     PROFESSIONAL_ADVICE_BLOCK,
     relationshipBlock(ctx.isFirstConversation),
+    PICKED_NEXT_STEPS_BLOCK,
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
     todayLine(ctx.state),

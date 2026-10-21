@@ -10,6 +10,8 @@ import {
   LABEL_ALL_UP_TO,
   labelAnchor,
   LIST_SIZE,
+  polar,
+  roundCoord,
   SEAT_R_OUT,
   SEAT_SIZE,
   spreadLabels,
@@ -36,11 +38,12 @@ const placeLabels = (chart: SeatChart) => {
   const labels = chart.places.map((place) => {
     const cos = Math.cos(place.angle)
     const sin = Math.sin(place.angle)
-    const y = -LABEL_R * sin
+    // The seats' y points up, so the label's point is mirrored.
+    const { x, y } = polar(0, 0, LABEL_R, -place.angle)
     return {
       place,
-      x: LABEL_R * cos,
-      y: sin > 0.7 ? y - 18 : y - 3,
+      x,
+      y: roundCoord(sin > 0.7 ? y - 18 : y - 3),
       anchor: labelAnchor(cos),
     }
   })
@@ -242,9 +245,6 @@ const Legend = ({ chart }: { chart: SeatChart }) => (
   </div>
 )
 
-const inviteNext = (place: SeatPlace | undefined, words: PlaceWords) =>
-  place ? COPY.inviteMore(words.invite(place.name)) : null
-
 const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
   const line = 'border-t border-border pt-3 text-sm'
   if (chart.stage === 'tooEarly') {
@@ -270,21 +270,13 @@ const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
           // Around the arc on a computer when every place fits there.
           className={labeled ? 'sm:hidden' : undefined}
         />
-        <div className="flex flex-col gap-1">
-          <p className="text-muted-foreground">
-            {COPY.emptyIn(
-              chart.mostEmpty.length,
-              chart.places.length,
-              words.many,
-            )}
-          </p>
-          <p className="font-semibold text-foreground">
-            {inviteNext(
-              [...chart.mostEmpty].sort((a, b) => a.progress - b.progress)[0],
-              words,
-            )}
-          </p>
-        </div>
+        <p className="text-muted-foreground">
+          {COPY.emptyIn(
+            chart.mostEmpty.length,
+            chart.places.length,
+            words.many,
+          )}
+        </p>
       </div>
     )
   }
@@ -296,24 +288,20 @@ const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
         places={chart.behind.slice(0, LIST_SIZE)}
         words={words}
       />
-      <div className="flex flex-col gap-1">
-        <p className="text-muted-foreground">
-          {COPY.placesBehind(
-            chart.behind.length,
-            chart.places.length,
-            words.many,
-          )}
-        </p>
-        <p className="font-semibold text-foreground">
-          {inviteNext(chart.behind[0], words)}
-        </p>
-      </div>
+      <p className="text-muted-foreground">
+        {COPY.placesBehind(
+          chart.behind.length,
+          chart.places.length,
+          words.many,
+        )}
+      </p>
     </div>
   )
 }
 
 // The district as 100 seats split by tract or precinct, filling as members
-// join.
+// join. It names no one to invite: the balance card's line, from what the
+// next draw leans toward, is the page's one next step.
 export const CivicPanelSeats = ({
   placeKind,
   places,

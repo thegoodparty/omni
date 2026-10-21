@@ -13,17 +13,21 @@ enum PollConfidence {
 model Poll {
   // Using UUID7 here gives us time-based ordering of IDs. This is important for
   // the cursor-based pagination model supported by the Polls API.
-  id                      String          @id @default(uuid(7))
-  name                    String
-  messageContent          String          @map("message_content")
-  imageUrl                String?         @map("image_url")
-  targetAudienceSize      Int
-  responseCount           Int?            @map("response_count")
-  confidence              PollConfidence?
-  scheduledDate           DateTime        @map("scheduled_date")
-  estimatedCompletionDate DateTime
-  completedDate           DateTime?       @map("completed_date")
-  isCompleted             Boolean         @default(false) @map("is_completed")
+  id                         String          @id @default(uuid(7))
+  name                       String
+  messageContent             String          @map("message_content")
+  imageUrl                   String?         @map("image_url")
+  targetAudienceSize         Int
+  responseCount              Int?            @map("response_count")
+  confidence                 PollConfidence?
+  scheduledDate              DateTime        @map("scheduled_date")
+  estimatedCompletionDate    DateTime
+  completedDate              DateTime?       @map("completed_date")
+  isCompleted                Boolean         @default(false) @map("is_completed")
+  // The checkout session that paid for the latest expansion. The browser and
+  // Stripe's webhook both fulfill one checkout, and this is how the second
+  // caller tells that the expansion it would make has already been made.
+  expansionCheckoutSessionId String?         @map("expansion_checkout_session_id")
 
   electedOffice   ElectedOffice? @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
   electedOfficeId String?        @map("elected_office_id")

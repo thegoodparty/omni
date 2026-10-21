@@ -566,8 +566,10 @@ describe('<TaskStack>', () => {
       summary: 'People keep answering when they see what came of it.',
       ctaLabel: 'Report back',
       ctaHref: '/dashboard/priorities/p1?reportBack=77',
-      sourceExternalId: '77',
+      sourceExternalId: 'p1',
+      sourceItemId: 'notYetRepresentative',
     })
+    const goodReadReportBack = { ...reportBack, sourceItemId: 'representative' }
 
     it('opens the priority to report back, with Mark done', async () => {
       const user = userEvent.setup()
@@ -609,20 +611,21 @@ describe('<TaskStack>', () => {
       expect(dismissMock).toHaveBeenCalledWith('rb')
     })
 
-    it('leads the panel build and step cards, after meet', () => {
-      const step = card({
-        id: 'step',
-        type: 'civic_panel',
-        title: 'Call 60 residents',
-        ctaLabel: 'Start the calls',
-        ctaHref: '/dashboard/contacts/citizens-panel?step=s2',
-        sourceExternalId: 'panel-step:s2',
-      })
+    const step = card({
+      id: 'step',
+      type: 'civic_panel',
+      title: 'Call 60 residents',
+      ctaLabel: 'Start the calls',
+      ctaHref: '/dashboard/contacts/citizens-panel?step=s2',
+      sourceExternalId: 'panel-step:s2',
+    })
+
+    it('leads the panel build and step cards, after meet, once the read is good', () => {
       onboardingRef.current = [
         { key: 'meet', status: 'active' },
         { key: 'priorities', status: 'active' },
       ]
-      withCards([card({}), buildCard, reportBack])
+      withCards([card({}), buildCard, goodReadReportBack])
       const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
       expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
 
@@ -639,7 +642,16 @@ describe('<TaskStack>', () => {
         }),
       ).toBeInTheDocument()
 
-      withCards([step, card({}), reportBack])
+      withCards([step, card({}), goodReadReportBack])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
+
+      // Enough answers is a good read too.
+      withCards([
+        step,
+        card({}),
+        { ...reportBack, sourceItemId: 'enoughAnswers' },
+      ])
       rerender(<TaskStack onOpenCard={vi.fn()} />)
       expect(frontTitle()).toBe(reportBack.title)
 
@@ -647,6 +659,41 @@ describe('<TaskStack>', () => {
       withCards([step, card({})])
       rerender(<TaskStack onOpenCard={vi.fn()} />)
       expect(frontTitle()).toBe('Call 60 residents')
+    })
+
+    it('waits behind the panel cards with the rest before the read is good', () => {
+      onboardingRef.current = [
+        { key: 'meet', status: 'active' },
+        { key: 'priorities', status: 'active' },
+      ]
+      withCards([reportBack, buildCard])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
+
+      onboardingRef.current = [
+        { key: 'meet', status: 'completed' },
+        { key: 'priorities', status: 'active' },
+      ]
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(buildCard.title)
+
+      for (const sourceItemId of ['tooEarly', 'gettingClose']) {
+        withCards([{ ...reportBack, sourceItemId }, step])
+        rerender(<TaskStack onOpenCard={vi.fn()} />)
+        expect(frontTitle()).toBe('Call 60 residents')
+      }
+
+      // The get-started card comes next, then the report back.
+      withCards([reportBack])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(ONBOARDING_CARDS.priorities.title)
+
+      onboardingRef.current = [
+        { key: 'meet', status: 'completed' },
+        { key: 'priorities', status: 'completed' },
+      ]
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
     })
 
     // At 375px its three quiet buttons (Mark done, Ask about this, Skip) are

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   Person,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
@@ -1019,12 +1020,14 @@ describe('constituent feedback routes', () => {
       expect(flagsAskedFor(flags)).toEqual(['issue-capture'])
     })
 
-    it('404s a Serve org when issue-capture is off', async () => {
+    // The code is what tells a phone holding the memo to keep it.
+    it('404s a Serve org, naming the flag, when issue-capture is off', async () => {
       onlyFlagOn('some-other-flag')
 
       const res = await capture('Rosa wants weekly compost pickup.')
 
       expect(res.status).toBe(404)
+      expect(res.data.errorCode).toBe(ISSUE_CAPTURE_OFF_ERROR_CODE)
     })
   })
 
@@ -1221,6 +1224,7 @@ describe('constituent feedback routes', () => {
       expect(rows).toHaveLength(0)
     })
 
+    // A refusal the phone drops, unlike the flag's.
     it('refuses a knock this org never recorded', async () => {
       const seeded = await seedKnock(eoSlug, 'Mine')
 
@@ -1230,6 +1234,7 @@ describe('constituent feedback routes', () => {
       })
 
       expect(res.status).toBe(404)
+      expect(res.data).not.toHaveProperty('errorCode')
     })
 
     // A turf with no question still captures: the memo is the record worth

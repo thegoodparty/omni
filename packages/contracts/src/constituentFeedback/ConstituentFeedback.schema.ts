@@ -255,6 +255,12 @@ export type ConstituentFeedbackListResponse = z.infer<
   typeof ConstituentFeedbackListResponseSchema
 >
 
+// The errorCode on an issue-capture route's 404 while the flag is off for
+// the user, which is also how gp-api reads an Amplitude it cannot reach. It
+// says nothing about the request, so a phone holding memos keeps them until
+// the flag answers again rather than dropping them as refused.
+export const ISSUE_CAPTURE_OFF_ERROR_CODE = 'ISSUE_CAPTURE_OFF'
+
 // About two minutes of audio in any container a phone's MediaRecorder
 // writes, with room to spare. The presigned POST makes S3 refuse anything
 // larger at upload time.

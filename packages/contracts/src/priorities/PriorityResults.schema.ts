@@ -61,6 +61,12 @@ export type ReadRepresentativeness = z.infer<
   typeof ReadRepresentativenessSchema
 >
 
+// The statuses gp-api's mrpReadStatus calls `good`.
+export const GOOD_READ_STATUSES: readonly ReadRepresentativeness[] = [
+  'representative',
+  'enoughAnswers',
+]
+
 export const UnderrepresentedGroupSchema = z.enum([
   'age18to24',
   'age25to34',

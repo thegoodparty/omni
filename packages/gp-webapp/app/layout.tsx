@@ -6,7 +6,7 @@ import VwoScript from '@shared/scripts/VwoScript'
 import { APP_BASE, IS_PROD } from 'appEnv'
 import RouteTracker from '@shared/scripts/RouteTrackerScript'
 import AnalyticsSessionReplayMiddleware from '@shared/AnalyticsSessionReplayMiddleware'
-import { SerwistProvider } from '@serwist/next/react'
+import AppServiceWorker from '@shared/AppServiceWorker'
 import { SUPPORT_CHAT_SCRIPT_ID } from '@shared/utils/supportContact'
 // Outfit is the display font for the marketing design system (e.g. the sign-up
 // page headings and stat cards), applied only where its variable is
@@ -102,13 +102,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       )}
     </head>
     <body>
-      {/* Registers the Serwist service worker (public/sw.js, built by the
-          `serwist build` step). Disabled under `next dev`, where no SW is
-          generated — mirrors next-pwa's old dev-disable behavior. */}
-      <SerwistProvider
-        swUrl="/sw.js"
-        disable={process.env.NODE_ENV !== 'production'}
-      />
+      <AppServiceWorker />
       <Suspense>
         <RouteTracker />
       </Suspense>

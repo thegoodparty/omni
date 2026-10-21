@@ -66,6 +66,7 @@ export type OutreachFlowSource =
   | 'campaign_plan'
   | 'campaign_manager'
   | 'voter_data'
+  | 'navigation'
   | 'door_knocking_page'
   | 'deep_link'
 

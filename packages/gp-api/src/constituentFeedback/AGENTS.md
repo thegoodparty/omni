@@ -164,6 +164,14 @@ has not been rolled out to does not advertise itself. One flag,
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+That 404 carries `errorCode: ISSUE_CAPTURE_OFF` (`ISSUE_CAPTURE_OFF_ERROR_CODE`
+in contracts), and no other 404 here does. It is how a phone replaying memos
+it held with no signal tells "not now" from a refusal: it keeps a memo the
+flag turned away and drops one refused for a reason of its own. The flag
+checks fail closed, so an Amplitude that does not answer reads as off and
+gets the same code; neither a kill switch nor an outage deletes what a
+canvasser recorded.
+
 **The flag is the org's.** Every route asks it of the org's owner
 (`organization.ownerId`), whoever is asking, and so does the variants
 endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
@@ -171,7 +179,8 @@ endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
 and Amplitude buckets by user id: asked per person, a percentage rollout
 would leave a flagged campaign's volunteers mostly without capture and give
 it to some volunteers of an unflagged one. A volunteer of an org whose owner
-is off gets the same 404 as anyone else.
+is off gets the same `ISSUE_CAPTURE_OFF` 404 as anyone else, so their phone
+keeps what it holds.
 
 ## Confirmation
 
@@ -194,7 +203,7 @@ issue rows, or for an offline memo the extraction itself. None when nothing
 was proposed or extraction failed. It exists only to
 measure extraction; nothing reads it but tests. It is kept apart from
 `issues` on purpose: the report (`summarize`, the memo list), the CSV export,
-the person record (`GET /?personId=`) and the Chief of Staff's
+the person record (`GET /?personId=`) and the assistants'
 `capturedNotes` (`priorityFlowOutreach.service.ts`) all read a memo's
 issues, and an empty list there means none of them can count or show a
 guess nobody checked.
@@ -218,7 +227,7 @@ again on the next pass.
   no name for it); **`captureMethod`** is `typed`.
 - **`outreachId` is null on purpose.** The send's report already counts its
   replies as replies (`textRepliesWhere`), and every effort read (the report,
-  the export, synthesis, the Chief of Staff's notes) keys on that column, so
+  the export, synthesis, the assistants' notes) keys on that column, so
   a set one would count the same words twice.
 - **Never confirmed.** Its issues are a model's reading nobody checked, so
   `confirmedAt` stays null and nothing that counts confirmed memos sees it.
