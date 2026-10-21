@@ -14,48 +14,19 @@ import {
 import { withGatewayRetry } from 'tests/utils/headless-user'
 import { eventually } from 'tests/utils/eventually'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import { isAxiosError, type AxiosInstance } from 'axios'
 
 // [M3-4] Win SMS Playwright spec (ENG-XXXXX / ClickUp 17tnw2b7f5p)
 //
 // End-to-end coverage of the Win SMS P2P send flow against the vendor-mock
 // stack: compose → Stripe payment → deliver signed webhook → CAS approve.
 //
-// The spec starts with a `pro-win-10dlc-mock` fixture state, which provisions a
-// fully 10DLC-compliant Pro Win candidate. The fixture stub below calls
-// POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock and will become
-// real once M4 delivers the Peerly 10DLC mock, Route53, and Vercel mocks.
+// It needs a fully 10DLC-compliant Pro Win candidate (a `pro-win-10dlc-mock`
+// fixture state) that gp-api does not provide yet; the test is `test.fixme`
+// until M4 delivers the Peerly 10DLC mock, Route53, and Vercel mocks.
 //
 // @dev-only: requires the Peerly P2P mock (M3) and the 10DLC mocks (M4) which
 // only run on dev or local stacks with VENDOR_MODE=mock. The spec is tagged
 // @dev-only until M4 lands and removes the tag.
-
-// ─── Stub: pro-win-10dlc-mock fixture ─────────────────────────────────────────
-// TODO(M4): remove the stub and let gp-api's real TestFixturesService handle
-// the full 10DLC setup (Peerly identity/profile/brand/cv, Route53, Vercel).
-// The stub calls the endpoint today so the routing exists on day one of M3;
-// the gp-api endpoint returns 501 until M4 implements it, so this spec is
-// @dev-only until then.
-const setupProWin10DlcMock = async (
-  userId: number,
-  client: AxiosInstance,
-): Promise<void> => {
-  try {
-    await withGatewayRetry(
-      `POST /v1/test-fixtures/users/${userId}/states/pro-win-10dlc-mock`,
-      () =>
-        client.post(
-          `/v1/test-fixtures/users/${userId}/states/pro-win-10dlc-mock`,
-        ),
-    )
-  } catch (error) {
-    if (isAxiosError(error) && error.response?.status === 501) {
-      // TODO(M4): remove once gp-api implements this fixture endpoint.
-      return
-    }
-    throw error
-  }
-}
 
 // ─── Stripe helper ─────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the test card. Matches the same
@@ -97,10 +68,17 @@ test.describe('Win SMS send @dev-only', () => {
   test('happy path: compose → schedule → Stripe pay → CAS approve → outreach scheduled', async ({
     page,
   }) => {
+    // ENG-11434: the `pro-win-10dlc-mock` fixture (POST
+    // /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock) does not exist in
+    // gp-api (404), and this spec needs a Pro 10DLC-compliant candidate. The
+    // fixture lands with M4; remove this fixme and provision the user through
+    // it then. Until then this spec must not gate the post-merge E2E check.
+    test.fixme(true, 'Blocked on the M4 pro-win-10dlc-mock fixture (ENG-11434)')
+
     test.setTimeout(8 * 60 * 1000)
 
     // ── 1. Provision a 10DLC-approved Pro Win candidate ────────────────────
-    const { user, client } = await authenticateTestUser(page, {
+    const { client } = await authenticateTestUser(page, {
       isolated: true,
     })
     const { data: mine } = await client.get<{ id: number }>(
@@ -114,9 +92,6 @@ test.describe('Win SMS send @dev-only', () => {
       vendorMode !== 'mock',
       'Win SMS mock pipeline requires VENDOR_MODE=mock (dev / local only)',
     )
-
-    // ── 3. Apply 10DLC mock state (stub until M4) ──────────────────────────
-    await setupProWin10DlcMock(user.id, client)
 
     // ── 4. Force vendor-mocks-m3 flag and open SMS window ──────────────────
     await setFlagOverrides(page, { 'vendor-mocks-m3': 'on' })
