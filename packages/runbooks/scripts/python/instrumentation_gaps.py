@@ -746,6 +746,7 @@ def merge_judged_state(
     candidates_by_id: Mapping[str, dict],
     today: date,
     prior_rulings: Mapping[str, dict] | None = None,
+    question_ids: Iterable[str] = (),
 ) -> dict[str, dict]:
     """Fold judge-confirmed gaps into the disposition state. Only is_gap=true verdicts
     create or refresh entries; is_gap=false is dropped and never added. Human decisions
@@ -757,16 +758,28 @@ def merge_judged_state(
     context — never on refresh of an entry that already exists, since it records what a human
     decided about the *predecessor* surface, not a live fact about this one."""
     iso = today.isoformat()
+    question_ids = set(question_ids)
     out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
     for gid, verdict in verdicts.items():
         if not verdict.get("is_gap"):
             continue
         cand = candidates_by_id.get(gid, {})
+        # An id the judge made up is no question at all (DATA-2676).
+        answers = verdict.get("answers_question", "")
+        answers = answers if answers in question_ids else ""
+        surface_type = cand.get("surface_type") or (out.get(gid) or {}).get("surface_type", "")
         judged = {
             "rubric_rule": verdict.get("rubric_rule", ""),
             "dashboard_question": verdict.get("dashboard_question", ""),
             "judge_reason": verdict.get("reason", ""),
             "rank": verdict.get("rank", 5),
+            "answers_question": answers,
+            "fix": verdict.get("fix", "new_event"),
+            "extend_event": verdict.get("extend_event", ""),
+            "extend_property": verdict.get("extend_property", ""),
+            # Every multi-step flow is instrumented regardless, so a wizard stage keeps
+            # its rubric rank without a question.
+            "value": "needed" if answers or surface_type == "wizard_stage" else "low",
         }
         if gid not in out:
             out[gid] = {
@@ -908,6 +921,18 @@ def build_prior_rulings(
     return rulings
 
 
+def is_low_value(entry: Mapping) -> bool:
+    """No real question needs this gap (DATA-2676). An entry judged before the field
+    existed has no value and keeps its old treatment until it is re-judged."""
+    return entry.get("value") == "low"
+
+
+def fix_label(entry: Mapping) -> str:
+    if entry.get("fix") == "extend":
+        return f"extend `{entry.get('extend_event', '')}` with `{entry.get('extend_property', '')}`"
+    return "new event"
+
+
 def is_visible(entry: Mapping) -> bool:
     """The digest shows only untriaged (`new`) gaps. open collapses to a count line;
     accepted/dismissed are suppressed."""
@@ -978,7 +1003,9 @@ def build_slack_payload(
     gap breaks the quiet gate, but an un-triaged backlog never re-nags the channel weekly.
     The full untriaged set stays browsable in the gaps sheet tab / committed log. new_gaps
     is that this-run set, sorted by (rank, id), capped at top_n."""
-    new_gaps_this_run = new_this_run(state, run_date)
+    batch = new_this_run(state, run_date)
+    # Low-value gaps never make news on their own; they ride along as a count.
+    new_gaps_this_run = [e for e in batch if not is_low_value(e)]
     new_gaps = [
         {
             "rank": e.get("rank", 5),
@@ -987,6 +1014,9 @@ def build_slack_payload(
             "rubric_rule": e.get("rubric_rule", ""),
             "dashboard_question": e.get("dashboard_question", ""),
             "location": e["location"],
+            "fix": e.get("fix", "new_event"),
+            "extend_event": e.get("extend_event", ""),
+            "extend_property": e.get("extend_property", ""),
         }
         for e in new_gaps_this_run[:top_n]
     ]
@@ -994,6 +1024,7 @@ def build_slack_payload(
         "status": judgment_status,
         "run_date": run_date,
         "new_count": len(new_gaps_this_run),
+        "low_value_count": len(batch) - len(new_gaps_this_run),
         "pending_count": pending_count,
         "judge_consecutive_failures": judge_consecutive_failures,
         "surfaces_enumerated": surfaces_enumerated,
@@ -1018,8 +1049,9 @@ def render_gap_section(
     rule and dashboard question from the judge), and a graceful judgment-status line when
     the judge did not run."""
     cov = coverage_stats(state)
+    low_value = sum(1 for e in state.values() if is_visible(e) and is_low_value(e))
     visible = sorted(
-        (e for e in state.values() if is_visible(e)),
+        (e for e in state.values() if is_visible(e) and not is_low_value(e)),
         key=lambda e: (e.get("rank", 5), e["id"]),
     )
     lines = [
@@ -1042,18 +1074,23 @@ def render_gap_section(
     else:
         shown = visible[:top_n]
         lines += [
-            "| rank | surface | type | rubric rule | dashboard question | location |",
-            "| --- | --- | --- | --- | --- | --- |",
+            "| rank | surface | type | rubric rule | dashboard question | fix | location |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
         ]
         for e in shown:
             lines.append(
                 f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | "
                 f"{_md_cell(e.get('rubric_rule'))} | {_md_cell(e.get('dashboard_question'))} | "
-                f"{e['location']} |"
+                f"{_md_cell(fix_label(e))} | {e['location']} |"
             )
         if len(visible) > top_n:
             lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
         lines.append("")
+    if low_value:
+        lines += [
+            f"{low_value} low-value gap(s) not listed (no question anyone asked needs them).",
+            "",
+        ]
     if judgment_status not in ("ok", "no-candidates"):
         lines += [
             f"Judgment unavailable this run ({judgment_status}); "
@@ -1246,7 +1283,8 @@ def run_sweep(
     fresh_rulings = build_prior_rulings(prior, surfaces, gap_ids, today)
     merged_rulings = {**fresh_rulings, **recorded_rulings}
     new_state = merge_judged_state(
-        prior, verdicts, candidates_by_id, today, prior_rulings=merged_rulings
+        prior, verdicts, candidates_by_id, today, prior_rulings=merged_rulings,
+        question_ids={q["id"] for q in questions},
     )
     pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
 
@@ -1315,7 +1353,7 @@ def new_this_run(state: Mapping[str, dict], run_date: str) -> list[dict]:
         e for e in state.values()
         if e.get("disposition") == "new" and e.get("first_seen") == run_date
     ]
-    return sorted(batch, key=lambda e: (e.get("rank", 5), e["id"]))
+    return sorted(batch, key=lambda e: (is_low_value(e), e.get("rank", 5), e["id"]))
 
 
 def render_review_artifact(state: Mapping[str, dict], run_date: str) -> str:
@@ -1366,7 +1404,8 @@ def run_seed(
                              questions=questions_prompt_section(questions))
     except Exception as exc:  # noqa: BLE001 — judgment must never break the seed run
         return dict(prior), f"failed: {exc}", 0
-    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today,
+                                   question_ids={q["id"] for q in questions})
     return new_state, "ok", len(candidates)
 
 

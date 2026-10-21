@@ -1270,7 +1270,8 @@ def test_main_writes_slack_out_file(tmp_path, monkeypatch):
     assert rc == 0
     data = json.loads(out.read_text())
     assert data["status"] == "ok"
-    assert any(g["id"] == "/foo" for g in data["new_gaps"])
+    # The fake judge names no real question, so the gap is counted, not listed (DATA-2676).
+    assert data["new_gaps"] == [] and data["low_value_count"] == 1
 
 
 def test_render_seed_artifact_has_parseable_blocks():
@@ -2156,3 +2157,120 @@ def test_run_sweep_threads_the_questions_into_the_prompt(tmp_path):
                  date(2026, 7, 20), api_key="sk-ant-x", model="m", rubric_path=rubric,
                  client_factory=_capture_system(seen), watchlist_path=wl, sem_dir=sem)
     assert "OKR metric live_metric" in seen["system"]
+
+
+# --- gap value (DATA-2676) -------------------------------------------------------
+
+
+def _verdict(**over):
+    v = {"is_gap": True, "rubric_rule": "r", "dashboard_question": "q", "rank": 2,
+         "reason": "x", "answers_question": "", "fix": "new_event",
+         "extend_event": "", "extend_property": ""}
+    v.update(over)
+    return v
+
+
+_CAND = {"a#form_submit": {"surface_type": "form_submit", "location": "a.tsx"}}
+
+
+def test_merge_blanks_a_hallucinated_question_and_marks_it_low_value():
+    out = ig.merge_judged_state({}, {"a#form_submit": _verdict(answers_question="made_up")},
+                                _CAND, date(2026, 10, 21), question_ids={"real_q"})
+    entry = out["a#form_submit"]
+    assert entry["answers_question"] == "" and entry["value"] == "low"
+
+
+def test_merge_keeps_a_real_question_and_marks_it_needed():
+    out = ig.merge_judged_state({}, {"a#form_submit": _verdict(answers_question="real_q")},
+                                _CAND, date(2026, 10, 21), question_ids={"real_q"})
+    assert out["a#form_submit"]["value"] == "needed"
+
+
+def test_merge_keeps_every_wizard_stage_needed():
+    cand = {"w#wizard_stage": {"surface_type": "wizard_stage", "location": "w.tsx"}}
+    out = ig.merge_judged_state({}, {"w#wizard_stage": _verdict()}, cand,
+                                date(2026, 10, 21), question_ids=set())
+    assert out["w#wizard_stage"]["value"] == "needed"
+
+
+def test_merge_stores_the_extend_fix():
+    out = ig.merge_judged_state(
+        {}, {"a#form_submit": _verdict(fix="extend", extend_event="Outreach - Sent",
+                                       extend_property="launchSource")},
+        _CAND, date(2026, 10, 21), question_ids=set())
+    e = out["a#form_submit"]
+    assert (e["fix"], e["extend_event"], e["extend_property"]) == (
+        "extend", "Outreach - Sent", "launchSource")
+
+
+def test_rejudge_upgrades_low_to_needed_and_keeps_the_human_disposition():
+    first = ig.merge_judged_state({}, {"a#form_submit": _verdict()}, _CAND,
+                                  date(2026, 10, 21), question_ids={"real_q"})
+    first["a#form_submit"]["disposition"] = "open"
+    second = ig.merge_judged_state(first, {"a#form_submit": _verdict(answers_question="real_q")},
+                                   _CAND, date(2026, 10, 28), question_ids={"real_q"})
+    assert second["a#form_submit"]["value"] == "needed"
+    assert second["a#form_submit"]["disposition"] == "open"
+
+
+def _state_entry(gid, value, rank=1, run="2026-10-21", **over):
+    e = {"id": gid, "surface_type": "form_submit", "location": f"{gid}.tsx",
+         "disposition": "new", "first_seen": run, "last_seen": run, "rank": rank,
+         "value": value, "rubric_rule": "r", "dashboard_question": "q",
+         "fix": "new_event", "extend_event": "", "extend_property": ""}
+    e.update(over)
+    return e
+
+
+def test_new_this_run_puts_needed_gaps_first():
+    state = {"a": _state_entry("a", "low", rank=0), "b": _state_entry("b", "needed", rank=3)}
+    assert [e["id"] for e in ig.new_this_run(state, "2026-10-21")] == ["b", "a"]
+
+
+def test_slack_payload_lists_needed_and_counts_low():
+    state = {"a": _state_entry("a", "needed"), "b": _state_entry("b", "low"),
+             "c": _state_entry("c", "low")}
+    payload = ig.build_slack_payload(state, "2026-10-21", "ok", 0,
+                                     browse_url=None, feedback_url=None)
+    assert payload["new_count"] == 1 and payload["low_value_count"] == 2
+    assert [g["id"] for g in payload["new_gaps"]] == ["a"]
+
+
+def test_all_low_value_gaps_are_not_slack_news():
+    import event_state_slack as slk
+
+    state = {"b": _state_entry("b", "low"), "c": _state_entry("c", "low")}
+    payload = ig.build_slack_payload(state, "2026-10-21", "ok", 0,
+                                     browse_url=None, feedback_url=None)
+    assert slk.gap_has_news(payload) is False
+
+
+def test_render_gap_section_counts_low_value_and_shows_the_fix():
+    state = {"a": _state_entry("a", "needed", fix="extend", extend_event="E",
+                               extend_property="p"),
+             "b": _state_entry("b", "low"), "c": _state_entry("c", "low")}
+    out = ig.render_gap_section(state, "2026-10-21")
+    assert "| fix |" in out.replace("| fix | location |", "| fix |")
+    assert "extend `E` with `p`" in out
+    assert "| b |" not in out
+    assert "2 low-value gap(s) not listed (no question anyone asked needs them)." in out
+
+
+def test_run_sweep_blanks_a_hallucinated_question(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    wl, sem = _questions_env(tmp_path)
+
+    def fake_factory(_key):
+        return _FakeClient(payload={"results": [
+            {"id": "/dashboard", "is_gap": True, "rubric_rule": "route",
+             "dashboard_question": "q", "rank": 3, "reason": "r",
+             "answers_question": "invented"}]})
+
+    new_state, *_ = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        api_key="sk-ant-x", model="m", client_factory=fake_factory,
+        watchlist_path=wl, sem_dir=sem)
+    assert new_state["/dashboard"]["answers_question"] == ""
+    assert new_state["/dashboard"]["value"] == "low"

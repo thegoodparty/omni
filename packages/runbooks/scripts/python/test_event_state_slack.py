@@ -938,3 +938,16 @@ def test_tiered_thread_counts_standing_removals_when_none_are_new():
     text = _flatten_text(thread)
     assert "*Watchlist removals*" in text and "1 already proposed" in text
     assert "`A`" not in text
+
+
+def test_gap_summary_line_counts_low_value_gaps():
+    line = slk.build_gap_summary_line({"status": "ok", "new_count": 1, "low_value_count": 3})
+    assert line == "🧭 1 new instrumentation gap (+3 low value, not listed)"
+
+
+def test_gap_thread_shows_an_extend_fix_in_place_of_the_question():
+    gap = {"new_count": 1, "new_gaps": [{"rank": 1, "id": "a", "surface_type": "form_submit",
+                                         "dashboard_question": "q", "fix": "extend",
+                                         "extend_event": "E", "extend_property": "p"}]}
+    text = _flatten_text(slk.build_gap_thread_blocks(gap))
+    assert "extend `E` with `p`" in text and " — q" not in text

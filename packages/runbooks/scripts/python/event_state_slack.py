@@ -180,9 +180,11 @@ def build_gap_summary_line(gap: dict) -> str:
                   else "this run")
         return f"🧭 Instrumentation gaps: judgment unavailable {window} ({pending} pending)"
     n = gap.get("new_count", 0)
+    low = gap.get("low_value_count", 0)
+    tail = f" (+{low} low value, not listed)" if low else ""
     if n == 0:
-        return "🧭 No new instrumentation gaps"
-    return f"🧭 {n} new instrumentation gap{'' if n == 1 else 's'}"
+        return f"🧭 No new instrumentation gaps{tail}"
+    return f"🧭 {n} new instrumentation gap{'' if n == 1 else 's'}{tail}"
 
 
 def build_gap_thread_blocks(gap: dict) -> list[dict]:
@@ -193,7 +195,9 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     if not new_gaps:
         return []
     rows = "\n".join(
-        f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — {g.get('dashboard_question') or '—'}"
+        f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — "
+        + (f"extend `{g.get('extend_event', '')}` with `{g.get('extend_property', '')}`"
+           if g.get("fix") == "extend" else (g.get("dashboard_question") or "—"))
         for g in new_gaps
     )
     body = f"*New instrumentation gaps*\n{rows}"
