@@ -105,14 +105,15 @@ export type MockedVendor =
   | 'route53'
 
 // Pure so it can be unit-tested without module-reset gymnastics.
+// Prod is always live. Every other env defaults to mock; VENDOR_MODE=live
+// on dev is the rollback lever (restores real-vendor traffic without a
+// code change).
 export function resolveVendorMode(
   otelServiceEnvironment: string | undefined,
   vendorModeEnv: string | undefined,
 ): 'live' | 'mock' {
   if (otelServiceEnvironment === 'prod') return 'live'
   if (vendorModeEnv === 'live') return 'live'
-  if (vendorModeEnv === 'mock') return 'mock'
-  if (otelServiceEnvironment === 'dev') return 'live'
   return 'mock'
 }
 
