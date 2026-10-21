@@ -3,17 +3,17 @@
 Lakeflow Connect reads gp-api's Aurora change stream (database `gpdb`, schema
 `public`) and keeps a copy of every table in Databricks, a few minutes behind.
 
-| Env  | Aurora cluster   | Mirror                                     |
-| ---- | ---------------- | ------------------------------------------ |
-| dev  | `gp-api-db`      | `goodparty_data_catalog.gp_api_mirror_dev` |
-| prod | `gp-api-db-prod` | `goodparty_data_catalog.gp_api_mirror`     |
+| Env  | Aurora cluster   | Mirror (as landed)                         | Typed views                                      |
+| ---- | ---------------- | ------------------------------------------ | ------------------------------------------------ |
+| dev  | `gp-api-db`      | `goodparty_data_catalog.gp_api_mirror_dev` | `goodparty_data_catalog.gp_api_mirror_dev_typed` |
+| prod | `gp-api-db-prod` | `goodparty_data_catalog.gp_api_mirror`     | `goodparty_data_catalog.gp_api_mirror_typed`     |
 
 A gateway (classic compute, always on) reads the replication slot and stages
 changes. The ingestion pipeline (serverless) applies them; the PostgreSQL
 connector cannot run it continuously, so the `ingestion_loop` job runs it back
 to back. Freshness is one pipeline run plus the wait for the next, a few
 minutes. Timestamps without time zone (every Prisma `DateTime`) land as
-strings.
+strings; the typed views cast them back to `TIMESTAMP`.
 
 | Piece                                                              | Where                                                                         | Applied by                  |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------------------- |
@@ -22,7 +22,7 @@ strings.
 | Publication, `databricks_lakeflow` role, replica identity, trigger | `prisma/schema/migrations/20261021120000_add_databricks_lakeflow_publication` | `prisma migrate deploy`     |
 | Replication slot                                                   | step 5                                                                        | DB admin                    |
 | Unity Catalog connection                                           | `create-connection.sh`                                                        | Databricks admin            |
-| Schema, gateway, pipeline, loop job                                | this bundle                                                                   | Databricks admin            |
+| Schemas, gateway, pipeline, loop job, typed-views job              | this bundle                                                                   | Databricks admin            |
 
 The 5432 ingress from the Databricks workspace VPC (172.16.0.0/16, peering
 `pcx-013299c506ffd3395`) already exists on both clusters' security groups
@@ -170,14 +170,21 @@ databricks bundle deploy -t dev
 The first run can fail with "Timeout while waiting for table token" while the
 gateway is still snapshotting. Run it again.
 
-### 6. Access (Databricks admin)
+### 6. Typed views and access (Databricks admin)
+
+```bash
+databricks bundle run -t dev typed_views
+```
+
+It then runs daily at 07:00 UTC. Run it by hand after a migration adds tables
+or timestamp columns.
 
 The mirror holds users' personal data. Nothing is granted by default. Grant
-`USE SCHEMA` and `SELECT` on the mirror schema to the specific service principal
+`USE SCHEMA` and `SELECT` on the typed schema to the specific service principal
 or group that needs it, not to a broad group:
 
 ```sql
-GRANT USE SCHEMA, SELECT ON SCHEMA goodparty_data_catalog.gp_api_mirror_dev TO `<principal>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA goodparty_data_catalog.gp_api_mirror_dev_typed TO `<principal>`;
 ```
 
 ## Operations
@@ -248,8 +255,9 @@ slot recreated and a full refresh of everything.
    databricks secrets delete-scope gp-api-lakeflow-dev
    ```
 
-   Lakeflow does not drop destination tables. If `destroy` leaves the schema,
-   `DROP SCHEMA goodparty_data_catalog.gp_api_mirror_dev CASCADE`.
+   Lakeflow does not drop destination tables. If `destroy` leaves the schemas,
+   `DROP SCHEMA goodparty_data_catalog.gp_api_mirror_dev_typed CASCADE` and the
+   same for `gp_api_mirror_dev`.
 
 2. DB admin, after the gateway is gone (an active slot cannot be dropped). The
    slot is the step that matters: while it exists, Aurora keeps change log for
