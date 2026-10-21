@@ -1,4 +1,8 @@
 import {
+  isImportContactsPocEnabled,
+  universalContactsViewStorage,
+} from '@/peopleDb/databricks/universalContactsView.poc'
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -1087,7 +1091,11 @@ export class ContactsService {
     await this.assertVoterDataEligibility(org)
 
     const dataset = resolvedDataset ?? (await this.peopleDataset.resolve(org))
-    return fn({ districtId, dataset })
+    return isImportContactsPocEnabled()
+      ? universalContactsViewStorage.run({ orgSlug: org.slug }, () =>
+          fn({ districtId, dataset }),
+        )
+      : fn({ districtId, dataset })
   }
 
   // Serve / elected-office orgs keep their existing access untouched. For Win

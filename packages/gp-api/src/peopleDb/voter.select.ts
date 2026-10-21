@@ -71,6 +71,9 @@ export function buildVoterSelectSql(
 export type BaseDbPerson = Pick<Voter, BaseSelectedField> & {
   householdId?: string | null
   householdSize?: bigint | number | null
+  contact_id?: string | null
+  contact_verified?: string | null
+  contact_email?: string | null
 }
 
 // The curated CSV subset with friendly headers (ENG-10766), restored from the

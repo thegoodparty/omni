@@ -39,6 +39,8 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     VoterPackService,
     VoterRecommendedListsService,
     PeopleDatasetService,
+    DatabricksVoterService,
+    PeopleDbxStatementClient,
   ],
 })
 export class PeopleQueryModule {}

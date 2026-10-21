@@ -1,0 +1,128 @@
+// POC (import contacts, do not merge): uploaded contacts live here, and a
+// linkage row maps each one to a vendor (L2) person or records that it has
+// none. Databricks reads mirrored copies of org_contact and org_contact_link
+// through the universal contacts view (src/pocImportContacts/AGENTS.md).
+enum ContactImportStatus {
+  staged
+  committed
+  abandoned
+}
+
+enum ContactImportMatchStatus {
+  matched
+  ambiguous
+  unmatched
+}
+
+enum ContactImportResolution {
+  link
+  skip
+}
+
+enum OrgContactLinkStatus {
+  verified
+  unverified
+}
+
+enum OrgContactLinkMethod {
+  exact_name
+  manual
+}
+
+model ContactImport {
+  id                String              @id @default(uuid(7))
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  organizationSlug  String              @map("organization_slug")
+  organization      Organization        @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  userId            Int?                @map("user_id")
+  user              User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  fileName          String              @map("file_name")
+  rowCount          Int                 @map("row_count")
+  consentAffirmedAt DateTime            @map("consent_affirmed_at")
+  status            ContactImportStatus @default(staged)
+  committedAt       DateTime?           @map("committed_at")
+  rows              ContactImportRow[]
+  orgContacts       OrgContact[]
+
+  @@index([organizationSlug, createdAt])
+  @@map("contact_import")
+}
+
+// candidates holds at most CANDIDATE_LIMIT vendor people (id plus the fields
+// the review step shows); candidateCount is the full count.
+model ContactImportRow {
+  id               String                   @id @default(uuid(7))
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  importId         String                   @map("import_id")
+  import           ContactImport            @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowIndex         Int                      @map("row_index")
+  firstName        String                   @map("first_name")
+  lastName         String                   @map("last_name")
+  email            String?
+  phone            String?
+  address          String?
+  city             String?
+  zip              String?
+  firstNameKey     String                   @map("first_name_key")
+  lastNameKey      String                   @map("last_name_key")
+  matchStatus      ContactImportMatchStatus @map("match_status")
+  candidateCount   Int                      @map("candidate_count")
+  candidates       Json                     @default("[]")
+  resolution       ContactImportResolution?
+  resolvedPersonId String?                  @map("resolved_person_id")
+
+  @@unique([importId, rowIndex])
+  @@index([importId, matchStatus, rowIndex])
+  @@map("contact_import_row")
+}
+
+// id is the contact's id in the universal view when it has no in-district
+// vendor person; a linked contact shows under the vendor person's id.
+model OrgContact {
+  id               String           @id @default(uuid(7))
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  organizationSlug String           @map("organization_slug")
+  organization     Organization     @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  firstName        String           @map("first_name")
+  lastName         String           @map("last_name")
+  email            String?
+  phone            String?
+  address          String?
+  city             String?
+  zip              String?
+  sourceImportId   String?          @map("source_import_id")
+  sourceImport     ContactImport?   @relation(fields: [sourceImportId], references: [id], onDelete: SetNull)
+  doNotContactAt   DateTime?        @map("do_not_contact_at")
+  deletedAt        DateTime?        @map("deleted_at")
+  links            OrgContactLink[]
+
+  @@index([organizationSlug])
+  @@map("org_contact")
+}
+
+// Every contact has one active link (revokedAt null), enforced by a partial
+// unique index in the migration. An unverified link has no vendorPersonId:
+// it records that the contact was skipped or had no in-district match.
+// updatedAt is there for the mirror's incremental reads.
+model OrgContactLink {
+  id               String               @id @default(uuid(7))
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  organizationSlug String               @map("organization_slug")
+  organization     Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  orgContactId     String               @map("org_contact_id")
+  orgContact       OrgContact           @relation(fields: [orgContactId], references: [id], onDelete: Cascade)
+  vendorPersonId   String?              @map("vendor_person_id")
+  status           OrgContactLinkStatus
+  method           OrgContactLinkMethod
+  actorUserId      Int?                 @map("actor_user_id")
+  actor            User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  revokedAt        DateTime?            @map("revoked_at")
+
+  @@index([orgContactId])
+  @@index([organizationSlug, vendorPersonId])
+  @@map("org_contact_link")
+}

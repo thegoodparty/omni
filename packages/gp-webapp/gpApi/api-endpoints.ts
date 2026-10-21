@@ -1606,6 +1606,87 @@ export type APIEndpoints = {
     Request: {}
     Response: Person
   }
+  'POST /v1/poc/contacts/imports': {
+    Request: {
+      fileName: string
+      consentAffirmed: true
+      rows: {
+        firstName: string
+        lastName: string
+        email?: string
+        phone?: string
+        address?: string
+        city?: string
+        zip?: string
+      }[]
+    }
+    Response: {
+      importId: string
+      counts: {
+        total: number
+        matched: number
+        ambiguous: number
+        unmatched: number
+      }
+      timingsMs: Record<string, number>
+    }
+  }
+  'GET /v1/poc/contacts/imports/:importId/ambiguous': {
+    Request: { page: number; pageSize: number }
+    Response: {
+      status: 'staged' | 'committed' | 'abandoned'
+      total: number
+      page: number
+      pageSize: number
+      rows: {
+        rowIndex: number
+        firstName: string
+        lastName: string
+        address: string | null
+        city: string | null
+        zip: string | null
+        candidateCount: number
+        candidates: {
+          personId: string
+          firstName: string | null
+          lastName: string | null
+          address: string | null
+          city: string | null
+          zip: string | null
+          age: number | null
+        }[]
+        resolution: 'link' | 'skip' | null
+        resolvedPersonId: string | null
+      }[]
+    }
+  }
+  'PUT /v1/poc/contacts/imports/:importId/rows/:rowIndex/resolution': {
+    Request: { resolution: 'link'; personId: string } | { resolution: 'skip' }
+    Response: {
+      rowIndex: number
+      resolution: 'link' | 'skip' | null
+      resolvedPersonId: string | null
+    }
+  }
+  'POST /v1/poc/contacts/imports/:importId/commit': {
+    Request: {}
+    Response: {
+      importId: string
+      counts: { contacts: number; verified: number; unverified: number }
+      mirrored: boolean
+      timingsMs: Record<string, number>
+    }
+  }
+  'GET /v1/poc/contacts/counts': {
+    Request: {}
+    Response: {
+      total: number
+      contacts: number
+      verified: number
+      unverified: number
+      timingsMs: Record<string, number>
+    }
+  }
   'POST /v1/contacts/count': {
     Request: {
       activityConditions?: ActivityConditionInput[]

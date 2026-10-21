@@ -352,6 +352,15 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ORDINANCES_AUTOMATION_ENABLED: { tier: 'optional' },
   ORDINANCE_RESOLVE_TIMEOUT_MS: { tier: 'optional' },
 
+  // POC (import contacts, do not merge): src/pocImportContacts/AGENTS.md.
+  POC_IMPORT_CONTACTS_ENABLED: { tier: 'optional', default: 'false' },
+  POC_IMPORT_CONTACTS_MIRROR_SCHEMA: {
+    tier: 'optional',
+    default: 'goodparty_data_catalog.poc_import_contacts_mirror',
+  },
+  POC_IMPORT_CONTACTS_MIRROR_SHIM: { tier: 'optional', default: 'false' },
+  POC_IMPORT_CONTACTS_VENDOR_TABLE: { tier: 'optional' },
+
   CV_SCAN_PROFILE_SPACING_MS: { tier: 'optional' },
   CV_SCAN_RETRIEVE_SPACING_MS: { tier: 'optional' },
   DETAIL_FAILED_RETRY_COOLDOWN_MS: { tier: 'optional' },

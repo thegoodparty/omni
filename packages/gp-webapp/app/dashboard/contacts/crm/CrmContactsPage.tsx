@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Button, PlusIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
@@ -25,6 +26,10 @@ import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
+import {
+  IMPORT_CONTACTS_POC_ENABLED,
+  ImportedContactsCount,
+} from '../import/ImportedContactsCount'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -136,14 +141,27 @@ export const CrmContactsPage = () => {
               <div className="w-full md:w-[420px]">
                 <ContactTypeahead />
               </div>
-              <Button
-                className="shrink-0 self-start text-sm font-semibold md:self-auto"
-                disabled={!isWinContextReady}
-                onClick={handleCreateList}
-                icon={<PlusIcon />}
-              >
-                Create new list
-              </Button>
+              <div className="flex shrink-0 gap-2 self-start md:self-auto">
+                {IMPORT_CONTACTS_POC_ENABLED && (
+                  <Button
+                    variant="outline"
+                    className="text-sm font-semibold"
+                    asChild
+                  >
+                    <Link href="/dashboard/contacts/import">
+                      Import contacts
+                    </Link>
+                  </Button>
+                )}
+                <Button
+                  className="text-sm font-semibold"
+                  disabled={!isWinContextReady}
+                  onClick={handleCreateList}
+                  icon={<PlusIcon />}
+                >
+                  Create new list
+                </Button>
+              </div>
             </div>
           )}
 
@@ -190,6 +208,7 @@ export const CrmContactsPage = () => {
                       }
                       additionalRows={universeMetricRows}
                     />
+                    {IMPORT_CONTACTS_POC_ENABLED && <ImportedContactsCount />}
                   </div>
 
                   <CitizensPanelSection />

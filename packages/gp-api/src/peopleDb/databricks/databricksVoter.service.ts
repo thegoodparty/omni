@@ -57,6 +57,13 @@ import {
   type DbxScopeArgs,
   peopleTable,
 } from './databricksVoterSql.util'
+import {
+  isImportContactsPocEnabled,
+  pocVendorTable,
+  UNIVERSAL_CONTACT_COLUMNS,
+  universalContactsViewSql,
+  universalContactsViewStorage,
+} from './universalContactsView.poc'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
 import { buildRankPrecinctsSql } from './databricksRecommendedListsSql.util'
@@ -207,7 +214,25 @@ export class DatabricksVoterService {
   ): Promise<DbxDistrict> {
     const withTable = (
       identity: Omit<DbxDistrict, 'dataset' | 'table'>,
-    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
+    ): DbxDistrict => {
+      const pocView = isImportContactsPocEnabled()
+        ? universalContactsViewStorage.getStore()
+        : undefined
+      const table = pocView
+        ? universalContactsViewSql({
+            baseTable: pocVendorTable(peopleTable(dataset)),
+            orgSlug: pocView.orgSlug,
+            state: identity.state,
+            districtType: identity.useVoterOnlyPath
+              ? undefined
+              : identity.districtType,
+            districtName: identity.useVoterOnlyPath
+              ? undefined
+              : identity.districtName,
+          })
+        : peopleTable(dataset)
+      return { ...identity, dataset, table }
+    }
     const cached = this.districts.get(districtId)
     if (cached) return withTable(cached)
     const { type, name, state } =
@@ -334,7 +359,10 @@ export class DatabricksVoterService {
   // distinguishes "not in this district" from "no such person".
   async findPerson(id: string, districtId: string, dataset: PeopleDataset) {
     const district = await this.resolveDistrict(districtId, dataset)
-    const { columnNames } = buildVoterSelectSql()
+    const columnNames = withUniversalContactColumns(
+      buildVoterSelectSql().columnNames,
+      district.table !== peopleTable(dataset),
+    )
     const { rows } = await this.run(
       buildPersonSql({
         district,
@@ -421,7 +449,10 @@ export class DatabricksVoterService {
 
   async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
     const district = await this.resolveDistrict(dto.districtId, dataset)
-    const { columnNames } = buildVoterSelectSql()
+    const columnNames = withUniversalContactColumns(
+      buildVoterSelectSql().columnNames,
+      district.table !== peopleTable(dataset),
+    )
     const scope = {
       district,
       filters: dto.filters,
@@ -846,6 +877,14 @@ export class DatabricksVoterService {
     }
   }
 }
+
+const withUniversalContactColumns = (
+  columnNames: readonly string[],
+  isUniversalView: boolean,
+): string[] =>
+  isUniversalView
+    ? [...columnNames, ...UNIVERSAL_CONTACT_COLUMNS]
+    : [...columnNames]
 
 const toDbPerson = (
   columns: readonly string[],

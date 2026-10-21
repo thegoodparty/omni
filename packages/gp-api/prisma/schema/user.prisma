@@ -53,6 +53,8 @@ model User {
   outreachAssignments         OutreachAssignment[]
   assignedOutreachAssignments OutreachAssignment[]             @relation("OutreachAssignmentAssignedBy")
   feedbackSynthesisRunsRequested FeedbackSynthesisRun[]
+  contactImports              ContactImport[]
+  orgContactLinks             OrgContactLink[]
 
   @@index([firstName])
   @@index([lastName])

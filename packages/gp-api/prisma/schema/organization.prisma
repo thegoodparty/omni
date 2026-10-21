@@ -33,6 +33,9 @@ model Organization {
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   civicPanelBuildPlans              CivicPanelBuildPlan[]
   priorityAnswers                   PriorityAnswer[]
+  contactImports                    ContactImport[]
+  orgContacts                       OrgContact[]
+  orgContactLinks                   OrgContactLink[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])
