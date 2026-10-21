@@ -6,6 +6,7 @@ import {
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createElement, type ReactNode } from 'react'
 import { http, HttpResponse } from 'msw'
+import { ISSUE_CAPTURE_OFF_ERROR_CODE } from '@goodparty_org/contracts'
 import {
   afterEach,
   beforeEach,
@@ -481,9 +482,10 @@ describe('useOfflineMemo fallback', () => {
   })
 })
 
-// What the drain keeps and what it drops. Only a 400, 404, 409 or 422 with a
-// reason in the body is a refusal; a 401 is what a request looks like in the
-// moment after reconnecting, before the session token refreshes.
+// What the drain keeps and what it drops. Only a 400, 403, 404, 409 or 422
+// with a reason in the body is a refusal, and not the 404 the issue-capture
+// flag gives; a 401 is what a request looks like in the moment after
+// reconnecting, before the session token refreshes.
 describe('the drain’s sender', () => {
   const queueKnock = () =>
     enqueue([
@@ -629,6 +631,94 @@ describe('the drain’s sender', () => {
     })
     expect(uploads).toBe(0)
     await waitFor(async () => expect(await listQueue()).toEqual([]))
+  })
+
+  // gp-api answers every issue-capture route 404 while the flag is off for
+  // the user, and reads an Amplitude it cannot reach as off. Neither says
+  // anything about the memo, so it waits for the flag instead of going.
+  describe('while issue capture is off', () => {
+    const recordedMemo = (): QueueEntry => ({
+      id: 'memo:21',
+      kind: 'memo',
+      organizationSlug: 'campaign-1',
+      payload: {
+        reference: {
+          channel: 'door_knock',
+          knockClientKey: KNOCK_KEY,
+          stopTargetId: 21,
+          clientKey: KNOCK_KEY,
+        },
+        analytics: { channel: 'doorKnocking', product: 'win' },
+      },
+      blob: new Blob(['sound'], { type: 'audio/webm' }),
+      createdAt: Date.now(),
+    })
+
+    it('keeps a memo and sends it once the flag is back', async () => {
+      let asked = 0
+      api.mockOrdered('POST /v1/constituent-feedback/audio-upload-url', [
+        {
+          status: 404,
+          data: {
+            message: 'Not Found',
+            errorCode: ISSUE_CAPTURE_OFF_ERROR_CODE,
+          },
+        },
+        {
+          status: 200,
+          data: {
+            audioKey: AUDIO_KEY,
+            uploadUrl: UPLOAD_URL,
+            fields: {},
+            expiresAt: new Date(),
+          },
+        },
+      ])
+      mswServer.events.on('request:start', ({ request }) => {
+        if (request.url.endsWith('/audio-upload-url')) asked += 1
+      })
+      onTestFinished(() => mswServer.events.removeAllListeners())
+      mswServer.use(
+        http.post(UPLOAD_URL, () => new HttpResponse(null, { status: 204 })),
+      )
+      api.mock('POST /v1/constituent-feedback', {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          extractionStatus: 'pending',
+          extraction: null,
+        },
+      })
+      await enqueue([recordedMemo()])
+
+      await drainNow()
+      await waitFor(() => expect(asked).toBe(1))
+      await waitFor(async () =>
+        expect((await listQueue()).map((entry) => entry.id)).toEqual([
+          'memo:21',
+        ]),
+      )
+
+      await act(async () => {
+        window.dispatchEvent(new Event('online'))
+      })
+      await waitFor(async () => expect(await listQueue()).toEqual([]))
+      expect(asked).toBe(2)
+    })
+
+    // "Stop target not found" and its kind are repeated on every drain.
+    it('still drops a memo refused with a 404 of its own', async () => {
+      api.mock('POST /v1/constituent-feedback/audio-upload-url', {
+        status: 404,
+        data: { message: 'Stop target not found', error: 'Not Found' },
+      })
+      await enqueue([recordedMemo()])
+
+      await drainNow()
+
+      await waitFor(async () => expect(await listQueue()).toEqual([]))
+    })
   })
 })
 

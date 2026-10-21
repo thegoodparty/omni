@@ -1629,6 +1629,7 @@ export {
   CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_MAX_ISSUES,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   ConstituentFeedbackIssueSchema,
   type ConstituentFeedbackIssue,
   RecordConstituentFeedbackSchema,

@@ -164,6 +164,14 @@ has not been rolled out to does not advertise itself. One flag,
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+That 404 carries `errorCode: ISSUE_CAPTURE_OFF` (`ISSUE_CAPTURE_OFF_ERROR_CODE`
+in contracts), and no other 404 here does. It is how a phone replaying memos
+it held with no signal tells "not now" from a refusal: it keeps a memo the
+flag turned away and drops one refused for a reason of its own. The flag
+checks fail closed, so an Amplitude that does not answer reads as off and
+gets the same code; neither a kill switch nor an outage deletes what a
+canvasser recorded.
+
 ## Confirmation
 
 `confirmedAt` set means the memo is confirmed and counts: its words go to
