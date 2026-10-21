@@ -143,10 +143,23 @@ describe('POST /v1/payments/purchase/create-checkout-session (poll expansion)', 
   it('opens a checkout for a completed poll of the buyer office', async () => {
     const poll = await seedPoll()
 
-    const res = await createCheckout(expansionMetadata(poll))
+    // Fulfillment trusts the session's userId as the buyer, so a client-sent
+    // one must never reach Stripe.
+    const res = await createCheckout({
+      ...expansionMetadata(poll),
+      userId: '999999',
+    })
 
     expect(res.status).toBe(201)
     expect(stripe.createCustomCheckoutSession).toHaveBeenCalledTimes(1)
+    expect(stripe.createCustomCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: service.user.id }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          userId: String(service.user.id),
+        }),
+      }),
+    )
   })
 
   it.each([

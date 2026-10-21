@@ -250,6 +250,10 @@ export class PurchaseService {
         // capture_method to read) from an immediate one. Undefined drops any
         // client-sent value, since the session metadata starts from dto's.
         winSmsHoldBilling: manualCapture ? 'true' : undefined,
+        // Fulfillment trusts this as the buyer. createCustomCheckoutSession
+        // writes the same value last; stamping it here too means the session
+        // never depends on that spread order to drop a client-sent userId.
+        userId: String(user.id),
       },
     }
 
