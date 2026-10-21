@@ -582,6 +582,9 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       data: {
         organizationSlug: context.organizationSlug,
         name: 'Civic panel invite',
+        civicPanelInvite: true,
+        sampleSize: invitees.length,
+        sampledAt: sentAt,
         sampleMembers: {
           create: invitees.map((person) => ({ personId: person.id })),
         },

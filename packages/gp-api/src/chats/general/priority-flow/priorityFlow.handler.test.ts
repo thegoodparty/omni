@@ -595,7 +595,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')
-    expect(prompt).toContain("I'd text 2,767 of the 58,520, picked at random")
+    expect(prompt).toContain("I'd text 2,767 of the 58,520. About")
     expect(prompt).toContain('Never call it statistically proven')
     expect(prompt).toContain('It is directional')
     expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(
@@ -1246,7 +1246,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('ROUND ONE')
       expect(prompt).toContain('Civic panel: 42 members')
       expect(prompt).toContain(
-        'door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn',
+        'door knocking in one walkable area, and a phone bank and a text to residents across the district, offered together as cards in one turn',
       )
       expect(prompt).toContain('Size the round with size_round_one')
       expect(prompt).toContain(
@@ -1432,7 +1432,9 @@ describe('PriorityFlowHandler', () => {
       }
       expect(await tool.execute({})).toHaveProperty(
         'error',
-        expect.stringContaining('How much time can you give each week?'),
+        expect.stringContaining(
+          'How much time can you spend each week to connect with constituents by phone or in person?',
+        ),
       )
     })
 

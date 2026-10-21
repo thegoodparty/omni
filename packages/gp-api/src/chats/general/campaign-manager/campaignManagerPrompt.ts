@@ -864,7 +864,7 @@ const outreachSamplingBlock = (
         'SAMPLING RULES (apply whenever the candidate wants to text voters):',
         '- Texting every voter a filter matches costs real money, and most texts do not need everyone. Before you present a text, count the voters with a cell phone with count_contacts, then size a random sample with size_outreach_sample and offer it.',
         '- When the text asks voters something (a question, a survey, what they think of a position), recommend the sample. When it tells them something they all need to know, recommend everyone and mention the sample in one line as the cheaper option.',
-        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. Texting ${people(EXAMPLE_SAMPLE)} of them is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
         ...buildSampleSizingRules({
           has: (name) => toolNames.includes(name),
           sender: 'the candidate',
