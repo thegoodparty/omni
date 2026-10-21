@@ -60,6 +60,23 @@ export const allocate = (
   return out
 }
 
+// Server and client can differ in a coordinate's last float digit, which
+// React reports as a hydration mismatch, so every drawn coordinate is
+// rounded to hundredths.
+export const roundCoord = (value: number): number =>
+  Math.round(value * 100) / 100
+
+// A point `r` out from (cx, cy) at angle `a`, y pointing down.
+export const polar = (
+  cx: number,
+  cy: number,
+  r: number,
+  a: number,
+): { x: number; y: number } => ({
+  x: roundCoord(cx + r * Math.cos(a)),
+  y: roundCoord(cy + r * Math.sin(a)),
+})
+
 export interface Spot {
   x: number
   y: number
@@ -87,8 +104,8 @@ export const seatSpots = (cx: number, cy: number): Spot[] => {
       spots.push({
         r,
         angle,
-        x: cx + r * Math.cos(angle),
-        y: cy - r * Math.sin(angle),
+        x: roundCoord(cx + r * Math.cos(angle)),
+        y: roundCoord(cy - r * Math.sin(angle)),
       })
     }
   })
@@ -113,7 +130,7 @@ export const spreadLabels = (ys: number[]): number[] => {
   const order = ys.map((_, i) => i).sort((a, b) => (ys[b] ?? 0) - (ys[a] ?? 0))
   let floor = Infinity
   for (const i of order) {
-    const y = Math.min(out[i] ?? 0, floor - LABEL_SPACING)
+    const y = roundCoord(Math.min(out[i] ?? 0, floor - LABEL_SPACING))
     out[i] = y
     floor = y
   }
@@ -314,8 +331,10 @@ export const buildBloom = (groups: CivicPanelCompositionGroup[]): Bloom => {
   }
 }
 
-const point = (cx: number, cy: number, r: number, a: number) =>
-  `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`
+const point = (cx: number, cy: number, r: number, a: number) => {
+  const { x, y } = polar(cx, cy, r, a)
+  return `${x} ${y}`
+}
 
 // A ring sector from r0 to r1 between two angles, clockwise.
 export const sectorPath = (

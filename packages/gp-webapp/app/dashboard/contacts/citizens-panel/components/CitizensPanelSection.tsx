@@ -15,7 +15,7 @@ import {
   civicPanelSummaryQueryOptions,
 } from '../civicPanelSummary.query'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
-import { CivicPanelProgress } from './CivicPanelProgress'
+import { CivicPanelSeats } from './CivicPanelSeats'
 
 export const CitizensPanelSection = () => {
   const { isWinContext, isWinContextReady } = useContactsTable()
@@ -27,13 +27,16 @@ export const CitizensPanelSection = () => {
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
-  // Its own read, so a plan that cannot be read only drops the bar.
+  // Its own read, so a plan that cannot be read only drops the seats.
   const plan = useQuery({
     ...civicPanelPlanQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
 
   if (!show) return null
+
+  // The same seats the panel page draws, from the same plan read.
+  const composition = plan.data?.composition ?? null
 
   const body =
     query.status === 'pending' ? (
@@ -66,7 +69,14 @@ export const CitizensPanelSection = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{COPY.caption}</p>
       </div>
-      {plan.data ? <CivicPanelProgress progress={plan.data.progress} /> : null}
+      {composition && composition.places.length > 0 ? (
+        <CivicPanelSeats
+          placeKind={composition.placeKind}
+          places={composition.places}
+          members={plan.data?.progress.members ?? 0}
+          goal={plan.data?.progress.goal ?? 0}
+        />
+      ) : null}
       {body}
     </section>
   )

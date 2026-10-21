@@ -588,7 +588,6 @@ describe('the plan', () => {
       top.compareDocumentPosition(screen.getByText('Your plan')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
     expect(screen.queryByText(/representative/i)).toBeNull()
   })
 
@@ -619,6 +618,14 @@ describe('the plan', () => {
         groupsCovered: 12,
         groupsTotal: 12,
       },
+      composition: {
+        placeKind: 'tract',
+        places: [],
+        groups: [
+          { group: 'women', districtShare: 0.52, memberShare: 0.52 },
+          { group: 'men', districtShare: 0.48, memberShare: 0.48 },
+        ],
+      },
     })
 
     const top = screen.getByTestId('civic-panel-milestones')
@@ -626,7 +633,8 @@ describe('the plan', () => {
       within(top).getByRole('heading', { name: 'Every seat is filled' }),
     ).toBeInTheDocument()
     expect(top).toHaveTextContent('250 residents said yes.')
-    expect(top).toHaveTextContent('12 of 12 groups')
+    // Counted the way the petals are, not the API's covered groups.
+    expect(top).toHaveTextContent('2 of 2 groups at their share')
     expect(
       within(top).getByRole('link', { name: 'Ask your panel a question' }),
     ).toHaveAttribute('href', '/dashboard/priorities')

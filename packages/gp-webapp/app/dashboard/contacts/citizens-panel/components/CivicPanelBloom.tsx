@@ -1,7 +1,4 @@
-import {
-  UNDERREPRESENTED_GROUP_NAMES,
-  type CivicPanelCompositionGroup,
-} from '@goodparty_org/contracts'
+import type { CivicPanelCompositionGroup } from '@goodparty_org/contracts'
 import { cn } from '@styleguide/lib/utils'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import {
@@ -11,6 +8,8 @@ import {
   LABEL_ALL_UP_TO,
   labelAnchor,
   LIST_SIZE,
+  polar,
+  roundCoord,
   sectorPath,
   type Bloom,
   type Petal,
@@ -108,14 +107,13 @@ const Flower = ({
       {labeled
         ? labeledPetals(bloom).map((petal) => {
             const cos = Math.cos(petal.mid)
-            const x = CX + LABEL_R * cos
-            const y = CY + LABEL_R * Math.sin(petal.mid)
+            const { x, y } = polar(CX, CY, LABEL_R, petal.mid)
             const short = petal.bucket === 'under'
             return (
               <text
                 key={petal.group}
                 x={x}
-                y={y - 3}
+                y={roundCoord(y - 3)}
                 textAnchor={labelAnchor(cos)}
                 className="text-xs"
               >
@@ -151,9 +149,11 @@ const Swatch = ({ className }: { className: string }) => (
 )
 
 // Each group as a petal sized by its share of the members against its share
-// of the district. `showNext` is off when the status above already names
-// who to invite. A priority's results draw the same petals from who
-// answered, with their own `summary`.
+// of the district. Who to invite next is the API's call (the balance's
+// `inviteMore`, what the next draw leans toward), never the petals', so
+// `showNext` only says every group has its share, and is off when the
+// status above names someone. A priority's results draw the same petals
+// from who answered, with their own `summary`.
 export const CivicPanelBloom = ({
   groups,
   showNext,
@@ -226,11 +226,9 @@ export const CivicPanelBloom = ({
           {COPY.legendRing}
         </span>
       </div>
-      {showNext ? (
+      {showNext && bloom.furthestUnder === null ? (
         <p className="border-t border-border pt-3 text-sm text-foreground">
-          {bloom.furthestUnder
-            ? COPY.inviteMore(UNDERREPRESENTED_GROUP_NAMES[bloom.furthestUnder])
-            : COPY.everyGroupShare}
+          {COPY.everyGroupShare}
         </p>
       ) : null}
     </div>

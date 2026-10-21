@@ -11,7 +11,10 @@ import {
   LABEL_SPACING,
   milestones,
   SEAT_COUNT,
+  polar,
+  roundCoord,
   seatSpots,
+  sectorPath,
   spreadLabels,
 } from './panelCharts'
 
@@ -66,6 +69,40 @@ describe('seatSpots', () => {
     expect(spots[0]?.angle).toBeCloseTo(Math.PI)
     expect(spots[SEAT_COUNT - 1]?.angle).toBeCloseTo(0)
     expect(spots.every((spot) => spot.y <= 1e-9)).toBe(true)
+  })
+})
+
+// At most two decimals: what the server and the browser both print the same.
+const isRounded = (value: number) =>
+  Math.abs(value * 100 - Math.round(value * 100)) < 1e-6
+
+describe('rounded coordinates', () => {
+  it('rounds to hundredths', () => {
+    expect(roundCoord(79.03442061568629)).toBe(79.03)
+    expect(roundCoord(79.03442061568626)).toBe(79.03)
+  })
+
+  it('rounds every seat and label point', () => {
+    for (const spot of seatSpots(300, 214)) {
+      expect(isRounded(spot.x)).toBe(true)
+      expect(isRounded(spot.y)).toBe(true)
+    }
+    for (let a = 0; a < Math.PI * 2; a += 0.37) {
+      const { x, y } = polar(300, 220, 164, a)
+      expect(isRounded(x)).toBe(true)
+      expect(isRounded(y)).toBe(true)
+    }
+    expect(spreadLabels([-79.03442061568629, -80.1]).every(isRounded)).toBe(
+      true,
+    )
+  })
+
+  it('draws petals with rounded points', () => {
+    const numbers = sectorPath(300, 220, 46, 150, -1.9, -1.1)
+      .split(/[^0-9.-]+/)
+      .filter(Boolean)
+      .map(Number)
+    expect(numbers.every(isRounded)).toBe(true)
   })
 })
 

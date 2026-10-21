@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
@@ -68,7 +68,7 @@ describe('CitizensPanelSection', () => {
     )
   })
 
-  it('shows members toward the goal with the same bar as the panel page', async () => {
+  it('draws the same seats as the panel page above the numbers', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: {
@@ -92,19 +92,29 @@ describe('CitizensPanelSection', () => {
           groupsTotal: 12,
         },
         balance: null,
+        composition: {
+          placeKind: 'tract',
+          places: [
+            { key: '37021000100', name: '1', districtShare: 0.6, members: 110 },
+            { key: '37021000200', name: '2', districtShare: 0.4, members: 10 },
+          ],
+          groups: [],
+        },
       },
     })
 
     render(<CitizensPanelSection />)
 
-    const bar = await screen.findByTestId('civic-panel-progress')
-    expect(bar).toHaveTextContent('120 members, in 6 of 12 groups')
+    const seats = await screen.findByTestId('civic-panel-seats')
     expect(
-      bar.querySelector('[data-slot="progress"]')?.getAttribute('data-filled'),
-    ).toBe('50')
-    expect(bar).toHaveTextContent(
-      'Invite people from the groups still missing so every part of your district has a voice.',
-    )
+      within(seats).getByRole('heading', {
+        name: "Who's on your panel, by census tract",
+      }),
+    ).toBeInTheDocument()
+    expect(within(seats).getByText('Furthest behind')).toBeInTheDocument()
+    // No group count of its own to disagree with the panel page's petals.
+    expect(screen.queryByText(/ of 12 groups/)).not.toBeInTheDocument()
+    expect(screen.getByText('Can be asked now')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'See your panel' }),
     ).toHaveAttribute(
@@ -113,7 +123,7 @@ describe('CitizensPanelSection', () => {
     )
   })
 
-  it('leaves the bar out when the plan cannot be read', async () => {
+  it('leaves the seats out when the plan cannot be read', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: {
@@ -128,7 +138,7 @@ describe('CitizensPanelSection', () => {
     render(<CitizensPanelSection />)
 
     expect(await screen.findByText('120')).toBeInTheDocument()
-    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
+    expect(screen.queryByTestId('civic-panel-seats')).toBeNull()
   })
 
   it('points to the panel page when nobody has joined yet', async () => {
