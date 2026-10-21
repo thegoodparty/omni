@@ -153,7 +153,9 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         },
       })
       return this.toResponse(
-        await this.model.findUniqueOrThrow({ where: { id: existing.id } }),
+        await this.model.findFirstOrThrow({
+          where: { id: existing.id, deletedAt: null },
+        }),
       )
     }
     // A user edit that changes the loop's graded inputs (or advances the

@@ -533,6 +533,33 @@ describe('OrdinanceFlowChat resume position', () => {
     expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
   })
 
+  it('sends the next step save only after the previous one settles', async () => {
+    let releaseFirstSave: ((saved: Ordinance) => void) | undefined
+    mocks.updateOrdinance.mockImplementationOnce(
+      () =>
+        new Promise<Ordinance>((resolve) => {
+          releaseFirstSave = resolve
+        }),
+    )
+    mocks.listMessages.mockResolvedValue([])
+    const { rerender } = render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />,
+    )
+    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1))
+    rerender(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="authority" />,
+    )
+    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+    releaseFirstSave?.(ordinance)
+    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(2))
+    expect(mocks.updateOrdinance).toHaveBeenLastCalledWith(
+      'public-safety-cameras',
+      { lastViewedStep: 'authority' },
+    )
+  })
+
   it('does not record a step it left before the load finished', async () => {
     let releaseHistory: ((history: ChatMessageDto[]) => void) | undefined
     mocks.listMessages.mockImplementation(

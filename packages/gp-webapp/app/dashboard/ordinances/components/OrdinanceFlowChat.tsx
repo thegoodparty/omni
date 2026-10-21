@@ -205,6 +205,9 @@ export default function OrdinanceFlowChat({
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
   const answeringRef = useRef(false)
+  // Position saves go out one at a time, so a slow save for a step already
+  // left can never land after the save for the step now on screen.
+  const positionSaveRef = useRef<Promise<void>>(Promise.resolve())
   const router = useRouter()
 
   // The shared streaming-turn driver owns the mechanical turn: optimistic push,
@@ -388,8 +391,11 @@ export default function OrdinanceFlowChat({
           ordinance.status === 'in_progress' &&
           ordinance.lastViewedStep !== stepValue
         ) {
-          void updateOrdinance(slug, { lastViewedStep: stepValue }).catch(
-            () => undefined,
+          positionSaveRef.current = positionSaveRef.current.then(() =>
+            updateOrdinance(slug, { lastViewedStep: stepValue }).then(
+              () => undefined,
+              () => undefined,
+            ),
           )
         }
         // Brand-new conversation: let the agent take the first turn.

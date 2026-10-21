@@ -801,6 +801,22 @@ describe('Ordinances endpoints', () => {
 })
 
 describe('PATCH carrying only lastViewedStep', () => {
+  // Resolves once a session in this database is blocked on an ordinance row
+  // lock, so a held transaction can be released at exactly that moment.
+  const waitForBlockedOrdinanceUpdate = async (): Promise<void> => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const rows = await service.prisma.$queryRaw<Array<{ waiting: number }>>`
+        SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%UPDATE%ordinance%'`
+      if ((rows[0]?.waiting ?? 0) > 0) return
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    throw new Error('position write never blocked on the held write')
+  }
+
   it('records the step without moving updatedAt', async () => {
     const orgSlug = 'eo-ordinances-position-patch'
     await seedElectedOffice(orgSlug)
@@ -881,18 +897,7 @@ describe('PATCH carrying only lastViewedStep', () => {
       { lastViewedStep: 'authority' },
       header,
     )
-    let blocked = false
-    for (let attempt = 0; attempt < 200 && !blocked; attempt += 1) {
-      const rows = await service.prisma.$queryRaw<Array<{ waiting: number }>>`
-        SELECT count(*)::int AS waiting
-        FROM pg_stat_activity
-        WHERE datname = current_database()
-          AND wait_event_type = 'Lock'
-          AND query ILIKE '%UPDATE%ordinance%'`
-      blocked = (rows[0]?.waiting ?? 0) > 0
-      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    expect(blocked).toBe(true)
+    await waitForBlockedOrdinanceUpdate()
     releaseEdit()
     await edit
     const res = await positioned
@@ -907,5 +912,55 @@ describe('PATCH carrying only lastViewedStep', () => {
     expect(stored.draftTitle).toBe('Edited while the step was loading')
     expect(isAfter(stored.updatedAt, past)).toBe(true)
     expect(res.data.updatedAt).toBe(stored.updatedAt.toISOString())
+  })
+
+  it('returns 404 when a delete lands first', async () => {
+    const orgSlug = 'eo-ordinances-position-deleted'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Leaf blowers' },
+      header,
+    )
+    const { id, slug } = created.data
+
+    let releaseDelete!: () => void
+    const deleteHeld = new Promise<void>((resolve) => {
+      releaseDelete = resolve
+    })
+    let deleteApplied!: () => void
+    const deleteReady = new Promise<void>((resolve) => {
+      deleteApplied = resolve
+    })
+    const removal = service.prisma.$transaction(
+      async (tx) => {
+        await tx.ordinance.update({
+          where: { id },
+          data: { deletedAt: new Date() },
+        })
+        deleteApplied()
+        await deleteHeld
+      },
+      { timeout: 15_000 },
+    )
+    await deleteReady
+
+    const positioned = service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { lastViewedStep: 'authority' },
+      header,
+    )
+    await waitForBlockedOrdinanceUpdate()
+    releaseDelete()
+    await removal
+    const res = await positioned
+
+    expect(res.status).toBe(404)
+    const stored = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id },
+    })
+    expect(stored.deletedAt).not.toBeNull()
+    expect(stored.lastViewedStep).toBeNull()
   })
 })
