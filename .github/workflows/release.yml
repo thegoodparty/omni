@@ -538,10 +538,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply dev/agent-experiment-metadata
         background: true
@@ -1247,10 +1244,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply prod/agent-experiment-metadata
         background: true
