@@ -1,0 +1,3 @@
+name: gp-api-poc-replication
+runtime: nodejs
+description: gp-api Postgres to Databricks replication POC (dedicated Aurora cluster). Destroy after the POC.
