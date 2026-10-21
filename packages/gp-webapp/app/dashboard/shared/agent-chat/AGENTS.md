@@ -23,7 +23,7 @@ nearest reference wrapper.
 | `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (`present_list_proposal`, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
-| `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
+| `chatHelpers.ts` | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry. |
 | `usePinnedAutoScroll.ts` | Stick-to-bottom scroll (releases on scroll-up). Optional — a chat inside a vaul drawer may roll its own scroll instead. |
 
 ## The recipe (what a wrapper owns)

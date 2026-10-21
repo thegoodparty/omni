@@ -24,6 +24,7 @@ import {
   ThinkingRow,
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
+import { isInterruptedTurn } from '../../shared/agent-chat/chatHelpers'
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import {
   TurnBlocks,
@@ -197,6 +198,9 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
+  // The cut-off marker whose retry is in flight, so its notice stays hidden
+  // through the settle window; cleared when the turn settles.
+  const [retryingMarkerId, setRetryingMarkerId] = useState<string | null>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -228,6 +232,7 @@ export default function OrdinanceFlowChat({
       setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setRetryingMarkerId(null)
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength }) => {
@@ -512,10 +517,53 @@ export default function OrdinanceFlowChat({
       )
     if (turn) hiddenIds.add(turn.id)
   })
+  // Only a trailing cut-off marker is actionable; a later turn superseded an
+  // earlier one. The resend is the user turn right before the marker, or the
+  // step opener when the marker is the conversation's first message.
+  const lastIndex = messages.length - 1
+  const lastMessage = messages[lastIndex]
+  const interruptedId =
+    lastMessage !== undefined && isInterruptedTurn(lastMessage)
+      ? lastMessage.id
+      : null
+  const priorTurn = lastIndex > 0 ? messages[lastIndex - 1] : undefined
+  const retryContentFor = (): string | null => {
+    if (interruptedId === null) return null
+    if (priorTurn === undefined) return kickoffFor(step)
+    return priorTurn.role === 'user' ? priorTurn.content : null
+  }
+  const retryContent = retryContentFor()
+  const showInterrupted =
+    retryContent !== null && !sending && interruptedId !== retryingMarkerId
+  const retryInterrupted = (): void => {
+    if (!conversationId || sending || retryContent === null) return
+    // The marker row stays in local state: the engine's commit poll treats any
+    // assistant row it did not already know as the finished turn, so dropping
+    // the marker would end that poll on the old row. Hidden so the transcript
+    // keeps its single copy of the turn.
+    setRetryingMarkerId(interruptedId)
+    void send(retryContent, { hidden: true })
+  }
+  // The server persists a resent turn again, so hide the copy that follows
+  // the marker it replaced and keep the original.
+  const isRetryEcho = (i: number): boolean => {
+    const original = messages[i - 2]
+    const marker = messages[i - 1]
+    const m = messages[i]
+    return (
+      m?.role === 'user' &&
+      marker !== undefined &&
+      isInterruptedTurn(marker) &&
+      original?.role === 'user' &&
+      original.content === m.content
+    )
+  }
   const visibleMessages = messages.filter(
-    (m) =>
+    (m, i) =>
       !(m.role === 'user' && KICKOFF_TEXTS.has(m.content)) &&
-      !hiddenIds.has(m.id),
+      !hiddenIds.has(m.id) &&
+      !isInterruptedTurn(m) &&
+      !isRetryEcho(i),
   )
   // Only the most recent clarify question is interactive; earlier ones render
   // read-only in place.
@@ -603,6 +651,10 @@ export default function OrdinanceFlowChat({
               ),
             )}
 
+            {showInterrupted ? (
+              <InterruptedTurn onRetry={retryInterrupted} />
+            ) : null}
+
             {(visibleSegments.length > 0 ||
               showClarify ||
               showWidgets ||
@@ -679,6 +731,28 @@ function NextStepButton({
         aria-hidden
       />
     </Button>
+  )
+}
+
+function InterruptedTurn({
+  onRetry,
+}: {
+  onRetry: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+      <span className="text-muted-foreground">
+        The last reply was cut off before it finished.
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onRetry}
+        className="rounded-full"
+      >
+        Try again
+      </Button>
+    </div>
   )
 }
 

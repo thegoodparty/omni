@@ -470,6 +470,240 @@ describe('OrdinanceFlowChat next-step button', () => {
   })
 })
 
+describe('OrdinanceFlowChat cut-off turn', () => {
+  const INTERRUPTED_MARKER = '__chat:interrupted_before_output__'
+  const CURRENT_LAW_OPENER =
+    "Let's begin. Show me what current law already does here and the gaps."
+  const userTurn = (id: string, content: string): ChatMessageDto => ({
+    id,
+    conversationId: 'conv-1',
+    role: 'user',
+    content,
+    createdAt: '2026-07-01T00:00:00.000Z',
+  })
+  const interruptedTurn = (id: string): ChatMessageDto => ({
+    id,
+    conversationId: 'conv-1',
+    role: 'assistant',
+    content: INTERRUPTED_MARKER,
+    createdAt: '2026-07-01T00:00:01.000Z',
+  })
+  const sentContent = (call: number): string | undefined =>
+    (
+      mocks.streamMessage.mock.calls[call]?.[0] as
+        | { content: string }
+        | undefined
+    )?.content
+  const streamText = (text: string): void => {
+    mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
+      ChatStreamEvent,
+      void,
+      void
+    > {
+      yield { type: 'text', delta: text }
+      yield { type: 'done' }
+    })
+  }
+
+  beforeEach(() => {
+    // Implementations survive clearAllMocks, so pin a finishing stream rather
+    // than inherit whatever the previous test left behind.
+    streamText('Done.')
+  })
+
+  it('offers a retry instead of the marker and does not reopen the step', async () => {
+    mocks.listMessages.mockResolvedValue([
+      userTurn('u1', CURRENT_LAW_OPENER),
+      interruptedTurn('m1'),
+    ])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    expect(
+      await screen.findByRole('button', { name: 'Try again' }),
+    ).toBeVisible()
+    expect(screen.getByText(/cut off before it finished/)).toBeVisible()
+    expect(
+      screen.queryByText(/interrupted_before_output/),
+    ).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
+  })
+
+  it('retries the first turn with the step opener and shows the finished reply', async () => {
+    const before = [userTurn('u1', CURRENT_LAW_OPENER), interruptedTurn('m1')]
+    mocks.listMessages
+      .mockResolvedValueOnce(before)
+      .mockResolvedValue([
+        ...before,
+        userTurn('u2', CURRENT_LAW_OPENER),
+        assistantTurn('m2', [
+          { kind: 'text', text: 'Chapter 12 covers this.' },
+        ]),
+      ])
+    streamText('Chapter 12 covers this.')
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    retry.click()
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    expect(sentContent(0)).toBe(CURRENT_LAW_OPENER)
+    expect(
+      await screen.findByText('Chapter 12 covers this.', undefined, {
+        timeout: 4000,
+      }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the notice while the retry streams', async () => {
+    mocks.listMessages.mockResolvedValue([
+      userTurn('u1', CURRENT_LAW_OPENER),
+      interruptedTurn('m1'),
+    ])
+    mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
+      ChatStreamEvent,
+      void,
+      void
+    > {
+      yield { type: 'text', delta: 'Reading the chapter.' }
+      await new Promise<void>(() => undefined)
+    })
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    retry.click()
+    expect(
+      await screen.findByText('Reading the chapter.', undefined, {
+        timeout: 3000,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(/cut off before it finished/),
+    ).not.toBeInTheDocument()
+    expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers the retry again when the resend fails', async () => {
+    mocks.listMessages.mockResolvedValue([
+      userTurn('u1', CURRENT_LAW_OPENER),
+      interruptedTurn('m1'),
+    ])
+    mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
+      ChatStreamEvent,
+      void,
+      void
+    > {
+      throw new Error('offline')
+    })
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    retry.click()
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    // Nothing was saved, so once the turn settles the marker is still the
+    // last message and the notice must come back.
+    expect(
+      await screen.findByRole(
+        'button',
+        { name: 'Try again' },
+        {
+          timeout: 4000,
+        },
+      ),
+    ).toBeVisible()
+  })
+
+  it('falls back to the step opener when the marker is the first message', async () => {
+    mocks.listMessages.mockResolvedValue([interruptedTurn('m1')])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    retry.click()
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    expect(sentContent(0)).toBe(
+      "Let's begin. Check whether we have the legal authority to enact this.",
+    )
+  })
+
+  it('offers no retry when the message before the marker is not a user turn', async () => {
+    mocks.listMessages.mockResolvedValue([
+      assistantTurn('m0', [{ kind: 'text', text: 'Hello.' }]),
+      interruptedTurn('m1'),
+    ])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    expect(await screen.findByText('Hello.')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
+  })
+
+  it('retries a typed question and shows it once after the transcript reloads', async () => {
+    const before = [
+      userTurn('u1', CURRENT_LAW_OPENER),
+      assistantTurn('m1', [{ kind: 'text', text: 'Here is the chapter.' }]),
+      userTurn('u2', 'What about fines?'),
+      interruptedTurn('m2'),
+    ]
+    mocks.listMessages
+      .mockResolvedValueOnce(before)
+      .mockResolvedValue([
+        ...before,
+        userTurn('u3', 'What about fines?'),
+        assistantTurn('m3', [{ kind: 'text', text: 'Fines are capped.' }]),
+      ])
+    streamText('Fines are capped.')
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    retry.click()
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+    expect(sentContent(0)).toBe('What about fines?')
+    expect(
+      await screen.findByText('Fines are capped.', undefined, {
+        timeout: 4000,
+      }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
+    )
+    expect(screen.getAllByText('What about fines?')).toHaveLength(1)
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('drops a cut-off marker that a later turn superseded', async () => {
+    mocks.listMessages.mockResolvedValue([
+      userTurn('u1', CURRENT_LAW_OPENER),
+      interruptedTurn('m1'),
+      userTurn('u2', CURRENT_LAW_OPENER),
+      assistantTurn('m2', [{ kind: 'text', text: 'Here is the chapter.' }]),
+    ])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    expect(await screen.findByText('Here is the chapter.')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/interrupted_before_output/),
+    ).not.toBeInTheDocument()
+    expect(mocks.streamMessage).not.toHaveBeenCalled()
+  })
+})
+
 describe('OrdinanceFlowChat stalled-stream recovery', () => {
   it('reconciles with persisted history when the stream stalls without ending', async () => {
     vi.useFakeTimers()
