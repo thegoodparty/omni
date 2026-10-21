@@ -23,9 +23,9 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
     setShowBanner(false)
   }
   return (
-    // Above every other layer in the app, including the z-[55] chat dock bar
-    // it shares the bottom edge with and the z-[2000] confirm dialogs.
-    <div className="fixed bottom-4 z-[2100] flex justify-center w-full pointer-events-none">
+    // Above the z-[55] chat dock bar it shares the bottom edge with and every
+    // sheet and overlay layer, but below the z-[2000] confirm dialogs.
+    <div className="fixed bottom-4 z-[1900] flex justify-center w-full pointer-events-none">
       <div
         className="bg-tertiary-light text-tertiary-dark p-4 flex max-w-[440px] mx-8 rounded-lg pointer-events-auto"
         data-testid="cookie-snackbar"
