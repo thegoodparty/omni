@@ -105,6 +105,9 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // Why the draft was refused, when the server said. Shown under the generic
+  // line so support is not left guessing.
+  prepareErrorMessage?: string | null
   // The phone-list build itself (not the draft-creation step `prepareError`
   // covers) resolved to `failed` — distinct because the fix is different:
   // there's a fresh build to request, not a draft to retry.
@@ -140,6 +143,7 @@ export const SmsReviewStep = ({
   priceIsCeiling = false,
   preparing,
   prepareError,
+  prepareErrorMessage,
   buildFailed = false,
   retryingBuild = false,
   onRetryBuild,
@@ -459,6 +463,11 @@ export const SmsReviewStep = ({
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.
           </p>
+          {prepareErrorMessage && (
+            <p className="text-sm text-muted-foreground">
+              {prepareErrorMessage}
+            </p>
+          )}
         </Card>
       ) : preparing ||
         !outreachId ||

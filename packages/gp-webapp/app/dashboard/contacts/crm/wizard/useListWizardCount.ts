@@ -55,10 +55,10 @@ export const useListWizardCount = (
 
   const countQuery = useQuery({
     queryKey: ['list-wizard-count', orgSlug, debouncedPayload],
-    queryFn: () =>
-      clientRequest('POST /v1/contacts/count', debouncedPayload).then(
-        (res) => res.data,
-      ),
+    queryFn: ({ signal }) =>
+      clientRequest('POST /v1/contacts/count', debouncedPayload, {
+        signal,
+      }).then((res) => res.data),
     enabled,
     // The count is an at-a-glance affordance while building; a window-focus
     // refetch mid-build would be disruptive and waste a query.

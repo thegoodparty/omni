@@ -8,7 +8,7 @@ import { InfoSection } from './InfoSection'
 import { PRIORITY_ANSWER_LABELS, priorityHref } from './PriorityAnswerLine'
 
 const SERVE_PRIORITY_ANSWERS_COPY = {
-  title: "What they've told you",
+  title: 'Their answers',
   channels: {
     text: 'By text',
     phone_banking: 'On the phone',

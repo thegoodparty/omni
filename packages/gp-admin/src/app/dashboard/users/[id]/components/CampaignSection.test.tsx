@@ -7,8 +7,8 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignTier,
-} from '@goodparty_org/sdk'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
+import type { CampaignWithLiveContext } from '@/shared/gpApi'
 
 const mockCampaign: CampaignWithLiveContext = {
   id: 1,

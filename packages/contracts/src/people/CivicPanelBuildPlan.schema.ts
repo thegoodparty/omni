@@ -400,6 +400,45 @@ export const civicPanelStepAction = (
   return CIVIC_PANEL_STEP_COPY.keepGoing[step.channel]
 }
 
+// Who the members are beside the district, for the panel page's seats and
+// petals. `places` splits the district by census tract (each tract's share
+// of its adults), or by precinct (each precinct's share of the people on
+// file) when the district has no tract data; `placeKind` says which, and
+// `name` is the tract number ("9501.02") or the precinct as filed. Members
+// with no known place sit out. `groups` is each major group by age band,
+// gender, and race when it may be named: its share of the district and of
+// the members whose value is known. Shares are fractions, 0.25 is 25%. The
+// page draws from them and never prints a share.
+export const CIVIC_PANEL_PLACE_KINDS = ['tract', 'precinct'] as const
+export const CivicPanelPlaceKindSchema = z.enum(CIVIC_PANEL_PLACE_KINDS)
+export type CivicPanelPlaceKind = z.infer<typeof CivicPanelPlaceKindSchema>
+
+export const CivicPanelCompositionPlaceSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  districtShare: z.number(),
+  members: z.number().int().nonnegative(),
+})
+export type CivicPanelCompositionPlace = z.infer<
+  typeof CivicPanelCompositionPlaceSchema
+>
+
+export const CivicPanelCompositionGroupSchema = z.object({
+  group: UnderrepresentedGroupSchema,
+  districtShare: z.number(),
+  memberShare: z.number(),
+})
+export type CivicPanelCompositionGroup = z.infer<
+  typeof CivicPanelCompositionGroupSchema
+>
+
+export const CivicPanelCompositionSchema = z.object({
+  placeKind: CivicPanelPlaceKindSchema,
+  places: z.array(CivicPanelCompositionPlaceSchema),
+  groups: z.array(CivicPanelCompositionGroupSchema),
+})
+export type CivicPanelComposition = z.infer<typeof CivicPanelCompositionSchema>
+
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the
 // official has made one; progress and balance are always the panel as it
 // stands.
@@ -409,6 +448,9 @@ export const CivicPanelBuildPlanResponseSchema = z.object({
   progress: CivicPanelBuildProgressSchema,
   // Null when the district's census or the members could not be read.
   balance: CivicPanelBalanceSchema.nullable(),
+  // Null with no members, or when the census or the members could not be
+  // read.
+  composition: CivicPanelCompositionSchema.nullable().optional(),
 })
 export type CivicPanelBuildPlanResponse = z.infer<
   typeof CivicPanelBuildPlanResponseSchema

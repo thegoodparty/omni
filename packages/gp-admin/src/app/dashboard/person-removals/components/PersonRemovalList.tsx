@@ -1,5 +1,5 @@
 import { Badge, Code, Link, Table, Text } from '@radix-ui/themes'
-import type { PersonProfileRemoval } from '@goodparty_org/sdk'
+import type { PersonProfileRemoval } from '@/shared/gpApi'
 import { formatDate } from '@/lib/utils/date'
 import { RestoreProfileButton } from './RestoreProfileButton'
 

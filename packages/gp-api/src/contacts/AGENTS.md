@@ -1055,7 +1055,19 @@ largest missing group, set whenever groups are missing, even once the goal
 is met; a text step's `steeredToward` is that same group (draw weights still
 follow the share gaps). Past the member goal the panel page's
 form is Keep your panel fresh (see below), and the balance section's line
-names the next group. The official never sees a share, weight or target.
+names the next group. The official never sees a share, weight or target
+as a number. The response's `composition` (null with no members, or when
+nothing can be read) feeds the panel page's seats and petals: `places` is
+every census tract from `weightingTargets`' tract shares with the members
+living there (`panelComposition`, `placeKind: 'tract'`, `name` the tract
+number), or, when the census has no tract for the district, every
+(County, Precinct) by its share of the people on file with the members
+filed there (`precinctPlaces` over `VoterQueryService.findPrecincts` and
+`findPrecinctMembers`, `placeKind: 'precinct'`, the unknown precinct left
+out). `groups` is each major group by age, gender and nameable race with
+its district share and the members' share among those with a known value,
+from the same mix the balance reads. The page draws seats and petal
+lengths from them and shows only seats and "X% of its share".
 
 **Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
