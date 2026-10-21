@@ -18,6 +18,7 @@ import { HttpExceptionFilter } from './exceptions/http-exception.filter'
 import { PrismaExceptionFilter } from './exceptions/prisma-exception.filter'
 import { randomUUID } from 'crypto'
 import { IncomingMessage } from 'http'
+import { requestAbortSignal } from './peopleDb/databricks/peopleDbxStatement.client'
 import { stripVendorMockTrailingSlash } from './vendorMocks/vendorMockUrl.util'
 
 type BootstrapParams = {
@@ -51,9 +52,13 @@ export const bootstrap = async (
    * It must be registered before NestFactory.create() so that it fires
    * before the pino-http middleware that nestjs-pino sets up during init.
    */
-  adapter.getInstance().addHook('onRequest', (req, _, done) => {
+  adapter.getInstance().addHook('onRequest', (req, reply, done) => {
     req.raw.route = req.routeOptions?.url
-    done()
+    const aborter = new AbortController()
+    reply.raw.on('close', () => {
+      if (!reply.raw.writableFinished) aborter.abort()
+    })
+    requestAbortSignal.run(aborter.signal, done)
   })
 
   await adapter.getInstance().register(websocket, {
