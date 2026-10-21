@@ -15,11 +15,19 @@ import {
   peerlyIdentityCreateResponseBodySchema,
   peerlyIdentityProfileResponseBodySchema,
   peerlyIdentitySchema,
+  peerlyIdentityUseCaseResponseBodySchema,
 } from '@/vendors/peerly/schemas/peerlyIdentity.schema'
 import {
   approve10DLCBrandResponseBodySchema,
+  CampaignVerificationStatus,
   peerly10DLCBrandSubmitResponseBodySchema,
+  peerlyCreateCVTokenResponseSchema,
+  peerlyResendPinResponseBodySchema,
+  peerlyRetrieveCvResponseBodySchema,
+  peerlySubmitCVResponseBodySchema,
+  peerlyVerifyCVPinResponseSchema,
 } from '@/vendors/peerly/schemas/peerlyTdlc.schema'
+import { PeerlyCvVerificationStatusSchema } from '@goodparty_org/contracts'
 import {
   Body,
   Controller,
@@ -33,7 +41,7 @@ import {
   Query,
 } from '@nestjs/common'
 import { randomInt, randomUUID } from 'crypto'
-import { format } from 'date-fns'
+import { addMinutes, format, isAfter } from 'date-fns'
 import { z } from 'zod'
 import {
   PEERLY_10DLC_KIND,
@@ -41,7 +49,15 @@ import {
 } from '../vendorMockRecord.service'
 import { assertValidMockJwt } from './peerlyMockAuth.util'
 
+// Auto-progress for humans on dev, fixed for every org by the TDD. Tests skip
+// the clock with the peerly.cv.approve / peerly.usecase.activate actions.
+const CV_AUTO_APPROVE_MINUTES = 2
+const USECASE_AUTO_ACTIVATE_MINUTES = 5
+
+const MOCK_CV_PIN = '123456'
 const MOCK_ACCOUNT_ID = 'mock-peerly'
+const REQUEST_STATUS = PeerlyCvVerificationStatusSchema.enum
+
 const jsonRecordSchema = z.record(z.string(), z.json())
 
 const profileStateSchema = z.object({
@@ -56,6 +72,18 @@ const brandStateSchema = z.object({
   request: jsonRecordSchema.default({}),
 })
 
+const cvStateSchema = z.object({
+  status: PeerlyCvVerificationStatusSchema,
+  pin: z.string(),
+  verificationId: z.string(),
+  request: jsonRecordSchema.default({}),
+  campaignVerifyToken: z.string().nullable().default(null),
+})
+
+const usecaseStateSchema = z.object({
+  status: z.enum(['PENDING', 'ACTIVE']),
+})
+
 type IdentityBody = Record<string, Prisma.JsonValue>
 
 // Peerly's error envelope. `status_code` is the HTTP status, except when
@@ -66,6 +94,16 @@ const peerlyError = (
   message: string,
   nestedStatus: number = status,
 ) => new HttpException({ Error: message, status_code: nestedStatus }, status)
+
+const cvError = (
+  message: string,
+  nestedStatus: number = HttpStatus.BAD_REQUEST,
+) =>
+  peerlyError(
+    HttpStatus.BAD_REQUEST,
+    `Campaign Verify: ${message}`,
+    nestedStatus,
+  )
 
 const str = (source: Record<string, unknown>, key: string, fallback = '') => {
   const value = source[key]
@@ -319,40 +357,173 @@ export class Peerly10DlcMockController {
     return 'Brand finalized'
   }
 
+  // CAMPAIGN VERIFY
+
   @Post('v2/tdlc/:id/submit_cv')
-  submitCvStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async submitCv(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() body: IdentityBody,
+  ) {
+    this.enter(authorization)
+    const identity = await this.requireIdentity(id)
+    const campaignId = await this.campaignIdFor(identity.campaignId, id)
+    const verificationId = randomUUID()
+    // Recreated so a resubmission after a rejection restarts the 2 minute
+    // clock instead of inheriting the first request's createdAt.
+    await this.vendorMockRecord.recreate(
+      VendorMockVendor.peerly,
+      PEERLY_10DLC_KIND.cvRequest,
+      id,
+      {
+        status: REQUEST_STATUS.IN_REVIEW,
+        pin: MOCK_CV_PIN,
+        verificationId,
+        request: body,
+        campaignVerifyToken: null,
+      },
+      campaignId,
+      body,
+    )
+    return peerlySubmitCVResponseBodySchema.parse({
+      message: 'Campaign Verify request submitted',
+      verification_id: verificationId,
+    })
   }
 
   @Get('v2/tdlc/:id/retrieve_cv')
-  retrieveCvStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async retrieveCv(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    this.enter(authorization)
+    await this.requireIdentity(id)
+    const cv = await this.requireCv(id)
+    const status = this.effectiveCvStatus(cv.state, cv.createdAt)
+    // The PIN is only sent (and so only described) once CV approves.
+    const pinSent =
+      status === REQUEST_STATUS.APPROVED || status === REQUEST_STATUS.VERIFIED
+    return peerlyRetrieveCvResponseBodySchema.parse({
+      verification_status: status,
+      ...(pinSent && {
+        verification_data: {
+          verification_method: 'email',
+          filing_email: str(cv.state.request, 'filing_email'),
+        },
+      }),
+    })
   }
 
   @Post('v2/tdlc/:id/verify_pin')
-  verifyPinStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async verifyPin(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() body: IdentityBody,
+  ) {
+    this.enter(authorization)
+    await this.requireIdentity(id)
+    const cv = await this.requireCv(id)
+    const status = this.effectiveCvStatus(cv.state, cv.createdAt)
+    // APPROVED is the only status with a PIN. IN_REVIEW must fail so the
+    // mock does not hide the client's CampaignVerifyPinNotIssued path, and a
+    // VERIFIED request is one-shot: CV rejects a re-entered PIN.
+    if (status !== REQUEST_STATUS.APPROVED) {
+      throw cvError(`no PIN has been issued (status ${status})`)
+    }
+    if (str(body, 'code') !== cv.state.pin) {
+      throw cvError('the PIN is invalid or has expired')
+    }
+    await this.vendorMockRecord.patchState(
+      VendorMockVendor.peerly,
+      PEERLY_10DLC_KIND.cvRequest,
+      id,
+      { status: REQUEST_STATUS.VERIFIED },
+      body,
+    )
+    return peerlyVerifyCVPinResponseSchema.parse({
+      message: 'PIN verified',
+      verification_id: cv.state.verificationId,
+      cv_verification_status: CampaignVerificationStatus.VERIFIED,
+    })
   }
 
   @Post('v2/tdlc/:id/resend_pin')
-  resendPinStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async resendPin(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    this.enter(authorization)
+    await this.requireIdentity(id)
+    return peerlyResendPinResponseBodySchema.parse({ message: 'PIN resent' })
   }
 
   @Post('v2/tdlc/:id/create_cv_token')
-  createCvTokenStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async createCvToken(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    this.enter(authorization)
+    await this.requireIdentity(id)
+    const cv = await this.requireCv(id)
+    if (
+      this.effectiveCvStatus(cv.state, cv.createdAt) !== REQUEST_STATUS.VERIFIED
+    ) {
+      throw cvError('the request is not verified, so no token can be issued')
+    }
+    const token =
+      cv.state.campaignVerifyToken ?? `mock-cv-token-${randomUUID()}`
+    await this.vendorMockRecord.patchState(
+      VendorMockVendor.peerly,
+      PEERLY_10DLC_KIND.cvRequest,
+      id,
+      { campaignVerifyToken: token },
+    )
+    // getProfile echoes it from here.
+    if (await this.findProfile(id)) {
+      await this.vendorMockRecord.patchState(
+        VendorMockVendor.peerly,
+        PEERLY_10DLC_KIND.profile,
+        id,
+        { campaignVerifyToken: token },
+      )
+    }
+    return peerlyCreateCVTokenResponseSchema.parse({
+      campaign_verify_token: token,
+    })
   }
 
+  // USE CASES
+
   @Get('v2/tdlc/:id/get_usecases')
-  getUsecasesStub() {
-    this.enter(undefined)
-    throw new HttpException('Not implemented', HttpStatus.NOT_IMPLEMENTED)
+  async getUsecases(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    this.enter(authorization)
+    const identity = await this.requireIdentity(id)
+    const usecase = await this.vendorMockRecord.findOne(
+      VendorMockVendor.peerly,
+      PEERLY_10DLC_KIND.usecase,
+      id,
+    )
+    if (!usecase) return peerlyIdentityUseCaseResponseBodySchema.parse([])
+    const { status } = usecaseStateSchema.parse(usecase.state)
+    const active =
+      status === 'ACTIVE' ||
+      isAfter(
+        new Date(),
+        addMinutes(usecase.createdAt, USECASE_AUTO_ACTIVATE_MINUTES),
+      )
+    return peerlyIdentityUseCaseResponseBodySchema.parse([
+      {
+        identity_id: id,
+        account_id: identity.state.account_id,
+        usecase: PEERLY_USECASE,
+        tcr_campaign_id: `mock-tcr-${id}`,
+        submitted: 1,
+        activated: active ? 1 : 0,
+      },
+    ])
   }
 
   // HELPERS
@@ -424,6 +595,33 @@ export class Peerly10DlcMockController {
       PEERLY_10DLC_KIND.usecase,
       id,
     )
+  }
+
+  // No CV request is the first-time-registration case: Peerly answers 400
+  // with CV's 404 nested in status_code, which the client reads as "none".
+  private async requireCv(id: string) {
+    const record = await this.vendorMockRecord.findOne(
+      VendorMockVendor.peerly,
+      PEERLY_10DLC_KIND.cvRequest,
+      id,
+    )
+    if (!record) throw cvError('no request found', HttpStatus.NOT_FOUND)
+    return {
+      state: cvStateSchema.parse(record.state),
+      createdAt: record.createdAt,
+    }
+  }
+
+  // Only IN_REVIEW moves on its own, so a control action that set any other
+  // status is never overridden by the clock.
+  private effectiveCvStatus(
+    state: z.infer<typeof cvStateSchema>,
+    createdAt: Date,
+  ) {
+    return state.status === REQUEST_STATUS.IN_REVIEW &&
+      isAfter(new Date(), addMinutes(createdAt, CV_AUTO_APPROVE_MINUTES))
+      ? REQUEST_STATUS.APPROVED
+      : state.status
   }
 
   private async profileBody(id: string) {

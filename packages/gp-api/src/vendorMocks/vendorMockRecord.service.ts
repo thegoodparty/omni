@@ -235,6 +235,21 @@ export class VendorMockRecordService extends createPrismaBase(
     )
   }
 
+  // Delete-then-create, so `createdAt` restarts. Used where a resubmission is
+  // a brand-new vendor object whose elapsed-time auto-progress must start over.
+  async recreate(
+    vendor: VendorMockVendor,
+    kind: string,
+    externalId: string,
+    state: Prisma.InputJsonValue,
+    campaignId?: number,
+    requestBody?: Prisma.InputJsonValue,
+  ) {
+    this.assertNonProdDeploy()
+    await this.model.deleteMany({ where: { vendor, kind, externalId } })
+    return this.upsert(vendor, kind, externalId, state, campaignId, requestBody)
+  }
+
   // The Peerly 10DLC mock links its records to a campaign through the
   // TcrCompliance row, since the Peerly API itself carries no campaign id.
   // Identity ids resolve through TcrCompliance.peerlyIdentityId once the
@@ -270,6 +285,69 @@ export class VendorMockRecordService extends createPrismaBase(
       select: { campaignId: true },
     })
     return byEin?.campaignId
+  }
+
+  // The identity a campaign's 10DLC control actions act on: the newest
+  // identity record linked to it (an orphaned earlier attempt may also exist).
+  private async findPeerlyIdentityIdForCampaign(campaignId: number) {
+    const identity = await this.model.findFirst({
+      where: {
+        vendor: VendorMockVendor.peerly,
+        kind: PEERLY_10DLC_KIND.identity,
+        campaignId,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (identity) return identity.externalId
+    const linked = await this.client.tcrCompliance.findUnique({
+      where: { campaignId },
+      select: { peerlyIdentityId: true },
+    })
+    if (!linked?.peerlyIdentityId) {
+      throw new NotFoundException(
+        `No Peerly mock identity for campaign ${campaignId}`,
+      )
+    }
+    return linked.peerlyIdentityId
+  }
+
+  async setPeerlyCvStatus(campaignId: number, patch: Prisma.InputJsonObject) {
+    const identityId = await this.findPeerlyIdentityIdForCampaign(campaignId)
+    return this.requirePatch(
+      PEERLY_10DLC_KIND.cvRequest,
+      identityId,
+      patch,
+      'CV request',
+    )
+  }
+
+  async activatePeerlyUsecase(campaignId: number) {
+    const identityId = await this.findPeerlyIdentityIdForCampaign(campaignId)
+    return this.requirePatch(
+      PEERLY_10DLC_KIND.usecase,
+      identityId,
+      { status: 'ACTIVE' },
+      'use case',
+    )
+  }
+
+  private async requirePatch(
+    kind: string,
+    identityId: string,
+    patch: Prisma.InputJsonObject,
+    label: string,
+  ) {
+    const existing = await this.findOne(
+      VendorMockVendor.peerly,
+      kind,
+      identityId,
+    )
+    if (!existing) {
+      throw new NotFoundException(
+        `No Peerly mock ${label} for identity ${identityId}`,
+      )
+    }
+    return this.patchState(VendorMockVendor.peerly, kind, identityId, patch)
   }
 
   // Fail-closed to the known non-prod deploys, 404 rather than 403 so the

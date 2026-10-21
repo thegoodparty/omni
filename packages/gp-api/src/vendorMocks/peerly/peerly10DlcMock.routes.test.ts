@@ -15,12 +15,19 @@ import {
   peerlyGetIdentitiesResponseBodySchema,
   peerlyIdentityCreateResponseBodySchema,
   peerlyIdentityProfileResponseBodySchema,
+  peerlyIdentityUseCaseResponseBodySchema,
 } from '@/vendors/peerly/schemas/peerlyIdentity.schema'
 import {
   approve10DLCBrandResponseBodySchema,
   peerly10DLCBrandSubmitResponseBodySchema,
+  peerlyCreateCVTokenResponseSchema,
+  peerlyResendPinResponseBodySchema,
+  peerlyRetrieveCvResponseBodySchema,
+  peerlySubmitCVResponseBodySchema,
+  peerlyVerifyCVPinResponseSchema,
 } from '@/vendors/peerly/schemas/peerlyTdlc.schema'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
+import { isPeerlyCvPinRejection } from '@/vendors/peerly/utils/peerlyCvPinRejection.util'
 import { signHs256Jwt } from './peerlyMockAuth.util'
 
 const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
@@ -41,7 +48,9 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 const service = useTestService()
 
 const BASE = '/v1/vendor-mocks/peerly'
+const ACTIONS = '/v1/test-fixtures/vendor-mocks/actions'
 const RECORDS = '/v1/test-fixtures/vendor-mocks/records'
+const MOCK_PIN = '123456'
 
 let einCounter = 0
 
@@ -97,6 +106,17 @@ const getRecords = async (campaignId: number) => {
   }>(RECORDS, { params: { campaignId } })
   return res.data.records
 }
+
+const applyAction = (
+  campaignId: number,
+  action: string,
+  params?: Record<string, unknown>,
+) =>
+  service.client.post(
+    ACTIONS,
+    { campaignId, action, params },
+    { validateStatus: () => true },
+  )
 
 const mintJwt = async () => {
   const res = await service.client.post<{ token: string }>(
@@ -420,6 +440,9 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
     ).rejects.toThrow(
       'Identity profile for given identity ID could not be found',
     )
+    await expect(
+      peerly.getIdentityUseCases('99999999', campaign),
+    ).rejects.toThrow('Use cases for given identity ID could not be found')
 
     const res = await service.client.post(
       `${BASE}/identities/99999999/submitProfile`,
@@ -460,5 +483,406 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
 
     const records = await getRecords(seeded.campaign.id)
     expect(records.map((r) => r.kind)).toEqual(['profile'])
+  })
+})
+
+// M4-4 TESTS BEGIN
+
+const submitCv = (
+  peerly: PeerlyIdentityService,
+  identityId: string,
+  { campaign, ein }: Seeded,
+) =>
+  peerly.submitCampaignVerifyRequest(
+    {
+      email: 'candidate@example.com',
+      ein,
+      phone: '+15125550123',
+      peerlyIdentityId: identityId,
+      filingUrl: 'https://filing.example/test',
+      officeLevel: OfficeLevel.state,
+      fecCommitteeId: null,
+      committeeType: CommitteeType.CANDIDATE,
+      filingAddressLine1: manualAddress.addressLine1,
+      filingAddressLine2: null,
+      filingCity: manualAddress.city,
+      filingState: manualAddress.state,
+      filingZip: manualAddress.zip,
+    },
+    service.user,
+    campaign,
+    'friendsoftest.example',
+  )
+
+// Brings a campaign to a submitted CV request (IN_REVIEW) on a fresh identity.
+const withSubmittedCv = async () => {
+  const peerly = useMockAsPeerly()
+  const seeded = await seedCampaignWithTcr()
+  const identity = await createIdentity(peerly, seeded)
+  const identityId = identity.identity_id
+  await peerly.submitIdentityProfile(identityId, seeded.campaign)
+  const cv = await submitCv(peerly, identityId, seeded)
+  return { peerly, seeded, identityId, cv }
+}
+
+const cvStatus = (
+  peerly: PeerlyIdentityService,
+  identityId: string,
+  campaign: Campaign,
+) => peerly.retrieveCampaignVerifyStatus(identityId, campaign)
+
+describe('Peerly 10DLC mock: CV request, PIN and use cases (M4-4)', () => {
+  it('reports no CV request before submit_cv, as a first-time registration', async () => {
+    const peerly = useMockAsPeerly()
+    const seeded = await seedCampaignWithTcr()
+    const identity = await createIdentity(peerly, seeded)
+
+    expect(
+      await peerly.getCampaignVerifyRequest(
+        identity.identity_id,
+        seeded.campaign,
+      ),
+    ).toBeNull()
+    expect(
+      await cvStatus(peerly, identity.identity_id, seeded.campaign),
+    ).toBeNull()
+  })
+
+  it('walks submit_cv, approve, verify_pin and create_cv_token to a token on getProfile', async () => {
+    const { peerly, seeded, identityId, cv } = await withSubmittedCv()
+    const { campaign } = seeded
+    expect(cv?.verification_id).toBeTruthy()
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('IN_REVIEW')
+    expect(
+      (await getRecords(campaign.id)).find((r) => r.kind === 'cv_request')
+        ?.state,
+    ).toMatchObject({ status: 'IN_REVIEW', pin: MOCK_PIN })
+
+    const approve = await applyAction(campaign.id, 'peerly.cv.approve')
+    expect(approve.status).toBe(HttpStatus.CREATED)
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('APPROVED')
+
+    expect(
+      await peerly.verifyCampaignVerifyPin(identityId, MOCK_PIN, campaign),
+    ).toBe(true)
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('VERIFIED')
+
+    const token = await peerly.createCampaignVerifyToken(identityId, campaign)
+    expect(token).toBeTruthy()
+    const profile = await peerly.getIdentityProfile(identityId, campaign)
+    expect(profile?.profile?.campaignVerifyToken).toBe(token)
+  })
+
+  it('returns bodies that parse against the 10DLC schemas', async () => {
+    const { seeded, identityId } = await withSubmittedCv()
+    const headers = await mintJwt()
+    const url = (path: string) => `${BASE}/v2/tdlc/${identityId}/${path}`
+
+    const inReview = await service.client.get(url('retrieve_cv'), { headers })
+    expect(
+      peerlyRetrieveCvResponseBodySchema.parse(inReview.data),
+    ).toMatchObject({ verification_status: 'IN_REVIEW' })
+    expect(inReview.data.verification_data).toBeUndefined()
+
+    await applyAction(seeded.campaign.id, 'peerly.cv.approve')
+    const approved = await service.client.get(url('retrieve_cv'), { headers })
+    expect(
+      peerlyRetrieveCvResponseBodySchema.parse(approved.data),
+    ).toMatchObject({
+      verification_status: 'APPROVED',
+      verification_data: {
+        verification_method: 'email',
+        filing_email: 'candidate@example.com',
+      },
+    })
+
+    const resend = await service.client.post(url('resend_pin'), {}, { headers })
+    peerlyResendPinResponseBodySchema.parse(resend.data)
+    const verify = await service.client.post(
+      url('verify_pin'),
+      { code: MOCK_PIN },
+      { headers },
+    )
+    expect(
+      peerlyVerifyCVPinResponseSchema.parse(verify.data).cv_verification_status,
+    ).toBe('VERIFIED')
+    const token = await service.client.post(
+      url('create_cv_token'),
+      {},
+      { headers },
+    )
+    peerlyCreateCVTokenResponseSchema.parse(token.data)
+    peerlySubmitCVResponseBodySchema.parse({
+      message: 'x',
+      verification_id: 'y',
+    })
+  })
+
+  it('auto-approves a CV request 2 minutes after it was created', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    const cv = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: { kind: 'cv_request', externalId: identityId },
+    })
+
+    await service.prisma.vendorMockRecord.update({
+      where: { id: cv.id },
+      data: { createdAt: subMinutes(new Date(), 1) },
+    })
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('IN_REVIEW')
+
+    await service.prisma.vendorMockRecord.update({
+      where: { id: cv.id },
+      data: { createdAt: subMinutes(new Date(), 3) },
+    })
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('APPROVED')
+    expect(
+      await peerly.verifyCampaignVerifyPin(identityId, MOCK_PIN, campaign),
+    ).toBe(true)
+  })
+
+  it('rejects a wrong PIN with the nested 4xx envelope and no Slack alert', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await applyAction(campaign.id, 'peerly.cv.approve')
+    const slack = vi.spyOn(
+      (peerly as unknown as { slackService: { message: () => unknown } })
+        .slackService,
+      'message',
+    )
+
+    const err = await peerly
+      .verifyCampaignVerifyPin(identityId, '000000', campaign)
+      .catch((e: unknown) => e)
+    expect(err).toMatchObject({ status: HttpStatus.UNPROCESSABLE_ENTITY })
+    expect(slack).not.toHaveBeenCalled()
+
+    const res = await service.client.post(
+      `${BASE}/v2/tdlc/${identityId}/verify_pin`,
+      { code: '000000' },
+      { headers: await mintJwt(), validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data).toEqual({
+      Error: expect.stringContaining('Campaign Verify'),
+      status_code: HttpStatus.BAD_REQUEST,
+    })
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('APPROVED')
+  })
+
+  it('flags a wrong PIN as a CV PIN rejection through the real HTTP client', async () => {
+    const { seeded, identityId } = await withSubmittedCv()
+    await applyAction(seeded.campaign.id, 'peerly.cv.approve')
+
+    const err = await service.client
+      .post(
+        `${BASE}/v2/tdlc/${identityId}/verify_pin`,
+        { code: '000000' },
+        {
+          headers: await mintJwt(),
+          validateStatus: (status) => status < HttpStatus.BAD_REQUEST,
+        },
+      )
+      .catch((e: unknown) => e)
+
+    expect(isPeerlyCvPinRejection(err)).toBe(true)
+  })
+
+  it('refuses verify_pin until the request is APPROVED', async () => {
+    const { seeded, identityId } = await withSubmittedCv()
+    const headers = await mintJwt()
+
+    const res = await service.client.post(
+      `${BASE}/v2/tdlc/${identityId}/verify_pin`,
+      { code: MOCK_PIN },
+      { headers, validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.Error).toContain('IN_REVIEW')
+    const cv = (await getRecords(seeded.campaign.id)).find(
+      (r) => r.kind === 'cv_request',
+    )
+    expect(cv?.state).toMatchObject({ status: 'IN_REVIEW' })
+  })
+
+  it('is one-shot: a VERIFIED request rejects a re-entered PIN', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await applyAction(campaign.id, 'peerly.cv.approve')
+    await peerly.verifyCampaignVerifyPin(identityId, MOCK_PIN, campaign)
+
+    const res = await service.client.post(
+      `${BASE}/v2/tdlc/${identityId}/verify_pin`,
+      { code: MOCK_PIN },
+      { headers: await mintJwt(), validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('VERIFIED')
+  })
+
+  it('peerly.cv.setPin makes the default PIN fail and the new one pass', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await applyAction(campaign.id, 'peerly.cv.approve')
+
+    const setPin = await applyAction(campaign.id, 'peerly.cv.setPin', {
+      pin: '999999',
+    })
+    expect(setPin.status).toBe(HttpStatus.CREATED)
+
+    await expect(
+      peerly.verifyCampaignVerifyPin(identityId, MOCK_PIN, campaign),
+    ).rejects.toMatchObject({ status: HttpStatus.UNPROCESSABLE_ENTITY })
+    expect(
+      await peerly.verifyCampaignVerifyPin(identityId, '999999', campaign),
+    ).toBe(true)
+  })
+
+  it.each([undefined, '12345', '1234567', 'abcdef', 123456])(
+    'rejects peerly.cv.setPin with pin %s',
+    async (pin) => {
+      const { seeded } = await withSubmittedCv()
+
+      const res = await applyAction(seeded.campaign.id, 'peerly.cv.setPin', {
+        pin,
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    },
+  )
+
+  it('peerly.cv.reject sets REJECTED with a reason and the clock does not override it', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+
+    const res = await applyAction(campaign.id, 'peerly.cv.reject', {
+      reason: 'Filing not found',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+    await service.prisma.vendorMockRecord.updateMany({
+      where: { kind: 'cv_request', externalId: identityId },
+      data: { createdAt: subMinutes(new Date(), 30) },
+    })
+
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('REJECTED')
+    expect(
+      (await getRecords(campaign.id)).find((r) => r.kind === 'cv_request')
+        ?.state,
+    ).toMatchObject({ status: 'REJECTED', rejectionReason: 'Filing not found' })
+  })
+
+  it('restarts the auto-approve clock when a CV request is resubmitted', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await service.prisma.vendorMockRecord.updateMany({
+      where: { kind: 'cv_request', externalId: identityId },
+      data: { createdAt: subMinutes(new Date(), 30) },
+    })
+
+    await submitCv(peerly, identityId, seeded)
+
+    expect(await cvStatus(peerly, identityId, campaign)).toBe('IN_REVIEW')
+  })
+
+  it('refuses create_cv_token before the request is VERIFIED', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await applyAction(campaign.id, 'peerly.cv.approve')
+
+    await expect(
+      peerly.createCampaignVerifyToken(identityId, campaign),
+    ).rejects.toThrow()
+
+    const profile = await peerly.getIdentityProfile(identityId, campaign)
+    expect(profile?.profile?.campaignVerifyToken).toBeNull()
+  })
+
+  it('reports the use case PENDING after approve, then ACTIVE after the control action', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    const headers = await mintJwt()
+    expect(await peerly.getIdentityUseCases(identityId, campaign)).toEqual([])
+    await submitBrand(peerly, identityId, seeded)
+    await service.client.post(
+      `${BASE}/v2/tdlc/${identityId}/approve`,
+      { campaign_verify_token: 'cv-token' },
+      { headers },
+    )
+
+    const pending = await service.client.get(
+      `${BASE}/v2/tdlc/${identityId}/get_usecases`,
+      { headers },
+    )
+    expect(peerlyIdentityUseCaseResponseBodySchema.parse(pending.data)).toEqual(
+      [expect.objectContaining({ usecase: 'POLITICAL', activated: 0 })],
+    )
+
+    const activate = await applyAction(campaign.id, 'peerly.usecase.activate')
+    expect(activate.status).toBe(HttpStatus.CREATED)
+
+    const useCases = await peerly.getIdentityUseCases(identityId, campaign)
+    expect(useCases).toEqual([
+      expect.objectContaining({ usecase: 'POLITICAL', activated: 1 }),
+    ])
+    expect(
+      (await getRecords(campaign.id)).find((r) => r.kind === 'usecase')?.state,
+    ).toEqual({ status: 'ACTIVE' })
+  })
+
+  it('auto-activates the use case 5 minutes after the brand approve', async () => {
+    const { peerly, seeded, identityId } = await withSubmittedCv()
+    const { campaign } = seeded
+    await submitBrand(peerly, identityId, seeded)
+    await service.client.post(
+      `${BASE}/v2/tdlc/${identityId}/approve`,
+      { campaign_verify_token: 'cv-token' },
+      { headers: await mintJwt() },
+    )
+    const usecase = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: { kind: 'usecase', externalId: identityId },
+    })
+
+    await service.prisma.vendorMockRecord.update({
+      where: { id: usecase.id },
+      data: { createdAt: subMinutes(new Date(), 4) },
+    })
+    expect(
+      (await peerly.getIdentityUseCases(identityId, campaign))[0]?.activated,
+    ).toBe(0)
+
+    await service.prisma.vendorMockRecord.update({
+      where: { id: usecase.id },
+      data: { createdAt: subMinutes(new Date(), 6) },
+    })
+    expect(
+      (await peerly.getIdentityUseCases(identityId, campaign))[0]?.activated,
+    ).toBe(1)
+  })
+
+  it.each(['peerly.cv.approve', 'peerly.cv.reject', 'peerly.usecase.activate'])(
+    '%s returns 404 when the campaign has nothing to act on',
+    async (action) => {
+      const { campaign } = await seedCampaignWithTcr()
+
+      const res = await applyAction(campaign.id, action)
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    },
+  )
+
+  it('scopes control actions to the caller campaign', async () => {
+    const mine = await withSubmittedCv()
+    const other = await withSubmittedCv()
+
+    await applyAction(mine.seeded.campaign.id, 'peerly.cv.approve')
+
+    expect(
+      await cvStatus(mine.peerly, mine.identityId, mine.seeded.campaign),
+    ).toBe('APPROVED')
+    expect(
+      await cvStatus(other.peerly, other.identityId, other.seeded.campaign),
+    ).toBe('IN_REVIEW')
   })
 })
