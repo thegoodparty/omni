@@ -440,10 +440,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       # Each of these records its result to files and always exits 0. `wait-all`
       # short-circuits everything after it if any background step fails, and we
