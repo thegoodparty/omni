@@ -551,11 +551,10 @@ describe('OrdinanceFlowChat cut-off turn', () => {
     retry.click()
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
     expect(sentContent(0)).toBe(CURRENT_LAW_OPENER)
-    expect(
-      await screen.findByText('Chapter 12 covers this.', undefined, {
-        timeout: 4000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(screen.getByText('Chapter 12 covers this.')).toBeVisible(),
+      { timeout: 4000 },
+    )
     await waitFor(() =>
       expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
     )
@@ -582,11 +581,10 @@ describe('OrdinanceFlowChat cut-off turn', () => {
     )
     const retry = await screen.findByRole('button', { name: 'Try again' })
     retry.click()
-    expect(
-      await screen.findByText('Reading the chapter.', undefined, {
-        timeout: 3000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(screen.getByText('Reading the chapter.')).toBeVisible(),
+      { timeout: 3000 },
+    )
     expect(
       screen.queryByText(/cut off before it finished/),
     ).not.toBeInTheDocument()
@@ -672,11 +670,10 @@ describe('OrdinanceFlowChat cut-off turn', () => {
     retry.click()
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
     expect(sentContent(0)).toBe('What about fines?')
-    expect(
-      await screen.findByText('Fines are capped.', undefined, {
-        timeout: 4000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(screen.getByText('Fines are capped.')).toBeVisible(),
+      { timeout: 4000 },
+    )
     await waitFor(() =>
       expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
     )
