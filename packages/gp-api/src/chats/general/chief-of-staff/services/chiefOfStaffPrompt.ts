@@ -293,7 +293,7 @@ const civicPanelBuildBlock = (
   ].every((name) => toolNames.includes(name))
   const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
   const explain =
-    '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being asked about once a month what they think, so the official hears from more of the community, not only the loudest voices. Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
+    '- Explain what a civic panel is, calling it their civic panel, in 1 or 2 short sentences that say what it is for them, for example "A civic panel is residents from every part of your district who agreed to tell you what they think before you decide." Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
   const atGoal = panel.members >= panel.goalMembers
   const askTime = [
     `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you give each week?", and its answers, so never write the question or the answers yourself.`,
@@ -356,12 +356,11 @@ const civicPanelBuildBlock = (
 
 // Every civic panel reply, build or explain. "just" is banned product copy.
 // The panel page's status and its one group to invite next may be repeated
-// in its words (Bryan, 2026-10-18), a race group included (see
-// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md); a promise
+// in its words (Bryan, 2026-10-18), a race group included; a promise
 // that the panel will match the community, any weight, quota or target, and
 // any one person's race may not.
 const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say they hear from every part of their district before they decide, not only the people who already reach out. Never say how members are found, picked or invited: no random picks, samples or self-selection.'
 
 // What the agent does when the official presses What's a civic panel? on the
 // build card: it explains, and builds nothing unless they say yes.

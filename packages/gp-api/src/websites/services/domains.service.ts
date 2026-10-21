@@ -68,6 +68,7 @@ import {
 } from '../util/domainPatterns.util'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { sleep } from '@/shared/util/sleep.util'
+import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 
 const MAX_PATTERN_CANDIDATES = 50
 
@@ -181,7 +182,7 @@ export class DomainsService
   }
 
   shouldEnableDomainPurchase(): boolean {
-    return ENABLE_DOMAIN_PURCHASE === 'true'
+    return VENDOR_MODE === 'mock' || ENABLE_DOMAIN_PURCHASE === 'true'
   }
 
   private validateDomainSearchResult(searchResult: DomainSearchResult) {

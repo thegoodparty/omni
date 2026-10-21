@@ -4,7 +4,7 @@ import { auth } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
-import type { DistrictNameItem, DistrictTypeItem } from '@goodparty_org/sdk'
+import type { DistrictNameItem, DistrictTypeItem } from '@/shared/gpApi'
 
 // District actions operate on campaign / elected-office data, which has no
 // dedicated permission, so they reuse read/write_campaigns (Sales writes,

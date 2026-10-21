@@ -5,10 +5,7 @@ import axios from 'axios'
 import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
 import { z } from 'zod'
-import {
-  isPublicAddress,
-  ssrfSafeLookup,
-} from '@/websites/services/websites.service'
+import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 
 export const MAX_FETCH_CONTENT_CHARS = 24_000
 const FETCH_TIMEOUT_MS = 15_000

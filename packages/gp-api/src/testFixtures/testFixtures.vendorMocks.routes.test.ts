@@ -47,6 +47,17 @@ const seedRecord = (
     data: { vendor, kind, externalId, state, campaignId },
   })
 
+const applyAction = (
+  campaignId: number,
+  action: string,
+  params?: Record<string, unknown>,
+) =>
+  service.client.post(
+    '/v1/test-fixtures/vendor-mocks/actions',
+    { campaignId, action, params },
+    { validateStatus: () => true },
+  )
+
 describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
   beforeEach(() => {
     envNonProd.value = true
@@ -141,21 +152,129 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     ])
   })
 
-  it.each([
-    'peerly.cv.approve',
-    'peerly.cv.reject',
-    'peerly.cv.setPin',
-    'peerly.usecase.activate',
-  ])('returns 501 for the not-yet-implemented action %s', async (action) => {
-    const campaign = await seedCampaign(service.user.id)
+  describe('peerly 10DLC actions', () => {
+    const seedPeerlyCampaign = async () => {
+      const campaign = await seedCampaign(service.user.id)
+      const identityId = `id-${campaign.id}`
+      await seedRecord(
+        VendorMockVendor.peerly,
+        'identity',
+        identityId,
+        { identity_id: identityId },
+        campaign.id,
+      )
+      await seedRecord(
+        VendorMockVendor.peerly,
+        'cv_request',
+        identityId,
+        { status: 'IN_REVIEW', pin: '123456', verificationId: 'v-1' },
+        campaign.id,
+      )
+      await seedRecord(
+        VendorMockVendor.peerly,
+        'usecase',
+        identityId,
+        { status: 'PENDING' },
+        campaign.id,
+      )
+      return campaign
+    }
 
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/actions',
-      { campaignId: campaign.id, action },
-      { validateStatus: () => true },
+    const stateOf = (
+      res: { data: { records: { kind: string; state: unknown }[] } },
+      kind: string,
+    ) => res.data.records.find((r) => r.kind === kind)?.state
+
+    it('peerly.cv.approve sets the CV request APPROVED and keeps the PIN', async () => {
+      const campaign = await seedPeerlyCampaign()
+
+      const res = await applyAction(campaign.id, 'peerly.cv.approve')
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(stateOf(res, 'cv_request')).toMatchObject({
+        status: 'APPROVED',
+        pin: '123456',
+      })
+    })
+
+    it('peerly.cv.reject sets REJECTED with the given or a default reason', async () => {
+      const campaign = await seedPeerlyCampaign()
+
+      const withReason = await applyAction(campaign.id, 'peerly.cv.reject', {
+        reason: 'Filing mismatch',
+      })
+      expect(stateOf(withReason, 'cv_request')).toMatchObject({
+        status: 'REJECTED',
+        rejectionReason: 'Filing mismatch',
+      })
+
+      const withDefault = await applyAction(campaign.id, 'peerly.cv.reject')
+      expect(
+        (stateOf(withDefault, 'cv_request') as { rejectionReason: string })
+          .rejectionReason,
+      ).toBeTruthy()
+    })
+
+    it('peerly.cv.reject rejects a non-string reason', async () => {
+      const campaign = await seedPeerlyCampaign()
+
+      const res = await applyAction(campaign.id, 'peerly.cv.reject', {
+        reason: 42,
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+
+    it('peerly.cv.setPin replaces the stored PIN with a 6-digit string', async () => {
+      const campaign = await seedPeerlyCampaign()
+
+      const res = await applyAction(campaign.id, 'peerly.cv.setPin', {
+        pin: '999999',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(stateOf(res, 'cv_request')).toMatchObject({
+        status: 'IN_REVIEW',
+        pin: '999999',
+      })
+    })
+
+    it.each([undefined, '12345', '1234567', 'abc123', 123456])(
+      'peerly.cv.setPin rejects pin %s',
+      async (pin) => {
+        const campaign = await seedPeerlyCampaign()
+
+        const res = await applyAction(campaign.id, 'peerly.cv.setPin', {
+          pin,
+        })
+
+        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      },
     )
 
-    expect(res.status).toBe(HttpStatus.NOT_IMPLEMENTED)
+    it('peerly.usecase.activate sets the use case ACTIVE', async () => {
+      const campaign = await seedPeerlyCampaign()
+
+      const res = await applyAction(campaign.id, 'peerly.usecase.activate')
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(stateOf(res, 'usecase')).toEqual({ status: 'ACTIVE' })
+    })
+
+    it.each([
+      'peerly.cv.approve',
+      'peerly.cv.reject',
+      'peerly.usecase.activate',
+    ])(
+      '%s returns 404 for a campaign with no Peerly identity',
+      async (action) => {
+        const campaign = await seedCampaign(service.user.id)
+
+        const res = await applyAction(campaign.id, action)
+
+        expect(res.status).toBe(HttpStatus.NOT_FOUND)
+      },
+    )
   })
 
   it('returns 403 when the campaign belongs to a different user', async () => {

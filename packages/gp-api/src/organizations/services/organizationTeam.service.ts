@@ -361,7 +361,19 @@ export class OrganizationTeamService {
     if (!user.clerkId) {
       return { invite: null }
     }
-    const resolved = await this.resolvePendingInvite(user.clerkId)
+    let resolved
+    try {
+      resolved = await this.resolvePendingInvite(user.clerkId)
+    } catch (err) {
+      if (!(err instanceof BadGatewayException)) {
+        throw err
+      }
+      this.logger.warn(
+        { err },
+        'Clerk unavailable while checking pending invite, treating as none',
+      )
+      return { invite: null }
+    }
     return {
       invite: resolved
         ? {

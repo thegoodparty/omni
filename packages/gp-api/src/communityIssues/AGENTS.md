@@ -137,3 +137,7 @@ env's shared agent-results queue (`src/agentExperiments/AGENTS.md`).
 ```bash
 npx vitest run src/communityIssues/
 ```
+
+## Email event props
+
+`flattenIssuesForEmail` (in `communityIssue.service.ts`) flattens ranked issues into scalar props for HubSpot. Per issue N: `…NTitle`/`…NSummary` (full text, existing workflows depend on them), `…NShortTitle` (~60 chars) and `…NTeaser` (~120 chars), both cut on a word boundary with `…` (`communityIssueEmailText.ts`). Initial/Top/Trending events also carry `leadIssueTitle` (short) and `leadIssueTeaser` for issue #1 of the list that triggered the event (top list for Initial). Use the short fields in subject lines.
