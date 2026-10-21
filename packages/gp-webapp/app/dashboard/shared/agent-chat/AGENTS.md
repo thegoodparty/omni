@@ -302,8 +302,9 @@ products use this one mechanism: the Campaign Manager's starter cards
 (`CampaignManagerChatProvider`) and the Chief of Staff's next steps
 (`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
 passed by the Serve home's `DashboardContent` under the meet card's intro and
-on a new chat). A card does one of three things: `message` sends a question
-as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
+on a new chat). A card does one of four things: `message` sends a question
+as the user's own turn, `writeIn` opens a box whose text is sent the same
+way (the clarify question's Or write your own, as Something else does), `kickoff` sends a hidden turn (a sentinel or app
 message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
 `onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
