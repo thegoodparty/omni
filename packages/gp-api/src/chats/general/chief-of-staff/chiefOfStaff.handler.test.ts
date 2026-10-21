@@ -748,6 +748,14 @@ describe('ChiefOfStaffHandler', () => {
       )
       expect(prompt).toContain('- Explain what a civic panel is')
       expect(prompt).toContain(
+        '"A civic panel is residents from every part of your district who ' +
+          'agreed to tell you what they think before you decide."',
+      )
+      expect(prompt).toContain(
+        'Never say how members are found, picked or invited',
+      )
+      expect(prompt).not.toContain('picking people at random')
+      expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
       expect(prompt).toContain(
