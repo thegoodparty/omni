@@ -1151,13 +1151,68 @@ describe('PriorityWorkspace', () => {
         '/dashboard/priorities/pri-1/results',
       )
       expect(
-        within(status).getByRole('progressbar', {
+        within(bar).getByRole('progressbar', {
           name: '3 of 12 groups heard',
         }),
       ).toBeInTheDocument()
-      expect(
-        within(bar).getByRole('button', { name: 'Get answers' }),
-      ).toBeInTheDocument()
+      const getAnswers = within(bar).getByRole('button', {
+        name: 'Get answers',
+      })
+      expect(getAnswers).toBeEnabled()
+      // Its own row under the line, so the line has the full width.
+      expect(status).not.toContainElement(getAnswers)
+    })
+
+    it('keeps Get answers ready while a turn is in flight, and holds it once asked', async () => {
+      const kickoffDone = deferred()
+      const getAnswersDone = deferred()
+      mocks.listMessages.mockResolvedValue([])
+      mocks.streamMessage
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Let me look at this.' },
+              { type: 'done', assistantMessageId: 'a1' },
+            ],
+            kickoffDone.promise,
+          ),
+        )
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Here is a text to ask more people.' },
+              { type: 'done', assistantMessageId: 'a2' },
+            ],
+            getAnswersDone.promise,
+          ),
+        )
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+
+      const buttons = () =>
+        screen.getAllByRole('button', { name: 'Get answers' })
+      expect(buttons()).toHaveLength(2)
+      for (const button of buttons()) expect(button).toBeEnabled()
+
+      fireEvent.click(
+        within(screen.getByTestId('priority-phone-bar')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+
+      await act(async () => kickoffDone.resolve())
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(2))
+      expect(mocks.streamMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+
+      await act(async () => getAnswersDone.resolve())
+      await waitFor(() => {
+        for (const button of buttons()) expect(button).toBeEnabled()
+      })
     })
 
     it('puts the title in a bar above the chat and the rail on desktop', async () => {

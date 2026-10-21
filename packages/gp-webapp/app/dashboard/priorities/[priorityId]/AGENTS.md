@@ -312,15 +312,15 @@ a model**: only the status, the groups and actions.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it one row: a status dot and the status line naming the
-  groups (`READ_STATUS_COPY.statusLine`: "Still need to hear from men" for a
+  sheet. Under it the status dot and the status line naming the
+  groups, wrapping to two lines rather than cutting the groups off (`READ_STATUS_COPY.statusLine`: "Still need to hear from men" for a
   group with no answers, "Need a few more answers from women and people 65
   and over" for groups with a few or still too unsure, both in one sentence
   when both kinds are named, "Still unsure what people 65 and over think"
-  once every group has three), a thin
+  once every group has three), then a row of its own with a thin
   bar of groups ("9 of 12 groups heard") and Get answers; or a check, "You've
-  heard from every group" (or "Enough people have answered") and See what we
-  heard. Before a check is out with residents (`readStatus.checkOut`) the row
+  heard from every group" (or "Enough people have answered") with See what we
+  heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
   reads "No one asked yet" with no bar and no button, and while a follow-up
   text is scheduled "Follow-up text to N people on Nov 3" stands in for the
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
@@ -341,7 +341,10 @@ a model**: only the status, the groups and actions.
   step. Nothing sends from the button. The results page's Get answers shows on
   the same terms and links back with `?getAnswers=1`, which `page.tsx` reads
   and the workspace turns into the same turn once, then drops from the
-  address.
+  address. Because it queues, the button is held only while its own turn is
+  queued or streaming, never for other turns, the load or an awaited reply:
+  holding it for every open turn made it look disabled while the chat looked
+  idle.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,
@@ -375,9 +378,12 @@ panel members, a heat grid of where they live, and who you're hearing from
 against the district. The response also carries reach and answers per send; the page
 does not list sends, since the tiles already give those counts.
 
-Before a good read it shows the answered tiles and the answers still needed
-with the bar, and holds back the themes, the map and who you're hearing
-from behind one line and a Get answers button. After, it shows everything below.
+Before a good read it shows the answered tiles, then a card with the status,
+the strip's own status line naming which groups have no answers and which
+are short (`READ_STATUS_COPY.statusLine`), the groups bar, and one line
+(`READ_STATUS_COPY.heldBack`) holding back the themes, the map and who
+you're hearing from, with a Get answers button. It never says nobody
+answered. After, it shows everything below.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,
   the page reads the flag server-side (`getFlagVariants`) and 404s when off,

@@ -121,3 +121,50 @@ describe('ReadStatusStrip', () => {
     ).toBeInTheDocument()
   })
 })
+
+// At 375px a line naming two groups is wider than the row, so it wraps to
+// two lines instead of cutting off the groups, and Get answers moves to the
+// row below. jsdom has no layout, so this pins the classes that do it.
+describe('ReadStatusStrip on a phone', () => {
+  const strip = (readStatus: PriorityReadStatus) =>
+    render(
+      <ReadStatusStrip
+        priorityId="pri-1"
+        readStatus={readStatus}
+        onGetAnswers={vi.fn()}
+      />,
+    )
+
+  it('wraps a short read to two lines, with Get answers below it', () => {
+    strip({ ...READ, underrepresented: ['age65plus', 'age55to64'] })
+    const line = screen.getByTestId('read-status-line')
+    expect(line).toHaveTextContent(
+      'Need a few more answers from people 65 and over and people 55 to 64',
+    )
+    expect(line).toHaveClass('line-clamp-2')
+    expect(line).not.toHaveClass('truncate')
+    const link = screen.getByRole('link', { name: /Need a few more answers/ })
+    const button = screen.getByRole('button', { name: 'Get answers' })
+    expect(link).not.toContainElement(button)
+    expect(button).toBeEnabled()
+    expect(
+      screen.getByRole('progressbar', { name: '9 of 12 groups heard' }),
+    ).toBeInTheDocument()
+  })
+
+  it('wraps a good read too, beside See what we heard', () => {
+    strip({
+      ...READ,
+      good: true,
+      status: 'representative',
+      underrepresented: [],
+    })
+    const line = screen.getByTestId('read-status-line')
+    expect(line).toHaveTextContent("You've heard from every group")
+    expect(line).toHaveClass('line-clamp-2')
+    expect(line).not.toHaveClass('truncate')
+    expect(
+      screen.getByRole('link', { name: 'See what we heard' }),
+    ).toBeInTheDocument()
+  })
+})
