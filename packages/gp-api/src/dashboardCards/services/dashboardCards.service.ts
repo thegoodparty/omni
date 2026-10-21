@@ -16,12 +16,12 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
-  CIVIC_PANEL_PAGE_HREF,
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
-  civicPanelStandingLine,
+  civicPanelOpenStepDetail,
+  civicPanelStepAction,
   civicPanelStepCardSourceId,
-  type CivicPanelBuildChannel,
+  civicPanelStepTitle,
   type CivicPanelBuildPlanResponse,
   DASHBOARD_CARD_SNOOZE_DAYS,
   DashboardCardBucket,
@@ -109,51 +109,44 @@ const reportBackCardContent = (
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
-const CIVIC_PANEL_BUILD_CARD_CONTENT = {
-  title: 'Start with the people you represent',
+// The same words with or without a plan: until the first invite goes out the
+// card's job is to get the panel built, and the home opens the build chat
+// from it, which shows the plan's next step once there is one.
+export const CIVIC_PANEL_BUILD_CARD_CONTENT = {
+  title: 'Know what residents think before you decide',
   summary:
-    'A civic panel is a group of residents who agree to tell you what ' +
-    'they think before you decide.',
+    'A civic panel gives you residents from across your district who ' +
+    'answer when you ask what they think.',
   ctaLabel: CIVIC_PANEL_BUILD_CARD_CTA,
   ctaHref: CIVIC_PANEL_BUILD_CARD_HREF,
 }
 
-const CIVIC_PANEL_ACTIVE_CARD_TITLE = 'Hear from more than the loudest voices'
+type CardWords = typeof CIVIC_PANEL_BUILD_CARD_CONTENT
 
-// The panel page's own button words for the step the card points at.
-const START_STEP_LABELS: Record<CivicPanelBuildChannel, string> = {
-  text: 'Start the text',
-  phone_banking: 'Start the calls',
-  door_knocking: 'Start door knocking',
-}
-const KEEP_GOING_LABELS: Record<CivicPanelBuildChannel, string> = {
-  text: 'See your plan',
-  phone_banking: 'Keep calling',
-  door_knocking: 'Keep knocking',
-}
-
-// Before a plan, the card asks the official to start; once there is one, it
-// leads with the value and opens the plan's next step.
-export const civicPanelBuildCardContent = (
+// The plan's next step as the panel page shows it: who to reach, one line on
+// who they are and how long it takes, and its button. Null when there is no
+// step to take (no active plan, waiting on replies).
+export const civicPanelStepCardContent = (
   panel: CivicPanelBuildPlanResponse,
-): typeof CIVIC_PANEL_BUILD_CARD_CONTENT => {
-  const { next, plan, progress, balance } = panel
-  if (!plan || plan.status !== 'active' || !next) {
-    return CIVIC_PANEL_BUILD_CARD_CONTENT
-  }
-  const ctaLabel =
-    next.channel === null || next.href === null
-      ? 'See your plan'
-      : next.status === 'not_started'
-        ? START_STEP_LABELS[next.channel]
-        : KEEP_GOING_LABELS[next.channel]
+): CardWords | null => {
+  const { next, plan } = panel
+  if (plan?.status !== 'active' || !next?.stepId || !next.href) return null
+  const step = plan.steps.find((candidate) => candidate.id === next.stepId)
+  const ctaLabel = step ? civicPanelStepAction(step) : null
+  if (!step || !ctaLabel) return null
   return {
-    title: CIVIC_PANEL_ACTIVE_CARD_TITLE,
-    summary: civicPanelStandingLine(progress, balance),
+    title: civicPanelStepTitle(step),
+    summary: civicPanelOpenStepDetail(step),
     ctaLabel,
-    ctaHref: next.href ?? CIVIC_PANEL_PAGE_HREF,
+    ctaHref: next.href,
   }
 }
+
+const differsFrom = (card: CardWords, words: CardWords): boolean =>
+  card.title !== words.title ||
+  card.summary !== words.summary ||
+  card.ctaLabel !== words.ctaLabel ||
+  card.ctaHref !== words.ctaHref
 
 type DesiredCard = {
   type: DashboardCardType
@@ -435,8 +428,8 @@ export class DashboardCardsService extends createPrismaBase(
   // The build card has no Mark done: it is done once any sent text asked
   // people to JOIN, whichever purpose it went out under (the purpose is not
   // stored on the row, and the ask is what puts people on the panel), or
-  // once the panel's plan reached its goal. Until then its words follow the
-  // plan: the panel page's Next line, opening that step.
+  // once the panel's plan reached its goal. Its words never change: a card
+  // made with older words is rewritten on the next read.
   private async syncCivicPanelBuildCard(
     tx: Prisma.TransactionClient,
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
@@ -449,9 +442,7 @@ export class DashboardCardsService extends createPrismaBase(
       sourceItemId: null,
     }
     const now = new Date()
-    const content = panel
-      ? civicPanelBuildCardContent(panel)
-      : CIVIC_PANEL_BUILD_CARD_CONTENT
+    const content = CIVIC_PANEL_BUILD_CARD_CONTENT
     const card =
       (await tx.dashboardCard.findFirst({ where })) ??
       (await tx.dashboardCard.create({
@@ -461,23 +452,16 @@ export class DashboardCardsService extends createPrismaBase(
           dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
         },
       }))
-    // A done card reads as the card it was in the archive; an open one
-    // follows the plan, and an unreadable plan leaves its words as they are.
-    const differs = (words: typeof CIVIC_PANEL_BUILD_CARD_CONTENT) =>
-      card.title !== words.title ||
-      card.summary !== words.summary ||
-      card.ctaLabel !== words.ctaLabel ||
-      card.ctaHref !== words.ctaHref
+    const stale = differsFrom(card, content)
     if (card.completedAt) {
-      if (differs(CIVIC_PANEL_BUILD_CARD_CONTENT)) {
+      if (stale) {
         await tx.dashboardCard.update({
           where: { id: card.id },
-          data: CIVIC_PANEL_BUILD_CARD_CONTENT,
+          data: content,
         })
       }
       return
     }
-    const stale = panel !== null && differs(content)
 
     const seedSent = await tx.outreach.findFirst({
       where: {
@@ -519,11 +503,11 @@ export class DashboardCardsService extends createPrismaBase(
 
   // Once the build card is done (its text is paid for), the plan's calls,
   // doors and later rounds would have no card on the home. So the plan's
-  // ready step gets one: the panel page's Next line, opening that step. One
-  // at a time, keyed by the step, so a skipped card stays skipped while its
-  // step is next and the step after it gets its own. It goes once its step
-  // is no longer next or ready (waiting on replies is not a step to take).
-  // An unreadable plan leaves things as they are.
+  // ready step gets one, in the panel page's words for that step ("Call 60
+  // residents"), opening it. One at a time, keyed by the step, so a skipped
+  // card stays skipped while its step is next and the step after it gets its
+  // own. It goes once its step is no longer next or ready (waiting on replies
+  // is not a step to take). An unreadable plan leaves things as they are.
   private async syncCivicPanelStepCard(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
@@ -539,9 +523,8 @@ export class DashboardCardsService extends createPrismaBase(
       },
       select: { completedAt: true },
     })
-    const next =
-      build?.completedAt && panel.plan?.status === 'active' ? panel.next : null
-    const ready = next?.stepId && next.href ? next.stepId : null
+    const content = build?.completedAt ? civicPanelStepCardContent(panel) : null
+    const ready = content ? panel.next?.stepId : null
     const sourceExternalId = ready ? civicPanelStepCardSourceId(ready) : null
     await tx.dashboardCard.deleteMany({
       where: {
@@ -553,8 +536,7 @@ export class DashboardCardsService extends createPrismaBase(
         },
       },
     })
-    if (!sourceExternalId) return
-    const content = civicPanelBuildCardContent(panel)
+    if (!sourceExternalId || !content) return
     const now = new Date()
     const card = await tx.dashboardCard.findFirst({
       where: {
@@ -576,11 +558,7 @@ export class DashboardCardsService extends createPrismaBase(
       })
       return
     }
-    const stale =
-      card.title !== content.title ||
-      card.summary !== content.summary ||
-      card.ctaLabel !== content.ctaLabel ||
-      card.ctaHref !== content.ctaHref
+    const stale = differsFrom(card, content)
     const lapsed = !card.dismissedAt && card.dueDate < now
     if (stale || lapsed) {
       await tx.dashboardCard.update({

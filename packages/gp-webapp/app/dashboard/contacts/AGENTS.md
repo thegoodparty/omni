@@ -29,7 +29,11 @@ This is the **unified** voter experience shared by Serve (elected office) and Wi
 The panel page is where the panel is built, from gp-api's plan
 (`GET/POST/PATCH /v1/contacts/civic-panel/plan`, read server-side by
 `page.tsx` and held in `CitizensPanelView` state; every write returns the
-whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
+whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`,
+except a step's title, its line, and its Start and Keep going buttons, which
+live in contracts (`CIVIC_PANEL_STEP_COPY`, `civicPanelStepTitle`,
+`civicPanelOpenStepDetail`, `civicPanelStepAction`) because the Chief of
+Staff's home and chat cards say the same step in the same words.
 
 - **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
   (members, goal, expected answers, plan status, `howCloseStatus` from the
@@ -122,8 +126,8 @@ whole plan). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
   their share" in the middle and "About its share" or "X% of its share" by
   each petal (a list under it on a phone). Its own "Invite more {group}
   next." / "Every group has its share." shows only when the status above
-  names nobody. The Chief
-  of Staff's next step card shows the same `CivicPanelBalanceStatus`.
+  names nobody. Only this page shows the status; the Chief of Staff's
+  cards show the step alone.
 - **Your time** (`CivicPanelRail`, beside the plan from `lg`, below it on a
   phone): "Your time", the weekly hours and Change (`PATCH`, only later
   waves change).

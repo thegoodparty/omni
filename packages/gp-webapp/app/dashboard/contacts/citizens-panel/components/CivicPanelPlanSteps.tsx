@@ -3,10 +3,9 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { format, subBusinessDays } from 'date-fns'
 import {
-  PANEL_CALLS_PER_HOUR,
-  PANEL_DOORS_PER_HOUR,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
-  UNDERREPRESENTED_GROUP_NAMES,
+  civicPanelOpenStepDetail,
+  civicPanelStepTitle as stepTitle,
   type CivicPanelBuildNext,
   type CivicPanelBuildPlan,
   type CivicPanelBuildPlanResponse,
@@ -26,13 +25,6 @@ const CHANNEL_ORDER: CivicPanelBuildStep['channel'][] = [
 
 const shortDay = (date: Date | string) => format(new Date(date), 'MMM d')
 
-const stepTitle = (step: CivicPanelBuildStep): string => {
-  const size = numberFormatter(step.targetSize)
-  return step.channel === 'door_knocking'
-    ? COPY.stepTitle.door_knocking(size, step.position)
-    : COPY.stepTitle[step.channel](size)
-}
-
 // A text counts as done once it is sent: waiting on its replies is part of
 // done, never a state of its own.
 const isDone = (step: CivicPanelBuildStep): boolean =>
@@ -50,17 +42,10 @@ const sendDay = (step: CivicPanelBuildStep): Date | null =>
       ? new Date(step.startedAt)
       : null
 
-const minutesOf = (step: CivicPanelBuildStep): number =>
-  (step.targetSize /
-    (step.channel === 'door_knocking'
-      ? PANEL_DOORS_PER_HOUR
-      : PANEL_CALLS_PER_HOUR)) *
-  60
-
-// The one line under a step's title.
+// The one line under a step's title. A step still to take reads the same as
+// the Chief of Staff's cards for it (civicPanelOpenStepDetail).
 const stepDetail = (step: CivicPanelBuildStep): string => {
   const joined = numberFormatter(step.joined ?? 0)
-  const reached = step.reached === null ? null : numberFormatter(step.reached)
   if (step.channel === 'text') {
     const sent = sendDay(step)
     if (
@@ -79,29 +64,16 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     if (step.status === 'in_progress' && sent) {
       return COPY.textGoesOut(format(sent, 'EEEE, MMMM d'))
     }
-    return step.steeredToward && step.status === 'not_started'
-      ? COPY.stepLean.text(UNDERREPRESENTED_GROUP_NAMES[step.steeredToward])
-      : COPY.stepDetail.text
+    return civicPanelOpenStepDetail(step)
   }
-  const calls = step.channel === 'phone_banking'
   if (step.status === 'done') {
-    if (reached === null) return COPY.joined(joined)
-    return calls
+    if (step.reached === null) return COPY.joined(joined)
+    const reached = numberFormatter(step.reached)
+    return step.channel === 'phone_banking'
       ? COPY.calledJoined(reached, joined)
       : COPY.knockedJoined(reached, joined)
   }
-  if (step.status === 'in_progress' && reached !== null) {
-    return calls ? COPY.calledSoFar(reached) : COPY.knockedSoFar(reached)
-  }
-  const time = COPY.duration(minutesOf(step))
-  if (calls) {
-    return step.landlineFirst === false
-      ? COPY.stepLean.phone_banking(time)
-      : COPY.stepDetail.phone_banking(time)
-  }
-  return step.steeredToward === 'unreachedAreas'
-    ? COPY.stepLean.door_knocking(time)
-    : COPY.stepDetail.door_knocking(time)
+  return civicPanelOpenStepDetail(step)
 }
 
 /**

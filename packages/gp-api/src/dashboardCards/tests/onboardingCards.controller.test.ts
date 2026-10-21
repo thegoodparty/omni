@@ -131,7 +131,7 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
       orgHeader(orgSlug),
     )
     expect(cards.data.cards.map((card) => card.ctaLabel)).toContain(
-      'Build my panel',
+      'Build your panel',
     )
   })
 })

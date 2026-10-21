@@ -332,10 +332,14 @@ registered on `ChiefOfStaffChatBody`'s registry:
   reloads checked, and prose asking it right above is dropped.
 - **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
   the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
-  holds no state of its own: the Next line, members of the goal, the panel
-  page's status and who to invite next (`CivicPanelBalanceStatus`), the
-  panel page's button for that step (none while waiting on replies), and See
-  your plan. The button opens the step's own flow through the panel page's
+  holds no state of its own. It is the standard outreach card row
+  (`CompactCardStatic`): the step in the panel page's words ("Call 60
+  residents", then who and how long, from contracts' `civicPanelStepTitle` and
+  `civicPanelOpenStepDetail`) and the page's button for it. No member count
+  and no panel status: before anyone is invited, "Too few members yet" only
+  discourages. With no step to take (waiting on replies) it is a See your
+  plan row (`CompactCardLink`) with the Next line. A step it cannot start
+  (texting not set up) offers See your plan as its button instead. The button opens the step's own flow through the panel page's
   `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
   calls over the chat, doors on the door knocking page, calls or walks
   underway on their caller page or walk. A refused call's null args render
