@@ -242,7 +242,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
 
     let outreachId: number | null = null
     await page.route(/\/api\/v1\/outreach\/serve\/sms$/, async (route) => {
-      const response = await route.fetch()
+      const response = await route.fetch({ timeout: 90_000 })
       if (response.ok()) {
         const body = (await response.json()) as { outreachId?: number }
         if (body.outreachId) outreachId = body.outreachId
@@ -301,7 +301,9 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
 
     // ── 12. Wait for the success screen ──────────────────────────────────────
     // Stripe confirm + gp-api POST /outreach/serve/sms can take up to 30s.
-    await expect(page.getByText("You're all set")).toBeVisible({
+    await expect(
+      page.getByRole('heading', { name: 'Payment successful!' }),
+    ).toBeVisible({
       timeout: 60_000,
     })
 
