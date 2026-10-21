@@ -302,13 +302,22 @@ products use this one mechanism: the Campaign Manager's starter cards
 (`CampaignManagerChatProvider`) and the Chief of Staff's next steps
 (`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
 passed by the Serve home's `DashboardContent` under the meet card's intro and
-on a new chat). A card does one of four things: `message` sends a question
-as the user's own turn, `writeIn` opens a box whose text is sent the same
-way (the clarify question's Or write your own, as Something else does), `kickoff` sends a hidden turn (a sentinel or app
+on a new chat). A card does one of three things: `message` sends a question
+as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
 message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
 `onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
+
+`combinable` cards are checkboxes with a Start button (the Chief of Staff's
+next steps). A combinable `writeIn` card (Something else) opens a box once
+picked, focused, and Start stays off until it has text. One step plus Start
+does exactly what that card alone did, hidden kickoff included; the write-in
+alone sends its text as the user's own turn. Anything more sends one visible
+turn, `pickedNextStepsMessage` (contracts): the step labels numbered in card
+order, the written item last, under `PICKED_NEXT_STEPS_LEAD`, which gp-api's
+prompt keys on to work through them one at a time. That turn stays in the
+transcript, and it is the only place the steps still to do live.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve
