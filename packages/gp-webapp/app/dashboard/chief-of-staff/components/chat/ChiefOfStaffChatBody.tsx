@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, toast } from '@styleguide'
+import { Badge, Button, Input, toast } from '@styleguide'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -1280,6 +1280,18 @@ function ChiefOfStaffChatThread({
     [deliver],
   )
 
+  // A write-in card answers the intro's question the way "Or write your own"
+  // answers a clarify question, so it is sent as one.
+  const [writingOwn, setWritingOwn] = useState(false)
+  const [ownText, setOwnText] = useState('')
+  const submitOwn = useCallback((): void => {
+    const text = ownText.trim()
+    if (!text || busy) return
+    setOwnText('')
+    setWritingOwn(false)
+    void answerClarify(text)
+  }, [ownText, busy, answerClarify])
+
   const onSend = useCallback((): void => {
     const text = composer.trim()
     if (!text || busy) return
@@ -1374,6 +1386,10 @@ function ChiefOfStaffChatThread({
   // the chip's own `onSelect`.
   const onSuggestionClick = useCallback(
     (s: ChatSuggestion) => {
+      if (s.writeIn) {
+        setWritingOwn(true)
+        return
+      }
       if (s.kickoff) {
         void deliver(s.kickoff, { hidden: true })
         return
@@ -1735,7 +1751,32 @@ function ChiefOfStaffChatThread({
           }
         >
           {effectiveSuggestions.map((s) =>
-            suggestionsAsCards ? (
+            s.writeIn && writingOwn ? (
+              <div key={s.label} className="flex items-center gap-2">
+                <Input
+                  value={ownText}
+                  onChange={(e) => setOwnText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitOwn()
+                    }
+                  }}
+                  placeholder="Type your answer..."
+                  aria-label={s.label}
+                  disabled={busy}
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  size="small"
+                  onClick={submitOwn}
+                  disabled={busy || ownText.trim().length === 0}
+                >
+                  Send
+                </Button>
+              </div>
+            ) : suggestionsAsCards ? (
               <button
                 key={s.label}
                 type="button"
