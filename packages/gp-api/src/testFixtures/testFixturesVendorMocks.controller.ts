@@ -108,6 +108,9 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
     return this.testFixtures.launchRobocall(outreachId, user.id)
   }
 

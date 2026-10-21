@@ -714,8 +714,12 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
 })
 
 describe('POST /v1/test-fixtures/vendor-mocks/robocall/:outreachId/launch', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
   })
 
   const seedRobocall = async (userId: number) => {
@@ -751,6 +755,22 @@ describe('POST /v1/test-fixtures/vendor-mocks/robocall/:outreachId/launch', () =
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.ranAt).toBeTruthy()
     expect(typeof res.data.durationMs).toBe('number')
+  })
+
+  it('403s a non-test user', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const outreach = await seedRobocall(service.user.id)
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/robocall/${outreach.id}/launch`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
   it('403s another user robocall', async () => {
