@@ -11,6 +11,7 @@ import { FeedbackReportService } from './feedbackReport.service'
 const CHANNEL_LABELS: Record<ConstituentFeedbackChannel, string> = {
   [ConstituentFeedbackChannel.door_knock]: 'At the door',
   [ConstituentFeedbackChannel.phone_bank]: 'On the phone',
+  [ConstituentFeedbackChannel.text]: 'By text',
 }
 
 // The report card's own words for a stance (feedbackReport.service.ts's

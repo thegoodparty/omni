@@ -184,7 +184,13 @@ the effort it belongs to.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
 lists each memo's issues, with where the person stands and what they want,
-and its accepted tags as badges under it.
+and its accepted tags as badges under it. A Serve resident's text reply to a
+priority's check is there too, as "By text": the person's own words, read
+for issues by gp-api's priority answer coding pass, with no name on it and
+no "Not yet reviewed", since nobody on the office's side wrote it and there
+is no step to review it. Each issue's `<li>` is `flex flex-col`: globals.css
+makes every dashboard `<li>` a flex row, which ran the stance and "Wants:"
+together.
 
 ## Analytics
 

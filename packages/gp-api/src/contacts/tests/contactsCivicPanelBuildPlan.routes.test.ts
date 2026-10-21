@@ -689,6 +689,8 @@ describe('POST /v1/contacts/civic-panel/plan/steps/:id/prepare', () => {
       civicPanelNeverInvited: true,
       notContactedRecently: true,
       sampleSize: 7_967,
+      // The send keeps it; the lists index leaves it out.
+      civicPanelInvite: true,
     })
   })
 

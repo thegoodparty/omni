@@ -603,6 +603,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         ...this.criteriaFor(step.channel),
         name: this.listName(step),
         sample: { size: personIds.length },
+        civicPanelInvite: true,
       },
       null,
       personIds,
