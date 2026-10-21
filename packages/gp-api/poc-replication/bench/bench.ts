@@ -9,7 +9,14 @@ const DATABRICKS_HOST = 'dbc-3d8ca484-79f3.cloud.databricks.com'
 const MAX_IDS_PER_POLL = 500
 const BENCH_SLUG_PREFIX = 'poc-bench-'
 const IDENTIFIER_RE = /^[A-Za-z0-9_`.-]+$/
-const MODES = ['insert', 'update', 'delete', 'check', 'schema-drill'] as const
+const MODES = [
+  'insert',
+  'update',
+  'delete',
+  'check',
+  'schema-drill',
+  'query',
+] as const
 const TABLES = ['replication_probe', 'campaign'] as const
 
 type Mode = (typeof MODES)[number]
@@ -23,6 +30,13 @@ type Op = {
   seenAt?: number
 }
 
+type QuerySample = {
+  atMs: number
+  ms: number
+  value?: string | null
+  error?: string
+}
+
 type TableChecksum = {
   count: string
   checksum: string
@@ -30,6 +44,7 @@ type TableChecksum = {
 }
 
 const statementSchema = z.object({
+  statement_id: z.string().optional(),
   status: z.object({
     state: z.string(),
     error: z.object({ message: z.string().optional() }).optional(),
@@ -83,6 +98,10 @@ const main = async (): Promise<void> => {
       'timeout-s': { type: 'string', default: '900' },
       check: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
+      'compare-target': { type: 'string' },
+      runs: { type: 'string', default: '5' },
+      'seed-rows': { type: 'string', default: '0' },
+      'dim-rows': { type: 'string', default: '1000000' },
     },
   })
 
@@ -108,6 +127,14 @@ const main = async (): Promise<void> => {
   const timeoutMs = positive('timeout-s', args['timeout-s']) * 1000
   const dryRun = args['dry-run']
   const runId = randomUUID()
+  const runs = positive('runs', args.runs)
+  const dimRows = positive('dim-rows', args['dim-rows'])
+  const seedRows = Number(args['seed-rows'])
+  if (!Number.isInteger(seedRows) || seedRows < 0) {
+    throw new Error(
+      `--seed-rows must be a whole number, got ${args['seed-rows']}`,
+    )
+  }
 
   const connectionString = process.env.POC_REPLICATION_DATABASE_URL
   if (!connectionString) throw new Error('POC_REPLICATION_DATABASE_URL not set')
@@ -122,6 +149,29 @@ const main = async (): Promise<void> => {
     }
   }
   const target = args.target ? `${args.target}.${targetTable}` : null
+  const compareTarget = args['compare-target']
+  if (mode === 'query' && !dryRun) {
+    if (!compareTarget) {
+      throw new Error(
+        '--mode query needs --compare-target <catalog.schema> for the Delta copy',
+      )
+    }
+    if (
+      !IDENTIFIER_RE.test(compareTarget) ||
+      !compareTarget
+        .split('.')
+        .at(-1)
+        ?.replaceAll('`', '')
+        .startsWith('gp_api_mirror_')
+    ) {
+      throw new Error(
+        `--compare-target must be a gp_api_mirror_* schema (the bench replaces tables in it), got ${compareTarget}`,
+      )
+    }
+    if (compareTarget === args.target) {
+      throw new Error('--compare-target must differ from --target')
+    }
+  }
 
   const warehouseId = process.env.PEOPLE_DATABRICKS_WAREHOUSE_ID
   const apiKey = process.env.PEOPLE_DATABRICKS_API_KEY
@@ -164,6 +214,54 @@ const main = async (): Promise<void> => {
       )
     }
     return body.result?.data_array ?? []
+  }
+
+  const dbxWait = async (statement: string): Promise<void> => {
+    const headers = {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    }
+    const response = await fetch(
+      `https://${DATABRICKS_HOST}/api/2.0/sql/statements`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          warehouse_id: warehouseId,
+          statement,
+          wait_timeout: '50s',
+          on_wait_timeout: 'CONTINUE',
+        }),
+      },
+    )
+    if (!response.ok) {
+      throw new Error(
+        `Databricks HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`,
+      )
+    }
+    let body = statementSchema.parse(await response.json())
+    const waitStartedAt = Date.now()
+    while (['PENDING', 'RUNNING'].includes(body.status.state)) {
+      if (Date.now() - waitStartedAt > timeoutMs) {
+        throw new Error(`Databricks statement still running after --timeout-s`)
+      }
+      await sleep(2000)
+      const poll = await fetch(
+        `https://${DATABRICKS_HOST}/api/2.0/sql/statements/${body.statement_id}`,
+        { headers },
+      )
+      if (!poll.ok) {
+        throw new Error(
+          `Databricks HTTP ${poll.status}: ${(await poll.text()).slice(0, 300)}`,
+        )
+      }
+      body = statementSchema.parse(await poll.json())
+    }
+    if (body.status.state !== 'SUCCEEDED') {
+      throw new Error(
+        `Databricks ${body.status.state}: ${body.status.error?.message ?? ''}`,
+      )
+    }
   }
 
   const pool = new Pool({ connectionString, max: 8 })
@@ -567,6 +665,182 @@ const main = async (): Promise<void> => {
     return { migration: migration.trim(), ids, timeline }
   }
 
+  const seed = async (rows: number): Promise<void> => {
+    for (let done = 0; done < rows; done += 5000) {
+      const batch = Math.min(5000, rows - done)
+      if (table === 'replication_probe') {
+        await pool.query(
+          'INSERT INTO replication_probe (payload, doc)' +
+            " SELECT left(p.payload, $1::int), jsonb_build_object('runId', $2::text, 'seed', g)" +
+            ' FROM generate_series(1, $3) g,' +
+            " LATERAL (SELECT string_agg(md5(random()::text || g || ':' || i), '')" +
+            ' AS payload FROM generate_series(1, ceil($1::int / 32.0)::int) i) p',
+          [payloadChars, runId, batch],
+        )
+      } else {
+        await pool.query(
+          'WITH g AS (SELECT $1 || gen_random_uuid()::text AS slug FROM generate_series(1, $2)),' +
+            ' u AS (INSERT INTO "user" (email, updated_at)' +
+            " SELECT slug || '@example.invalid', now() FROM g RETURNING id, email)," +
+            ' o AS (INSERT INTO organization (slug, owner_id)' +
+            " SELECT split_part(email, '@', 1), id FROM u RETURNING slug, owner_id)" +
+            ' INSERT INTO campaign (organization_slug, slug, user_id, data, updated_at)' +
+            ' SELECT slug, slug, owner_id, $3::jsonb, now() FROM o',
+          [
+            BENCH_SLUG_PREFIX,
+            batch,
+            JSON.stringify({ pocBench: { runId, seed: true } }),
+          ],
+        )
+      }
+      console.error(`seeded ${done + batch}/${rows} ${table} rows`)
+    }
+  }
+
+  const runQueryBench = async () => {
+    if (seedRows > 0) await seed(seedRows)
+    const { rows: sourceRows } = await pool.query<{
+      count: string
+      cutoff: string | null
+      max: string | null
+    }>(
+      'SELECT count(*)::text AS count,' +
+        ' (percentile_disc(0.9) WITHIN GROUP (ORDER BY id))::text AS cutoff,' +
+        ` max(id)::text AS max FROM ${table}`,
+    )
+    const source = sourceRows[0]
+    if (!source?.cutoff || !source.max) {
+      throw new Error(`No ${table} rows; seed some with --seed-rows`)
+    }
+    const cutoff = source.cutoff
+    const summary = {
+      seededRows: seedRows,
+      sourceRows: Number(source.count),
+      cutoffId: cutoff,
+    }
+    if (dryRun) return summary
+
+    const deltaCopy = `${compareTarget}.${table}`
+    const dim = `${compareTarget}.query_bench_dim`
+    const copyStartedAt = Date.now()
+    await dbxWait(
+      `CREATE OR REPLACE TABLE ${deltaCopy} AS SELECT id, updated_at FROM ${target}`,
+    )
+    const copyMs = Date.now() - copyStartedAt
+    const dimMax = Math.max(dimRows, Number(source.max))
+    await dbxWait(
+      `CREATE OR REPLACE TABLE ${dim} AS` +
+        ` SELECT id, CAST(id % 100 AS INT) AS bucket FROM range(1, ${dimMax + 1})`,
+    )
+
+    const sides = [
+      { side: 'federated', table: target },
+      { side: 'delta', table: deltaCopy },
+    ]
+    const queries = [
+      {
+        query: 'filteredCount',
+        sql: (from: string | null) =>
+          `SELECT count(*) FROM ${from} WHERE id >= ${cutoff}`,
+      },
+      {
+        query: 'join',
+        sql: (from: string | null) =>
+          `SELECT count(*) FROM ${dim} d JOIN ${from} t ON t.id = d.id` +
+          ` WHERE d.bucket < 10 AND t.id >= ${cutoff}`,
+      },
+    ]
+
+    const plans: Record<string, string[]> = {}
+    for (const { query, sql } of queries) {
+      try {
+        const [plan] = await dbx(`EXPLAIN FORMATTED ${sql(target)}`)
+        const lines = (plan?.[0] ?? '').split('\n')
+        const matching = lines.filter((line) =>
+          /pushed|external|jdbc|postgres|query:|scan /i.test(line),
+        )
+        plans[query] = (matching.length > 0 ? matching : lines)
+          .slice(0, 40)
+          .map((line) => line.slice(0, 500))
+      } catch (err) {
+        plans[query] = [`EXPLAIN failed: ${String(err).slice(0, 400)}`]
+      }
+    }
+
+    const benchStartedAt = Date.now()
+    const samples: Record<string, QuerySample[]> = {}
+    for (let run = 0; run < runs; run++) {
+      for (const { query, sql } of queries) {
+        for (const { side, table: from } of sides) {
+          const key = `${query}:${side}`
+          const nonce = randomUUID()
+          const before = Date.now()
+          const sample: QuerySample = { atMs: before - benchStartedAt, ms: 0 }
+          try {
+            const [row] = await dbx(`${sql(from)} AND '${nonce}' = '${nonce}'`)
+            sample.value = row?.[0] ?? null
+          } catch (err) {
+            sample.error = String(err).slice(0, 400)
+          }
+          sample.ms = Date.now() - before
+          const list = samples[key] ?? []
+          list.push(sample)
+          samples[key] = list
+          console.error(`run=${run} ${key} ${JSON.stringify(sample)}`)
+        }
+      }
+    }
+
+    const results = Object.fromEntries(
+      Object.entries(samples).map(([key, list]) => {
+        const ok = list.filter((sample) => sample.error === undefined)
+        const failed = list.filter((sample) => sample.error !== undefined)
+        return [
+          key,
+          {
+            ok: ok.length,
+            failures: failed.length,
+            values: [...new Set(ok.map((sample) => sample.value))],
+            firstMs: list[0]?.ms ?? null,
+            ms: stats(
+              list
+                .slice(1)
+                .filter((sample) => sample.error === undefined)
+                .map((sample) => sample.ms),
+            ),
+            firstFailureAtMs: failed[0]?.atMs ?? null,
+            lastFailureAtMs: failed.at(-1)?.atMs ?? null,
+            firstError: failed[0]?.error ?? null,
+          },
+        ]
+      }),
+    )
+    const valuesMatch = Object.fromEntries(
+      queries.map(({ query }) => {
+        const federated = results[`${query}:federated`]?.values ?? []
+        const delta = results[`${query}:delta`]?.values ?? []
+        return [
+          query,
+          federated.length === 1 &&
+            delta.length === 1 &&
+            federated[0] === delta[0],
+        ]
+      }),
+    )
+    return {
+      ...summary,
+      federated: target,
+      deltaCopy,
+      dim,
+      dimRows: dimMax,
+      copyMs,
+      runs,
+      valuesMatch,
+      plans,
+      results,
+    }
+  }
+
   try {
     const { rows: probe } = await pool.query<{ probe: string | null }>(
       "SELECT to_regclass('replication_probe')::text AS probe",
@@ -584,7 +858,12 @@ const main = async (): Promise<void> => {
         ? { check: await runCheck() }
         : mode === 'schema-drill'
           ? { drill: await runSchemaDrill() }
-          : { ...(await runOps()), check: args.check ? await runCheck() : null }
+          : mode === 'query'
+            ? { query: await runQueryBench() }
+            : {
+                ...(await runOps()),
+                check: args.check ? await runCheck() : null,
+              }
     console.log(
       JSON.stringify(
         {

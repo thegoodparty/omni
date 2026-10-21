@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
+import { createFederation } from './federation'
 
 export = () => {
   const config = new pulumi.Config()
@@ -17,6 +18,7 @@ export = () => {
   const walDiskAlarmBytes =
     config.getNumber('walDiskAlarmBytes') ?? 5 * 1024 ** 3
   const alarmEmail = config.get('alarmEmail')
+  const enableFederation = config.getBoolean('enableFederation') ?? false
 
   const name = 'gp-poc-replication'
   const parameterGroupFamily = 'aurora-postgresql17'
@@ -186,6 +188,22 @@ export = () => {
     ),
     alarmTopicArn: alarmTopic.arn,
     alarmNames: alarms.map((alarm) => alarm.name),
+  }
+
+  if (enableFederation) {
+    Object.assign(
+      outputs,
+      createFederation({
+        name,
+        config,
+        vpc,
+        subnets,
+        securityGroup,
+        cluster,
+        writer,
+        alarmTopic,
+      }),
+    )
   }
 
   return outputs
