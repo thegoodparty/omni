@@ -800,10 +800,12 @@ forward. It is deleted, skipped or not, once its priority is archived, and
 recreated if it is unarchived; a ready plan (null step) deletes it too,
 unless it is done, and it is recreated when a step comes open again.
 The webapp leads with the Chief of Staff's `meet` get-started card while it
-is active, then any open `report_back` card (the people who answered are
-waiting to hear back), then the build card (or the plan step card in its
+is active, then any open `report_back` card on a good read
+(`isGoodReadReportBackCard`: its `sourceItemId` is the read status it was
+made for), then the build card (or the plan step card in its
 place, under the same People first headline), then the `priorities`
-get-started card, then the rest. `meet` is done only once its button opens the intro
+get-started card, then the rest, a report back before a good read among
+them. `meet` is done only once its button opens the intro
 (`PUT /v1/dashboard/onboarding-cards/meet/complete`, an
 `OnboardingCardCompletion` row), never by any Chief of Staff conversation:
 the build card's own chat would otherwise hide it from a new official. One

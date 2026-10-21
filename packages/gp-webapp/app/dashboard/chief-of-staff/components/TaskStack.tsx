@@ -10,6 +10,7 @@ import {
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   isCivicPanelBuildCard,
   isCivicPanelStepCard,
+  isGoodReadReportBackCard,
 } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
@@ -76,6 +77,8 @@ type DeckCard = {
   // The build card, or the card for the panel plan's next step that takes
   // its place once it is done: same headline, same place in the deck.
   peopleFirst: boolean
+  // A report back on a priority with a good read: it leads the panel cards.
+  leadsPanel: boolean
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
 }
@@ -198,6 +201,7 @@ const TaskStack = ({
     onboardingKey: null,
     buildsPanel: isCivicPanelBuildCard(card),
     peopleFirst: isCivicPanelBuildCard(card) || isCivicPanelStepCard(card),
+    leadsPanel: isGoodReadReportBackCard(card),
     variant: cardVariant(card),
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
@@ -213,18 +217,19 @@ const TaskStack = ({
     onboardingKey: key,
     buildsPanel: false,
     peopleFirst: false,
+    leadsPanel: false,
     variant: 'other' as const,
   }))
   // A new official meets their Chief of Staff before anything else, then
-  // builds the panel, then sets priorities. A report back waiting to go
-  // leads the panel cards: the people who answered are waiting to hear back.
-  const leadsPanel = (card: DeckCard) => card.kind === 'report_back'
+  // builds the panel, then sets priorities. A report back on a good read
+  // leads the panel cards: there is something real to tell the people who
+  // answered. Before that it waits with the rest.
   const deck: DeckCard[] = [
     ...onboardingCards.filter((card) => card.onboardingKey === 'meet'),
-    ...dashboardCards.filter(leadsPanel),
+    ...dashboardCards.filter((card) => card.leadsPanel),
     ...dashboardCards.filter((card) => card.peopleFirst),
     ...onboardingCards.filter((card) => card.onboardingKey !== 'meet'),
-    ...dashboardCards.filter((card) => !card.peopleFirst && !leadsPanel(card)),
+    ...dashboardCards.filter((card) => !card.peopleFirst && !card.leadsPanel),
   ]
   const stack = leaving
     ? [leaving.card, ...deck.filter((card) => card.id !== leaving.card.id)]

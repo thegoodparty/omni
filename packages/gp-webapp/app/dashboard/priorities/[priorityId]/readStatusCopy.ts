@@ -73,16 +73,19 @@ export const READ_STATUS_COPY = {
     }
     return shortLine(read)
   },
-  missingGroups:
-    "Some groups haven't answered yet. We'll show what we heard once every group has.",
-  unsureGroups:
-    "We'll show what we heard once we're sure what every group thinks.",
+  // The results page's held card, under the status line: why what was
+  // heard is not shown yet, without claiming nobody answered.
+  heldBack: (read: PriorityReadStatus): string => {
+    if (read.groupsTotal === 0) {
+      return "We'll show what we heard once enough people have answered."
+    }
+    return read.status === 'gettingClose'
+      ? "We'll show what we heard once we're sure what every group thinks."
+      : "We'll show what we heard once every group has enough answers."
+  },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
     `Follow-up text to ${texts.toLocaleString()} people on ${date}`,
-  hearFromMoreHeading: 'Hear from more',
-  groupName: (group: UnderrepresentedGroup, read: PriorityReadStatus): string =>
-    underrepresentedGroupName(group, read.status),
 } as const
 
 export const resultsHref = (priorityId: string): string =>
