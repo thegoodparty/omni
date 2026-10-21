@@ -3,7 +3,7 @@ title: The priority read's frame takes age, sex and tract margins from the censu
 status: active
 decided_by: [samuelgoodparty]
 date: 2026-10-20
-code: ['#PR']
+code: ['#3041']
 scope:
   - packages/gp-api/src/priorities/util/censusFrame.util.ts
   - packages/gp-api/src/priorities/services/censusComposition.ts
