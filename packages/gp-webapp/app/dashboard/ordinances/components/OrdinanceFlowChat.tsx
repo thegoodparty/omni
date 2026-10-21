@@ -39,7 +39,11 @@ import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
+import {
+  fetchOrdinanceBySlug,
+  saveClarifyAnswer,
+  updateOrdinance,
+} from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
   ORDINANCE_NEXT_STEP_CTA,
@@ -205,6 +209,9 @@ export default function OrdinanceFlowChat({
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
   const answeringRef = useRef(false)
+  // Position saves go out one at a time, so a slow save for a step already
+  // left can never land after the save for the step now on screen.
+  const positionSaveRef = useRef<Promise<void>>(Promise.resolve())
   const router = useRouter()
 
   // The shared streaming-turn driver owns the mechanical turn: optimistic push,
@@ -383,6 +390,19 @@ export default function OrdinanceFlowChat({
         )
         setMessages(history)
         setPhase('ready')
+        // Only in-progress rows resume by step; drafted ones open their
+        // document. Best effort: a failed save never blocks the step.
+        if (
+          ordinance.status === 'in_progress' &&
+          ordinance.lastViewedStep !== stepValue
+        ) {
+          positionSaveRef.current = positionSaveRef.current.then(() =>
+            updateOrdinance(slug, { lastViewedStep: stepValue }).then(
+              () => undefined,
+              () => undefined,
+            ),
+          )
+        }
         // Brand-new conversation: let the agent take the first turn.
         if (history.length === 0) {
           void sendRef.current(kickoffFor(step), {

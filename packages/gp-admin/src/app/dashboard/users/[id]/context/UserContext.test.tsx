@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useUser, UserProvider } from './UserContext'
-import type { User } from '@goodparty_org/sdk'
+import type { User } from '@/shared/gpApi'
 
 const mockUser: User = {
   id: 1,

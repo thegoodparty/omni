@@ -6,10 +6,7 @@ import { useToast } from '@/components/Toast'
 import { updateCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignForm } from '../../components/CampaignForm'
 import type { CombinedCampaignFormData } from '../../schema'
-import type {
-  AdminOrganization,
-  CampaignWithLiveContext,
-} from '@goodparty_org/sdk'
+import type { AdminOrganization, CampaignWithLiveContext } from '@/shared/gpApi'
 
 interface EditCampaignClientProps {
   campaign: CampaignWithLiveContext
