@@ -324,7 +324,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       },
       async () => {
         const { data: outreach } = await client.get<{ status: string }>(
-          `/v1/outreach/${outreachId}`,
+          `/v1/outreach/serve/${outreachId}`,
         )
         expect(outreach.status).toBe('in_progress')
       },
@@ -344,7 +344,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       },
       async () => {
         const { data: outreach } = await client.get<{ status: string }>(
-          `/v1/outreach/${outreachId}`,
+          `/v1/outreach/serve/${outreachId}`,
         )
         expect(outreach.status).toBe('completed')
       },
