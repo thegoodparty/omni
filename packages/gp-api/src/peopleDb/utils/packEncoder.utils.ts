@@ -445,7 +445,7 @@ export class PackEncoder {
     // an unconditional mask, because do-not-knock and not-a-voter are
     // suppression rather than criteria and every server-side evaluation
     // already applies them. That is also what keeps this out of the filter
-    // catalog, which is the review ADR 0007 deferred.
+    // catalog, whose review for these flags was deferred.
     //
     // Note the encode is the inverse of the other planes' `?? 0`: the
     // DEFAULT here is knockable, and byte 0 is reserved for the people who

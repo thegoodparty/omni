@@ -1,0 +1,42 @@
+// Where a priority answer's words came from. The sourceId it pairs with is
+// that channel's own record: `<outreachId>:<personId>` for a text send's
+// replies, the ContactInteractionPhoneBanking or ContactInteractionDoorKnock
+// id for a call or a knock.
+enum PriorityAnswerSource {
+  text
+  phone_banking
+  door_knocking
+}
+
+enum PriorityAnswerCode {
+  yes
+  no
+  mixed
+  not_an_answer
+}
+
+// One respondent's answer to the question a priority's outreach asked, as an
+// AI classifier read their free-text reply. Replies stay free text so
+// residents can say what they mean; this is the coded read of them, which
+// staff spot check. A model's call, never a person's, so nothing here says
+// anyone agreed with it.
+model PriorityAnswer {
+  id               String               @id @default(uuid(7))
+  organizationSlug String               @map("organization_slug")
+  organization     Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  outreachId       Int                  @map("outreach_id")
+  outreach         Outreach             @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  personId         String               @map("person_id")
+  source           PriorityAnswerSource
+  sourceId         String               @map("source_id")
+  code             PriorityAnswerCode
+  model            String
+  // When the words were read, not when the row was written: a reply that
+  // lands after this is what makes the row due for coding again.
+  codedAt          DateTime             @map("coded_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  @@unique([organizationSlug, source, sourceId])
+  @@index([outreachId])
+  @@map("priority_answer")
+}

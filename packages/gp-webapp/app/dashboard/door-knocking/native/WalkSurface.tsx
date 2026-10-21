@@ -60,7 +60,8 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
   // and the knockability are two answers to two questions, and the pin needs
   // both: a fully flagged stop rolls up over an empty list to the same
   // `unknown` grey as one nobody has been to, so the status alone would send a
-  // canvasser to a door ADR 0007 or 0008 already told them to skip.
+  // canvasser to a door a do-not-knock or not-a-voter flag already told them
+  // to skip.
   const routePins = useMemo<RoutePin[]>(
     () =>
       walkTurf && routeQuery.data

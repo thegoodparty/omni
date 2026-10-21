@@ -3,7 +3,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
-import type { TenDlcStatusSnapshot } from '@goodparty_org/sdk'
+import type { TenDlcStatusSnapshot } from '@/shared/gpApi'
 
 export const getTenDlcStatusSnapshot =
   async (): Promise<TenDlcStatusSnapshot> => {

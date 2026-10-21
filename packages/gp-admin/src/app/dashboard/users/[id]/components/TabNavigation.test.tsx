@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TabNavigation } from './TabNavigation'
 import { UserProvider } from '../context/UserContext'
-import type { User } from '@goodparty_org/sdk'
+import type { User } from '@/shared/gpApi'
 
 const mockUsePathname = vi.fn()
 

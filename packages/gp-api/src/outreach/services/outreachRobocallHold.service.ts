@@ -415,8 +415,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     if (isAfter(captureDeadline, held.captureBefore)) {
       // We placed a hold that we are now abandoning. Void it (best-effort) and
       // revert, persisting attempt as the new payAttempt so a retry derives a
-      // FRESH idempotency key (robocall-hold-<id>-<attempt+1>) and a new PI —
-      // reusing the key would idempotent-replay this just-canceled PI.
+      // FRESH idempotency key (robocall-hold-<customer>-<id>-<attempt+1>) and
+      // a new PI — reusing the key would idempotent-replay this just-canceled
+      // PI.
       await this.stripe.voidHold(held.paymentIntentId)
       await this.recordOrphanHold(
         held.paymentIntentId,
@@ -789,8 +790,8 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // pre-delivery states — do not re-void or re-email.
     if (claim.count === 0) return
 
-    // The `win-robocall-critical` alert pages win-bugs on this `CRITICAL
-    // robocall` line (deploy/components/alerts.ts).
+    // The `win-robocall-critical` alert pages on this `CRITICAL robocall`
+    // line (deploy/components/alerts.ts).
     this.logger.error(
       { outreachId, reason },
       'CRITICAL robocall send_failed: permanent CallHub failure; hold voided',

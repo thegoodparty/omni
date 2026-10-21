@@ -50,12 +50,12 @@ interface DoorNotesCardProps {
   onDeleted: (noteId: string) => void
 }
 
-// ADR 0011's Notes section, at the door. The 2026-08-20 product call asked for
+// The Notes section, at the door. The 2026-08-20 product call asked for
 // saved notes that carry the date and time they were written, can be edited and
 // deleted later, and all appear in one place.
 //
 // **Nothing here fetches.** The list is seeded from `target.notes` on the route
-// payload, which is the whole reason ADR 0011 put it there: a canvasser reads
+// payload, which is the whole reason notes ship there: a canvasser reads
 // this while standing on a porch, and a card that needs a round trip is a blank
 // card during the conversation. Reads ride the payload; writes do not, and that
 // asymmetry is deliberate rather than an omission — a failed write is visible
@@ -65,11 +65,11 @@ interface DoorNotesCardProps {
 // The list after a write is **patched into the cached route payload** by
 // `WalkView` (see `doorNotes.ts` for the algebra), never refetched. Asking for
 // a whole route serve — this feature's heaviest read — because someone typed a
-// sentence is the per-door fetch ADR 0009 rejected, and the response to a
-// create or an edit is the row itself, so there is nothing left to go and ask
-// for. Patching the payload rather than holding a list beside it is what makes
-// a note survive the sheet closing: the card is handed `target.notes`, and
-// after a write that is what `target.notes` says.
+// sentence is a per-door fetch, a round trip that fails exactly where it
+// matters, and the response to a create or an edit is the row itself, so there
+// is nothing left to go and ask for. Patching the payload rather than holding a
+// list beside it is what makes a note survive the sheet closing: the card is
+// handed `target.notes`, and after a write that is what `target.notes` says.
 export default function DoorNotesCard({
   personId,
   notes,
@@ -183,11 +183,12 @@ export default function DoorNotesCard({
   // Three sentences for three different claims, and they are not
   // interchangeable. A known-empty block is a fact about the resident and says
   // so. A `total` above what is on screen sends the canvasser to the CRM for
-  // the rest, with the real count rather than a "3+" — ADR 0011 put the number
-  // on the wire so the door could tell three-of-four from three-of-forty, which
-  // is the difference between "you have the gist" and "go read the file". An
-  // unknown total is a fact about the PAYLOAD — a walk snapshotted before ADR
-  // 0011 shipped — and must not be worded as though it were about the person.
+  // the rest, with the real count rather than a "3+" — the payload puts the
+  // number on the wire so the door could tell three-of-four from
+  // three-of-forty, which is the difference between "you have the gist" and "go
+  // read the file". An unknown total is a fact about the PAYLOAD — a walk
+  // snapshotted before notes were added to the route payload — and must not be
+  // worded as though it were about the person.
   //
   // No link to Contacts, deliberately: the activity feed strips its own
   // "View outreach" links for the reason a same-tab route change out of a walk

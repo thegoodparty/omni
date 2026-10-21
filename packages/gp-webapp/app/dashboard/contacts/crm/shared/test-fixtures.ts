@@ -35,6 +35,7 @@ export function makePerson(overrides: Partial<Person> = {}): Person {
     registeredVoter: 'Yes',
     estimatedIncomeAmount: null,
     voterStatus: null,
+    earlyVoteStatus: null,
     maritalStatus: null,
     hasChildrenUnder18: null,
     veteranStatus: null,

@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -9,12 +11,16 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   panelExpectedAnswers,
   panelGoalMembers,
+  PANEL_ACTIVE_WINDOW_DAYS,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
+  UnderrepresentedGroupSchema,
   type CivicPanelBuildPlanResponse,
+  type CivicPanelComposition,
   type PrepareCivicPanelBuildStepResponse,
+  type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, isBefore, parseISO } from 'date-fns'
+import { addBusinessDays, addDays, isBefore, parseISO, subDays } from 'date-fns'
 import {
   CivicPanelBuildChannel,
   CivicPanelBuildPlanStatus,
@@ -26,21 +32,38 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import {
+  EVENTS,
+  type SegmentTrackEventProperties,
+} from 'src/vendors/segment/segment.types'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
+import { answeredPersonIds } from '@/priorities/util/priorityRespondents.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
 import {
   areaAround,
   CHANNEL_ORDER,
   nextStep,
-  pickWalkableArea,
   sizePanelWave,
   stepStatus,
   waveIsDue,
   type PanelWavePools,
 } from '../utils/civicPanelBuild.util'
+import {
+  panelSteering,
+  precinctPlaces,
+  type PanelMix,
+  type PanelSteering,
+} from '../utils/civicPanelSteering.util'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ContactsService } from './contacts.service'
 
 // Every list a step draws is never invited to the panel and not reached in
@@ -81,6 +104,8 @@ const STEP_SELECT = {
   skippedAt: true,
   markedDone: true,
   markedAt: true,
+  steeredToward: true,
+  landlineFirst: true,
 } satisfies Prisma.CivicPanelBuildStepSelect
 
 type StepRow = Prisma.CivicPanelBuildStepGetPayload<{
@@ -92,6 +117,34 @@ type PlanRow = Prisma.CivicPanelBuildPlanGetPayload<{
 }>
 
 type Office = { id: string; organizationSlug: string }
+
+// Where the official answered the weekly time question.
+export type CivicPanelPlanSurface = 'panel_page' | 'chief_of_staff'
+
+// A panel's census read is kept this long per set of members, so the plan
+// page, its cards and the Chief of Staff do not each re-read the warehouse.
+const MIX_CACHE_MS = 15 * 60 * 1000
+
+// What a step's draw would lean toward with the panel as it stands. Doors
+// lean only once their tract is known to hold enough doors, at the draw.
+const predictedLean = (
+  channel: CivicPanelBuildChannel,
+  steering: PanelSteering,
+): UnderrepresentedGroup | null => {
+  if (channel === CivicPanelBuildChannel.door_knocking) {
+    return steering.doorTract ? 'unreachedAreas' : null
+  }
+  if (!steering.weights) return null
+  if (channel === CivicPanelBuildChannel.phone_banking) {
+    return steering.landlineFirst ? null : steering.leansToward
+  }
+  return steering.leansToward
+}
+
+const storedLean = (value: string | null): UnderrepresentedGroup | null => {
+  const parsed = UnderrepresentedGroupSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
 
 type StepLinks = Partial<
   Pick<
@@ -143,28 +196,49 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     private readonly contactStatusService: ContactStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly analytics: AnalyticsService,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
+    private readonly voterQuery: VoterQueryService,
   ) {
     super()
   }
 
+  private track(
+    office: Office,
+    events: [string, SegmentTrackEventProperties][],
+  ): Promise<void> {
+    return trackForOffice(
+      this.client,
+      this.analytics,
+      { id: office.id },
+      events,
+    )
+  }
+
+  private readonly mixes = new Map<
+    string,
+    { key: string; mix: PanelMix; expiresAt: number }
+  >()
+
   async create(
     organization: Organization,
     hoursPerWeek: number,
+    surface: CivicPanelPlanSurface,
   ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
     if (await this.findActive(office.id)) {
       throw new ConflictException('This office already has a panel plan')
     }
-    const members = await this.memberCount(organization)
-    const goalMembers = panelGoalMembers(
-      await this.contactsService.getDistrictPopulation(organization),
+    const memberIds = await this.memberIds(organization)
+    const members = memberIds.size
+    const planGoal = panelGoalMembers(
+      await this.districtAnswersNeeded(organization),
     )
-    const gap = goalMembers - members
-    if (gap <= 0) {
-      throw new ConflictException(
-        'Your civic panel has already reached its goal',
-      )
-    }
+    const keepFresh = members >= planGoal
+    const gap = keepFresh
+      ? this.keepFreshGap(await this.steeringFor(organization, memberIds, true))
+      : planGoal - members
     const steps = sizePanelWave({
       gap,
       hoursPerWeek,
@@ -175,8 +249,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         'Everyone we can reach has already been invited',
       )
     }
+    let planId: string
     try {
-      await this.client.$transaction(async (tx) => {
+      planId = await this.client.$transaction(async (tx) => {
         await this.lockOffice(tx, office.id)
         const active = await tx.civicPanelBuildPlan.findFirst({
           where: {
@@ -188,15 +263,18 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         if (active) {
           throw new ConflictException('This office already has a panel plan')
         }
-        await tx.civicPanelBuildPlan.create({
+        const plan = await tx.civicPanelBuildPlan.create({
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
-            goalMembers,
+            goalMembers: planGoal,
+            keepFresh,
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
+          select: { id: true },
         })
+        return plan.id
       })
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -204,6 +282,24 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       }
       throw error
     }
+    const stepsOn = (channel: CivicPanelBuildChannel) =>
+      steps.filter((step) => step.channel === channel).length
+    await this.track(office, [
+      [
+        EVENTS.CivicPanel.PlanCreated,
+        {
+          planId,
+          hoursPerWeek,
+          goalMembers: planGoal,
+          membersAtStart: members,
+          stepCount: steps.length,
+          textSteps: stepsOn(CivicPanelBuildChannel.text),
+          callSteps: stepsOn(CivicPanelBuildChannel.phone_banking),
+          doorSteps: stepsOn(CivicPanelBuildChannel.door_knocking),
+          surface,
+        },
+      ],
+    ])
     return this.read(organization)
   }
 
@@ -213,8 +309,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   async updateHours(
     organization: Organization,
     hoursPerWeek: number,
+    surface: CivicPanelPlanSurface,
   ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
+    const before = await this.findActive(office.id)
     const updated = await this.model.updateMany({
       where: {
         electedOfficeId: office.id,
@@ -224,6 +322,19 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     })
     if (updated.count === 0) {
       throw new NotFoundException('This office has no panel plan to change')
+    }
+    if (before && before.hoursPerWeek !== hoursPerWeek) {
+      await this.track(office, [
+        [
+          EVENTS.CivicPanel.PlanUpdated,
+          {
+            planId: before.id,
+            fromHours: before.hoursPerWeek,
+            toHours: hoursPerWeek,
+            surface,
+          },
+        ],
+      ])
     }
     return this.read(organization)
   }
@@ -256,10 +367,18 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This step has already started')
     }
     if (!step.skippedAt) {
-      await this.client.civicPanelBuildStep.updateMany({
+      const skipped = await this.client.civicPanelBuildStep.updateMany({
         where: { id: step.id, startedAt: null, skippedAt: null },
         data: { skippedAt: new Date() },
       })
+      if (skipped.count > 0) {
+        await this.track(office, [
+          [
+            EVENTS.CivicPanel.StepSkipped,
+            { stepId: step.id, channel: step.channel, wave: step.wave },
+          ],
+        ])
+      }
     }
     return this.read(organization)
   }
@@ -276,9 +395,12 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       where: { id: stepId, plan: { electedOfficeId: office.id } },
       select: {
         id: true,
+        wave: true,
         channel: true,
         skippedAt: true,
         startedAt: true,
+        completedAt: true,
+        markedDone: true,
         plan: { select: { status: true } },
       },
     })
@@ -298,6 +420,21 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       where: { id: step.id },
       data: { markedDone: done, markedAt: new Date() },
     })
+    // A step's completion is reported once: here, or by the read when its
+    // list finished first.
+    if (done && step.markedDone !== true && !step.completedAt) {
+      await this.track(office, [
+        [
+          EVENTS.CivicPanel.StepCompleted,
+          {
+            stepId: step.id,
+            channel: step.channel,
+            wave: step.wave,
+            how: 'marked',
+          },
+        ],
+      ])
+    }
     return this.read(organization)
   }
 
@@ -310,17 +447,18 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const office = await this.officeFor(organization)
     const memberIds = await this.memberIds(organization)
     const members = memberIds.size
-    const population =
-      await this.contactsService.getDistrictPopulation(organization)
-    const needed = answersNeeded(population)
-    const districtGoal = panelGoalMembers(population)
+    const needed = await this.districtAnswersNeeded(organization)
+    const districtGoal = panelGoalMembers(needed)
+    const steering = await this.steeringFor(
+      organization,
+      memberIds,
+      members >= districtGoal,
+    )
     const active = await this.findActive(office.id)
     if (active) {
-      const goalMembers = this.goalFor(
-        active.goalMembers,
-        districtGoal,
-        members,
-      )
+      const goalMembers = active.keepFresh
+        ? active.goalMembers
+        : this.goalFor(active.goalMembers, districtGoal, members)
       if (goalMembers !== active.goalMembers) {
         await this.model.updateMany({
           where: { id: active.id, status: CivicPanelBuildPlanStatus.active },
@@ -332,6 +470,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         office,
         { ...active, goalMembers },
         members,
+        steering,
       )
     }
     const plan = await this.model.findFirst({
@@ -339,31 +478,69 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
+    const composition = await this.compositionFor(
+      organization,
+      memberIds,
+      steering,
+    )
     const progressToward = (goal: number) => ({
       members,
       goal,
       answersNeeded: needed,
       expectedAnswers: panelExpectedAnswers(members),
+      groupsCovered: steering.coverage?.groupsCovered ?? 0,
+      groupsTotal: steering.coverage?.groupsTotal ?? 0,
     })
-    if (!plan)
-      return { plan: null, next: null, progress: progressToward(districtGoal) }
+    const goal =
+      plan?.status === CivicPanelBuildPlanStatus.active && !plan.keepFresh
+        ? plan.goalMembers
+        : districtGoal
+    if (!plan) {
+      return {
+        plan: null,
+        next: null,
+        progress: progressToward(districtGoal),
+        balance: steering.balance,
+        composition,
+      }
+    }
     const now = new Date()
     const currentWave = Math.max(1, ...plan.steps.map((s) => s.wave))
     const steps = await Promise.all(
       plan.steps
         .map(withMark)
         .sort((a, b) => a.wave - b.wave || this.stepOrder(a, b))
-        .map(async (step) => ({
-          ...step,
-          status: stepStatus(step, step.wave < currentWave, now),
-          ...(await this.reachOf(organization, step, memberIds)),
-        })),
+        .map(async (step) => {
+          const status = stepStatus(step, step.wave < currentWave, now)
+          return {
+            ...step,
+            status,
+            steeredToward:
+              step.voterFileFilterId !== null
+                ? storedLean(step.steeredToward)
+                : status === 'not_started'
+                  ? predictedLean(step.channel, steering)
+                  : null,
+            landlineFirst:
+              step.channel !== CivicPanelBuildChannel.phone_banking
+                ? null
+                : step.voterFileFilterId !== null
+                  ? // Drawn before this was recorded: only a draw that
+                    // dropped landlines first could lean.
+                    (step.landlineFirst ?? step.steeredToward === null)
+                  : status === 'not_started'
+                    ? steering.landlineFirst
+                    : null,
+            ...(await this.reachOf(organization, step, memberIds)),
+          }
+        }),
     )
     return {
       plan: {
         id: plan.id,
         status: plan.status,
         goalMembers: plan.goalMembers,
+        keepFresh: plan.keepFresh,
         hoursPerWeek: plan.hoursPerWeek,
         currentWave,
         createdAt: plan.createdAt,
@@ -374,11 +551,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         plan.status === CivicPanelBuildPlanStatus.active
           ? nextStep(steps.filter((s) => s.wave === currentWave))
           : null,
-      progress: progressToward(
-        plan.status === CivicPanelBuildPlanStatus.active
-          ? plan.goalMembers
-          : districtGoal,
-      ),
+      progress: progressToward(goal),
+      balance: steering.balance,
+      composition,
     }
   }
 
@@ -394,7 +569,12 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       select: {
         ...STEP_SELECT,
         plan: {
-          select: { status: true, steps: { select: { wave: true } } },
+          select: {
+            status: true,
+            goalMembers: true,
+            keepFresh: true,
+            steps: { select: { wave: true } },
+          },
         },
       },
     })
@@ -414,7 +594,17 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       throw new ConflictException('This step is no longer part of the plan')
     }
     const exclude = await this.excludedPersonIds(organization)
-    const personIds = await this.draw(organization, step, exclude)
+    const steering = await this.steeringFor(
+      organization,
+      await this.memberIds(organization),
+      step.plan.keepFresh,
+    )
+    const { personIds, steeredToward } = await this.draw(
+      organization,
+      step,
+      exclude,
+      steering,
+    )
     if (personIds.length === 0) {
       throw new ConflictException('Nobody is left to invite this way')
     }
@@ -430,7 +620,15 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     )
     const claimed = await this.client.civicPanelBuildStep.updateMany({
       where: { id: step.id, voterFileFilterId: null },
-      data: { voterFileFilterId: list.id, preparedAt: new Date() },
+      data: {
+        voterFileFilterId: list.id,
+        preparedAt: new Date(),
+        steeredToward,
+        landlineFirst:
+          step.channel === CivicPanelBuildChannel.phone_banking
+            ? steering.landlineFirst
+            : null,
+      },
     })
     if (claimed.count === 0) {
       // A second press drew too; the first list is the step's.
@@ -479,6 +677,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     office: Office,
     plan: PlanRow,
     members: number,
+    steering: PanelSteering,
   ): Promise<void> {
     const now = new Date()
     for (const step of plan.steps) {
@@ -491,16 +690,35 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       ) {
         continue
       }
-      await this.syncStep(organization, step, step.voterFileFilterId, now)
+      await this.syncStep(
+        organization,
+        office,
+        step,
+        step.voterFileFilterId,
+        now,
+      )
     }
-    if (members >= plan.goalMembers) {
-      await this.model.updateMany({
+    if (!plan.keepFresh && members >= plan.goalMembers) {
+      const closed = await this.model.updateMany({
         where: { id: plan.id, status: CivicPanelBuildPlanStatus.active },
         data: {
           status: CivicPanelBuildPlanStatus.completed,
           completedAt: now,
         },
       })
+      if (closed.count > 0) {
+        await this.track(office, [
+          [
+            EVENTS.CivicPanel.GoalReached,
+            {
+              planId: plan.id,
+              members,
+              goalMembers: plan.goalMembers,
+              waves: Math.max(1, ...plan.steps.map((s) => s.wave)),
+            },
+          ],
+        ])
+      }
       return
     }
     const synced = await this.client.civicPanelBuildStep.findMany({
@@ -516,7 +734,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     // Sized before the lock: the counts are people-db reads, too slow to
     // hold a transaction open for. The lock only settles who writes.
     const steps = sizePanelWave({
-      gap: plan.goalMembers - members,
+      gap: plan.keepFresh
+        ? this.keepFreshGap(steering)
+        : plan.goalMembers - members,
       hoursPerWeek: plan.hoursPerWeek,
       pools: await this.pools(organization),
     })
@@ -564,6 +784,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   // done, when.
   private async syncStep(
     organization: Organization,
+    office: Office,
     step: StepRow,
     voterFileFilterId: number,
     now: Date,
@@ -584,10 +805,37 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         : before !== after
     })
     if (!changed) return
-    await this.client.civicPanelBuildStep.update({
-      where: { id: step.id },
+    // Conditional on the start and finish this read saw, so of two reads
+    // racing over the same step only one records (and reports) the change.
+    const written = await this.client.civicPanelBuildStep.updateMany({
+      where: {
+        id: step.id,
+        startedAt: step.startedAt,
+        completedAt: step.completedAt,
+      },
       data,
     })
+    if (written.count === 0) return
+    const events: [string, SegmentTrackEventProperties][] = []
+    const base = { stepId: step.id, channel: step.channel, wave: step.wave }
+    if (!step.startedAt && data.startedAt) {
+      events.push([EVENTS.CivicPanel.StepStarted, base])
+    }
+    // A ticked or unticked step reads off the official's mark, so its list
+    // finishing is not a completion (mark reported the tick).
+    if (!step.completedAt && data.completedAt && step.markedDone === null) {
+      events.push([
+        EVENTS.CivicPanel.StepCompleted,
+        {
+          ...base,
+          how:
+            data.completedAt.getTime() === now.getTime()
+              ? 'finished'
+              : 'window_ended',
+        },
+      ])
+    }
+    await this.track(office, events)
   }
 
   private async textTimeline(
@@ -712,25 +960,38 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return isBefore(now, windowEnds) ? null : windowEnds
   }
 
+  // Texts, and calls once the panel holds its share of people 65 and over,
+  // are weighted draws toward the groups the panel trails. Doors walk the
+  // part of the district the panel has reached least, when it holds a
+  // step's worth of households.
   private async draw(
     organization: Organization,
     step: StepRow,
     exclude: string[],
-  ): Promise<string[]> {
-    if (step.channel === CivicPanelBuildChannel.text) {
-      return (
+    steering: PanelSteering,
+  ): Promise<{
+    personIds: string[]
+    steeredToward: UnderrepresentedGroup | null
+  }> {
+    const weighted = async (seedKey: string) => ({
+      personIds:
         (await this.contactsService.drawListSample(
           organization,
           this.criteriaFor(step.channel),
           {
             size: step.targetSize,
-            seedKey: step.id,
+            seedKey,
             excludePersonIds: exclude,
+            weights: steering.weights ?? undefined,
           },
-        )) ?? []
-      )
+        )) ?? [],
+      steeredToward: predictedLean(step.channel, steering),
+    })
+    if (step.channel === CivicPanelBuildChannel.text) {
+      return weighted(step.id)
     }
     if (step.channel === CivicPanelBuildChannel.phone_banking) {
+      if (!steering.landlineFirst) return weighted(`${step.id}:any`)
       // Landlines first: the residents a text cannot reach. Anyone else
       // with a phone fills what is left.
       const landlines =
@@ -744,7 +1005,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           },
         )) ?? []
       const short = step.targetSize - landlines.length
-      if (short <= 0) return landlines
+      if (short <= 0) return { personIds: landlines, steeredToward: null }
       const others =
         (await this.contactsService.drawListSample(
           organization,
@@ -755,16 +1016,172 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
             excludePersonIds: [...exclude, ...landlines],
           },
         )) ?? []
-      return [...landlines, ...others]
+      return { personIds: [...landlines, ...others], steeredToward: null }
     }
-    const points = await this.contactsService.doorPointsWithin(
+    if (steering.doorTract) {
+      const inTract = await this.contactsService.walkableAreaWithin(
+        organization,
+        this.criteriaFor(step.channel),
+        exclude,
+        step.targetSize,
+        steering.doorTract,
+      )
+      if (inTract.length >= step.targetSize) {
+        return {
+          personIds: inTract.flatMap((household) => household.personIds),
+          steeredToward: 'unreachedAreas',
+        }
+      }
+    }
+    const area = await this.contactsService.walkableAreaWithin(
       organization,
       this.criteriaFor(step.channel),
       exclude,
+      step.targetSize,
     )
-    return pickWalkableArea(points, step.targetSize).flatMap(
-      (household) => household.personIds,
+    return {
+      personIds: area.flatMap((household) => household.personIds),
+      steeredToward: null,
+    }
+  }
+
+  // The answers a good read of the district needs, enough for every major
+  // group to answer three times. A district that cannot be read is sized for
+  // the smallest major group any district can have.
+  private async districtAnswersNeeded(
+    organization: Organization,
+  ): Promise<number> {
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      return (
+        (await this.census.districtAnswersNeeded(district)) ?? answersNeeded()
+      )
+    } catch {
+      return answersNeeded()
+    }
+  }
+
+  // Which groups the panel covers, and how the next draws lean. A panel
+  // with nobody on it has no census to read, and a failed read leans nowhere.
+  // Past its goal (`pastGoal`) the panel is judged on its active members.
+  private async steeringFor(
+    organization: Organization,
+    memberIds: Set<string>,
+    pastGoal = false,
+  ): Promise<PanelSteering> {
+    const members = memberIds.size
+    const mix =
+      members === 0
+        ? null
+        : await this.mixOf(organization, [...memberIds], 'members')
+    return panelSteering({
+      members,
+      mix,
+      activeMix:
+        pastGoal && mix
+          ? await this.activeMixOf(organization, memberIds, mix)
+          : null,
+    })
+  }
+
+  // The panel page's seats and petals: by tract from the census, or by
+  // precinct when the district has no tract data. Null when neither can be
+  // read.
+  private async compositionFor(
+    organization: Organization,
+    memberIds: Set<string>,
+    steering: PanelSteering,
+  ): Promise<CivicPanelComposition | null> {
+    const fromCensus = steering.composition
+    if (fromCensus && fromCensus.places.length > 0) return fromCensus
+    if (memberIds.size === 0) return null
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const [precincts, members] = await Promise.all([
+        this.voterQuery.findPrecincts(district.districtId, district.dataset),
+        this.voterQuery.findPrecinctMembers(
+          district.districtId,
+          district.dataset,
+          [...memberIds],
+        ),
+      ])
+      const places = precinctPlaces(
+        precincts.options.map(({ county, precinct, voters }) => ({
+          county,
+          precinct,
+          people: voters,
+        })),
+        members,
+      )
+      if (places.length === 0) return fromCensus
+      return {
+        placeKind: 'precinct',
+        places,
+        groups: fromCensus?.groups ?? [],
+      }
+    } catch {
+      return fromCensus
+    }
+  }
+
+  // The members who answered a priority's text, call or door in the last
+  // PANEL_ACTIVE_WINDOW_DAYS, counted the way the members are. Nobody active
+  // is the census with no one on it.
+  private async activeMixOf(
+    organization: Organization,
+    memberIds: Set<string>,
+    memberMix: PanelMix,
+  ): Promise<PanelMix | null> {
+    const answered = await answeredPersonIds(
+      this.client,
+      organization.slug,
+      null,
+      subDays(new Date(), PANEL_ACTIVE_WINDOW_DAYS),
     )
+    const active = answered.filter((personId) => memberIds.has(personId))
+    if (active.length === 0) return { cells: [], census: memberMix.census }
+    return this.mixOf(organization, active, 'active')
+  }
+
+  // The members a keep-fresh wave is sized to: the fewest that would put
+  // every group at its active members. Null with nobody short, so the wave
+  // is the official's hours alone.
+  private keepFreshGap(steering: PanelSteering): number | null {
+    const short = steering.fresh?.membersShort ?? 0
+    return short > 0 ? short : null
+  }
+
+  private async mixOf(
+    organization: Organization,
+    personIds: string[],
+    scope: 'members' | 'active',
+  ): Promise<PanelMix | null> {
+    const key = createHash('sha256')
+      .update([...personIds].sort().join(','))
+      .digest('hex')
+    const now = Date.now()
+    const cacheKey = `${organization.slug}:${scope}`
+    const cached = this.mixes.get(cacheKey)
+    if (cached && cached.key === key && cached.expiresAt > now) {
+      return cached.mix
+    }
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const mix = await this.census.weightingInputs({ ...district, personIds })
+      if (mix) {
+        this.mixes.set(cacheKey, {
+          key,
+          mix,
+          expiresAt: now + MIX_CACHE_MS,
+        })
+      }
+      return mix
+    } catch {
+      return null
+    }
   }
 
   private criteriaFor(channel: CivicPanelBuildChannel) {
@@ -778,8 +1195,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   private listName(step: StepRow): string {
     const base = LIST_NAMES[step.channel]
     const area = step.position > 1 ? ` ${step.position}` : ''
-    const round = step.wave > 1 ? `, round ${step.wave}` : ''
-    return `${base}${area}${round}`
+    const batch = step.wave > 1 ? `, batch ${step.wave}` : ''
+    return `${base}${area}${batch}`
   }
 
   // How many each channel can still reach.
@@ -835,10 +1252,6 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return rows.map((row) => row.personId)
   }
 
-  private async memberCount(organization: Organization): Promise<number> {
-    return (await this.memberIds(organization)).size
-  }
-
   private async memberIds(organization: Organization): Promise<Set<string>> {
     const members = await this.contactStatusService.personIdsByFieldValue(
       organization.slug,
@@ -888,11 +1301,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     return { reached: null, joined }
   }
 
-  // An active plan's goal follows the district's, so plans made before the
-  // goal was sized in answers (100 members) and plans whose census figure
-  // moved read the same as a new one. It may come down, but never below the
-  // members the panel already has: the plan then completes rather than
-  // reading as past its goal.
+  // An active plan's goal follows the district's, so plans made under an
+  // older sizing and plans whose district mix moved read the same as a new
+  // one. It may come down, but never below the members the panel already
+  // has: the plan then completes rather than reading as past its goal.
   private goalFor(
     planGoal: number,
     districtGoal: number,

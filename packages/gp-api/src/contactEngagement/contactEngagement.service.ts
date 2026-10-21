@@ -3,6 +3,7 @@ import { ContactInteractionPhoneBankingService } from '@/contactInteraction/serv
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactPriorityAnswersService } from './services/contactPriorityAnswers.service'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
@@ -24,6 +25,7 @@ import {
   DoorKnockConstituentActivity,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
   OutreachConstituentActivity,
   PhoneBankingConstituentActivity,
   PollConstituentActivity,
@@ -81,6 +83,7 @@ export class ContactEngagementService {
     private readonly contactInteractionRobocall: ContactInteractionRobocallService,
     private readonly contactInteractionPhoneBanking: ContactInteractionPhoneBankingService,
     private readonly contactStatus: ContactStatusService,
+    private readonly priorityAnswers: ContactPriorityAnswersService,
   ) {}
 
   async getIndividualActivities(
@@ -307,6 +310,12 @@ export class ContactEngagementService {
         : null,
     )
 
+    // Only a Serve office's priority sends are ever coded, so a Win feed has
+    // nothing to read.
+    const answers = isServe
+      ? await this.priorityAnswers.forFeed(organizationSlug, personId)
+      : null
+
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({
         type: ConstituentActivityType.DOOR_KNOCK,
@@ -324,6 +333,9 @@ export class ContactEngagementService {
                 .join(' ') || null
             : null,
           actorUserId: activity.actorUserId,
+          ...(answers && {
+            priorityAnswer: answers.byInteractionId.get(activity.id) ?? null,
+          }),
         },
       }),
     )
@@ -349,6 +361,12 @@ export class ContactEngagementService {
           activity.outreachId === null
             ? []
             : (repliesByOutreach.get(activity.outreachId) ?? []),
+        ...(answers && {
+          priorityAnswer:
+            activity.outreachId === null
+              ? null
+              : (answers.byTextOutreachId.get(activity.outreachId) ?? null),
+        }),
       },
     }))
 
@@ -385,6 +403,9 @@ export class ContactEngagementService {
                 .join(' ') || null
             : null,
           actorUserId: activity.actorUserId,
+          ...(answers && {
+            priorityAnswer: answers.byInteractionId.get(activity.id) ?? null,
+          }),
         },
       }))
 
@@ -472,6 +493,15 @@ export class ContactEngagementService {
       page.length > limit && lastResult ? cursorKey(lastResult) : null
 
     return { nextCursor, results }
+  }
+
+  async getPriorityAnswers(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<GetPersonPriorityAnswersResponse> {
+    return {
+      results: await this.priorityAnswers.list(organizationSlug, personId),
+    }
   }
 
   // The outreach ids come off this org's own text rows, so they are already

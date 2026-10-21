@@ -39,7 +39,7 @@ the chain is `claude-sonnet-4-6` → `claude-opus-4-7`, fail-closed.
 
 ## Authentication
 
-All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`) — see `docs/adr/0004-clerk-m2m-auth.md`.
+All routes use the standard gp-api session guard. Pass the session cookie (JWT) the way the rest of the app does. For server-to-server / testing, a Clerk M2M token works (`Authorization: Bearer mt_...`).
 
 ## POST `:annotationId/messages` — sending a message
 
@@ -52,32 +52,32 @@ Request body:
 }
 ```
 
-| Field | Required | Notes |
-|---|---|---|
-| `content` | yes | Trimmed; max 10,000 chars; empty rejected with 400 |
+| Field             | Required | Notes                                                             |
+| ----------------- | -------- | ----------------------------------------------------------------- |
+| `content`         | yes      | Trimmed; max 10,000 chars; empty rejected with 400                |
 | `clientMessageId` | optional | UUID v4. **Strongly recommended** — see idempotency section below |
 
 Response is **SSE** (`Content-Type: text/event-stream`). Each frame is `data: <JSON>\n\n`. The JSON shape is one of:
 
-| Type | Fields | Meaning |
-|---|---|---|
-| `text` | `{ type: 'text', delta: string }` | Token-by-token assistant output. Append to a buffer. |
-| `tool_call` | `{ type: 'tool_call', toolName: string, args: object }` | The LLM invoked a tool. Show "thinking" / "searching" UI if you want. |
-| `tool_result` | `{ type: 'tool_result', toolName: string, result: object }` | Tool finished. |
-| `done` | `{ type: 'done', assistantMessageId?: string }` | Stream complete. `assistantMessageId` may be omitted if persistence failed; don't depend on it being present. |
-| `error` | `{ type: 'error', code, message, retryable }` | Stream failed. See error codes below. |
+| Type          | Fields                                                      | Meaning                                                                                                       |
+| ------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `text`        | `{ type: 'text', delta: string }`                           | Token-by-token assistant output. Append to a buffer.                                                          |
+| `tool_call`   | `{ type: 'tool_call', toolName: string, args: object }`     | The LLM invoked a tool. Show "thinking" / "searching" UI if you want.                                         |
+| `tool_result` | `{ type: 'tool_result', toolName: string, result: object }` | Tool finished.                                                                                                |
+| `done`        | `{ type: 'done', assistantMessageId?: string }`             | Stream complete. `assistantMessageId` may be omitted if persistence failed; don't depend on it being present. |
+| `error`       | `{ type: 'error', code, message, retryable }`               | Stream failed. See error codes below.                                                                         |
 
 Always handle `done` and `error` as terminal — close the stream and stop reading.
 
 ### Error codes
 
-| `code` | `retryable` | When | Suggested UI |
-|---|---|---|---|
-| `conversation_not_found` | false | Annotation isn't a chat / chatConversationId is null / wrong owner | "This chat is unavailable. Refresh the briefing." |
-| `upstream_unavailable` | true | LLM provider 5xx / network failure | "Chat is temporarily unavailable. Retry?" + retry button |
-| `rate_limited` | true | LLM provider 429 | "Too many requests. Try again in a moment." + retry |
-| `aborted` | false | Client closed connection or server cancelled | Show nothing (user did it themselves). |
-| `internal` | false | Anything else server-side | "Something went wrong. Please refresh." |
+| `code`                   | `retryable` | When                                                               | Suggested UI                                             |
+| ------------------------ | ----------- | ------------------------------------------------------------------ | -------------------------------------------------------- |
+| `conversation_not_found` | false       | Annotation isn't a chat / chatConversationId is null / wrong owner | "This chat is unavailable. Refresh the briefing."        |
+| `upstream_unavailable`   | true        | LLM provider 5xx / network failure                                 | "Chat is temporarily unavailable. Retry?" + retry button |
+| `rate_limited`           | true        | LLM provider 429                                                   | "Too many requests. Try again in a moment." + retry      |
+| `aborted`                | false       | Client closed connection or server cancelled                       | Show nothing (user did it themselves).                   |
+| `internal`               | false       | Anything else server-side                                          | "Something went wrong. Please refresh."                  |
 
 Always show `message` to the user — it's already sanitized server-side (no stack traces, no internal model names, no provider URLs).
 
@@ -102,6 +102,7 @@ async function send(content: string) {
 ```
 
 What this prevents:
+
 - **Double-click on Send** — two POSTs with the same `clientMessageId` → only one user message persisted, only one LLM stream runs. (Best UX is still to disable the Send button while the request is in flight; idempotency is a backstop.)
 - **Network-retry mid-send** — client times out, retries → same id → backend returns the existing message instead of running the LLM twice.
 
@@ -119,12 +120,19 @@ There's also a **90-second server-side timeout** per stream. If the LLM hangs, t
 {
   "conversationId": "ckg...",
   "messages": [
-    { "id": "...", "role": "user", "content": "...", "createdAt": "2026-05-14T..." },
+    {
+      "id": "...",
+      "role": "user",
+      "content": "...",
+      "createdAt": "2026-05-14T..."
+    },
     { "id": "...", "role": "assistant", "content": "...", "createdAt": "..." }
   ],
   "usage": {
     "complete": true,
-    "byModel": [{ "model": "claude-sonnet-4-6", "inputTokens": 1200, "outputTokens": 340 }]
+    "byModel": [
+      { "model": "claude-sonnet-4-6", "inputTokens": 1200, "outputTokens": 340 }
+    ]
   }
 }
 ```
@@ -145,10 +153,10 @@ Thumbs up / thumbs down on one assistant reply, plus the optional note explainin
 { "feedback": "negative", "comment": "Missed the budget item." }
 ```
 
-| Field | Required | Notes |
-|---|---|---|
-| `feedback` | yes | `positive` \| `negative` |
-| `comment` | optional | Max 2,000 chars. **Omit** it to keep whatever note is stored (a re-vote without retyping); pass `null` to clear it |
+| Field      | Required | Notes                                                                                                              |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `feedback` | yes      | `positive` \| `negative`                                                                                           |
+| `comment`  | optional | Max 2,000 chars. **Omit** it to keep whatever note is stored (a re-vote without retyping); pass `null` to clear it |
 
 `PUT` is an upsert, so repeating it replaces the rating rather than stacking rows, and it returns the stored row. `DELETE` retracts the rating and its note (204, and idempotent — retracting nothing still succeeds).
 
@@ -157,6 +165,7 @@ Both 404 on a `messageId` that isn't an **assistant** turn of that conversation,
 ## DELETE `:annotationId` — soft-delete
 
 Returns 204 No Content. Soft-deletes the underlying `ChatConversation` (sets `deletedAt`). After deletion:
+
 - `GET` returns 404
 - `POST` returns `conversation_not_found` over SSE
 
@@ -172,15 +181,12 @@ The model fallback chain is `claude-sonnet-4-6` → `claude-opus-4-7`. Hardcoded
 const messageId = crypto.randomUUID()
 const controller = new AbortController()
 
-const res = await fetch(
-  `/api/v1/briefing-chats/${annotationId}/messages`,
-  {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, clientMessageId: messageId }),
-    signal: controller.signal,
-  },
-)
+const res = await fetch(`/api/v1/briefing-chats/${annotationId}/messages`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ content, clientMessageId: messageId }),
+  signal: controller.signal,
+})
 
 if (!res.ok) {
   // 4xx/5xx before stream starts — read JSON body for error
@@ -203,11 +209,21 @@ while (true) {
     if (!frame.startsWith('data: ')) continue
     const chunk = JSON.parse(frame.slice(6))
     switch (chunk.type) {
-      case 'text': assistantText += chunk.delta; renderPartial(assistantText); break
-      case 'tool_call': renderToolThinking(chunk.toolName); break
-      case 'tool_result': /* optional, usually ignored in UI */ break
-      case 'done': finalize(assistantText, chunk.assistantMessageId); return
-      case 'error': showError(chunk); return
+      case 'text':
+        assistantText += chunk.delta
+        renderPartial(assistantText)
+        break
+      case 'tool_call':
+        renderToolThinking(chunk.toolName)
+        break
+      case 'tool_result':
+        /* optional, usually ignored in UI */ break
+      case 'done':
+        finalize(assistantText, chunk.assistantMessageId)
+        return
+      case 'error':
+        showError(chunk)
+        return
     }
   }
 }

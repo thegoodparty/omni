@@ -1008,6 +1008,7 @@ describe('CampaignTrackerTasksService.completeTask', () => {
       completed: false,
     })
     await h.service.completeTask(caller, 't1')
+    expect(h.prisma.$transaction).not.toHaveBeenCalled()
     expect(h.prisma.campaignUpdateHistory.create).not.toHaveBeenCalled()
     expect(h.prisma.campaignTrackerTask.update).toHaveBeenCalledWith({
       where: { id: 't1' },
@@ -1024,6 +1025,10 @@ describe('CampaignTrackerTasksService.completeTask', () => {
       type: 'text',
       quantity: 5,
     } as never)
+    expect(h.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      maxWait: 10_000,
+      timeout: 15_000,
+    })
     expect(h.prisma.$executeRaw).toHaveBeenCalled()
     expect(h.prisma.campaignUpdateHistory.create).toHaveBeenCalled()
     expect(h.prisma.campaign.update).toHaveBeenCalled()

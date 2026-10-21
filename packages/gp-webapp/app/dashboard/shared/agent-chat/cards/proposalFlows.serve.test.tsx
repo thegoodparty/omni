@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { trackEvent } from 'helpers/analyticsHelper'
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalFlowsProvider, useProposalFlows } from './proposalFlows'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -55,27 +57,35 @@ const panelAndFresh: Proposal = {
   stepId: 'define',
   side: 'main',
   sampleSize: 84,
-  panelSampleSize: 42,
   civicPanelAsk: true,
 }
 
-const Opener = ({ proposal }: { proposal: Proposal }) => {
+const Opener = ({
+  proposal,
+  launchSource,
+}: {
+  proposal: Proposal
+  launchSource?: OutreachLaunchSource
+}) => {
   const flows = useProposalFlows()
   return (
     <button
       type="button"
       disabled={!flows?.textResolved}
-      onClick={() => flows?.open(proposal, 'priority-1')}
+      onClick={() => flows?.open(proposal, 'priority-1', launchSource)}
     >
       Start the text
     </button>
   )
 }
 
-const openCard = async (proposal: Proposal) => {
+const openCard = async (
+  proposal: Proposal,
+  launchSource?: OutreachLaunchSource,
+) => {
   render(
     <ProposalFlowsProvider>
-      <Opener proposal={proposal} />
+      <Opener proposal={proposal} {...(launchSource && { launchSource })} />
     </ProposalFlowsProvider>,
   )
   const button = await screen.findByRole('button', { name: 'Start the text' })
@@ -87,6 +97,7 @@ const openCard = async (proposal: Proposal) => {
 // Every list the card saves, as the server would return them.
 let saved: Record<string, unknown>[] = []
 beforeEach(() => {
+  vi.mocked(trackEvent).mockClear()
   saved = []
   smsFlow.props = null
   window.localStorage.clear()
@@ -100,17 +111,17 @@ beforeEach(() => {
   }))
 })
 
-describe("a priority's text card to the panel and new residents", () => {
+describe("a priority's text card that asks the civic panel", () => {
   // The card settled who gets it, so the list is saved before the flow
   // opens, and the flow opens on the message with that list picked.
-  it('saves one list holding both draws and opens on the message, the join ask on', async () => {
+  it('saves one sampled list and opens on the message, the join ask on', async () => {
     await openCard(panelAndFresh)
 
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatchObject({
       name: 'Flooding check',
       hasCellPhone: true,
-      sample: { size: 84, panelSize: 42, seedKey: PROPOSAL_KEY },
+      sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
     const props = smsFlow.props
     expect(props?.surface).toEqual({ isServe: true })
@@ -125,7 +136,6 @@ describe("a priority's text card to the panel and new residents", () => {
   it('leaves the join ask off for a text that did not ask for it', async () => {
     await openCard({
       ...panelAndFresh,
-      panelSampleSize: undefined,
       civicPanelAsk: undefined,
     })
 
@@ -136,6 +146,29 @@ describe("a priority's text card to the panel and new residents", () => {
     expect(saved[0]?.sample).not.toHaveProperty('panelSize')
     expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
+  })
+})
+
+describe('a priority card kept to the parts of the district not reached yet', () => {
+  it('saves the list with the area', async () => {
+    await openCard({ ...panelAndFresh, areaTarget: 'unreached' })
+
+    expect(saved[0]).toMatchObject({ unreachedAreaOfPriorityId: 'priority-1' })
+  })
+})
+
+describe("a priority card's launch source", () => {
+  it('is priorities by default', async () => {
+    await openCard(panelAndFresh)
+
+    expect(smsFlow.props?.launchSource).toBe('priorities')
+    expect(smsFlow.props?.proposalLink).not.toHaveProperty('launchSource')
+  })
+
+  it('is expand_panel for a card that answered Get answers', async () => {
+    await openCard(panelAndFresh, 'expand_panel')
+
+    expect(smsFlow.props?.launchSource).toBe('expand_panel')
   })
 })
 
@@ -186,6 +219,16 @@ describe("the Chief of Staff's civic panel invite", () => {
     await openCard({ ...panelAndFresh, purpose: undefined })
 
     expect(smsFlow.props).not.toHaveProperty('initialPurpose')
+  })
+})
+
+describe('a round 2 card', () => {
+  it('saves the pool whole and hands the flow its size', async () => {
+    const { sampleSize: _sample, ...whole } = panelAndFresh
+    await openCard({ ...whole, roundTwoSize: 300 })
+
+    expect(saved[0]).not.toHaveProperty('sample')
+    expect(smsFlow.props?.roundTwoSize).toBe(300)
   })
 })
 

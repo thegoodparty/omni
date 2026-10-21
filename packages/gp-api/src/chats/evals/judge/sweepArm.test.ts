@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentEntry } from './agents'
+import { JUDGE_CLERK_ENV } from './judgeClerkSession'
 import { ARM_KEY_ENV } from './modelKey'
 import type { CaseList } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
@@ -121,6 +122,13 @@ describe('scrubReason', () => {
     ['ANTHROPIC_API_KEY=sk-ant-api03-AbCdEf123456 rejected', 'sk-ant'],
     ['token dapi0123456789abcdef expired', 'dapi0'],
     ['connect postgres://user:pa55w0rd@db.internal:5432/x failed', 'pa55w0rd'],
+    // The judge's minted Clerk session token. A chat arm driving a deployed
+    // gp-api sends it on every request, so an HTTP client that puts a header
+    // into an exception message would put it in a public job summary.
+    [
+      'Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJqdWRnZSJ9.c2ln refused',
+      'eyJzdWIiOiJqdWRnZSJ9',
+    ],
   ])('redacts a secret shape in %o', (reason, leaked) => {
     expect(scrubReason(reason)).not.toContain(leaked)
   })
@@ -153,6 +161,7 @@ describe('scrubReason', () => {
     'DATABRICKS_CLIENT_SECRET',
     'DATABRICKS_CLIENT_ID',
     'DATABASE_URL',
+    JUDGE_CLERK_ENV.sessionToken,
   ])('redacts %s by its value', (name) => {
     const value = 'Zk3rQv8pLm2wXt6bNc1yEa'
     const scrubbed = scrubReason(

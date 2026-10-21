@@ -393,6 +393,13 @@ elsewhere in this book.
 An area with more than one name (Win and Serve vocabulary for the same page) is never
 `high`: the row lists the names as `surface_options`, and the human picks one.
 
+An event that reaches more than one area gets no `proposed_*` fields. Instead the row
+carries `area_options`, one entry per area with the surface, display name, `fires_on`
+and `url` an accept under that area would write. Accepting such a row needs
+`surface_drift.py dispose "<event>" --as accepted --area "<area>"`, which copies the
+chosen option into `proposed_*` and records `chosen_area`; an accept without `--area`
+is refused, so a relabel can never reach `event-metadata` without a target.
+
 The removal commit is the newest commit that net-removed an import of any component on
 the walk, not necessarily one under the label's area; the page-path and user gates are
 what keep that from pre-checking a wrong row.

@@ -175,7 +175,7 @@ import { dirname, join, relative } from 'node:path'
 // mutating button pair (flag / undo) rendered inside the client-only
 // PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
 // 2026-08-17: 566 -> 567 for door-knocking/native/NotAVoterControl.tsx — the
-// ADR 0008 follow-up and its marker, same shape and same reason as
+// not-a-voter follow-up and its marker, same shape and same reason as
 // DoNotKnockControl above: it POSTs on tap and renders from the response,
 // inside the client-only PersonSheet. The paper surfaces read the same reason
 // through statusPresentation.ts, which stays directive-free so print/ keeps its
@@ -258,7 +258,7 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
 // deletion (phone banking's inline audience builder, replaced by the shared
 // v2/audience/ step) = 603.
-// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx.
 // The door's Notes section owns a compose draft, an in-place editor, three
 // mutations and a dictation session, so it cannot render on the server — the
 // same shape and the same reason as DoNotKnockControl and NotAVoterControl

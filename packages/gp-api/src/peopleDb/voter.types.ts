@@ -142,6 +142,7 @@ export interface Voter {
   Veteran_Status: string | null // ConsumerDataLL_Veteran
   VoterParties_Change_Changed_Party: string | null // Voter changed party affiliation between Dem and Rep
   Voter_Status: string | null // Turnout-propensity bucket (2026 General) from the in-house model probability. One of: Unlikely (<0.25), Unreliable (<0.50), Likely (<0.75), Super (>=0.75), Unknown (no score). See gp-api src/contacts/CLAUDE.md "The Voter_Status propensity vocabulary".
+  Early_Vote_Status: string | null // Likelihood of voting before Election Day: max(hs_likely_ev, hs_likely_vbm), Haystaq's 0-100 within-state percentiles for early in-person and mail voting. One of: Very unlikely (<25), Unlikely (<55), Likely (<80), Very likely (>=80), Unknown (no score). NULL on consumer-only rows.
   Voter_Status_UpdatedAt: Date | null
   VoterTelephones_CellConfidenceCode: number | null
   VoterTelephones_CellPhoneFormatted: string | null

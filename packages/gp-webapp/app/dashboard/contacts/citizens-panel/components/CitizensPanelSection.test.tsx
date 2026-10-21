@@ -62,7 +62,10 @@ describe('CitizensPanelSection', () => {
     expect(screen.getByText('940')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'See your panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
   })
 
   it('shows members toward the goal with the same bar as the panel page', async () => {
@@ -85,23 +88,29 @@ describe('CitizensPanelSection', () => {
           goal: 240,
           answersNeeded: 96,
           expectedAnswers: 48,
+          groupsCovered: 6,
+          groupsTotal: 12,
         },
+        balance: null,
       },
     })
 
     render(<CitizensPanelSection />)
 
     const bar = await screen.findByTestId('civic-panel-progress')
-    expect(bar).toHaveTextContent('120 of 240 members')
+    expect(bar).toHaveTextContent('120 members, in 6 of 12 groups')
     expect(
       bar.querySelector('[data-slot="progress"]')?.getAttribute('data-filled'),
     ).toBe('50')
     expect(bar).toHaveTextContent(
-      'About 4 in 10 members answer each question, so 240 members gets you the 96 answers you need.',
+      'Invite people from the groups still missing so every part of your district has a voice.',
     )
     expect(
       screen.getByRole('link', { name: 'See your panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
   })
 
   it('leaves the bar out when the plan cannot be read', async () => {
@@ -140,7 +149,10 @@ describe('CitizensPanelSection', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=contacts',
+    )
     expect(
       screen.queryByRole('link', { name: 'See your panel' }),
     ).not.toBeInTheDocument()

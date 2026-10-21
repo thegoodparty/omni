@@ -66,8 +66,8 @@ describe('rollupStopStatus', () => {
     ).toBe('unknown')
   })
 
-  // ADR 0007. The regression this guards: `unknown` outranks everything, so a
-  // flagged resident used to hold the stop grey no matter what was logged.
+  // Do-not-knock. The regression this guards: `unknown` outranks everything, so
+  // a flagged resident used to hold the stop grey no matter what was logged.
   it('ignores flagged residents when the rest of the household is logged', () => {
     expect(
       rollupStopStatus(stop([target('unknown', true), target('supporter')])),
@@ -133,8 +133,9 @@ describe('rollupStopStatus', () => {
     ).toBe('not_home')
   })
 
-  // ADR 0008 makes the same claim as 0007 about this rollup: both flags remove a
-  // resident from it, which is one predicate (`isKnockable`) and not two rules.
+  // Not-a-voter makes the same claim as do-not-knock about this rollup: both
+  // flags remove a resident from it, which is one predicate (`isKnockable`) and
+  // not two rules.
   it('ignores a resident flagged with a reason', () => {
     const moved = { ...target('unknown'), notAVoterReason: 'moved' as const }
     expect(rollupStopStatus(stop([moved, target('supporter')]))).toBe(
@@ -176,7 +177,8 @@ describe('stopIsKnockable', () => {
     expect(stopIsKnockable(untouched)).toBe(true)
   })
 
-  // ADR 0007 and 0008 are one predicate to a count (routeCounts), and to this.
+  // Do-not-knock and not-a-voter are one predicate to a count (routeCounts),
+  // and to this.
   it('counts either flag as nobody', () => {
     expect(stopIsKnockable(stop([target('supporter', true)]))).toBe(false)
     expect(
@@ -252,11 +254,11 @@ describe('knockStatusCounts', () => {
   })
 
   // The one bucket whose membership is partial, and the reason the drawer says
-  // so out loud. ADR 0008's follow-up is optional: the status lands at Save and
-  // the `notAVoterReason` only once someone answers "what happened?" — and it is
-  // the reason, not the status, that removes them from the count. So a door
-  // logged not-a-voter with nothing answered yet is still in the denominator and
-  // belongs in this bucket.
+  // so out loud. The not-a-voter follow-up is optional: the status lands at
+  // Save and the `notAVoterReason` only once someone answers "what happened?" —
+  // and it is the reason, not the status, that removes them from the count. So
+  // a door logged not-a-voter with nothing answered yet is still in the
+  // denominator and belongs in this bucket.
   it('keeps a not-a-voter outcome whose follow-up is unanswered', () => {
     const counts = knockStatusCounts([stop([target('not_a_voter')])])
 

@@ -225,11 +225,53 @@ describe('smsComplianceWindow', () => {
     ).toBe('not_applicable')
   })
 
+  // Candidates who completed TCR via the legacy POST /campaigns/tcr-compliance
+  // path (approved before ~mid-May 2026) have kickoffSentAt NULL forever — the
+  // column is only stamped by the agentic claimAndEnqueueKickoff path. Their
+  // Peerly brand is live and they are actively texting; a non-null
+  // peerlyIdentityId is self-evidence of "filed, paid, and Peerly accepted it"
+  // (submitCampaignVerifyRequest's idempotency guard requires it), so once they
+  // hit the cutoff they must still read as not_applicable rather than closed.
+  it('is not_applicable for a legacy approval with a Peerly identity', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: null,
+          peerlyIdentityId: '11539648',
+        },
+        now: at('2026-10-20'),
+      }),
+    ).toEqual({
+      smsCompliance: 'not_applicable',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+  })
+
   it('ignores a compliance record without a kickoff', () => {
     expect(
       smsComplianceWindow({
         electionDate,
         tcrCompliance: { kickoffSentAt: null },
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('closed')
+  })
+
+  // A record saved without ever being accepted by Peerly (no peerlyIdentityId)
+  // does not count as having made the cutoff — only the trio of kickoff, Peerly
+  // identity, or internal-testing exemption does.
+  it('ignores a compliance record with no Peerly identity', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: null,
+          peerlyIdentityId: null,
+        },
         now: at('2026-10-20'),
       }).smsCompliance,
     ).toBe('closed')

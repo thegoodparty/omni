@@ -7,6 +7,7 @@ import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
+import { BadGatewayException } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
@@ -145,6 +146,26 @@ describe('GET /v1/organizations/team', () => {
         email: service.user.email,
       }),
     ])
+    expect(result.data.pendingInvites).toEqual([])
+  })
+
+  it('still lists members when Clerk cannot list pending invites', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'member@example.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockRejectedValue(
+      new BadGatewayException('Failed to list team invitations'),
+    )
+
+    const result = await service.client.get(TEAM_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.members).toHaveLength(2)
     expect(result.data.pendingInvites).toEqual([])
   })
 

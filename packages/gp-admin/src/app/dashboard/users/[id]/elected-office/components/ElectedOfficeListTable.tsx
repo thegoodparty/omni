@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Table, Text, Badge } from '@radix-ui/themes'
-import type { ElectedOffice } from '@goodparty_org/sdk'
+import type { ElectedOffice } from '@/shared/gpApi'
 import { formatDate } from '@/lib/utils/date'
 
 interface ElectedOfficeListTableProps {

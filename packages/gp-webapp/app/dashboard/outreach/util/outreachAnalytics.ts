@@ -69,6 +69,60 @@ export type OutreachFlowSource =
   | 'door_knocking_page'
   | 'deep_link'
 
+// Which agent surface launched the outreach, when one did: a priority card
+// that answered Get answers, any other priority card, a civic panel plan step,
+// or a card in the Chief of Staff or Campaign Manager chat. Omitted when the
+// official started the outreach themselves. Analytics only: it never rides on
+// a server payload.
+export type OutreachLaunchSource =
+  | 'expand_panel'
+  | 'priorities'
+  | 'civic_panel'
+  | 'chief_of_staff'
+  | 'campaign_manager'
+
+// Door knocking and phone banking complete on another page, often days after
+// the list was made, so the launch source is kept by list in this browser.
+// A list finished on another device reports no launch source.
+const LAUNCH_SOURCE_PREFIX = 'outreach-launch-source:'
+const LAUNCH_SOURCES: readonly OutreachLaunchSource[] = [
+  'expand_panel',
+  'priorities',
+  'civic_panel',
+  'chief_of_staff',
+  'campaign_manager',
+]
+
+export const rememberLaunchSource = (
+  channel: TaskChannel,
+  listId: number,
+  launchSource: OutreachLaunchSource | undefined,
+): void => {
+  if (!launchSource) return
+  try {
+    window.localStorage.setItem(
+      `${LAUNCH_SOURCE_PREFIX}${channel}:${listId}`,
+      launchSource,
+    )
+  } catch {
+    // Without storage the completion reports no launch source.
+  }
+}
+
+export const recalledLaunchSource = (
+  channel: TaskChannel,
+  listId: number,
+): OutreachLaunchSource | undefined => {
+  try {
+    const stored = window.localStorage.getItem(
+      `${LAUNCH_SOURCE_PREFIX}${channel}:${listId}`,
+    )
+    return LAUNCH_SOURCES.find((source) => source === stored)
+  } catch {
+    return undefined
+  }
+}
+
 export interface OutreachEventInput {
   channel: TaskChannel
   // Which product the event happened in. Required rather than defaulted: a
@@ -97,6 +151,15 @@ export interface OutreachEventInput {
   listId?: number
   audienceSource?: string
   tracker?: OutreachTrackerOrigin
+  // What the send is for, where the flow knows it (Serve's purpose picker:
+  // a civic panel invite, a report back, ...).
+  purpose?: string
+  // The priority a chat card's send answers, so a priority's asks can be
+  // counted without joining on the outreach.
+  priorityId?: string
+  // Serve texts only: whether the send asks people to join the civic panel.
+  asksToJoinCivicPanel?: boolean
+  launchSource?: OutreachLaunchSource
 }
 
 // A Date is reduced to its LOCAL calendar day, never `toISOString()`'s UTC
@@ -124,7 +187,7 @@ const toSendDate = (value: string | Date): string => {
  */
 export const outreachEventProps = (
   input: OutreachEventInput,
-): Record<string, string | number> => ({
+): Record<string, string | number | boolean> => ({
   medium: input.channel,
   fanout: CHANNEL_FANOUT[input.channel],
   product: outreachProduct(input.isServe),
@@ -149,4 +212,10 @@ export const outreachEventProps = (
   ...(input.tracker
     ? { trackerTaskId: input.tracker.trackerTaskId, phase: input.tracker.phase }
     : {}),
+  ...(input.purpose ? { purpose: input.purpose } : {}),
+  ...(input.priorityId ? { priorityId: input.priorityId } : {}),
+  ...(input.asksToJoinCivicPanel !== undefined
+    ? { asksToJoinCivicPanel: input.asksToJoinCivicPanel }
+    : {}),
+  ...(input.launchSource ? { launchSource: input.launchSource } : {}),
 })

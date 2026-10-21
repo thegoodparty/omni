@@ -283,7 +283,19 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.
     OutreachTextDeliveryService,
+    // The dev activity seed writes its Serve replies through the real
+    // ingest, so panel joins land the way production writes them.
+    OutreachTextIngestService,
     OutreachServePollExpansionService,
+    // Exported so TestFixturesModule can inject them into the run-job allowlist.
+    OutreachRobocallStagingService,
+    OutreachRobocallSendService,
+    OutreachRobocallCompletionService,
+    OutreachRobocallCaptureService,
+    // Exported so TestFixturesModule can call admin actions as test fixtures.
+    OutreachCompletionService,
+    OutreachSmsAdminService,
+    OutreachResultsAdminService,
   ],
 })
 export class OutreachModule {

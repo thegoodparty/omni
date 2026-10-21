@@ -310,7 +310,10 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
           -- GOTV window above, the cutoff counts only the general election
           -- date, with no primary fallback: smsComplianceWindow treats a
           -- campaign with no general date as open, and so does every other
-          -- surface.
+          -- surface. The "made the cutoff" EXISTS mirrors smsComplianceWindow's
+          -- three signals — kickoff sent, internal-testing exemption, or a
+          -- Peerly identity (legacy approvals never got kickoffSentAt stamped,
+          -- but their Peerly brand is live).
           AND NOT (
             COALESCE(t.flow_type::text, '') = ${CampaignTaskType.text}
             AND CASE
@@ -326,6 +329,7 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
                 AND (
                   tc.kickoff_sent_at IS NOT NULL
                   OR tc.internal_testing_at IS NOT NULL
+                  OR tc.peerly_identity_id IS NOT NULL
                 )
             )
           )

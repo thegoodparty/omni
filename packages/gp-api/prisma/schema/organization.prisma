@@ -32,6 +32,7 @@ model Organization {
   issueTags                         IssueTag[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   civicPanelBuildPlans              CivicPanelBuildPlan[]
+  priorityAnswers                   PriorityAnswer[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])

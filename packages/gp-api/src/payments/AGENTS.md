@@ -252,7 +252,8 @@ class** from an orphaned subscription, and needs no Stripe key to find:
 alone. That matters because `GP_API_PROD` — which holds both the live Stripe
 key and the prod DB password — is NOT readable by the default `EngineerAccess`
 SSO role (`secretsmanager:GetSecretValue` is denied), so anything requiring it
-is an access request rather than a self-serve step. The sharpest signal is
+needs temporary admin from `/breakglass` in Slack, approved in
+`#sensitive-access-requests`, rather than being a self-serve step. The sharpest signal is
 `details.subscriptionCanceledAt` later than `details.isProUpdatedAt` while
 `is_pro` is still true: the row contradicts itself, because
 `customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
@@ -307,8 +308,11 @@ user_id = <id>`. Known traps:
 2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
-   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
-   next dashboard load:
+   `primary_result='lost'`. Onboarding no longer sets a primary date for a
+   partisan race outside AK, CA, LA and WA (`candidateRunsInPrimary` in
+   `elections/util/primaryBallot.util.ts`), so only campaigns written before
+   that can hit this. Repair needs BOTH writes or the modal re-traps on next
+   dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
 primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
@@ -378,6 +382,9 @@ an automatic-capture one) still defers. Hold checkouts take promotion codes
 like every other checkout: Stripe takes the code off the hold, and
 `outreachP2pSmsHold.service.ts` records the discount (or, for a code that
 covered everything, a send with no hold) — see `outreach/AGENTS.md`.
+`createCheckoutSession` returns `isHold` so the webapp's review step knows the
+amount is the undiscounted hold and shows the free texts off it, as capture
+will.
 
 A promotion code that covers the whole order completes checkout with no
 PaymentIntent and `payment_status: paid` (what Stripe test mode returned

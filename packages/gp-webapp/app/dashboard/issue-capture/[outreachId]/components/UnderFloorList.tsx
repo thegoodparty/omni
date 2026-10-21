@@ -6,7 +6,8 @@ import MemoList, { type MemoListItem } from './MemoList'
 
 // Under the floor there are no themes, only the notes. Grouping a handful of
 // conversations would produce exactly the misleading share the report exists
-// to avoid, so the page says when themes will appear instead.
+// to avoid, so the Summarize button is off, and its tooltip says when themes
+// will appear.
 const UnderFloorList = ({
   floor,
   memos,
@@ -30,9 +31,13 @@ const UnderFloorList = ({
           <h2 id={headingId} className="text-lg font-semibold text-foreground">
             {copy.soFarHeading}
           </h2>
-          <p className="text-sm text-muted-foreground">
-            {copy.floorLine(floor, channel)}
-          </p>
+          {/* A text send says when themes appear under the heading, as it
+              shipped; the door and the phone say it on the button. */}
+          {channel === 'text' && (
+            <p className="text-sm text-muted-foreground">
+              {copy.floorLine(floor, channel)}
+            </p>
+          )}
         </div>
         {/* The export is the canvassers' notes; a text send's replies are
             already a file on the results page that received them. */}

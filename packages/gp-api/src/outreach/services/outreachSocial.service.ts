@@ -79,13 +79,14 @@ const toOutreachDetail = (
   phoneBanking,
   doorKnocking,
   // The two fields a resume cannot re-derive plus the priced landline count
-  // (the history's People figure); the rest of the satellite is billing and
-  // settlement state no client reads.
+  // (the history's People figure) and the settlement state the E2E spec reads
+  // to confirm the capture job ran.
   robocall: outreach.robocall
     ? {
         audioKey: outreach.robocall.audioKey,
         callbackNumber: outreach.robocall.callbackNumber,
         billableCount: outreach.robocall.billableCount,
+        settleState: outreach.robocall.settleState ?? undefined,
       }
     : undefined,
 })
@@ -304,10 +305,10 @@ export class OutreachSocialService extends createPrismaBase(
   // The counts come from `DoorKnockingTurfCountsService`, which is the same
   // aggregate the door-knocking rail and its details drawer read — deliberately
   // reused rather than recomputed here. Doors are addresses paired with their
-  // stop, people exclude ADR 0007 / ADR 0008 residents, and logged is the
-  // subset of those people with a recorded status; deriving any of the three a
-  // second time is how this drawer and the rail would come to print two
-  // numbers for one quantity (ADR 0010).
+  // stop, people exclude do-not-knock and not-a-voter residents, and logged
+  // is the subset of those people with a recorded status; deriving any of
+  // the three a second time is how this drawer and the rail would come to
+  // print two numbers for one quantity.
   //
   // The turf is read through `activeTurfScope`, so a tombstoned list yields no
   // block at all. That is the honest answer: a soft-deleted turf is gone from
@@ -324,7 +325,7 @@ export class OutreachSocialService extends createPrismaBase(
   // is one row now, so the block and the row it decorates cannot disagree.
   // Public: also reused by OutreachAssignmentService.listMineDetailed to
   // hydrate a volunteer's assignment cards (ENG-11048) — same reasoning as
-  // the ADR 0010 note above, one more caller.
+  // the one-aggregate note above, one more caller.
   async computeDoorKnockingDetail(
     turfId: number,
     organizationSlug: string,

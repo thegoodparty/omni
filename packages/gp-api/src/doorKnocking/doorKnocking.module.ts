@@ -61,7 +61,8 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
   ],
   // The rail's counts aggregate, exported so the outreach detail read can
   // report doors/people/logged for a nativeDoorKnocking envelope off the same
-  // computation rather than a second one of its own (ADR 0010).
+  // computation rather than a second one of its own, so one quantity has one
+  // number.
   exports: [DoorKnockingTurfCountsService],
 })
 export class DoorKnockingModule {}

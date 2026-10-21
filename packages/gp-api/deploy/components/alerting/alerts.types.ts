@@ -1,5 +1,3 @@
-export type SlackGroup = 'serve-bugs' | 'win-bugs'
-
 /**
  * A cause we already understand for an alert that has already fired.
  *
@@ -211,16 +209,6 @@ export type Alert = {
   summaryDetail?: string
 
   /**
-   * The Slack group, or groups, to notify when the alert is triggered.
-   *
-   * A list because plenty of routes are not one team's: shared platform
-   * surfaces — auth, users, payments, elections — are used by both products,
-   * and picking one owner for them means the other finds out second-hand.
-   * Order is preserved, so the mentions read in the order they are declared.
-   */
-  notify?: SlackGroup | SlackGroup[]
-
-  /**
    * The rule's window in Grafana, in seconds. Defaults to 600 (10 minutes).
    *
    * ON A LOG RULE THIS DOES NOT DECIDE WHAT IS READ. Log rules run as instant
@@ -299,6 +287,18 @@ export type Alert = {
    * decided to show them the alert.
    */
   knownCauses?: KnownCause[]
+
+  /**
+   * What the rule does when it cannot evaluate. Defaults to `Alerting`, the
+   * estate-wide choice in grafana.ts: a rule that goes quiet when its query
+   * path is down reports all-clear when it has stopped looking.
+   *
+   * `KeepLast` is for a rule whose page asserts a fact about something external
+   * (is the service reachable) that a failed query says nothing about. The rule
+   * holds its last real answer, and a broken query path stays visible through
+   * `alerting-rule-evaluations-failing` and the rule's own health in Grafana.
+   */
+  execErrState?: 'Alerting' | 'KeepLast'
 
   /** Whether the alert is disabled. */
   disabled?: boolean

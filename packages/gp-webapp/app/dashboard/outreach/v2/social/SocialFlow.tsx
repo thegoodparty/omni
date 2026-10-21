@@ -25,6 +25,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { ChannelBadge } from '../channelMeta'
@@ -202,6 +203,8 @@ interface SocialFlowProps {
   tracker?: OutreachTrackerOrigin
   // Where the flow was opened from, for its stage events.
   source: OutreachFlowSource
+  // The chat card that launched this post, for the Outreach events.
+  launchSource?: OutreachLaunchSource
 }
 
 const SuccessScreen = ({
@@ -243,6 +246,7 @@ export const SocialFlow = ({
   prefill,
   tracker,
   source,
+  launchSource,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -329,6 +333,7 @@ export const SocialFlow = ({
           campaignName: name.trim(),
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
+          launchSource,
         }),
       )
       // Save is social's completion: the assets exist and the candidate has
@@ -343,6 +348,7 @@ export const SocialFlow = ({
           sendDate: new Date(),
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
+          launchSource,
         }),
         platformCount: assets?.length ?? 0,
       })

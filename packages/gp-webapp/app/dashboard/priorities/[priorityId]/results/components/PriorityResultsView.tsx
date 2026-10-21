@@ -1,18 +1,23 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
 import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type PriorityResults,
 } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
+  READ_PROGRESS_TONE,
+  READ_STATUS_DOT,
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
+import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
@@ -64,6 +69,21 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  useEffect(() => {
+    trackEvent(EVENTS.Priorities.ResultsViewed, {
+      priorityId,
+      heldBack: !readStatus.good,
+      readStatus: READ_STATUS_PROPERTY[readStatus.status],
+      answers: readStatus.answers,
+      answersFloor: readStatus.needed,
+      groupsHeard: readStatus.groupsHeard,
+      groupsTotal: readStatus.groupsTotal,
+      respondentCount: respondents.total,
+      joinedCivicPanel: respondents.joinedCivicPanel,
+      representationShown: results.representation !== null,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorityId])
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -99,27 +119,51 @@ export const PriorityResultsView = ({
           data-testid="results-held-back"
           className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5"
         >
-          <h2 className="text-base font-semibold text-foreground">
-            {READ_STATUS_COPY.moreAnswers(
-              readStatus.needed - readStatus.answers,
-            )}
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <span
+              aria-hidden
+              className={`size-2 shrink-0 rounded-full ${READ_STATUS_DOT[readStatus.status]}`}
+            />
+            {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          <Progress
-            value={readPercent(readStatus.answers, readStatus.needed)}
-            aria-label={READ_STATUS_COPY.progress(
-              readStatus.answers,
-              readStatus.needed,
-            )}
-            className="h-2"
-          />
+          {readStatus.groupsTotal > 0 ? (
+            <>
+              <p className="text-sm text-foreground">
+                {READ_STATUS_COPY.progress(readStatus)}
+              </p>
+              <Progress
+                value={readPercent(readStatus)}
+                aria-label={READ_STATUS_COPY.progress(readStatus)}
+                className={cn('h-2', READ_PROGRESS_TONE[readStatus.status])}
+              />
+            </>
+          ) : null}
           <p className="text-sm text-muted-foreground">
-            {READ_STATUS_COPY.tooEarly}
+            {readStatus.status === 'gettingClose'
+              ? READ_STATUS_COPY.unsureGroups
+              : READ_STATUS_COPY.missingGroups}
           </p>
-          <Button asChild size="small" className="self-start rounded-full">
-            <Link href={getAnswersHref(priorityId)}>
-              {READ_STATUS_COPY.getAnswers}
-            </Link>
-          </Button>
+          {readStatus.underrepresented.length > 0 ? (
+            <div data-testid="results-hear-from-more">
+              <h3 className="text-sm font-semibold text-foreground">
+                {READ_STATUS_COPY.hearFromMoreHeading}
+              </h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
+                {readStatus.underrepresented.map((group) => (
+                  <li key={group}>
+                    {READ_STATUS_COPY.groupName(group, readStatus)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+            <Button asChild size="small" className="self-start rounded-full">
+              <Link href={getAnswersHref(priorityId)}>
+                {READ_STATUS_COPY.getAnswers}
+              </Link>
+            </Button>
+          ) : null}
         </section>
       )}
     </div>

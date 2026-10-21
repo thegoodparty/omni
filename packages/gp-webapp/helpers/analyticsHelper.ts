@@ -179,6 +179,24 @@ export const EVENTS = {
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
+    // The serve-citizen-panels district story, one pair per step, then the
+    // priorities step.
+    YouRepresentViewed: 'Serve Onboarding - You Represent Viewed',
+    YouRepresentCompleted: 'Serve Onboarding - You Represent Completed',
+    HearFromTheLoudestVoicesViewed:
+      'Serve Onboarding - Hear From The Loudest Voices Viewed',
+    HearFromTheLoudestVoicesCompleted:
+      'Serve Onboarding - Hear From The Loudest Voices Completed',
+    WhereYourCommunityStandsViewed:
+      'Serve Onboarding - Where Your Community Stands Viewed',
+    WhereYourCommunityStandsCompleted:
+      'Serve Onboarding - Where Your Community Stands Completed',
+    BuildAndGrowYourListViewed:
+      'Serve Onboarding - Build And Grow Your List Viewed',
+    BuildAndGrowYourListCompleted:
+      'Serve Onboarding - Build And Grow Your List Completed',
+    PrioritiesViewed: 'Serve Onboarding - Priorities Viewed',
+    PrioritiesCompleted: 'Serve Onboarding - Priorities Completed',
   },
   Navigation: {
     Top: {
@@ -196,7 +214,6 @@ export const EVENTS = {
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
-      ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
@@ -462,11 +479,10 @@ export const EVENTS = {
     // once per drawer open with
     // { context, source: 'message' | 'history' | 'toolbar' } (a bar submit
     // opens with a message; a history pick opens a past conversation; the
-    // paperclip or mic opens a fresh one); MessageSent fires per user send ({ context }) — the
-    // initial bar submit and every composer follow-up — so open-to-send
-    // drop-off is visible.
+    // paperclip or mic opens a fresh one). Each send is AI Chat - Message
+    // Sent with surface 'contacts_assistant', so open-to-send drop-off is
+    // visible.
     AssistantChatOpened: 'Contacts - Assistant Chat Opened',
-    AssistantMessageSent: 'Contacts - Assistant Message Sent',
     // ENG-10767: per-stage funnel for the URL-stable create-list wizard
     // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
     // its stages. Viewed fires on every stage entry (including Back
@@ -694,6 +710,13 @@ export const EVENTS = {
     DidYouWinModalViewed: 'Candidacy - Did You Win Modal Viewed',
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
   },
+  // Every message a user sends to an agent chat, on every surface: { agent
+  // (the ChatScope), surface, via, product, priorityId?, ordinanceId? }.
+  // Hidden turns the app sends never fire it. See
+  // app/dashboard/shared/agent-chat/chatAnalytics.ts.
+  AIChat: {
+    MessageSent: 'AI Chat - Message Sent',
+  },
   ChiefOfStaff: {
     DocumentAttached: 'Chief Of Staff - Document Attached',
     LinkSubmitted: 'Chief Of Staff - Link Submitted',
@@ -704,11 +727,14 @@ export const EVENTS = {
     UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
     ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
     // The front card of the home's task stack. `cardType` is the card's kind
-    // (onboarding, briefing, agenda_item, community_issue), `stackSize` how
-    // many cards were in the stack when the official acted.
+    // (onboarding, briefing, agenda_item, community_issue, civic_panel,
+    // report_back), `cardVariant` tells the civic panel cards apart
+    // (panel_build, panel_step, priority_next_step), `stackSize` how many
+    // cards were in the stack when the official acted.
     TaskCompleted: 'Chief Of Staff - Task Completed',
     // Every other choice on that card: `action` is start (its main button),
-    // ask (open the chat about it), or skip.
+    // ask (open the chat about it), explain (What's a civic panel?) or skip,
+    // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
   BriefingAssistant: {
@@ -793,7 +819,20 @@ export const EVENTS = {
   Priorities: {
     ListViewed: 'Priorities - List Viewed',
     PriorityViewed: 'Priorities - Priority Viewed',
-    MessageSent: 'Priorities - Message Sent',
+    // Get answers queued its turn: { priorityId, source: strip | rail |
+    // results_page }. Typed messages are AI Chat - Message Sent.
+    GetAnswersClicked: 'Priorities - Get Answers Clicked',
+    // `heldBack` is true while the priority has no good read yet;
+    // `readStatus` is the read's status, `answersFloor` the fewest answers
+    // that could give every major group its three, and `groupsHeard` of
+    // `groupsTotal` the major groups that have them.
+    ResultsViewed: 'Priorities - Results Viewed',
+  },
+  CivicPanel: {
+    PanelViewed: 'Civic Panel - Panel Viewed',
+    // A plan step opened in its text, call or door flow, from the panel page
+    // or the Chief of Staff chat. Its start and completion are server truth.
+    StepOpened: 'Civic Panel - Step Opened',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
@@ -815,7 +854,6 @@ export const EVENTS = {
     NewOrdinanceCreated: 'Ordinances - New Ordinance Created',
     NewOrdinanceErrored: 'Ordinances - New Ordinance Errored',
     DraftChatOpened: 'Ordinances - Draft Chat Opened',
-    DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
   // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above —
@@ -843,13 +881,14 @@ export const EVENTS = {
     SessionCompleted: 'Outreach - Door Knocking Session Completed',
     SessionAbandoned: 'Outreach - Door Knocking Session Abandoned',
     DoorLogged: 'Outreach - Door Knocking Door Logged',
-    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
-    // (DoNotKnockControl), so nothing in the product sets the flag.
+    // Do-not-knock, clear direction only: the walk's door is
+    // read-only-plus-Undo (DoNotKnockControl), so nothing in the product sets
+    // the flag.
     DoNotKnockCleared: 'Outreach - Door Knocking Do Not Knock Cleared',
-    // ADR 0008. Both directions for the same reason, and the Set event carries
-    // which reason was given: the follow-up is optional, so how often it is
-    // answered at all — and how the two answers split — is the only way to tell
-    // whether the question is worth asking.
+    // Not-a-voter. Both directions for the same reason, and the Set event
+    // carries which reason was given: the follow-up is optional, so how often
+    // it is answered at all — and how the two answers split — is the only way
+    // to tell whether the question is worth asking.
     NotAVoterReasonSet: 'Outreach - Door Knocking Not A Voter Reason Set',
     NotAVoterReasonCleared:
       'Outreach - Door Knocking Not A Voter Reason Cleared',
@@ -874,13 +913,10 @@ export const EVENTS = {
     // name: what a person said is not an analytics payload.
     ReportViewed: 'Issue Capture - Report Viewed',
     SynthesisRequested: 'Issue Capture - Synthesis Requested',
-    TagAccepted: 'Issue Capture - Tag Accepted',
-    TagDismissed: 'Issue Capture - Tag Dismissed',
-    // The offline path: a memo recorded with no signal, the moment it
-    // reaches the server, and its confirmation later from "Notes to review".
+    // The offline path: a memo recorded with no signal, and the moment it
+    // reaches the server.
     MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
     MemoUploaded: 'Issue Capture - Memo Uploaded',
-    PendingMemoConfirmed: 'Issue Capture - Pending Memo Confirmed',
   },
 } as const
 

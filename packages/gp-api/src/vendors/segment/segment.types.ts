@@ -280,6 +280,20 @@ export const EVENTS = {
     CheckStateChanged: 'Priorities - Check State Changed',
     PlanCompleted: 'Priorities - Plan Completed',
   },
+  // Serve's civic panel. The plan is made from the panel page and the Chief
+  // of Staff chat, its steps start and finish off sends, call lists and
+  // walks the browser never sees whole, and people join and leave by
+  // replying, so all of it is server truth. Attributed to the office's
+  // user; counts, ids and enums only, never who joined.
+  CivicPanel: {
+    PlanCreated: 'Civic Panel - Plan Created',
+    PlanUpdated: 'Civic Panel - Plan Updated',
+    StepStarted: 'Civic Panel - Step Started',
+    StepCompleted: 'Civic Panel - Step Completed',
+    StepSkipped: 'Civic Panel - Step Skipped',
+    GoalReached: 'Civic Panel - Goal Reached',
+    MembershipChanged: 'Civic Panel - Membership Changed',
+  },
 }
 
 export type UserContext = {

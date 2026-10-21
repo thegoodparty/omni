@@ -116,6 +116,6 @@ export const AUTOMATIC_NOTE =
 // They stay here rather than being deleted so whoever builds this uses the
 // canvas's words instead of inventing a third phrasing, which is why the
 // vocabulary is centralized at all. Do not put a disabled button behind them:
-// see ADR 0012 (packages/gp-api/docs/adr) for what each would cost to back.
+// with no outcomes data to show, the slot stays empty.
 export const SHOW_RESULTS_LABEL = 'Show results'
 export const SHOW_POST_LABEL = 'Show post'

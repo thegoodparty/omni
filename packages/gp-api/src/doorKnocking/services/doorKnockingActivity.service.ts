@@ -86,7 +86,7 @@ const composeActorName = (
 export class DoorKnockingActivityService extends createPrismaBase(
   MODELS.ContactInteractionDoorKnock,
 ) {
-  // ADR 0009. Per-resident outreach history for the targets on one route,
+  // Per-resident outreach history for the targets on one route,
   // capped at ROUTE_TARGET_ACTIVITY_LIMIT rows each.
   //
   // The cap is applied in SQL rather than after the fetch, and that is the

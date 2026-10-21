@@ -239,7 +239,10 @@ export class OutreachServeSmsController {
         "This text offers a way to leave a civic panel, which isn't on for your office yet. Remove that line and try again.",
       )
     }
-    if (input.reportBackForOutreachId !== undefined) {
+    if (
+      input.reportBackForOutreachId !== undefined ||
+      input.roundTwoSize !== undefined
+    ) {
       await this.assertFeatureEnabled(user, SERVE_CITIZEN_PANELS_FLAG)
     }
     // The org comes from the ElectedOffice row the guard resolved, never from

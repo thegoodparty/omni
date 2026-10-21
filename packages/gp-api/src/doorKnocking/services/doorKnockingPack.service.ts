@@ -125,10 +125,10 @@ export class DoorKnockingPackService extends createPrismaBase(
             followUp: true,
           },
         }),
-        // ADR 0007 and ADR 0008, read exactly as `doorKnockingPreview` and
-        // `doorKnockingCreate` read them — same fields, same values, deduped
-        // below into one list. Every server-side evaluation already drops
-        // these people; the map was the last surface still drawing them.
+        // Do-not-knock and not-a-voter, read exactly as `doorKnockingPreview`
+        // and `doorKnockingCreate` read them — same fields, same values,
+        // deduped below into one list. Every server-side evaluation already
+        // drops these people; the map was the last surface still drawing them.
         this.contactStatus.personIdsByFieldValue(
           organization.slug,
           ContactStatusField.do_not_knock,

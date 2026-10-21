@@ -132,8 +132,15 @@ Writing the value. Post this in `#devs-only`, one message:
 > Where the value comes from: <vendor dashboard / who issued it>
 > Needs to land: before/after the PR merges
 
-Send the value itself through 1Password, not Slack. Admins who can do this write:
-Tomer, Dan, Swain, Jeff.
+Send the value itself through 1Password, not Slack. Tomer, Dan, Swain or Jeff
+writes it.
+
+Nobody holds standing AWS admin, including them. Whoever does the write first
+gets temporary admin: run `/breakglass` in Slack, give the PR link as the reason,
+and wait for a different approver to approve it in `#sensitive-access-requests`.
+Then sign in again and pick `AdministratorAccess` (the `gp-admin` profile from
+`packages/gp-api/scripts/aws-setup.sh`). Access ends on its own after 1 to 4
+hours. How it works: `docs/sheriff.md` in the `ops` repo.
 
 That handoff is a stopgap. The write-only path that removes it — an engineer
 encrypts a value against a public key committed to this repo, CI decrypts and
@@ -147,7 +154,7 @@ Every real reason for wanting one has a better answer:
 | You want the value because                    | Do this instead                                                                                                                                                                       |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A prod call is 401/403ing                     | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
-| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin can confirm presence in a sentence.                      |
+| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin (via `/breakglass`) can confirm presence in a sentence.                      |
 | You're testing an integration locally         | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one.                                                                                         |
 | You're reproducing a prod-only bug            | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code.                           |
 | A vendor call needs to run once, against prod | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role.                                                                                  |

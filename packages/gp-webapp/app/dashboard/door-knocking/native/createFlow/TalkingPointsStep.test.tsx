@@ -592,6 +592,7 @@ describe('freezing the card with the list', () => {
           loggedCount: 0,
           knockedDoorCount: 0,
           routeSeconds: 1860,
+          priorityId: null,
           completed: false,
           archivedAt: null,
           createdAt: new Date('2026-08-20T00:00:00Z'),

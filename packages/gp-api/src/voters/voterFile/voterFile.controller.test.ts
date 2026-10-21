@@ -67,6 +67,8 @@ describe('VoterFileController', () => {
       // Only reached when a request carries a boundary; these cases don't.
       { resolveGeoMemberIds: vi.fn() } as never,
       mockOrganizationsService as never,
+      // Only reached for a list kept to a priority's unreached area.
+      { get: vi.fn() } as never,
       createMockLogger(),
     )
   })

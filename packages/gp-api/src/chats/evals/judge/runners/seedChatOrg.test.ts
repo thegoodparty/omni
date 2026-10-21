@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatAccountState } from '../cases'
+import type { ChatAccountState } from '@/testFixtures/judgeChatFixture/accountState'
 import { ChatScope } from '../../../../generated/prisma'
 import {
   assertAccountStateSupported,
   chatOrgSlug,
   chatScopeFor,
+  judgeSweepOrgSlugPrefix,
   seedOptionsFor,
-} from './seedChatOrg'
+} from '@/testFixtures/judgeChatFixture/seed'
 
 // The runner resolves a handler straight from the agent id, so a scope
 // missing from this map is an agent the judge lists and cannot drive.
@@ -31,44 +32,86 @@ describe('chatScopeFor', () => {
 // attempt suffix away again.
 describe('chatOrgSlug', () => {
   const LONG_CASE = 'constituent-count-by-precinct-and-party'
+  // The shape judge.yml builds: `judge-<run_id>-<run_attempt>`.
+  const SWEEP = 'judge-19284756312-1'
 
   it('keeps the attempts of a long case id apart', () => {
     const slugs = [1, 2, 3].map((attempt) =>
-      chatOrgSlug('chief_of_staff', `${LONG_CASE}-${attempt}`),
+      chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-${attempt}`),
     )
     expect(new Set(slugs).size).toBe(3)
   })
 
   it('keeps two long case ids sharing a prefix apart', () => {
-    expect(chatOrgSlug('chief_of_staff', `${LONG_CASE}-north-1`)).not.toBe(
-      chatOrgSlug('chief_of_staff', `${LONG_CASE}-south-1`),
-    )
+    expect(
+      chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-north-1`),
+    ).not.toBe(chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-south-1`))
   })
 
   it('keeps two agents on one case id apart', () => {
-    expect(chatOrgSlug('chief_of_staff', `${LONG_CASE}-1`)).not.toBe(
-      chatOrgSlug('priority_flow', `${LONG_CASE}-1`),
+    expect(chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-1`)).not.toBe(
+      chatOrgSlug(SWEEP, 'priority_flow', `${LONG_CASE}-1`),
     )
   })
 
   // Both arms must seed the same slug for a case and attempt, or the system
-  // prompts differ and every configDigest with them.
-  it('is the same slug for the same case and attempt', () => {
-    expect(chatOrgSlug('chief_of_staff', `${LONG_CASE}-2`)).toBe(
-      chatOrgSlug('chief_of_staff', `${LONG_CASE}-2`),
+  // prompts differ and every configDigest with them. The sweep id is in the
+  // slug and does not cost this, because one sweep's two arms are handed the
+  // same one.
+  it('is the same slug for the same sweep, case and attempt', () => {
+    expect(chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-2`)).toBe(
+      chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-2`),
     )
+  })
+
+  // The whole point of the sweep id being in there: two runs against one
+  // database (dev) must not stage one organization and delete each other's
+  // fixture mid-run.
+  it('keeps two sweeps on the same case and attempt apart', () => {
+    expect(
+      chatOrgSlug('judge-19284756312-1', 'chief_of_staff', `${LONG_CASE}-2`),
+    ).not.toBe(
+      chatOrgSlug('judge-19284756312-2', 'chief_of_staff', `${LONG_CASE}-2`),
+    )
+  })
+
+  // judge.yml's sweep id already starts with the prefix, so folding it in
+  // raw would read `judge-judge-…`.
+  it('does not double the judge prefix a sweep id already carries', () => {
+    expect(chatOrgSlug(SWEEP, 'chief_of_staff', 'case-1')).toMatch(
+      /^judge-19284756312-1-chief-of-staff/,
+    )
+  })
+
+  // One sweep's prefix must not swallow another's rows: sweep 19284756312-1
+  // and sweep 19284756312-11 differ only in a trailing digit, which is what
+  // the trailing hyphen on the prefix is for.
+  it('gives a sweep a prefix no other sweep matches', () => {
+    const prefix = judgeSweepOrgSlugPrefix('judge-19284756312-1')
+    const other = chatOrgSlug(
+      'judge-19284756312-11',
+      'chief_of_staff',
+      'case-1',
+    )
+
+    expect(
+      chatOrgSlug('judge-19284756312-1', 'chief_of_staff', 'case-1').startsWith(
+        prefix,
+      ),
+    ).toBe(true)
+    expect(other.startsWith(prefix)).toBe(false)
   })
 
   // 100 is what `organization.schema.ts` accepts for a slug.
   it('stays inside the length a slug is allowed', () => {
     expect(
-      chatOrgSlug('chief_of_staff', `${'x'.repeat(300)}-1`).length,
+      chatOrgSlug(SWEEP, 'chief_of_staff', `${'x'.repeat(300)}-1`).length,
     ).toBeLessThanOrEqual(100)
   })
 
   it('keeps a readable prefix so a seeded row can be recognised', () => {
-    expect(chatOrgSlug('chief_of_staff', `${LONG_CASE}-1`)).toMatch(
-      /^judge-chief-of-staff-constituent/,
+    expect(chatOrgSlug(SWEEP, 'chief_of_staff', `${LONG_CASE}-1`)).toMatch(
+      /^judge-19284756312-1-chief-of-staff-constituent/,
     )
   })
 })

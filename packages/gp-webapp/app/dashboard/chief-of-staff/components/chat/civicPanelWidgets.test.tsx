@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type {
   CivicPanelBuildNext,
@@ -71,6 +71,8 @@ const step = (
   markedDone: null,
   reached: null,
   joined: null,
+  steeredToward: null,
+  landlineFirst: null,
   ...overrides,
 })
 
@@ -90,6 +92,7 @@ const planWith = (
       id: 'plan-1',
       status: 'active',
       goalMembers: 240,
+      keepFresh: false,
       hoursPerWeek: 2,
       currentWave: 1,
       createdAt: new Date('2026-10-15T12:00:00Z'),
@@ -97,7 +100,15 @@ const planWith = (
       steps: [next],
     },
     next: nextStep,
-    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
+    balance: null,
   }
 }
 
@@ -125,6 +136,57 @@ beforeEach(() => {
 })
 
 describe('CivicPanelNextStepCard', () => {
+  it("shows the plan's first step as the outreach card, with no status", async () => {
+    const text = step({ id: 's-text', channel: 'text', targetSize: 3_150 })
+    const fresh = planWith(text, 'Invite residents to your civic panel by text')
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: {
+        ...fresh,
+        progress: { ...fresh.progress, members: 0, groupsCovered: 0 },
+        balance: { status: 'tooFewMembers', inviteMore: null },
+      },
+    })
+    render(<CivicPanelNextStepCard />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(within(card).getByText('Text 3,150 residents')).toBeInTheDocument()
+    expect(
+      within(card).getByText('Residents with a cell phone, picked at random.'),
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByRole('button', { name: 'Start the text' }),
+    ).toBeInTheDocument()
+    expect(within(card).queryByText('Too few members yet')).toBeNull()
+    expect(within(card).queryByText(/members so far/)).toBeNull()
+    expect(within(card).queryByRole('link')).toBeNull()
+  })
+
+  it('leads to the plan while it waits on replies', async () => {
+    const text = step({
+      id: 's-text',
+      channel: 'text',
+      status: 'waiting_on_replies',
+    })
+    const waiting = planWith(text, 'Replies should be in by Monday')
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: {
+        ...waiting,
+        next: waiting.next && { ...waiting.next, href: null },
+      },
+    })
+    render(<CivicPanelNextStepCard />)
+
+    const link = await screen.findByRole('link', { name: /See your plan/ })
+    expect(link).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
+    )
+    expect(link).toHaveTextContent('Replies should be in by Monday')
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('opens the calls in the phone banking flow, not the panel page', async () => {
     const user = userEvent.setup()
     const calls = step({ id: 's-calls', channel: 'phone_banking' })
@@ -147,10 +209,6 @@ describe('CivicPanelNextStepCard', () => {
     expect(preparedId).toBe('s-calls')
     expect(flow).toHaveAttribute('data-list', '8')
     expect(flow).toHaveAttribute('data-purpose', 'build_citizens_panel')
-    expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel',
-    )
   })
 
   it('opens the text on compose with the audience settled', async () => {
@@ -194,7 +252,7 @@ describe('CivicPanelNextStepCard', () => {
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel',
+        '/dashboard/door-knocking?create=1&listId=9&purpose=build_citizens_panel&launchSource=civic_panel',
       ),
     )
   })
@@ -255,5 +313,26 @@ describe('CivicPanelNextStepCard', () => {
     expect(
       screen.queryByRole('button', { name: 'Start the text' }),
     ).not.toBeInTheDocument()
+  })
+
+  // Right after the plan is made, a dead-end card would leave the official
+  // nowhere to go.
+  it('leads to the plan when the text cannot be started', async () => {
+    smsFlag.enabled = false
+    const text = step({ id: 's-text', channel: 'text', targetSize: 3_150 })
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: planWith(text, 'Invite residents by text'),
+    })
+    render(<CivicPanelNextStepCard />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(
+      await within(card).findByRole('link', { name: 'See your plan' }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
+    )
+    expect(within(card).getByText('Text 3,150 residents')).toBeInTheDocument()
   })
 })

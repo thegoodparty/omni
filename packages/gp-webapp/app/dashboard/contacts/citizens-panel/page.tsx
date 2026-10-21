@@ -22,11 +22,8 @@ export default async function Page(): Promise<React.JSX.Element> {
   const variants = await getFlagVariants()
   if (variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value !== 'on') notFound()
 
-  const [summaryResult, representationResult, planResult] = await Promise.all([
+  const [summaryResult, planResult] = await Promise.all([
     serverRequest('GET /v1/contacts/civic-panel', {}).catch(() => null),
-    serverRequest('GET /v1/contacts/civic-panel/representation', {}).catch(
-      () => null,
-    ),
     serverRequest('GET /v1/contacts/civic-panel/plan', {}).catch(() => null),
   ])
 
@@ -35,11 +32,7 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   return (
     <DashboardLayout pathname="/dashboard/contacts" showAlert={false}>
-      <CitizensPanelView
-        summary={summary}
-        representation={representationResult?.data ?? null}
-        plan={planResult?.data ?? null}
-      />
+      <CitizensPanelView summary={summary} plan={planResult?.data ?? null} />
     </DashboardLayout>
   )
 }

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
-import { panelGoalMembers } from '@goodparty_org/contracts'
+import { answersNeeded, panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -174,9 +174,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       ? await this.contextService.civicPanelBuildState(
           ctx.organizationSlug,
           panelGoalMembers(
-            this.contacts
-              ? await this.contacts.getDistrictPopulation(ctx.organization)
-              : null,
+            this.priorityResults
+              ? await this.priorityResults.districtAnswersNeeded(
+                  ctx.organization,
+                )
+              : answersNeeded(),
           ),
         )
       : undefined
