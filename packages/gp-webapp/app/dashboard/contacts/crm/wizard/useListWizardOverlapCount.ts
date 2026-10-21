@@ -42,10 +42,10 @@ export const useListWizardOverlapCount = (
 
   const overlapQuery = useQuery({
     queryKey: ['contacts-overlap', orgSlug, debouncedPayload],
-    queryFn: () =>
-      clientRequest('POST /v1/contacts/overlap-count', debouncedPayload).then(
-        (res) => res.data,
-      ),
+    queryFn: ({ signal }) =>
+      clientRequest('POST /v1/contacts/overlap-count', debouncedPayload, {
+        signal,
+      }).then((res) => res.data),
     enabled,
     // Mirrors useListWizardCount: an at-a-glance affordance while building,
     // not something that should refetch on an incidental window refocus.

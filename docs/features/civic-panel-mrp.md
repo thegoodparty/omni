@@ -39,35 +39,46 @@ answers (below). Doors and calls reach people who never text back, so round
 1 seeds the model and gives the only check on the texters: in the same
 group, do door answerers and text answerers differ?
 
-**Round 2, one scheduled text.** Approved and paid for during setup, with
-its size and message (the official always approves the budget). It sends
-on the date the official picks (two weeks after round 1 starts by default),
-with whatever answers are in by then. Its recipients are not chosen until
-that date: the model is fit to round 1's answers, the groups are ranked
+**Round 2, the held half of the text.** The official buys one text of N
+(Samuel, 2026-10-20): `splitPriorityText` sends `ROUND_ONE_TEXT_SHARE`
+(half) at random on the date they pick and holds the rest as a follow-up,
+paid for in the same checkout and sent `FOLLOW_UP_BUSINESS_DAYS` (10, two
+weeks) later, with whatever answers are in by then. Half keeps round 1
+large enough to show which groups lag and round 2 large enough to steer;
+the gain is flat across 40 to 60%, so the share is one constant to tune once
+answer rates are measured. A purchase too small for both halves to reach
+`MIN_TEXTS_PER_ROUND` (25) goes out whole. Its recipients are not chosen
+until close to its date: the model is fit to round 1's answers, the groups are ranked
 (`batchTargets`), the draw leans toward them (`batchWeights`, the same
 `SampleWeights` the census steering passes to `drawListSample`), and 15% of
 the send is drawn unsteered (`splitBatch`) so drift outside the lean still
 shows up. There is no round 3.
 
-**How round 2 is built.** The Serve SMS create takes `roundTwoSize` beside
-a priority link and the list to draw from (the pool). It prices
-`min(roundTwoSize, pool)`, where the pool is the list's cell phones less
-everyone the priority's other sends texted, called, knocked or drew and
-everyone opted out (`roundTwoExclusions`), and saves the send on a copy of
-the list with `sampleSize` set and nothing drawn. That state is the round 2
-marker: no other path saves a sample undrawn, and such a list resolves to
-nobody. Payment claims the send and enqueues nothing. The
+**How round 2 is built.** The text card carries the first half as
+`sampleSize` and the follow-up as `roundTwoSize`. The Serve SMS create for
+the first send takes `roundTwoSize` with its priority link and writes a
+second row in the same transaction: `roundOneOutreachId` pointing at the
+first, the date 10 business days later, and `min(roundTwoSize, 90% of (pool -
+first send))`, where the 10% left unsold covers people who opt out or are
+reached another way before the draw, and the pool is the list's whole criteria (never its sample) on
+cell phones less everyone the priority's other sends texted, called,
+knocked or drew and everyone opted out (`roundTwoExclusions`). Too few left
+for a text of its own is no follow-up. The follow-up sits on a copy of the
+list's criteria with `sampleSize` set and nothing drawn. That state is the
+round 2 marker: no other path saves a sample undrawn, and such a list
+resolves to nobody. Checkout prices both rows, and payment claims both in
+one transaction: the first is enqueued and puts the priority's check out,
+the follow-up is held. The
 `priorityRoundTwoDraw` job (`41 7 * * *` ET, `CronLockService` daily slot)
 draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
-staff get the usual two clear days. The send date has to be later than that
-at create, and the Serve text calendar opens a day later for it. The draw
+staff get the usual two clear days. The draw
 fits the model to the priority's coded answers so far (`PriorityAnswer`:
 yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
 with `batchWeights` and the unsteered rest, then in one transaction claims
 the list (stamping `sampledAt`, a CAS on it being null) and writes the
-members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. Only
-then is the priority's check out. A failed enqueue puts the list back to
+members, and enqueues `outreachTextSend { outreachId, sendSeq: 1 }`. A failed
+enqueue puts the list back to
 undrawn for the next run; a send drawn but never enqueued (a crash between
 the two) is handed off by a later run; a draw that finds nobody cancels
 the send for a hand refund. The frame is the census shares multiplied across dimensions (age,
@@ -133,18 +144,48 @@ population and know your model", for a readable account.
 
 ## What the official sees
 
-The priority results page as it is (Samuel, 2026-10-19: no new UI). The
-model feeds the shapes the page already reads, through
-`PriorityResultsService` (`resultsFor`, `readStatuses`):
+The priority results page as it is (Samuel, 2026-10-19: no new UI), plus
+the follow-up, which the official has to be able to see is coming (Samuel,
+2026-10-20). The text card reads "Text 2,000 of 58,520: 1,000 now, 1,000
+two weeks later", the chat says it in one line, the review step shows a
+Follow-up row and why it goes later, and the priority's read status carries
+`followUp` (date and texts) while it is paid and unsent, shown as "Follow-up
+text to N people on <date>" in place of Get answers and in the agent's
+`<priority>` block, and `followUpSent` once it has gone out. `checkOut` says a
+check is out with residents on any channel; before it the status reads "No one
+asked yet" and there is no Get answers. In Outreach history the follow-up reads
+Draft until its recipients are picked and Scheduled after, with "Recipients
+picked <date>, from the groups you've heard least from"; its undrawn list stays
+off Constituents lists and cannot be edited or deleted. A short read after the
+follow-up is closed with calls and doors, never a third text. The model feeds the
+shapes the page already reads, through `PriorityResultsService`
+(`resultsFor`, `readStatuses`):
 
-- **The frame and the answers.** `buildDistrictCellsSql` counts the
-  district's people by age band, gender, tract and race;
-  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half, a
-  person's answers averaged) in the same cells. Race folds into `other` as
-  the steering folds it (under 2% of the district), and sits out when the
+- **The frame and the answers.** The frame is the district's people
+  from the voter file (`buildDistrictCellsSql`: age band, gender, tract,
+  race counts) reweighted so age band, sex and tract take the census's
+  adult shares (`censusFrame`, iterative proportional fitting): ACS
+  B01001 sex by age band from the district's census row, and adults per
+  tract summed from the block groups the district's people live in. The
+  voter file keeps how the dimensions overlap, its unknowns (they sit out
+  a dimension) and race, which stays the voter file's because the census
+  publishes race over everyone, children included. A dimension the census
+  cannot give (a suppressed figure, no district row, no tract adults)
+  keeps the voter file's counts for it, logged at warn. Samuel decided
+  this on 2026-10-20 (`docs/adr/2026-10-20-civic-panel-frame-from-census-sex-age.md`).
+  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half,
+  a person's answers averaged) in the same cells; an answer in a tract the
+  frame does not hold sits tract out. Race folds into `other` as the
+  steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
   (`CensusCompositionSource.mrpInputs`; the district's cells are shared for
   15 minutes, a priority's read is kept 15 minutes per its coded answers).
+  Age and sex margins are the district's, not each tract's: the district
+  row is the block groups allocated by population share, and the voter
+  file supplies the pattern within it.
+- **Major groups** (`mrpReadStatus` and `districtAnswersNeeded`) are read
+  off this same frame, so the groups named on screen and the answers
+  sized for them are the groups the model has.
 - **Status** (`mrpReadStatus`, in the page's existing labels): `tooEarly`
   while a major group has no answer, `notYetRepresentative` while one has
   fewer than three, `gettingClose` while a major group's 90% range is wider
@@ -160,11 +201,13 @@ model feeds the shapes the page already reads, through
   district, unweighted. The contract carries no model share, so the model's
   estimates are not shown anywhere yet.
 
-## Before it is live
+## Not yet
 
-1. **The chat proposing round 2.** The priority flow's card carries
-   `roundTwoSize` (contracts `OutreachProposalSchema`) and the Serve text
-   flow forwards it, but no prompt proposes it yet.
+- **A follow-up that draws nobody is refunded by hand.** One that draws
+  fewer than it was paid for sends what it drew, which the 90% sizing makes
+  rare; one that draws nobody is canceled and logged for a hand refund, and
+  its history row says "Nobody left to text, so this was canceled. We'll
+  refund it."
 
 Delivery stays the Slack handoff (`docs/features/serve-sms.md`, "Layer
 1"): with one scheduled send there is no reply loop to speed up.

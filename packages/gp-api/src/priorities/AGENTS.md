@@ -34,6 +34,7 @@ invisible, so it is not flag-gated.
 - **The model.** `LlmService.jsonCompletion`, 20 replies a call, each sent
   under its position in the batch, never a person id. A failed call or an
   off-vocabulary code leaves those replies uncoded for the next pass.
+- **Where it shows.** On the constituent's record (`contactEngagement/`): each coded text, call or knock in the activity feed names its priority and the answer, and `GET /v1/contact-engagement/:id/priority-answers` lists them all.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the
@@ -49,15 +50,24 @@ of its coded answers (`util/mrp.util.ts`), mapped to the page's existing
 `PriorityReadStatus` by `util/mrpReadStatus.util.ts`. The rule, the major
 groups and `needed` are in the webapp's priority AGENTS.md ("A good read")
 and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
-from `CensusCompositionSource.mrpInputs` (bound in
+from `CensusCompositionSource.mrpInputs` (the voter file's district cells
+reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`;
+a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
 The representation bars compare who answered with the district, unweighted.
+`mrpReadStatus` also returns `groupsHeard` of `groupsTotal` (major groups with
+at least three coded answers), which the webapp shows instead of an answer
+count. `unreachedAreaFor` takes its tracts from the same model
+(`holdingBackTracts`: major tracts short of three answers or too unsure), so
+the area a list is saved to can never disagree with the status.
 
 ## Round 2 draw
 
 `services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is
-paid for at setup and drawn later: the `priorityRoundTwoDraw` cron
+the held half of its first text's purchase (`roundOneOutreachId`, two weeks
+after it; see `outreach/AGENTS.md`), paid for in the same checkout and
+drawn later: the `priorityRoundTwoDraw` cron
 (`41 7 * * *` ET, `CronLockService` daily slot, reads before it claims)
 draws every paid send whose list is still an undrawn sample and whose send
 date is on or before `roundTwoDrawCutoff` (three business days out, the last
@@ -70,10 +80,20 @@ day a Serve text for that date could be booked).
   leaves a drawn send `pending`. The job hands off any round 2 send whose
   list was sampled more than 10 minutes after it was saved (only round 2
   lists are) and more than 30 minutes ago, with members, still `pending`.
-- **Check.** The priority's check goes out only after the enqueue
-  (`recordOutreachSentOrLog`), as for any Serve text. `recordOutreachSent`
-  skips a send whose list is still undrawn, so payment, a redelivered
-  webhook and `healSends` cannot put it out early.
+- **Check.** The first send puts the check out when it is paid. The draw
+  records it again after its enqueue (`recordOutreachSentOrLog`), which
+  leaves a side already out as it is. `recordOutreachSent` skips a send
+  whose list is still undrawn, so a follow-up never puts a check out
+  before it is drawn.
+- **Shown.** `readStatuses` carries the next paid, unsent follow-up per
+  priority as `followUp` (`scheduledLocalDate`, `texts`), `followUpSent` once
+  one has gone out, and `checkOut` once anything has gone to residents on
+  any channel, for the priority page and the agent's `<priority>` block. The
+  agent offers no text while a follow-up is scheduled or sent
+  (`checkFollowUpPart`): a short read is closed with calls and doors.
+- **Undrawn list.** It stays off the lists index (`findByOrganizationSlug`
+  and its siblings leave out `UNDRAWN_SAMPLE_WHERE`) and
+  `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
 - **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,

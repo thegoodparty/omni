@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
 import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
-import { answersNeeded } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
@@ -18,6 +17,8 @@ import {
   buildAbstractDots,
   buildDistrictDots,
   residentsPerDot,
+  SQUARE_VIEW_HEIGHT,
+  WIDE_VIEW_HEIGHT,
   type DistrictDots,
   type DistrictMapMode,
   type LatLng,
@@ -34,6 +35,22 @@ const MODE_FOR_STEP: Record<ServeStoryStepId, DistrictMapMode> = {
   'story-sample': 'sample',
   'story-grow': 'grow',
 }
+
+// Matches Tailwind's md breakpoint, where the story goes to two columns.
+const DESKTOP_QUERY = '(min-width: 768px)'
+
+const subscribeDesktop = (onChange: () => void): (() => void) => {
+  const query = window.matchMedia?.(DESKTOP_QUERY)
+  query?.addEventListener('change', onChange)
+  return () => query?.removeEventListener('change', onChange)
+}
+
+const useIsDesktop = (): boolean =>
+  useSyncExternalStore(
+    subscribeDesktop,
+    () => window.matchMedia?.(DESKTOP_QUERY).matches === true,
+    () => false,
+  )
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' &&
@@ -105,19 +122,27 @@ export const DistrictStoryStep = ({
     return () => clearTimeout(timer)
   }, [])
 
-  const [model, setModel] = useState<DistrictDots | null>(null)
+  // Both frames are built up front, so crossing the breakpoint only picks the
+  // other one.
+  const [models, setModels] = useState<{
+    square: DistrictDots
+    wide: DistrictDots
+  } | null>(null)
   const [population, setPopulation] = useState<number | null>(null)
-  const ready = model !== null
+  const isDesktop = useIsDesktop()
+  const ready = models !== null
   useEffect(() => {
     if (ready) return
     if (!(pointsSettled && statsSettled) && !timedOut) return
     const known = stats.data?.districtPopulation ?? null
-    const sampleSize = answersNeeded()
     setPopulation(known)
-    setModel(
-      (points && buildDistrictDots(points, sampleSize)) ??
-        buildAbstractDots(sampleSize),
-    )
+    const build = (viewHeight: number): DistrictDots =>
+      (points && buildDistrictDots(points, viewHeight)) ??
+      buildAbstractDots(viewHeight)
+    setModels({
+      square: build(SQUARE_VIEW_HEIGHT),
+      wide: build(WIDE_VIEW_HEIGHT),
+    })
   }, [
     ready,
     pointsSettled,
@@ -127,7 +152,7 @@ export const DistrictStoryStep = ({
     stats.data?.districtPopulation,
   ])
 
-  if (!model) {
+  if (!models) {
     return (
       <div
         className="flex min-h-[40vh] items-center justify-center"
@@ -141,7 +166,7 @@ export const DistrictStoryStep = ({
   return (
     <StoryContent
       step={step}
-      model={model}
+      model={isDesktop ? models.square : models.wide}
       population={population}
       place={place?.trim() || SERVE_STORY_COPY.represent.defaultPlace}
       introPlayed={introPlayed}
@@ -173,7 +198,7 @@ const StoryContent = ({
   // shows the number as it ends.
   const [countUp, setCountUp] = useState(intro)
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:items-center md:gap-10">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,6fr)_minmax(0,5fr)] md:items-start md:gap-10">
       <div className="order-2 md:order-1">
         <StoryText
           step={step}
@@ -221,29 +246,18 @@ const useCountUp = (target: number, runOnMount: boolean): number => {
   return value
 }
 
-const TITLE_CLASS =
-  'text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl'
-
-// The sample headline is the longest, so it steps down on a phone. 24px is
-// the floor; at 390px it still wraps to three lines (two needs ~22px).
-const LONG_TITLE_CLASS =
-  'text-2xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl'
+const TITLE_CLASS = 'text-4xl font-bold text-foreground sm:text-5xl'
 
 const Title = ({
   title,
   accentClass,
   accent,
-  long = false,
 }: {
   title: ServeStoryTitle
   accentClass: string
   accent?: React.ReactNode
-  long?: boolean
 }): React.JSX.Element => (
-  <h1
-    className={long ? LONG_TITLE_CLASS : TITLE_CLASS}
-    style={{ fontFamily: 'var(--font-geist)' }}
-  >
+  <h1 className={TITLE_CLASS}>
     {title.lead} <span className={accentClass}>{accent ?? title.accent}</span>
     {/^[,.]/.test(title.tail) ? '' : ' '}
     {title.tail}
@@ -365,9 +379,7 @@ const StoryText = ({
     }
     return (
       <>
-        <h1 className={TITLE_CLASS} style={{ fontFamily: 'var(--font-geist)' }}>
-          {copy.titleWithoutCount}
-        </h1>
+        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount}</h1>
         <Description>{copy.descriptionWithoutCount(place)}</Description>
       </>
     )
@@ -385,7 +397,7 @@ const StoryText = ({
             {copy.heardFrom}
           </span>
           <span className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/55" />
+            <span className="h-3 w-3 rounded-full bg-muted-foreground/80" />
             {copy.notHeardFrom}
           </span>
         </div>
@@ -395,15 +407,12 @@ const StoryText = ({
 
   if (step === 'story-sample') {
     const copy = SERVE_STORY_COPY.sample
-    const answers = answersNeeded()
     return (
       <>
-        <Title title={copy.title(answers)} accentClass="text-primary" long />
+        <Title title={copy.title} accentClass="text-primary" />
         <Description>
           {copy.description}{' '}
-          <AnswersInfo label={copy.howWeGotIt}>
-            {copy.explanation(answers)}
-          </AnswersInfo>
+          <AnswersInfo label={copy.howWeGotIt}>{copy.explanation}</AnswersInfo>
         </Description>
       </>
     )
@@ -412,25 +421,18 @@ const StoryText = ({
   const copy = SERVE_STORY_COPY.grow
   return (
     <>
-      <h1 className={TITLE_CLASS} style={{ fontFamily: 'var(--font-geist)' }}>
-        {copy.title}
-      </h1>
+      <h1 className={TITLE_CLASS}>{copy.title}</h1>
       <Description>{copy.description}</Description>
       <ol className="mt-6 flex flex-col gap-2">
         {copy.loop.map((item, index) => (
           <li
-            key={item.title}
+            key={item}
             className="flex items-center gap-3 rounded-xl border border-base-border bg-card px-3.5 py-2.5"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {index + 1}
             </span>
-            <span className="flex flex-col">
-              <span className="font-semibold text-foreground">
-                {item.title}
-              </span>
-              <span className="text-sm text-muted-foreground">{item.desc}</span>
-            </span>
+            <span className="font-semibold text-foreground">{item}</span>
           </li>
         ))}
       </ol>

@@ -44,6 +44,10 @@ const purchaseErrorSchema = z.object({
 // (stripe.service.ts divides amount_total by 100).
 const money = (dollars: number): string => dollars.toFixed(2)
 
+// What the follow-up is for, in the official's words: no draws or models.
+export const FOLLOW_UP_NOTE =
+  "The follow-up goes to the groups you've heard from least, once replies are in."
+
 const fmtDate = (d: Date) =>
   d.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -84,6 +88,9 @@ interface SmsReviewStepProps {
   // rows it feeds are omitted rather than printed as 0.
   contactCount: number | null
   pricePerContact: number
+  // A priority text's follow-up, bought with it: how many of contactCount go
+  // out later, and when. The rest go out on sendAt.
+  followUp?: { count: number; sendAt: Date }
   outreachId: number | null
   // The PeerlyPhoneList row id. gp-api reads it only for a draft paid before
   // its build finished; a draft that names its list is billed for that list.
@@ -98,6 +105,9 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // Why the draft was refused, when the server said. Shown under the generic
+  // line so support is not left guessing.
+  prepareErrorMessage?: string | null
   // The phone-list build itself (not the draft-creation step `prepareError`
   // covers) resolved to `failed` — distinct because the fix is different:
   // there's a fresh build to request, not a draft to retry.
@@ -125,6 +135,7 @@ export const SmsReviewStep = ({
   imagePreviewUrl,
   contactCount,
   pricePerContact,
+  followUp,
   outreachId,
   phoneListBuildId,
   excludedOptedOutCount,
@@ -132,6 +143,7 @@ export const SmsReviewStep = ({
   priceIsCeiling = false,
   preparing,
   prepareError,
+  prepareErrorMessage,
   buildFailed = false,
   retryingBuild = false,
   onRetryBuild,
@@ -293,6 +305,15 @@ export const SmsReviewStep = ({
                       : fmtDate(sendAt)}
                   </dd>
                 </div>
+                {followUp && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">Follow-up</dt>
+                    <dd className="text-right text-foreground">
+                      {followUp.count.toLocaleString()} on{' '}
+                      {fmtDate(followUp.sendAt)}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send time</dt>
                   <dd className="text-foreground">
@@ -317,6 +338,9 @@ export const SmsReviewStep = ({
                   {contactCount.toLocaleString()}
                 </dd>
               </div>
+            )}
+            {followUp && !readOnlySummary && (
+              <p className="text-xs text-muted-foreground">{FOLLOW_UP_NOTE}</p>
             )}
             {!!excludedOptedOutCount && (
               <div className="flex justify-between gap-4">
@@ -439,6 +463,11 @@ export const SmsReviewStep = ({
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.
           </p>
+          {prepareErrorMessage && (
+            <p className="text-sm text-muted-foreground">
+              {prepareErrorMessage}
+            </p>
+          )}
         </Card>
       ) : preparing ||
         !outreachId ||

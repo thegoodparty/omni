@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 import { extractApiErrorMessage } from '@/lib/utils/sdkError'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import type {
   Campaign,
   CampaignWithLiveContext,
@@ -15,7 +15,7 @@ import type {
   ExperimentRunStatus,
   PaginatedList,
   UpdateCampaignInput,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { COMPLIANCE_SETUP_EXPERIMENT } from '@/app/dashboard/agent-runs/[runId]/complianceSummary'
 
 export type EnrichedCampaign = CampaignWithLiveContext

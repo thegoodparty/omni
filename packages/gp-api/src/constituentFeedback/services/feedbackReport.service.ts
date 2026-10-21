@@ -60,7 +60,15 @@ const TAG_SELECT = {
   select: { id: true, name: true, status: true },
 } as const satisfies Prisma.IssueTagDefaultArgs
 
+// Whether the run matched issues to themes, and which of its member
+// issues this theme was given.
+const ISSUE_MATCH_INCLUDE = {
+  run: { select: { issuesMatchedAt: true } },
+  issues: { select: { issueId: true } },
+} as const satisfies Prisma.FeedbackThemeInclude
+
 const THEME_INCLUDE = {
+  ...ISSUE_MATCH_INCLUDE,
   tag: TAG_SELECT,
   members: {
     ...COUNTED_MEMBERS,
@@ -79,6 +87,7 @@ const REPLY_SELECT = {
 } as const satisfies Prisma.PollIndividualMessageSelect
 
 const THEME_DETAIL_INCLUDE = {
+  ...ISSUE_MATCH_INCLUDE,
   tag: TAG_SELECT,
   members: {
     ...COUNTED_MEMBERS,
@@ -108,6 +117,7 @@ const MEMO_SELECT = {
   transcript: true,
   issues: ISSUE_SELECT,
   confirmedAt: true,
+  extractionStatus: true,
   actor: { select: { firstName: true, lastName: true } },
 } as const satisfies Prisma.ConstituentFeedbackSelect
 
@@ -178,6 +188,7 @@ const replyMemo = (reply: ReplyRow): FeedbackReportMemo => ({
   id: reply.id,
   ...replyWords(reply),
   confirmedAt: reply.sentAt,
+  extractionStatus: null,
 })
 
 // Counts are computed here, on every read, from member rows whose memo is
@@ -185,19 +196,24 @@ const replyMemo = (reply: ReplyRow): FeedbackReportMemo => ({
 // counts fragments, not conversations, and a memo re-recorded after a run
 // loses its confirmation and must stop counting without a new run.
 //
-// Conversations are memos and replies; stances and outcomes are every issue
-// the memos raised. Membership is per memo, so a member that raised two
-// issues contributes both, and the split can sum past conversationCount.
-// Matching an issue to its theme by label missed nearly every multi-issue
-// memo, since the pipeline names tags in its own words; per-issue membership
-// is the fix. A reply names no issue, so a theme with no memo in it has no
-// split at all rather than four zeros.
+// Conversations are memos and replies. Membership is per memo, so stances
+// and outcomes come from the issues the run assigned to this theme, each
+// issue to at most one of its memo's themes. Until a run's matching
+// completes, or when it failed, they come from every issue the member memos
+// raised, and the split can sum past conversationCount. A theme with no
+// issue to count has no split at all rather than four zeros.
 const summarize = (
   theme: ThemeRow,
   outcomeLimit: number,
 ): FeedbackThemeSummary => {
   const memos = theme.members.flatMap((member) => member.feedback ?? [])
-  const issues = memos.flatMap((memo) => memo.issues)
+  const memoIssues = memos.flatMap((memo) => memo.issues)
+  const matched = theme.run.issuesMatchedAt !== null
+  const assigned = new Set(theme.issues.map((row) => row.issueId))
+  const issues = matched
+    ? memoIssues.filter((issue) => assigned.has(issue.id))
+    : memoIssues
+  const noSplit = matched ? issues.length === 0 : memos.length === 0
   const count = (stance: ConstituentFeedbackStance) =>
     issues.filter((issue) => issue.stance === stance).length
   const outcomes = issues
@@ -210,21 +226,20 @@ const summarize = (
     title: theme.title,
     summary: theme.summary,
     conversationCount: theme.members.length,
-    stanceCounts:
-      memos.length === 0
-        ? null
-        : {
-            supports: count(ConstituentFeedbackStance.supports),
-            opposes: count(ConstituentFeedbackStance.opposes),
-            mixed: count(ConstituentFeedbackStance.mixed),
-            // An issue with no stance was raised without a position, which
-            // is what unclear means.
-            unclear: issues.filter(
-              (issue) =>
-                issue.stance === null ||
-                issue.stance === ConstituentFeedbackStance.unclear,
-            ).length,
-          },
+    stanceCounts: noSplit
+      ? null
+      : {
+          supports: count(ConstituentFeedbackStance.supports),
+          opposes: count(ConstituentFeedbackStance.opposes),
+          mixed: count(ConstituentFeedbackStance.mixed),
+          // An issue with no stance was raised without a position, which
+          // is what unclear means.
+          unclear: issues.filter(
+            (issue) =>
+              issue.stance === null ||
+              issue.stance === ConstituentFeedbackStance.unclear,
+          ).length,
+        },
     desiredOutcomes: [...new Set(outcomes)].slice(0, outcomeLimit),
     tag:
       theme.tag === null

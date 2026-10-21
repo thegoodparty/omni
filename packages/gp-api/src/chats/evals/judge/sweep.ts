@@ -86,6 +86,7 @@ import {
   SweepEnvError,
   type SweepEnv,
 } from './sweepEnv'
+import { withRegressionSignals } from './regressionSignals'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
 //
@@ -635,19 +636,24 @@ export const judgeSweep = async (
         { normalized, judgments, unscoredCaseIds },
         config,
       )
-      scores.push({
-        ...scored,
-        // Dropped when no model was called: the canned judge answers `no`
-        // for every run, and a section of shared failures nobody judged
-        // would read as a finding.
-        ...(env.spends && handling !== undefined && { handling }),
-        ...(controls.scoredAnyway !== undefined && {
-          controlsScoredAnyway: controls.scoredAnyway,
-        }),
-        ...(contract.note !== undefined && {
-          outputContractNote: contract.note,
-        }),
-      })
+      scores.push(
+        withRegressionSignals(
+          {
+            ...scored,
+            // Dropped when no model was called: the canned judge answers `no`
+            // for every run, and a section of shared failures nobody judged
+            // would read as a finding.
+            ...(env.spends && handling !== undefined && { handling }),
+            ...(controls.scoredAnyway !== undefined && {
+              controlsScoredAnyway: controls.scoredAnyway,
+            }),
+            ...(contract.note !== undefined && {
+              outputContractNote: contract.note,
+            }),
+          },
+          config,
+        ),
+      )
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&

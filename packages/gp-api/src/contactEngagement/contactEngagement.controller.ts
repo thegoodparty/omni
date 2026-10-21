@@ -14,6 +14,7 @@ import { ContactEngagementService } from './contactEngagement.service'
 import {
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
 } from './contactEngagement.types'
 
 @Controller('contact-engagement')
@@ -68,5 +69,19 @@ export class ContactEngagementController {
     }
     // Issues are poll-specific (elected office); campaigns have none.
     return { nextCursor: null, results: [] }
+  }
+
+  @Get(':id/priority-answers')
+  async getPriorityAnswers(
+    @Param() params: IndividualActivityParamsDTO,
+    @ReqElectedOffice() electedOffice: ElectedOffice | undefined,
+  ): Promise<GetPersonPriorityAnswersResponse> {
+    // Priorities belong to an elected office; a campaign has none.
+    return electedOffice
+      ? this.contactEngagementService.getPriorityAnswers(
+          electedOffice.organizationSlug,
+          params.id,
+        )
+      : { results: [] }
   }
 }

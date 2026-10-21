@@ -6,17 +6,18 @@ import {
   MIN_RESPONDENTS_FOR_REPRESENTATION,
   type PriorityResults,
 } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
+  READ_PROGRESS_TONE,
   READ_STATUS_DOT,
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
-import { WEIGHTING_STATUS } from '../../weightingStatus'
+import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { RepresentationBars } from './RepresentationBars'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
@@ -72,9 +73,11 @@ export const PriorityResultsView = ({
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
       heldBack: !readStatus.good,
-      weightingStatus: WEIGHTING_STATUS[readStatus.status],
+      readStatus: READ_STATUS_PROPERTY[readStatus.status],
       answers: readStatus.answers,
-      answersNeeded: readStatus.needed,
+      answersFloor: readStatus.needed,
+      groupsHeard: readStatus.groupsHeard,
+      groupsTotal: readStatus.groupsTotal,
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
       representationShown: results.representation !== null,
@@ -123,27 +126,22 @@ export const PriorityResultsView = ({
             />
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          {readStatus.answers < readStatus.needed ? (
+          {readStatus.groupsTotal > 0 ? (
             <>
               <p className="text-sm text-foreground">
-                {READ_STATUS_COPY.moreAnswers(
-                  readStatus.needed - readStatus.answers,
-                )}
+                {READ_STATUS_COPY.progress(readStatus)}
               </p>
               <Progress
-                value={readPercent(readStatus.answers, readStatus.needed)}
-                aria-label={READ_STATUS_COPY.progress(
-                  readStatus.answers,
-                  readStatus.needed,
-                )}
-                className="h-2"
+                value={readPercent(readStatus)}
+                aria-label={READ_STATUS_COPY.progress(readStatus)}
+                className={cn('h-2', READ_PROGRESS_TONE[readStatus.status])}
               />
             </>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {readStatus.status === 'tooEarly'
-              ? READ_STATUS_COPY.tooEarly
-              : READ_STATUS_COPY.notLikeDistrict}
+            {readStatus.status === 'gettingClose'
+              ? READ_STATUS_COPY.unsureGroups
+              : READ_STATUS_COPY.missingGroups}
           </p>
           {readStatus.underrepresented.length > 0 ? (
             <div data-testid="results-hear-from-more">
@@ -152,16 +150,20 @@ export const PriorityResultsView = ({
               </h3>
               <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
                 {readStatus.underrepresented.map((group) => (
-                  <li key={group}>{READ_STATUS_COPY.groupName(group)}</li>
+                  <li key={group}>
+                    {READ_STATUS_COPY.groupName(group, readStatus)}
+                  </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          <Button asChild size="small" className="self-start rounded-full">
-            <Link href={getAnswersHref(priorityId)}>
-              {READ_STATUS_COPY.getAnswers}
-            </Link>
-          </Button>
+          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+            <Button asChild size="small" className="self-start rounded-full">
+              <Link href={getAnswersHref(priorityId)}>
+                {READ_STATUS_COPY.getAnswers}
+              </Link>
+            </Button>
+          ) : null}
         </section>
       )}
     </div>

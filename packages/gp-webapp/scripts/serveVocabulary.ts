@@ -122,6 +122,9 @@ const BANNED_WORD_PATTERNS: readonly { word: string; pattern: RegExp }[] = [
   { word: 'candidate', pattern: /\bcandidates?(?:'s?)?\b/gi },
   { word: 'ballot', pattern: /\bballots?\b/gi },
   { word: 'campaign', pattern: /\bcampaigns?\b|\bcampaigning\b/gi },
+  // Win's answer to a door or a call. Serve's is "spoke with" and "needs
+  // follow-up", so a result count that says "supporters" is a Win string.
+  { word: 'supporter', pattern: /\b(?:non-?)?supporters?\b/gi },
 ]
 
 // The panel residents join is the "civic panel", in every product and every
@@ -174,6 +177,8 @@ export const SEEDED_ALLOWLIST: Readonly<Record<string, string>> = {
     'Same branch — "I\'m still campaigning" is the answer that sends the user to Win.',
   'app/serve/onboarding/serveOnboardingConfig.ts:candidate':
     'Verbatim text of the GoodParty nonpartisan pledge. Quoted, not written.',
+  'app/dashboard/chief-of-staff/components/SupportHero.tsx:supporter':
+    'Not rendered anywhere (DashboardContent drops it as misleading); a Serve screen never shows it.',
   'app/serve/onboarding/ServeOnboardingFlow.tsx:campaign':
     'Renders the same "still campaigning" branch and its redirect into Win onboarding.',
 }
@@ -394,7 +399,8 @@ const isOutreachCampaignSense = (text: string, at: number): boolean => {
 }
 
 // Prose, as opposed to an identifier, a route or an enum value. The rule is
-// deliberately blunt: copy has a space in it. `not_a_voter` and
+// deliberately blunt: copy has a space in it, or is one capitalised word like
+// a column header ("Campaign"). `not_a_voter` and
 // `voterFileFilterId` do not, and the route forms below cover the ones that do.
 const ROUTE_LIKE =
   /^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/|^\/|^#|^https?:|\/v\d+\//
@@ -403,7 +409,9 @@ const looksLikeCopy = (text: string): boolean => {
   const trimmed = text.trim()
   if (trimmed.length < 4) return false
   if (ROUTE_LIKE.test(trimmed)) return false
-  if (!/\s/.test(trimmed)) return false
+  // A capitalised single word is a label: a table header or a button. Lower
+  // case ones are identifiers and enum values.
+  if (!/\s/.test(trimmed)) return /^[A-Z][a-z]{3,}$/.test(trimmed)
   return /[A-Za-z]{2}/.test(trimmed)
 }
 

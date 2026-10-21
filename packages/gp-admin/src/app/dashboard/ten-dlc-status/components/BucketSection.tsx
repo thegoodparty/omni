@@ -13,7 +13,7 @@ import {
 } from '@radix-ui/themes'
 import { HiOutlineExternalLink } from 'react-icons/hi'
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
-import type { TenDlcStatusBucket, TenDlcStatusEntry } from '@goodparty_org/sdk'
+import type { TenDlcStatusBucket, TenDlcStatusEntry } from '@/shared/gpApi'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { ResendCvPinButton } from '@/app/dashboard/campaigns/components/ResendCvPinButton'

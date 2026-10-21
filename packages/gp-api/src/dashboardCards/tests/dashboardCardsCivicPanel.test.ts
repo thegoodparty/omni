@@ -92,8 +92,8 @@ const titles = (cards: { title: string }[]) =>
 
 const buildCard = {
   type: 'civic_panel',
-  title: 'Start with the people you represent',
-  ctaLabel: 'Build my panel',
+  title: 'Know what residents think before you decide',
+  ctaLabel: 'Build your panel',
   ctaHref: '/dashboard/contacts/citizens-panel',
 }
 
@@ -114,8 +114,8 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       completedAt: null,
     })
     expect(build?.summary).toBe(
-      'A civic panel is a group of residents who agree to tell you what ' +
-        'they think before you decide.',
+      'A civic panel gives you residents from across your district who ' +
+        'answer when you ask what they think.',
     )
     expect(build?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(
@@ -275,7 +275,7 @@ describe('GET /v1/dashboard/cards: the civic panel build card', () => {
       ctaLabel: buildCard.ctaLabel,
       completedAt: null,
     })
-    expect(after?.summary).toMatch(/^A civic panel is a group of residents/)
+    expect(after?.summary).toMatch(/^A civic panel gives you residents/)
   })
 
   it('renames the build card as the text that finishes it is read', async () => {
@@ -345,50 +345,27 @@ const seedPlan = (
   })
 
 describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
-  it("reads as the plan's next step and opens it", async () => {
+  // The home opens the build chat from it, which shows the plan's next step,
+  // so the card itself never names a step or counts members.
+  it('keeps its words and Build your panel with a plan', async () => {
     const orgSlug = 'eo-civic-build-plan-next'
     const eo = await seedElectedOffice(orgSlug)
-    const plan = await seedPlan(eo.id, orgSlug)
-    const text = plan.steps.find((step) => step.channel === 'text')
+    await seedPlan(eo.id, orgSlug)
 
     const cards = await listCards(orgSlug)
 
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({
-      type: 'civic_panel',
+      ...buildCard,
       sourceExternalId: `build:${eo.id}`,
-      title: 'Invite residents to your civic panel by text',
-      summary: 'Your panel can give about 0 of the 100 answers you need.',
-      ctaLabel: 'Start the text',
-      ctaHref: `/dashboard/contacts/citizens-panel?step=${text?.id}`,
       completedAt: null,
     })
-  })
-
-  it('follows the plan to the next step once one is skipped', async () => {
-    const orgSlug = 'eo-civic-build-plan-skip'
-    const eo = await seedElectedOffice(orgSlug)
-    const plan = await seedPlan(eo.id, orgSlug)
-    await listCards(orgSlug)
-    const text = plan.steps.find((step) => step.channel === 'text')
-    const calls = plan.steps.find((step) => step.channel === 'phone_banking')
-    await service.prisma.civicPanelBuildStep.update({
-      where: { id: text?.id },
-      data: { skippedAt: new Date() },
-    })
-
-    const [card] = await listCards(orgSlug)
-
-    expect(card).toMatchObject({
-      title: 'Call residents to invite them to your civic panel',
-      ctaLabel: 'Start the calls',
-      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
-    })
+    expect(cards[0]?.summary).not.toMatch(/members/)
   })
 
   // A text being worked is past checkout, which finishes the card, so the
-  // step a card can show in progress is a call list or a walk.
-  it('keeps the official going on a call list already started', async () => {
+  // steps a card can see worked first are a call list or a walk.
+  it('keeps its words while the official calls before texting', async () => {
     const orgSlug = 'eo-civic-build-plan-calling'
     const eo = await seedElectedOffice(orgSlug)
     const plan = await seedPlan(eo.id, orgSlug)
@@ -405,11 +382,28 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
 
     const [card] = await listCards(orgSlug)
 
-    expect(card).toMatchObject({
-      title: 'Finish your civic panel calls',
-      ctaLabel: 'Keep calling',
-      ctaHref: `/dashboard/contacts/citizens-panel?step=${calls?.id}`,
+    expect(card).toMatchObject({ ...buildCard, completedAt: null })
+  })
+
+  it("rewrites a card still showing the plan's step and member count", async () => {
+    const orgSlug = 'eo-civic-build-plan-old-words'
+    const eo = await seedElectedOffice(orgSlug)
+    const plan = await seedPlan(eo.id, orgSlug)
+    await listCards(orgSlug)
+    const text = plan.steps.find((step) => step.channel === 'text')
+    await service.prisma.dashboardCard.updateMany({
+      where: { electedOfficeId: eo.id, type: DashboardCardType.civic_panel },
+      data: {
+        title: 'Hear from more than the loudest voices',
+        summary: '0 members so far.',
+        ctaLabel: 'Start the text',
+        ctaHref: `/dashboard/contacts/citizens-panel?step=${text?.id}`,
+      },
     })
+
+    const [card] = await listCards(orgSlug)
+
+    expect(card).toMatchObject(buildCard)
   })
 
   it('goes back to the start words when the plan ran out of people', async () => {
@@ -434,7 +428,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     expect(done[0]).toMatchObject(buildCard)
   })
 
-  it('keeps a skipped card skipped while its words follow the plan', async () => {
+  it('keeps a skipped card skipped once there is a plan', async () => {
     const orgSlug = 'eo-civic-build-plan-dismissed'
     const eo = await seedElectedOffice(orgSlug)
     await listCards(orgSlug)
@@ -450,7 +444,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
     expect(await listCards(orgSlug)).toHaveLength(0)
     const [after] = await panelRows(eo.id)
     expect(after).toMatchObject({
-      title: 'Invite residents to your civic panel by text',
+      title: buildCard.title,
       dismissedAt,
       completedAt: null,
     })
@@ -514,12 +508,16 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(cards[0]).toMatchObject({
       type: 'civic_panel',
       sourceExternalId: `panel-step:${calls.id}`,
-      title: 'Call residents to invite them to your civic panel',
-      summary: 'Your panel can give about 0 of the 100 answers you need.',
+      title: 'Call 30 residents',
       ctaLabel: 'Start the calls',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${calls.id}`,
       completedAt: null,
     })
+    // Who and how long, never where the panel stands.
+    expect(cards[0]?.summary).toMatch(
+      /^People a text can't reach.* About 2 hours of your time\.$/,
+    )
+    expect(cards[0]?.summary).not.toMatch(/members/)
     expect(await listCards(orgSlug, 'done')).toEqual([
       expect.objectContaining(buildCard),
     ])
@@ -543,7 +541,7 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(await stepRows(eo.id)).toHaveLength(1)
     expect(cards[0]).toMatchObject({
       sourceExternalId: `panel-step:${calls.id}`,
-      title: 'Finish your civic panel calls',
+      title: 'Call 30 residents',
       ctaLabel: 'Keep calling',
     })
   })
@@ -566,7 +564,7 @@ describe("GET /v1/dashboard/cards: the plan's next step once the build card is d
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({
       sourceExternalId: `panel-step:${doors.id}`,
-      title: 'Knock on doors to invite residents to your civic panel',
+      title: 'Knock on 100 doors in a walkable area',
       ctaLabel: 'Start door knocking',
       ctaHref: `/dashboard/contacts/citizens-panel?step=${doors.id}`,
     })

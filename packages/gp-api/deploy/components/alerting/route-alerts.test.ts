@@ -592,13 +592,11 @@ describe('the grouped route alerts', () => {
 
     // The fan-out moved with the read. Two rules now cover every watched route
     // between them, so the bound that matters is the whole route map rather
-    // than any one controller's slice of it.
-    // Only watched controllers reach a rule's query; excluded ones (mocks,
-    // fixtures) never become series, so they do not count against the cap.
-    const watchedRoutes = CONTROLLER_NAMES.filter((name) =>
-      WATCHED.has(name),
-    ).flatMap((name) => ROUTE_MAP[name])
-    expect(watchedRoutes.length).toBeLessThan(MAX_QUERY_SERIES)
+    // than any one controller's slice of it. Watched routes only: an opted-out
+    // controller is in no group, so its routes return no series and cannot
+    // count against the cap.
+    const watchedEndpoints = new Set(GROUPS.flatMap((group) => group.endpoints))
+    expect(watchedEndpoints.size).toBeLessThan(MAX_QUERY_SERIES)
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the

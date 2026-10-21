@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { zDate } from '../shared/Date.schema'
 import { GeoJsonPolygonSchema } from '../doorKnocking/DoorKnockingTurf.schema'
 import {
-  ReadRepresentativenessSchema,
+  UNDERREPRESENTED_GROUP_NAMES,
   UnderrepresentedGroupSchema,
 } from '../priorities/PriorityResults.schema'
 
@@ -42,6 +42,11 @@ export const PANEL_DOOR_SHARE_OF_HOURS = 0.5
 // most two of them. Door hours past that go to calls.
 export const PANEL_DOORS_PER_AREA = 100
 export const PANEL_MAX_DOOR_AREAS = 2
+
+// A panel member is active when they answered a priority's text, call or
+// door within this many days. Past its goal the panel is kept fresh by
+// every major group holding PANEL_MEMBERS_PER_GROUP active members.
+export const PANEL_ACTIVE_WINDOW_DAYS = 90
 
 // Replies to a text arrive in batches, about three business days after it
 // goes out (the same window the results upload works to).
@@ -132,16 +137,42 @@ export type MarkCivicPanelBuildStepInput = z.infer<
   typeof MarkCivicPanelBuildStepInputSchema
 >
 
-// How the panel compares with the district's census, unweighted, on age
-// band, gender and tract (and race when enough members have one). The
-// official sees the status, in the priority read's labels, and the one group
-// to invite more of, never a share, a weight or a target. Below this many
-// members it is too early to tell.
+// Whether the panel has members in every major group of the district: 3% or
+// more of it by age band, gender and tract (and race when enough members
+// have one). The official sees the status and the one group to invite more
+// of, never a share or a target. Below this many members it is too few to
+// tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
+export const CIVIC_PANEL_BALANCE_STATUSES = [
+  'tooFewMembers',
+  'missingGroups',
+  'everyGroup',
+] as const
+export const CivicPanelBalanceStatusSchema = z.enum(
+  CIVIC_PANEL_BALANCE_STATUSES,
+)
+export type CivicPanelBalanceStatus = z.infer<
+  typeof CivicPanelBalanceStatusSchema
+>
+
+export const CIVIC_PANEL_BALANCE_STATUS_LABELS: Record<
+  CivicPanelBalanceStatus,
+  string
+> = {
+  tooFewMembers: 'Too few members yet',
+  missingGroups: 'Missing some groups',
+  everyGroup: 'Every group on your panel',
+}
+
+// `groupsNeedingFresh` is set only once the panel is past its goal, where
+// the panel is judged on its active members: the major groups holding fewer
+// than PANEL_MEMBERS_PER_GROUP of them (PANEL_ACTIVE_WINDOW_DAYS), and
+// `inviteMore` is the largest group short of members, else of active members. Absent before the goal.
 export const CivicPanelBalanceSchema = z.object({
-  status: ReadRepresentativenessSchema.exclude(['enoughAnswers']),
+  status: CivicPanelBalanceStatusSchema,
   inviteMore: UnderrepresentedGroupSchema.nullable(),
+  groupsNeedingFresh: z.number().int().nonnegative().optional(),
 })
 export type CivicPanelBalance = z.infer<typeof CivicPanelBalanceSchema>
 
@@ -197,6 +228,7 @@ export const CivicPanelBuildPlanSchema = z.object({
   id: z.string(),
   status: CivicPanelBuildPlanStatusSchema,
   goalMembers: z.number().int(),
+  keepFresh: z.boolean().default(false),
   hoursPerWeek: z.number().int(),
   currentWave: z.number().int(),
   createdAt: zDate(),
@@ -205,19 +237,207 @@ export const CivicPanelBuildPlanSchema = z.object({
 })
 export type CivicPanelBuildPlan = z.infer<typeof CivicPanelBuildPlanSchema>
 
-// Where the panel stands, in answers to one question. `answersNeeded` is
-// the district's (answersNeeded of its smallest major group), `expectedAnswers` what the
-// members are expected to give it, and `goal` the members it takes to give
-// all of them.
+// Where the panel stands. `groupsCovered` of `groupsTotal` major groups
+// have enough members to expect three answers (PANEL_MEMBERS_PER_GROUP);
+// both are 0 when the district could not be read. `goal` is the members the
+// plan is sized to, from `answersNeeded` (the district's, of its smallest
+// major group); `expectedAnswers` is what the members are expected to give.
 export const CivicPanelBuildProgressSchema = z.object({
   members: z.number().int(),
   goal: z.number().int(),
   answersNeeded: z.number().int(),
   expectedAnswers: z.number().int(),
+  groupsCovered: z.number().int().nonnegative().default(0),
+  groupsTotal: z.number().int().nonnegative().default(0),
 })
 export type CivicPanelBuildProgress = z.infer<
   typeof CivicPanelBuildProgressSchema
 >
+
+export const civicPanelFreshnessText = (groupsNeedingFresh: number): string =>
+  groupsNeedingFresh === 0
+    ? 'Every group has fresh voices'
+    : groupsNeedingFresh === 1
+      ? '1 group needs fresh voices'
+      : `${groupsNeedingFresh} groups need fresh voices`
+
+// Where the panel stands, in the words the Chief of Staff's card and chat
+// both use: "62 members so far, from 9 of 12 groups in your district." Past
+// the goal it is judged on active members instead: "250 members. 3 groups
+// need fresh voices."
+export const civicPanelStandingLine = (
+  progress: Pick<
+    CivicPanelBuildProgress,
+    'members' | 'groupsCovered' | 'groupsTotal'
+  >,
+  balance: Pick<CivicPanelBalance, 'groupsNeedingFresh'> | null = null,
+): string => {
+  if (balance?.groupsNeedingFresh != null) {
+    const members = `${progress.members.toLocaleString('en-US')} ${
+      progress.members === 1 ? 'member' : 'members'
+    }`
+    return `${members}. ${civicPanelFreshnessText(balance.groupsNeedingFresh)}.`
+  }
+  const members = `${progress.members.toLocaleString('en-US')} ${
+    progress.members === 1 ? 'member' : 'members'
+  } so far`
+  return progress.groupsTotal > 0
+    ? `${members}, from ${progress.groupsCovered} of ${progress.groupsTotal} groups in your district.`
+    : `${members}.`
+}
+
+// A plan step in the words the panel page, the Chief of Staff's chat card and
+// its home card all use: a title naming who to reach, and one line on who
+// they are and how long it takes.
+export const CIVIC_PANEL_STEP_COPY = {
+  stepTitle: {
+    text: (size: string) => `Text ${size} residents`,
+    phone_banking: (size: string) => `Call ${size} residents`,
+    door_knocking: (size: string, position: number) =>
+      position > 1
+        ? `Knock on ${size} doors in a second walkable area`
+        : `Knock on ${size} doors in a walkable area`,
+  },
+  stepDetail: {
+    text: 'Residents with a cell phone, picked at random.',
+    phone_banking: (time: string) =>
+      `People a text can't reach, landlines first. ${time} of your time.`,
+    door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
+  },
+  // A step's line when its draw leans toward a group the panel trails.
+  stepLean: {
+    text: (group: string) => `This batch invites more ${group}.`,
+    phone_banking: (time: string) =>
+      `People a text can't reach. ${time} of your time.`,
+    door_knocking: (time: string) =>
+      `A part of your district we haven't reached. ${time} of your time.`,
+  },
+  duration: (minutes: number) =>
+    minutes < 50
+      ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`
+      : minutes < 90
+        ? 'About an hour'
+        : `About ${Math.round(minutes / 60)} hours`,
+  calledSoFar: (called: string) => `Called ${called} so far.`,
+  knockedSoFar: (visited: string) => `Visited ${visited} residents so far.`,
+  startStep: {
+    text: 'Start the text',
+    phone_banking: 'Start the calls',
+    door_knocking: 'Start door knocking',
+  },
+  keepGoing: {
+    phone_banking: 'Keep calling',
+    door_knocking: 'Keep knocking',
+  },
+} as const
+
+const countOf = (value: number): string => value.toLocaleString('en-US')
+
+export const civicPanelStepMinutes = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'targetSize'>,
+): number =>
+  (step.targetSize /
+    (step.channel === 'door_knocking'
+      ? PANEL_DOORS_PER_HOUR
+      : PANEL_CALLS_PER_HOUR)) *
+  60
+
+// "Call 60 residents".
+export const civicPanelStepTitle = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'position' | 'targetSize'>,
+): string => {
+  const size = countOf(step.targetSize)
+  return step.channel === 'door_knocking'
+    ? CIVIC_PANEL_STEP_COPY.stepTitle.door_knocking(size, step.position)
+    : CIVIC_PANEL_STEP_COPY.stepTitle[step.channel](size)
+}
+
+// The line under a step still to take: who it reaches and how long it
+// takes, or how far a call list or walk underway has got. A text underway
+// or sent has a dated line of its own on the panel page.
+export const civicPanelOpenStepDetail = (
+  step: Pick<
+    CivicPanelBuildStep,
+    | 'channel'
+    | 'targetSize'
+    | 'status'
+    | 'reached'
+    | 'steeredToward'
+    | 'landlineFirst'
+  >,
+): string => {
+  const copy = CIVIC_PANEL_STEP_COPY
+  if (step.channel === 'text') {
+    return step.steeredToward && step.status === 'not_started'
+      ? copy.stepLean.text(UNDERREPRESENTED_GROUP_NAMES[step.steeredToward])
+      : copy.stepDetail.text
+  }
+  const calls = step.channel === 'phone_banking'
+  if (step.status === 'in_progress' && step.reached !== null) {
+    const reached = countOf(step.reached)
+    return calls ? copy.calledSoFar(reached) : copy.knockedSoFar(reached)
+  }
+  const time = copy.duration(civicPanelStepMinutes(step))
+  if (calls) {
+    return step.landlineFirst === false
+      ? copy.stepLean.phone_banking(time)
+      : copy.stepDetail.phone_banking(time)
+  }
+  return step.steeredToward === 'unreachedAreas'
+    ? copy.stepLean.door_knocking(time)
+    : copy.stepDetail.door_knocking(time)
+}
+
+// The step's button: start it, or keep going on a call list or walk
+// underway. Null when there is nothing to press, such as a text on its way.
+export const civicPanelStepAction = (
+  step: Pick<CivicPanelBuildStep, 'channel' | 'status'>,
+): string | null => {
+  if (step.status === 'not_started') {
+    return CIVIC_PANEL_STEP_COPY.startStep[step.channel]
+  }
+  if (step.status !== 'in_progress' || step.channel === 'text') return null
+  return CIVIC_PANEL_STEP_COPY.keepGoing[step.channel]
+}
+
+// Who the members are beside the district, for the panel page's seats and
+// petals. `places` splits the district by census tract (each tract's share
+// of its adults), or by precinct (each precinct's share of the people on
+// file) when the district has no tract data; `placeKind` says which, and
+// `name` is the tract number ("9501.02") or the precinct as filed. Members
+// with no known place sit out. `groups` is each major group by age band,
+// gender, and race when it may be named: its share of the district and of
+// the members whose value is known. Shares are fractions, 0.25 is 25%. The
+// page draws from them and never prints a share.
+export const CIVIC_PANEL_PLACE_KINDS = ['tract', 'precinct'] as const
+export const CivicPanelPlaceKindSchema = z.enum(CIVIC_PANEL_PLACE_KINDS)
+export type CivicPanelPlaceKind = z.infer<typeof CivicPanelPlaceKindSchema>
+
+export const CivicPanelCompositionPlaceSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  districtShare: z.number(),
+  members: z.number().int().nonnegative(),
+})
+export type CivicPanelCompositionPlace = z.infer<
+  typeof CivicPanelCompositionPlaceSchema
+>
+
+export const CivicPanelCompositionGroupSchema = z.object({
+  group: UnderrepresentedGroupSchema,
+  districtShare: z.number(),
+  memberShare: z.number(),
+})
+export type CivicPanelCompositionGroup = z.infer<
+  typeof CivicPanelCompositionGroupSchema
+>
+
+export const CivicPanelCompositionSchema = z.object({
+  placeKind: CivicPanelPlaceKindSchema,
+  places: z.array(CivicPanelCompositionPlaceSchema),
+  groups: z.array(CivicPanelCompositionGroupSchema),
+})
+export type CivicPanelComposition = z.infer<typeof CivicPanelCompositionSchema>
 
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the
 // official has made one; progress and balance are always the panel as it
@@ -228,6 +448,9 @@ export const CivicPanelBuildPlanResponseSchema = z.object({
   progress: CivicPanelBuildProgressSchema,
   // Null when the district's census or the members could not be read.
   balance: CivicPanelBalanceSchema.nullable(),
+  // Null with no members, or when the census or the members could not be
+  // read.
+  composition: CivicPanelCompositionSchema.nullable().optional(),
 })
 export type CivicPanelBuildPlanResponse = z.infer<
   typeof CivicPanelBuildPlanResponseSchema

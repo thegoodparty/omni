@@ -562,6 +562,11 @@ describe('CommunityIssueService analytics events', () => {
       topIssue1Title: 'Issue 1',
       topIssue1Summary: 'Summary for issue 1.',
       topIssue1Priority: 'high',
+      topIssue1ShortTitle: 'Issue 1',
+      topIssue1Teaser: 'Summary for issue 1.',
+      trendingIssue1ShortTitle: 'Issue 1',
+      leadIssueTitle: 'Issue 1',
+      leadIssueTeaser: 'Summary for issue 1.',
       trendingIssue1Title: 'Issue 1',
       trendingIssue1Priority: 'high',
     })
@@ -586,6 +591,7 @@ describe('CommunityIssueService analytics events', () => {
       trendingIssueCount: 1,
       topIssue1Title: 'Issue 2',
       topIssue1Priority: 'high',
+      leadIssueTitle: 'Issue 2',
     })
     expect(
       callsFor(EVENTS.CommunityIssues.TrendingIssuesRefreshed),

@@ -32,7 +32,10 @@ import {
   ACS_COUNT_KEYS,
   type AcsCounts,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
+import type {
+  DistrictCell,
+  PersonAnswer,
+} from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
@@ -265,7 +268,10 @@ describe('GET /v1/priorities/:id/results', () => {
     // Nobody's answer is coded yet: no group has been heard.
     expect(res.data.readStatus).toEqual({
       answers: 12,
+      checkOut: true,
       needed: 18,
+      groupsHeard: 0,
+      groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age35to44', 'age65plus'],
@@ -279,6 +285,7 @@ describe('GET /v1/priorities/:id/results', () => {
 
     expect(res.data.readStatus).toMatchObject({
       answers: 12,
+      checkOut: true,
       needed: 12,
       good: false,
       status: 'gettingClose',
@@ -455,7 +462,10 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data).toEqual({
       answers: 8,
+      checkOut: true,
       needed: 11,
+      groupsHeard: 1,
+      groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       // Eight answers still leave the model unsure of the younger band.
@@ -470,7 +480,10 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 10,
+      checkOut: true,
       needed: 11,
+      groupsHeard: 1,
+      groupsTotal: 2,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['age65plus', 'age35to44'],
@@ -497,7 +510,10 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 160,
+      checkOut: true,
       needed: 160,
+      groupsHeard: 2,
+      groupsTotal: 2,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -556,6 +572,60 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toMatchObject({ answers: 0, good: false })
   })
 
+  it('says when a paid follow-up text goes out, until it does', async () => {
+    const { outreach } = await createTextSend(3, 0)
+    const followUp = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending,
+        priorityId,
+        roundOneOutreachId: outreach.id,
+        scheduledLocalDate: '2026-11-03',
+        textCount: 250,
+      },
+    })
+
+    expect((await readStatus()).data.followUp).toEqual({
+      scheduledLocalDate: '2026-11-03',
+      texts: 250,
+    })
+
+    await service.prisma.outreach.update({
+      where: { id: followUp.id },
+      data: { status: OutreachStatus.in_progress },
+    })
+    expect((await readStatus()).data.followUp).toBeUndefined()
+    expect((await readStatus()).data.followUpSent).toBe(true)
+  })
+
+  it('treats a denied or failed follow-up as closed, never a third text', async () => {
+    const { outreach } = await createTextSend(3, 0)
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.failed,
+        priorityId,
+        roundOneOutreachId: outreach.id,
+        scheduledLocalDate: '2026-11-03',
+        textCount: 250,
+      },
+    })
+
+    const read = (await readStatus()).data
+    expect(read.followUp).toBeUndefined()
+    expect(read.followUpSent).toBe(true)
+  })
+
+  it('says no check is out until something has gone to residents', async () => {
+    expect((await readStatus()).data.checkOut).toBeUndefined()
+
+    await createTextSend(3, 0)
+
+    expect((await readStatus()).data.checkOut).toBe(true)
+  })
+
   it('says enough answers, not representative, when the district cannot be read', async () => {
     mrpInputs.mockResolvedValue(null)
     await createCodedSend(100, 3)
@@ -564,7 +634,10 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 100,
+      checkOut: true,
       needed: 100,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
@@ -579,7 +652,10 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 12,
+      checkOut: true,
       needed: 100,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good: false,
       status: 'tooEarly',
       underrepresented: [],
@@ -625,39 +701,100 @@ describe('GET /v1/priorities/:id/read-status', () => {
   })
 })
 
+describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
+  const zero = Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, 0]),
+  ) as AcsCounts
+  // The census says 60% of adults are 35 to 44 and 40% are 65 and over.
+  const CENSUS: AcsCounts = {
+    ...zero,
+    populationMale35To44: 300,
+    populationFemale35To44: 300,
+    populationMale65Plus: 200,
+    populationFemale65Plus: 200,
+    populationMale18Plus: 500,
+    populationFemale18Plus: 500,
+  }
+  const voterCell = (
+    ageBand: DistrictCell['ageBand'],
+    count: number,
+  ): DistrictCell => ({
+    ageBand,
+    gender: null,
+    tract: null,
+    race: null,
+    count,
+  })
+
+  const stubWarehouse = (voterFile: DistrictCell[]) => {
+    mrpInputs.mockRestore()
+    const stats = service.app.get(StatsService)
+    vi.spyOn(stats, 'findDistrictCells').mockResolvedValue({
+      district: CENSUS,
+      cells: voterFile,
+      tractAdults: new Map(),
+    })
+    vi.spyOn(stats, 'findAnswerCells').mockImplementation(
+      async (_districtId, _dataset, answers) => [
+        {
+          ageBand: '35to44',
+          gender: null,
+          tract: null,
+          race: null,
+          yes: answers.length,
+          count: answers.length,
+        },
+      ],
+    )
+  }
+
+  it('names a group the census holds as major though the voter file is thin on it', async () => {
+    // 2% of the voter file is 65 and over: under the 3% rule on its own.
+    stubWarehouse([voterCell('35to44', 980), voterCell('65plus', 20)])
+    await createCodedSend(8, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toMatchObject({
+      groupsTotal: 2,
+      groupsHeard: 1,
+      good: false,
+      status: 'tooEarly',
+    })
+    expect(res.data.underrepresented).toContain('age65plus')
+  })
+})
+
 describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', () => {
   const REACHED = '37021000100'
   const UNREACHED = '37021000200'
+  const TRACT_FRAME: MrpInputs['frame'] = [
+    { count: 500, values: { tract: REACHED } },
+    { count: 500, values: { tract: UNREACHED } },
+  ]
+  const reachedCell = (input: {
+    answers: PersonAnswer[]
+  }): MrpInputs['answers'][number] => ({
+    yes: input.answers.reduce((sum, answer) => sum + answer.yes, 0),
+    answers: input.answers.length,
+    values: { tract: REACHED },
+  })
   const inside = [uuidv7(), uuidv7()]
 
   const createFilter = (body: Record<string, unknown>) =>
     service.client.post('/v1/voters/voter-file/filter', body, headers())
 
-  let weightingInputs: MockInstance<StatsService['findWeightingInputs']>
   let gridCells: MockInstance<StatsService['findTractGridCells']>
   let geoMembers: MockInstance<ContactsService['resolveGeoMemberIds']>
 
   beforeEach(() => {
-    // Everyone who answered lives in one of the district's two tracts.
-    weightingInputs = vi
-      .spyOn(service.app.get(StatsService), 'findWeightingInputs')
-      .mockImplementation(async (_d, _ds, personIds) => ({
-        district: blockGroup,
-        cells: [
-          {
-            ageBand: null,
-            gender: null,
-            tenure: null,
-            tract: REACHED,
-            race: null,
-            count: personIds.length,
-          },
-        ],
-        tractAdults: new Map([
-          [REACHED, 500],
-          [UNREACHED, 500],
-        ]),
-      }))
+    // The model reads the district's two tracts: REACHED has voices,
+    // UNREACHED has none.
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      frame: TRACT_FRAME,
+      answers: answers.length === 0 ? [] : [reachedCell({ answers })],
+      raceNameable: false,
+    }))
     gridCells = vi
       .spyOn(service.app.get(StatsService), 'findTractGridCells')
       .mockResolvedValue([
@@ -670,7 +807,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('saves the area as the list boundary, with its people frozen', async () => {
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
 
     const res = await createFilter({
       name: 'Parts we have not heard from',
@@ -695,7 +832,7 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('draws a sample only from the people inside the area', async () => {
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
     const draw = vi
       .spyOn(service.app.get(ContactsService), 'drawListSample')
       .mockResolvedValue([inside[0]!])
@@ -714,21 +851,12 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
   })
 
   it('refuses when every part of the district has answered', async () => {
-    weightingInputs.mockImplementation(async (_d, _ds, personIds) => ({
-      district: blockGroup,
-      cells: [
-        {
-          ageBand: null,
-          gender: null,
-          tenure: null,
-          tract: REACHED,
-          race: null,
-          count: personIds.length,
-        },
-      ],
-      tractAdults: new Map([[REACHED, 500]]),
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      frame: [{ count: 500, values: { tract: REACHED } }],
+      answers: [reachedCell({ answers })],
+      raceNameable: false,
     }))
-    await createTextSend(12, 0)
+    await createCodedSend(160, 0)
 
     const res = await createFilter({
       name: 'Nowhere left',

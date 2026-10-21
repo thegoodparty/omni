@@ -8,7 +8,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
-import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -76,6 +76,7 @@ export class OutreachServeSmsPurchaseHandlerService
     private readonly stripe: StripeService,
     private readonly slack: SlackService,
     private readonly analytics: AnalyticsService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
   }
@@ -172,6 +173,7 @@ export class OutreachServeSmsPurchaseHandlerService
         reportBackForOutreachId: true,
         outreachType: true,
         voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
+        roundTwo: { select: { id: true, textCount: true, status: true } },
       },
     })
 
@@ -210,12 +212,20 @@ export class OutreachServeSmsPurchaseHandlerService
     const claimed = row.reportBackForOutreachId
       ? await this.claimReportBack(
           outreachId,
+          organizationSlug,
           row.reportBackForOutreachId,
           claimWhere,
           claimData,
           sessionId,
         )
-      : await this.model.updateMany({ where: claimWhere, data: claimData })
+      : row.roundTwo?.status === OutreachStatus.pending_payment
+        ? await this.claimWithFollowUp(
+            claimWhere,
+            claimData,
+            row.roundTwo,
+            sessionId,
+          )
+        : await this.model.updateMany({ where: claimWhere, data: claimData })
 
     const isPoll = row.outreachType === OutreachType.poll
 
@@ -260,15 +270,30 @@ export class OutreachServeSmsPurchaseHandlerService
       // guard on `status = pending` means a revert can never clobber a status
       // something else has since moved on. `stripeCheckoutSessionId` is left
       // in place deliberately: the row is paid, and a bare `pending_payment`
-      // with no session id would read as an unpaid draft.
-      await this.model.updateMany({
+      // with no session id would read as an unpaid draft. A follow-up claimed
+      // with it goes back too, so it can never send without its first half.
+      const revert = {
         where: {
           id: outreachId,
           organizationSlug,
           status: OutreachStatus.pending,
         },
         data: { status: OutreachStatus.pending_payment },
-      })
+      }
+      if (row.roundTwo) {
+        await this.client.$transaction([
+          this.client.outreach.updateMany(revert),
+          this.client.outreach.updateMany({
+            where: {
+              roundOneOutreachId: outreachId,
+              status: OutreachStatus.pending,
+            },
+            data: { status: OutreachStatus.pending_payment },
+          }),
+        ])
+      } else {
+        await this.model.updateMany(revert)
+      }
       this.logger.error(
         { error, outreachId, organizationSlug, sessionId },
         'Serve SMS send could not be enqueued after payment; claim reverted',
@@ -561,22 +586,27 @@ export class OutreachServeSmsPurchaseHandlerService
   // checkout session so staff can refund it from the console's Canceled tab.
   private async claimReportBack(
     outreachId: number,
+    organizationSlug: string,
     reportBackForOutreachId: number,
     where: Prisma.OutreachWhereInput,
     data: Prisma.OutreachUpdateManyMutationInput,
     sessionId: string,
   ): Promise<{ count: number }> {
+    const priorityId = await this.reportBack.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
     const outcome = await this.client.$transaction(async (tx) => {
-      const lockKey = `report_back:${reportBackForOutreachId}`
+      // One report back goes out per priority, so the lock is the priority's.
+      const lockKey = `report_back:${priorityId ?? reportBackForOutreachId}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const sibling = await tx.outreach.findFirst({
-        where: {
-          reportBackForOutreachId,
-          id: { not: outreachId },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const sibling = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            outreachId,
+          )
+        : null
       if (!sibling) {
         return {
           claimed: await tx.outreach.updateMany({ where, data }),
@@ -592,7 +622,7 @@ export class OutreachServeSmsPurchaseHandlerService
           canceledBy: 'report_back_already_sent',
         },
       })
-      return { claimed: null, duplicateOf: sibling.id }
+      return { claimed: null, duplicateOf: sibling.outreachId }
     })
     if (outcome.claimed) return outcome.claimed
     this.logger.error(
@@ -603,6 +633,38 @@ export class OutreachServeSmsPurchaseHandlerService
     throw new BadRequestException(
       `A report back on outreach ${reportBackForOutreachId} already went out`,
     )
+  }
+
+  // A priority text's follow-up is paid for in its first send's checkout,
+  // so both are claimed in one write: a paid first send never leaves its
+  // follow-up unpaid, and the follow-up then waits on its draw like any
+  // round 2. Each records what it billed.
+  private claimWithFollowUp(
+    claimWhere: Prisma.OutreachWhereInput,
+    claimData: Prisma.OutreachUpdateManyMutationInput,
+    followUp: { id: number; textCount: number | null },
+    sessionId: string,
+  ): Promise<{ count: number }> {
+    return this.client.$transaction(async (tx) => {
+      const claimed = await tx.outreach.updateMany({
+        where: claimWhere,
+        data: claimData,
+      })
+      if (claimed.count === 0) return claimed
+      await tx.outreach.updateMany({
+        where: { id: followUp.id, status: OutreachStatus.pending_payment },
+        data: {
+          status: OutreachStatus.pending,
+          ...(followUp.textCount === null
+            ? {}
+            : { billableTextCount: followUp.textCount }),
+          ...(sessionId.startsWith('cs_')
+            ? { stripeCheckoutSessionId: sessionId }
+            : {}),
+        },
+      })
+      return claimed
+    })
   }
 
   // The same refund a cancel-before-send issues, keyed on the row so a
@@ -620,9 +682,11 @@ export class OutreachServeSmsPurchaseHandlerService
           ? session.payment_intent
           : session.payment_intent?.id
       if (paymentIntentId) {
+        // Keyed on the payment: outreach ids repeat across PR previews,
+        // which share one Stripe account.
         await this.stripe.refundPaymentIntent(
           paymentIntentId,
-          `outreach-cancel-${outreachId}`,
+          `outreach-cancel-${paymentIntentId}`,
         )
       }
     } catch (err) {
@@ -667,6 +731,7 @@ export class OutreachServeSmsPurchaseHandlerService
         status: true,
         textCount: true,
         reportBackForOutreachId: true,
+        roundTwo: { select: { status: true, textCount: true } },
       },
     })
 
@@ -688,14 +753,17 @@ export class OutreachServeSmsPurchaseHandlerService
     // Two drafts of one report back can both reach checkout (two tabs, or
     // Back and forward again); only the first paid may go out.
     if (draft.reportBackForOutreachId) {
-      const paid = await this.model.findFirst({
-        where: {
-          reportBackForOutreachId: draft.reportBackForOutreachId,
-          id: { not: draft.id },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const priorityId = await this.reportBack.priorityOf(
+        organizationSlug,
+        draft.reportBackForOutreachId,
+      )
+      const paid = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            draft.id,
+          )
+        : null
       if (paid) {
         throw new BadRequestException(
           `A report back on outreach ${draft.reportBackForOutreachId} already went out`,
@@ -711,7 +779,13 @@ export class OutreachServeSmsPurchaseHandlerService
       )
     }
 
-    return { textCount: draft.textCount }
+    // A priority text's follow-up is bought with it: one checkout, both
+    // counts.
+    const followUp =
+      draft.roundTwo?.status === OutreachStatus.pending_payment
+        ? (draft.roundTwo.textCount ?? 0)
+        : 0
+    return { textCount: draft.textCount + followUp }
   }
 
   /**

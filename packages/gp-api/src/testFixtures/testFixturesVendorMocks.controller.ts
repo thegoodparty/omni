@@ -3,6 +3,12 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { isTestUser } from '@/users/util/users.util'
 import {
+  AdminOutreachActionRequestSchema,
+  AdminOutreachActionResponseSchema,
+  type AdminOutreachActionRequest,
+  DeliverStripeEventRequestSchema,
+  DeliverStripeEventResponseSchema,
+  type DeliverStripeEventRequest,
   type MockAction,
   MockActionResponseSchema,
   MockActionSchema,
@@ -21,6 +27,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
   Query,
 } from '@nestjs/common'
@@ -73,7 +80,7 @@ export class TestFixturesVendorMocksController {
     if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
-    return this.testFixtures.runJob(name)
+    return this.testFixtures.runJob(name, user.id)
   }
 
   @Post('time-travel')
@@ -84,6 +91,41 @@ export class TestFixturesVendorMocksController {
   ) {
     this.assertNonProdDeploy()
     return this.testFixtures.timeTravel(body, user.id)
+  }
+
+  @Post('stripe/events')
+  @ResponseSchema(DeliverStripeEventResponseSchema)
+  async deliverStripeEvent(
+    @Body(new ZodValidationPipe(DeliverStripeEventRequestSchema))
+    body: DeliverStripeEventRequest,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    return this.testFixtures.deliverStripeEvent(body.type, body.sessionId)
+  }
+
+  @Post('outreach/:id/admin-actions')
+  @ResponseSchema(AdminOutreachActionResponseSchema)
+  async outreachAdminAction(
+    @Param('id', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(AdminOutreachActionRequestSchema))
+    body: AdminOutreachActionRequest,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.assertOutreachOwner(outreachId, user.id)
+    return this.testFixtures.applyOutreachAdminAction(
+      outreachId,
+      body.action,
+      body.payload,
+      user.id,
+    )
   }
 
   // Checks that the campaign belongs to the signed-in user; 403 otherwise.
@@ -98,6 +140,28 @@ export class TestFixturesVendorMocksController {
     if (campaign.userId !== userId) {
       throw new ForbiddenException(
         'You do not have permission to access this campaign',
+      )
+    }
+  }
+
+  // Checks that the outreach belongs to a campaign owned by the signed-in user.
+  // 404 when no campaign is found so callers can't enumerate ids.
+  private async assertOutreachOwner(outreachId: number, userId: number) {
+    const outreach = await this.campaigns.client.outreach.findUnique({
+      where: { id: outreachId },
+    })
+    if (!outreach || outreach.campaignId === null) {
+      throw new NotFoundException()
+    }
+    const campaign = await this.campaigns.findFirst({
+      where: { id: outreach.campaignId },
+    })
+    if (!campaign) {
+      throw new NotFoundException()
+    }
+    if (campaign.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to access this outreach',
       )
     }
   }

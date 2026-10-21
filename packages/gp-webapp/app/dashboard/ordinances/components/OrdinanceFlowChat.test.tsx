@@ -102,6 +102,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchOrdinanceBySlug: vi.fn(),
+  updateOrdinance: vi.fn(),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -114,11 +115,13 @@ vi.mock('../data/chat-api', () => ({
 
 vi.mock('../data/ordinances-api', () => ({
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  updateOrdinance: mocks.updateOrdinance,
 }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance)
+  mocks.updateOrdinance.mockResolvedValue(ordinance)
   mocks.createConversation.mockResolvedValue({ conversationId: 'conv-1' })
 })
 
@@ -512,5 +515,102 @@ describe('OrdinanceFlowChat stalled-stream recovery', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('OrdinanceFlowChat resume position', () => {
+  it('records the step as last viewed once it loads', async () => {
+    mocks.listMessages.mockResolvedValue([])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
+    )
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { lastViewedStep: 'comparables' },
+      ),
+    )
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the next step save only after the previous one settles', async () => {
+    let releaseFirstSave: ((saved: Ordinance) => void) | undefined
+    mocks.updateOrdinance.mockImplementationOnce(
+      () =>
+        new Promise<Ordinance>((resolve) => {
+          releaseFirstSave = resolve
+        }),
+    )
+    mocks.listMessages.mockResolvedValue([])
+    const { rerender } = render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />,
+    )
+    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1))
+    rerender(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="authority" />,
+    )
+    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+    releaseFirstSave?.(ordinance)
+    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(2))
+    expect(mocks.updateOrdinance).toHaveBeenLastCalledWith(
+      'public-safety-cameras',
+      { lastViewedStep: 'authority' },
+    )
+  })
+
+  it('does not record a step it left before the load finished', async () => {
+    let releaseHistory: ((history: ChatMessageDto[]) => void) | undefined
+    mocks.listMessages.mockImplementation(
+      () =>
+        new Promise<ChatMessageDto[]>((resolve) => {
+          releaseHistory = resolve
+        }),
+    )
+    const { unmount } = render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="authority" />,
+    )
+    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalled())
+    unmount()
+    releaseHistory?.([])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
+  it('does not rewrite a step the record already holds', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue({
+      ...ordinance,
+      lastViewedStep: 'comparables',
+    })
+    mocks.listMessages.mockResolvedValue([])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
+    )
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
+  it('leaves a drafted ordinance alone', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue({
+      ...ordinance,
+      status: 'draft',
+    })
+    mocks.listMessages.mockResolvedValue([])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
+  it('still loads the step when recording it fails', async () => {
+    mocks.updateOrdinance.mockRejectedValue(new Error('offline'))
+    mocks.listMessages.mockResolvedValue([
+      assistantTurn('m1', [
+        { kind: 'text', text: 'Quick legal sanity check.' },
+      ]),
+    ])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
+    expect(await screen.findByText('Quick legal sanity check.')).toBeVisible()
+    expect(mocks.updateOrdinance).toHaveBeenCalled()
   })
 })

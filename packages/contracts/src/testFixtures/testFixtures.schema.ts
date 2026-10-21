@@ -64,6 +64,19 @@ export type DeleteTestFixtureUsersResponse = z.infer<
 
 export const TEST_FIXTURE_ACTIVITY_MAX_PEOPLE = 500
 
+// How many residents answer the seeded priority, each with a coded answer.
+// Every resident asked answers when it is left out.
+export const TestFixtureAnswersSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+
+// `lean` codes nine in ten answers yes, which lets every group read as
+// heard; `even` splits them half yes and half no, which leaves the model
+// unsure of its groups however many answer.
+export const TestFixtureSplitSchema = z.enum(['lean', 'even'])
+
 export const SeedTestFixtureActivityRequestSchema = z
   .object({
     people: z
@@ -72,6 +85,8 @@ export const SeedTestFixtureActivityRequestSchema = z
       .min(20)
       .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
       .optional(),
+    answers: TestFixtureAnswersSchema.optional(),
+    split: TestFixtureSplitSchema.optional(),
   })
   .strict()
   .default({})

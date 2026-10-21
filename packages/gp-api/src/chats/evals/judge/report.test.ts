@@ -431,18 +431,19 @@ describe('the measured layer', () => {
 })
 
 describe('exclusions', () => {
-  it('counts tool error, infra error and ungraded apart', async () => {
-    const records = [
+  it('counts infra error, identical config and ungraded apart', async () => {
+    const [base, candidate] = TOOL_ERROR_PAIR
+    const records: RunRecord[] = [
       ...sweepRecords(3),
-      ...TOOL_ERROR_PAIR,
+      base,
+      { ...candidate, status: 'infraError', output: null },
       ...IDENTICAL_DIGEST_PAIR,
     ]
     const score = await pipeline(records)
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      'Excluded pairs: 1 tool error, 0 infra error, 1 identical ' +
-        'config. Plus 0 unpaired record(s). Separately, 0 ungraded ' +
-        'judgment(s)',
+      'Excluded pairs: 1 infra error, 1 identical config. Plus 0 ' +
+        'unpaired record(s). Separately, 0 ungraded judgment(s)',
     )
     expect(report).toContain("which is not a CAN'T SAY verdict")
   })
@@ -483,7 +484,6 @@ describe('provenance', () => {
       exclusions: {
         ungradedReasons: [],
         toolErrorCauses: [],
-        toolError: 0,
         infraError: 0,
         identicalConfig: 0,
         unpaired: 0,
@@ -557,6 +557,63 @@ describe('condition handling', () => {
     expect(renderReport({ agents: [score] })).not.toContain(
       'Condition handling',
     )
+  })
+})
+
+describe('regression signals', () => {
+  it('names the handling signal under the heading when it moved the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: "CAN'T SAY",
+            handling: {
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+          },
+        },
+      ],
+    })
+    const lines = report.split('\n')
+    const heading = lines.indexOf(`### ${score.agentId} \u2014 WORSE`)
+    expect(heading).toBeGreaterThan(-1)
+    expect(lines[heading + 2]).toBe(
+      '**WORSE on condition handling: the base met its checks in 16 of 24 ' +
+        'runs, the candidate in 9 (p = 0.008).** The quality comparison ' +
+        "alone says CAN'T SAY.",
+    )
+  })
+
+  it('prints no headline when the quality comparison reached the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: 'WORSE',
+            handling: {
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+          },
+        },
+      ],
+    })
+    expect(report).not.toContain('on condition handling:')
   })
 })
 
@@ -732,7 +789,7 @@ describe('a whole report', () => {
       '### chief_of_staff \u2014 BETTER',
       '| dimension |',
       'Measured, beside the verdict and never part of it',
-      'Excluded pairs: 1 tool error',
+      'Excluded pairs: 0 infra error',
       'Position consistency across order-swapped pairs:',
       'Change under test:',
       '**Coverage:',
@@ -1158,8 +1215,8 @@ describe('the all-identical-outputs qualifier', () => {
   })
 })
 
-// The same failure for tool errors: "Excluded pairs: 9 tool error" and no way
-// to tell which tool, or why, without a diagnostic branch.
+// The same failure for tool errors: a count and no way to tell which tool, or
+// why, without a diagnostic branch.
 describe('tool-error exclusions say which tool and why', () => {
   const withCauses = async (
     toolErrorCauses: AgentScore['exclusions']['toolErrorCauses'],
@@ -1204,7 +1261,7 @@ describe('tool-error exclusions say which tool and why', () => {
     expect(report).toContain('- and 2 more')
   })
 
-  // A background pair with tool errors is scored, so its causes are not
+  // A pair with tool errors is scored, so its causes are not
   // exclusions and must not read as ones: they get their own heading, after a
   // blank line so Markdown does not fold it into the line above.
   it('lists scored causes under their own heading', async () => {
@@ -1248,7 +1305,7 @@ describe('tool-error exclusions say which tool and why', () => {
     const report = renderReport({ agents: [score] })
 
     expect(score.overall.judgments).toBeGreaterThan(0)
-    expect(report).toContain('Excluded pairs: 0 tool error, 0 infra error')
+    expect(report).toContain('Excluded pairs: 0 infra error')
     expect(report).toContain('- tool errors: -1.00 per run pair')
     expect(report).toContain('Tool errors (scored, not excluded):')
     expect(report).toContain(
@@ -1259,7 +1316,7 @@ describe('tool-error exclusions say which tool and why', () => {
     )
   })
 
-  it('adds nothing when no pair was excluded for a tool error', async () => {
+  it('adds nothing when no excluded pair hit a tool error', async () => {
     const report = await withCauses([])
     const lines = report.split('\n')
     const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
@@ -1510,7 +1567,7 @@ describe('the case dimension rows', () => {
   it('prints no interval below the case floor', async () => {
     const report = renderReport({ agents: [await withCaseDimension(1)] })
     const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
-    expect(row).toContain('too few cases for an interval (1 of 20)')
+    expect(row).toContain('too few cases for an interval (1 of 5)')
     expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
   })
 

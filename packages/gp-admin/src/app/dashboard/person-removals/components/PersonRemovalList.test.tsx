@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { PersonProfileRemoval } from '@goodparty_org/sdk'
+import type { PersonProfileRemoval } from '@/shared/gpApi'
 import { PersonRemovalList } from './PersonRemovalList'
 
 vi.mock('./RestoreProfileButton', () => ({

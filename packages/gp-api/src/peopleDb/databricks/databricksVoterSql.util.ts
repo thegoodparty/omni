@@ -12,7 +12,11 @@ import {
   type AffinityColumn,
   DEFAULT_AFFINITY_COLUMN,
 } from '../affinityColumns.const'
-import { FilterData, type FilterOperator } from '../schemas/filters.schema'
+import {
+  FilterData,
+  filtersSchema,
+  type FilterOperator,
+} from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
 import { earlyVoteStatusToMart } from '../earlyVoteStatus'
 import {
@@ -911,6 +915,26 @@ export const buildPrecinctsSql = (args: {
     ` GROUP BY ${col('County')}, ${col('Precinct')}` +
     ` ORDER BY voters DESC, county ASC, precinct ASC` +
     ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// How many of the given people are filed in each (County, Precinct): counts
+// per precinct, never a person. The civic panel's seats read it where the
+// district has no tract data.
+export const buildPrecinctMembersSql = (args: {
+  district: DbxDistrict
+  personIds: string[]
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: filtersSchema.parse({ id: { in: args.personIds } }),
+  })
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT(*) AS people` +
+    ` FROM ${args.district.table} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}`
   return { sql, params: bag.params }
 }
 

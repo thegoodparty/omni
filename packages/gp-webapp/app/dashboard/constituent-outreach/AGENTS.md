@@ -11,7 +11,10 @@ step, the code lives in `outreach/v2/` and BOTH surfaces feel it — read
 **Vocabulary.** This surface has regressed four times on one bug: Win nouns
 reaching an elected official. They have constituents, an office and a term —
 never voters, an election, a candidate or a ballot, and "campaign" only in the
-outreach sense ("Campaign name" is fine, "your campaign tone" is not). Every
+outreach sense ("Campaign name" is fine, "your campaign tone" is not). The history table and
+drawer read `outreach/v2/outreachHistoryCopy.ts` (`getOutreachHistoryCopy`):
+Serve says "Your outreach", an "Outreach" column and "N need follow-up" on a
+call list, never "campaign" or "supporters". Every
 string here is Serve copy, and everything under `outreach/v2/` is shared, so
 fix a shared string with a mode-keyed copy object rather than a rename. The
 rule, the models, and the check that gates it:
@@ -120,7 +123,12 @@ generation services, the spine scoping — are in
   `SERVE_TEXT` checkout. A paid poll is then held for review, and its row reads
   "In review". The Polls page (`/dashboard/polls`) merges these rows
   (`GET /v1/outreach/serve`, `outreachType: poll`) into its list and opens the
-  same flow from Create Poll when the flag is on.
+  same flow from Create Poll when the flag is on. `?compose=poll` opens the
+  flow directly once the flag resolves (a community issue's "Run a poll on
+  this issue" links here that way when the flag is on, and to the old
+  `/dashboard/polls/create` when it is off); with the flag off it opens
+  nothing. The poll results page highlights Outreach and its back link
+  returns here.
 
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the

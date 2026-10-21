@@ -11,15 +11,16 @@ import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   panelExpectedAnswers,
   panelGoalMembers,
-  PANEL_MIN_MEMBERS_FOR_BALANCE,
+  PANEL_ACTIVE_WINDOW_DAYS,
   PANEL_STEP_WINDOW_DAYS,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   UnderrepresentedGroupSchema,
   type CivicPanelBuildPlanResponse,
+  type CivicPanelComposition,
   type PrepareCivicPanelBuildStepResponse,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, isBefore, parseISO } from 'date-fns'
+import { addBusinessDays, addDays, isBefore, parseISO, subDays } from 'date-fns'
 import {
   CivicPanelBuildChannel,
   CivicPanelBuildPlanStatus,
@@ -41,6 +42,7 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
+import { answeredPersonIds } from '@/priorities/util/priorityRespondents.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -57,9 +59,11 @@ import {
 } from '../utils/civicPanelBuild.util'
 import {
   panelSteering,
+  precinctPlaces,
   type PanelMix,
   type PanelSteering,
 } from '../utils/civicPanelSteering.util'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ContactsService } from './contacts.service'
 
 // Every list a step draws is never invited to the panel and not reached in
@@ -195,6 +199,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
+    private readonly voterQuery: VoterQueryService,
   ) {
     super()
   }
@@ -225,16 +230,15 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     if (await this.findActive(office.id)) {
       throw new ConflictException('This office already has a panel plan')
     }
-    const members = await this.memberCount(organization)
-    const goalMembers = panelGoalMembers(
+    const memberIds = await this.memberIds(organization)
+    const members = memberIds.size
+    const planGoal = panelGoalMembers(
       await this.districtAnswersNeeded(organization),
     )
-    const gap = goalMembers - members
-    if (gap <= 0) {
-      throw new ConflictException(
-        'Your civic panel has already reached its goal',
-      )
-    }
+    const keepFresh = members >= planGoal
+    const gap = keepFresh
+      ? this.keepFreshGap(await this.steeringFor(organization, memberIds, true))
+      : planGoal - members
     const steps = sizePanelWave({
       gap,
       hoursPerWeek,
@@ -263,7 +267,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           data: {
             electedOfficeId: office.id,
             organizationSlug: office.organizationSlug,
-            goalMembers,
+            goalMembers: planGoal,
+            keepFresh,
             hoursPerWeek,
             steps: { create: steps.map((step) => ({ ...step, wave: 1 })) },
           },
@@ -285,7 +290,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         {
           planId,
           hoursPerWeek,
-          goalMembers,
+          goalMembers: planGoal,
           membersAtStart: members,
           stepCount: steps.length,
           textSteps: stepsOn(CivicPanelBuildChannel.text),
@@ -444,13 +449,16 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const members = memberIds.size
     const needed = await this.districtAnswersNeeded(organization)
     const districtGoal = panelGoalMembers(needed)
+    const steering = await this.steeringFor(
+      organization,
+      memberIds,
+      members >= districtGoal,
+    )
     const active = await this.findActive(office.id)
     if (active) {
-      const goalMembers = this.goalFor(
-        active.goalMembers,
-        districtGoal,
-        members,
-      )
+      const goalMembers = active.keepFresh
+        ? active.goalMembers
+        : this.goalFor(active.goalMembers, districtGoal, members)
       if (goalMembers !== active.goalMembers) {
         await this.model.updateMany({
           where: { id: active.id, status: CivicPanelBuildPlanStatus.active },
@@ -462,6 +470,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         office,
         { ...active, goalMembers },
         members,
+        steering,
       )
     }
     const plan = await this.model.findFirst({
@@ -469,23 +478,30 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
+    const composition = await this.compositionFor(
+      organization,
+      memberIds,
+      steering,
+    )
     const progressToward = (goal: number) => ({
       members,
       goal,
       answersNeeded: needed,
       expectedAnswers: panelExpectedAnswers(members),
+      groupsCovered: steering.coverage?.groupsCovered ?? 0,
+      groupsTotal: steering.coverage?.groupsTotal ?? 0,
     })
     const goal =
-      plan?.status === CivicPanelBuildPlanStatus.active
+      plan?.status === CivicPanelBuildPlanStatus.active && !plan.keepFresh
         ? plan.goalMembers
         : districtGoal
-    const steering = await this.steeringFor(organization, memberIds, goal)
     if (!plan) {
       return {
         plan: null,
         next: null,
         progress: progressToward(districtGoal),
         balance: steering.balance,
+        composition,
       }
     }
     const now = new Date()
@@ -524,6 +540,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         id: plan.id,
         status: plan.status,
         goalMembers: plan.goalMembers,
+        keepFresh: plan.keepFresh,
         hoursPerWeek: plan.hoursPerWeek,
         currentWave,
         createdAt: plan.createdAt,
@@ -536,6 +553,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           : null,
       progress: progressToward(goal),
       balance: steering.balance,
+      composition,
     }
   }
 
@@ -554,6 +572,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           select: {
             status: true,
             goalMembers: true,
+            keepFresh: true,
             steps: { select: { wave: true } },
           },
         },
@@ -578,7 +597,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     const steering = await this.steeringFor(
       organization,
       await this.memberIds(organization),
-      step.plan.goalMembers,
+      step.plan.keepFresh,
     )
     const { personIds, steeredToward } = await this.draw(
       organization,
@@ -658,6 +677,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     office: Office,
     plan: PlanRow,
     members: number,
+    steering: PanelSteering,
   ): Promise<void> {
     const now = new Date()
     for (const step of plan.steps) {
@@ -678,7 +698,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         now,
       )
     }
-    if (members >= plan.goalMembers) {
+    if (!plan.keepFresh && members >= plan.goalMembers) {
       const closed = await this.model.updateMany({
         where: { id: plan.id, status: CivicPanelBuildPlanStatus.active },
         data: {
@@ -714,7 +734,9 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     // Sized before the lock: the counts are people-db reads, too slow to
     // hold a transaction open for. The lock only settles who writes.
     const steps = sizePanelWave({
-      gap: plan.goalMembers - members,
+      gap: plan.keepFresh
+        ? this.keepFreshGap(steering)
+        : plan.goalMembers - members,
       hoursPerWeek: plan.hoursPerWeek,
       pools: await this.pools(organization),
     })
@@ -1040,34 +1062,108 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     }
   }
 
-  // How the panel compares with its district, and how the next draws lean.
-  // The census is read only from PANEL_MIN_MEMBERS_FOR_BALANCE members up,
-  // and a failed read leans nowhere.
+  // Which groups the panel covers, and how the next draws lean. A panel
+  // with nobody on it has no census to read, and a failed read leans nowhere.
+  // Past its goal (`pastGoal`) the panel is judged on its active members.
   private async steeringFor(
     organization: Organization,
     memberIds: Set<string>,
-    goal: number,
+    pastGoal = false,
   ): Promise<PanelSteering> {
     const members = memberIds.size
-    if (members < PANEL_MIN_MEMBERS_FOR_BALANCE) {
-      return panelSteering({ members, goal, mix: null })
-    }
+    const mix =
+      members === 0
+        ? null
+        : await this.mixOf(organization, [...memberIds], 'members')
     return panelSteering({
       members,
-      goal,
-      mix: await this.mixOf(organization, [...memberIds]),
+      mix,
+      activeMix:
+        pastGoal && mix
+          ? await this.activeMixOf(organization, memberIds, mix)
+          : null,
     })
+  }
+
+  // The panel page's seats and petals: by tract from the census, or by
+  // precinct when the district has no tract data. Null when neither can be
+  // read.
+  private async compositionFor(
+    organization: Organization,
+    memberIds: Set<string>,
+    steering: PanelSteering,
+  ): Promise<CivicPanelComposition | null> {
+    const fromCensus = steering.composition
+    if (fromCensus && fromCensus.places.length > 0) return fromCensus
+    if (memberIds.size === 0) return null
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const [precincts, members] = await Promise.all([
+        this.voterQuery.findPrecincts(district.districtId, district.dataset),
+        this.voterQuery.findPrecinctMembers(
+          district.districtId,
+          district.dataset,
+          [...memberIds],
+        ),
+      ])
+      const places = precinctPlaces(
+        precincts.options.map(({ county, precinct, voters }) => ({
+          county,
+          precinct,
+          people: voters,
+        })),
+        members,
+      )
+      if (places.length === 0) return fromCensus
+      return {
+        placeKind: 'precinct',
+        places,
+        groups: fromCensus?.groups ?? [],
+      }
+    } catch {
+      return fromCensus
+    }
+  }
+
+  // The members who answered a priority's text, call or door in the last
+  // PANEL_ACTIVE_WINDOW_DAYS, counted the way the members are. Nobody active
+  // is the census with no one on it.
+  private async activeMixOf(
+    organization: Organization,
+    memberIds: Set<string>,
+    memberMix: PanelMix,
+  ): Promise<PanelMix | null> {
+    const answered = await answeredPersonIds(
+      this.client,
+      organization.slug,
+      null,
+      subDays(new Date(), PANEL_ACTIVE_WINDOW_DAYS),
+    )
+    const active = answered.filter((personId) => memberIds.has(personId))
+    if (active.length === 0) return { cells: [], census: memberMix.census }
+    return this.mixOf(organization, active, 'active')
+  }
+
+  // The members a keep-fresh wave is sized to: the fewest that would put
+  // every group at its active members. Null with nobody short, so the wave
+  // is the official's hours alone.
+  private keepFreshGap(steering: PanelSteering): number | null {
+    const short = steering.fresh?.membersShort ?? 0
+    return short > 0 ? short : null
   }
 
   private async mixOf(
     organization: Organization,
     personIds: string[],
+    scope: 'members' | 'active',
   ): Promise<PanelMix | null> {
     const key = createHash('sha256')
       .update([...personIds].sort().join(','))
       .digest('hex')
     const now = Date.now()
-    const cached = this.mixes.get(organization.slug)
+    const cacheKey = `${organization.slug}:${scope}`
+    const cached = this.mixes.get(cacheKey)
     if (cached && cached.key === key && cached.expiresAt > now) {
       return cached.mix
     }
@@ -1076,7 +1172,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         await this.contactsService.resolveEligibleDistrict(organization)
       const mix = await this.census.weightingInputs({ ...district, personIds })
       if (mix) {
-        this.mixes.set(organization.slug, {
+        this.mixes.set(cacheKey, {
           key,
           mix,
           expiresAt: now + MIX_CACHE_MS,
@@ -1099,8 +1195,8 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   private listName(step: StepRow): string {
     const base = LIST_NAMES[step.channel]
     const area = step.position > 1 ? ` ${step.position}` : ''
-    const round = step.wave > 1 ? `, round ${step.wave}` : ''
-    return `${base}${area}${round}`
+    const batch = step.wave > 1 ? `, batch ${step.wave}` : ''
+    return `${base}${area}${batch}`
   }
 
   // How many each channel can still reach.
@@ -1154,10 +1250,6 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       select: { personId: true },
     })
     return rows.map((row) => row.personId)
-  }
-
-  private async memberCount(organization: Organization): Promise<number> {
-    return (await this.memberIds(organization)).size
   }
 
   private async memberIds(organization: Organization): Promise<Set<string>> {
