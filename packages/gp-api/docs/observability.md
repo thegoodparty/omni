@@ -197,7 +197,7 @@ See the inline documentation on alert entries for more details and references to
 Key things to know:
 
 - Use `$ENV` in your expression -- it gets replaced with the environment name (`prod`) at deploy time.
-- `type: 'log'` queries go to Loki (structured logs) and are **metered by bytes scanned** -- read [Query cost](#query-cost) first. `type: 'metric'` queries go to Prometheus, including the metric our own recording rule writes. `type: 'usage'` goes to `grafanacloud-usage`, which carries Grafana Cloud's billing and alerting-health metrics; use it for a rule that must not depend on the system it is watching.
+- `type: 'log'` queries go to Loki (structured logs) and are **metered by bytes scanned** -- read [Query cost](#query-cost) first. `type: 'metric'` queries go to Prometheus, including the metric our own recording rule writes. `type: 'usage'` goes to `grafanacloud-usage`, which carries Grafana Cloud's billing and alerting-health metrics; use it for a rule that must not depend on the system it is watching. `type: 'cloudwatch'` is a CloudWatch Metrics Insights SQL query against the production AWS account, for AWS metrics nothing else exports (the Aurora replication slot alerts in `lakeflow-replication-alerts.ts`).
 - `notify` is optional. If omitted, the alert still fires but won't mention a Slack group.
 
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.

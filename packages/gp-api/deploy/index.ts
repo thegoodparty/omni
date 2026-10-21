@@ -304,6 +304,30 @@ export = async () => {
         },
       })
 
+  // Lakeflow Connect mirrors this database into Databricks over logical
+  // replication (databricks/lakeflow/README.md). The parameter is static: it
+  // takes effect at the writer's next reboot or failover, not on deploy.
+  const logicalReplication = select({ preview: false, dev: true, prod: true })
+
+  const rdsClusterParameterGroup = skipPerPrRds
+    ? undefined
+    : new aws.rds.ClusterParameterGroup('rdsClusterParameterGroup', {
+        name: select({
+          preview: `gp-api-${stage}-params`,
+          dev: 'gp-api-db-params',
+          prod: 'gp-api-db-prod-params',
+        }),
+        family: 'aurora-postgresql16',
+        description: 'gp-api Aurora cluster parameters',
+        parameters: [
+          {
+            name: 'rds.logical_replication',
+            value: logicalReplication ? '1' : '0',
+            applyMethod: 'pending-reboot',
+          },
+        ],
+      })
+
   const rdsCluster = skipPerPrRds
     ? undefined
     : new aws.rds.Cluster('rdsCluster', {
@@ -319,6 +343,7 @@ export = async () => {
         masterUsername: 'gpuser',
         masterPassword: pulumi.secret(secret.DB_PASSWORD),
         dbSubnetGroupName: subnetGroup!.name,
+        dbClusterParameterGroupName: rdsClusterParameterGroup!.name,
         vpcSecurityGroupIds: [rdsSecurityGroup!.id],
         storageEncrypted: true,
         serverlessv2ScalingConfiguration: {

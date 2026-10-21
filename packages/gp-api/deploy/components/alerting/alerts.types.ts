@@ -151,10 +151,13 @@ export type Alert = {
    *   anything gp-api emits. Deliberately a separate datasource from `metric`
    *   so that a rule watching our Loki spend, or watching whether alerting
    *   works at all, does not depend on the thing it is watching.
+   * - `cloudwatch`: A CloudWatch Metrics Insights query (`SELECT MAX(...) FROM
+   *   SCHEMA(...) WHERE ...`) against the production AWS account, for AWS
+   *   metrics nothing else exports, such as the Aurora replication slot ones.
    *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric' | 'usage'
+  type: 'log' | 'metric' | 'usage' | 'cloudwatch'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *
