@@ -739,6 +739,41 @@ describe('PublicProfileEditor — mutations', () => {
     )
   })
 
+  it('tells a draft owner the profile is not public and publishes from the notice', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+    expect(screen.getByTestId('draft-notice')).toHaveTextContent(
+      /saving does not make it public/i,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: /publish profile/i }),
+    )
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        'POST /v1/person-profiles/mine/publish',
+        {},
+      ),
+    )
+  })
+
+  it('shows no draft notice once published', () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ publishedAt: '2026-01-01T00:00:00.000Z' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+    expect(screen.queryByTestId('draft-notice')).toBeNull()
+  })
+
   it('unpublishes a published profile via the header toggle', async () => {
     render(
       <PublicProfileEditor
