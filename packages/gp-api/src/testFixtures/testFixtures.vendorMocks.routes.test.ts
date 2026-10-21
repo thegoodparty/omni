@@ -123,12 +123,29 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     expect(res.data.records).toEqual([])
   })
 
+  it('arms the next Vercel order to fail for vercel.order.fail', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action: 'vercel.order.fail' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'order_fail',
+        state: { orderFail: true },
+      }),
+    ])
+  })
+
   it.each([
     'peerly.cv.approve',
     'peerly.cv.reject',
     'peerly.cv.setPin',
     'peerly.usecase.activate',
-    'vercel.order.fail',
   ])('returns 501 for the not-yet-implemented action %s', async (action) => {
     const campaign = await seedCampaign(service.user.id)
 

@@ -326,12 +326,13 @@ export class TestFixturesService {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
+    } else if (action === 'vercel.order.fail') {
+      await this.vendorMockRecord.failVercelOrders(campaignId)
     } else if (
       action === 'peerly.cv.approve' ||
       action === 'peerly.cv.reject' ||
       action === 'peerly.cv.setPin' ||
-      action === 'peerly.usecase.activate' ||
-      action === 'vercel.order.fail'
+      action === 'peerly.usecase.activate'
     ) {
       throw new NotImplementedException(`Not implemented: ${action}`)
     } else {
