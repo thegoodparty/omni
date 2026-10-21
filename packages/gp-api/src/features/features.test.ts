@@ -230,6 +230,19 @@ describe('FeaturesService.getAllVariants', () => {
       expect(result).toEqual({})
     })
 
+    it('leaves issue-capture off when the owner cannot be read', async () => {
+      findOwner.mockRejectedValue(new Error('No User found'))
+      mockFetchV2.mockResolvedValue(volunteerVariants)
+
+      const svc = await loadRealKeyService({ findUniqueOrThrow: findOwner })
+      const result = await svc.getAllVariants(volunteer, organization)
+
+      expect(result).toEqual({
+        'campaign-story': { key: 'on', value: 'on' },
+      })
+      expect(mockFetchV2).toHaveBeenCalledTimes(1)
+    })
+
     it('evaluates the owner once when the owner is the one asking', async () => {
       mockFetchV2.mockResolvedValue(ownerVariants)
 

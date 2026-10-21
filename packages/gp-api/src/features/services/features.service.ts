@@ -144,7 +144,18 @@ export class FeaturesService {
       this.fetchVariants(user),
       this.usersService
         .findUniqueOrThrow({ where: { id: organization.ownerId } })
-        .then((owner) => this.fetchVariants(owner)),
+        .then((owner) => this.fetchVariants(owner))
+        // Every page seeds from this call, so an owner that cannot be read
+        // degrades like an Amplitude outage rather than 500ing the page.
+        .catch((err: Error): ExperimentVariants => {
+          this.logger.warn({
+            err,
+            userId: user.id,
+            ownerId: organization.ownerId,
+            msg: 'Owner lookup failed in getAllVariants; org flags read off',
+          })
+          return {}
+        }),
     ])
 
     // A failed owner fetch leaves these flags out, which reads off.
