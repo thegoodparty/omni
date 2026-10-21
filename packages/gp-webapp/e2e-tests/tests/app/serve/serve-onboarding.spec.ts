@@ -68,7 +68,7 @@ async function completeInOfficeStep(page: Page): Promise<void> {
   await expect(
     page.getByRole('heading', { level: 1, name: /already in office/i }),
   ).toBeVisible()
-  await page.getByRole('button', { name: /i'm an elected official/i }).click()
+  await page.getByRole('radio', { name: /i'm an elected official/i }).click()
   await clickContinue(page)
 }
 
@@ -88,13 +88,13 @@ async function completePartyStep(
   ).toBeVisible()
 
   if (assertMajorPartyBlock) {
-    await page.getByRole('button', { name: /serving as a democrat/i }).click()
+    await page.getByRole('radio', { name: /serving as a democrat/i }).click()
     await expect(page.getByText(MAJOR_PARTY_BLOCK_SUBSTRING)).toBeVisible()
     await expect(continueButton(page)).toBeDisabled()
   }
 
   await page
-    .getByRole('button', { name: /independent \/ non-major party/i })
+    .getByRole('radio', { name: /independent \/ non-major party/i })
     .click()
   await expect(page.getByText(MAJOR_PARTY_BLOCK_SUBSTRING)).toBeHidden()
   await clickContinue(page)

@@ -587,7 +587,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         'Hear from everyone in your community, not only the people who show up',
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await user.click(await screen.findByRole('button', { name: answer }))
+      await user.click(await screen.findByRole('radio', { name: answer }))
       expect(communityStarts).toBe(0)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
@@ -658,11 +658,11 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
@@ -674,7 +674,11 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       expect(calls).toEqual([])
 
       await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -1033,11 +1037,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1092,7 +1096,11 @@ describe('ServeOnboardingFlow', () => {
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
@@ -1256,11 +1264,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1367,12 +1375,12 @@ describe('ServeOnboardingFlow', () => {
       expect(postCount).toBe(0)
       // The inOffice Continue is the first real answer — it mints the EO.
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await waitFor(() => expect(postCount).toBe(1))
       await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
@@ -1384,7 +1392,11 @@ describe('ServeOnboardingFlow', () => {
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
@@ -1447,11 +1459,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1553,7 +1565,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     // No event yet — Office Status Viewed fires on Continue, not on selection.
     expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(0)
@@ -1578,7 +1590,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+      await screen.findByRole('radio', { name: /I'm still campaigning/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -1603,11 +1615,11 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1638,7 +1650,11 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
