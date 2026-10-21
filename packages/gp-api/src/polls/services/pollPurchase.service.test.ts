@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
@@ -102,12 +101,12 @@ describe('PollPurchaseHandlerService', () => {
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
 
-    it('throws NotFoundException when the poll does not exist', async () => {
+    it('rejects permanently when the poll does not exist', async () => {
       pollsService.findUnique.mockResolvedValue(null)
 
       await expect(
         service.handlePollPostPurchase('sess_1', rawMetadata),
-      ).rejects.toThrow(NotFoundException)
+      ).rejects.toThrow(BadRequestException)
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
 

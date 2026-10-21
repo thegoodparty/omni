@@ -4,7 +4,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { Poll } from 'src/generated/prisma'
@@ -205,7 +204,9 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       where: { id: pollId },
     })
     if (!poll) {
-      throw new NotFoundException(`Poll not found: ${pollId}`)
+      // BadRequest, like the missing office above: paymentEventsService acks
+      // only BadRequest, and a poll that is gone is gone on every redelivery.
+      throw new BadRequestException(`Poll not found: ${pollId}`)
     }
     if (
       !poll.electedOfficeId ||
@@ -247,7 +248,8 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       // Deleted between the refusal and this re-read, so whether this checkout
       // expanded it first can no longer be told, and a refund could repay a
       // delivered expansion. Rethrow a non-BadRequest so Stripe redelivers;
-      // the next attempt meets the deletion in findPollToExpand.
+      // the next attempt meets the deletion in findPollToExpand, whose
+      // BadRequest the webhook acknowledges.
       throw new ConflictException(
         `Poll ${pollId} refused the expansion but could not be re-read`,
       )

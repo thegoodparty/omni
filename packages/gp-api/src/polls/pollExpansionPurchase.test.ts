@@ -219,7 +219,7 @@ describe('POST /v1/payments/purchase/create-checkout-session (poll expansion)', 
       scheduledDate: scheduledDate(),
     })
 
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(400)
     expect(stripe.createCustomCheckoutSession).not.toHaveBeenCalled()
   })
 })
