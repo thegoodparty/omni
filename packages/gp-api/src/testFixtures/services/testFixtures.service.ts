@@ -463,9 +463,35 @@ export class TestFixturesService {
           'results.upload requires payload to be a CSV string',
         )
       }
+      // Replace {{recipient:N}} placeholders with real OutreachTextRecipient
+      // phones so the spec CSV works across fresh isolated test users whose
+      // recipient phones come from the voter file and are unknown at write time.
+      let csv = payload
+      const recipientMatches = [...payload.matchAll(/\{\{recipient:(\d+)\}\}/g)]
+      if (recipientMatches.length > 0) {
+        const maxIdx = Math.max(
+          ...recipientMatches.map((m) => parseInt(m[1] ?? '0', 10)),
+        )
+        const recipients =
+          await this.campaigns.client.outreachTextRecipient.findMany({
+            where: { outreachId },
+            select: { phone: true },
+            take: maxIdx + 1,
+          })
+        if (recipients.length <= maxIdx) {
+          throw new BadRequestException(
+            `results.upload: {{recipient:${maxIdx}}} needs ` +
+              `${maxIdx + 1} recipients, found ${recipients.length}`,
+          )
+        }
+        csv = payload.replace(
+          /\{\{recipient:(\d+)\}\}/g,
+          (_, idx: string) => recipients[parseInt(idx, 10)]?.phone ?? '',
+        )
+      }
       await this.resultsAdmin.upload(outreachId, {
         fileName: 'fixture.csv',
-        csv: payload,
+        csv,
         dryRun: false,
         sourceLabel: 'test-fixture',
       })

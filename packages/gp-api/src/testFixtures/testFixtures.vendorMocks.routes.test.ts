@@ -1,6 +1,11 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { OutreachType, UserRole, VendorMockVendor } from '@/generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  UserRole,
+  VendorMockVendor,
+} from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 
 const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
@@ -537,5 +542,29 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('returns 400 when {{recipient:N}} placeholders exceed recipients', async () => {
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.in_progress,
+        date: new Date(),
+      },
+    })
+    // No OutreachTextRecipient rows — placeholder resolution must fail.
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      {
+        action: 'results.upload',
+        payload: 'phone,message,direction\n{{recipient:0}},Hi,INBOUND',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })

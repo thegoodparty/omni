@@ -33,10 +33,12 @@ const IMAGE_FIXTURE = join(__dirname, '../../../../src/fixtures/heart.png')
 const IMAGE_BUFFER = readFileSync(IMAGE_FIXTURE)
 
 // Two INBOUND replies — the only rows that count as constituent responses.
+// {{recipient:N}} is substituted server-side with the Nth real
+// OutreachTextRecipient phone so the CSV matches the enrolled recipients.
 const RESULTS_CSV = [
   'phone,message,direction',
-  '+15551234561,Thank you for the update!,INBOUND',
-  '+15551234562,Appreciate the outreach.,INBOUND',
+  '{{recipient:0}},Thank you for the update!,INBOUND',
+  '{{recipient:1}},Appreciate the outreach.,INBOUND',
 ].join('\n')
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
