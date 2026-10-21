@@ -539,6 +539,32 @@ export const createGrafanaResources = async ({
   // history and any silence on them; prod is untouched.
   if (environment !== 'prod') return
 
+  // The Delegate agent swarm (ops repo, agent-swarm/README.md) is not part of
+  // gp-api. It is probed from here because this deploy already owns the
+  // Grafana provider, the probe list and the alert routing; ops has none.
+  // Two probes every two minutes is 43,200 executions a month against the
+  // shared 100k allowance, a third of what gp-api's own check costs.
+  new grafana.syntheticmonitoring.Check('delegate-swarm-health-check', {
+    job: 'delegate-swarm-health',
+    target: 'https://delegate-swarm.infra.goodparty.org/health',
+    enabled: true,
+    frequency: 120000,
+    timeout: 10000,
+    probes: [probes['NorthCalifornia'], probes['NorthVirginia']],
+    labels: {
+      environment,
+      alert_slug: 'delegate-swarm-health',
+    },
+    settings: {
+      http: {
+        method: 'GET',
+        ipVersion: 'V4',
+        validStatusCodes: [200],
+        failIfNotSsl: true,
+      },
+    },
+  })
+
   // One data source for the stack, so only the prod deploy owns it. It reads
   // the production AWS account through a role Grafana Cloud assumes; no AWS
   // keys are stored in Grafana.
