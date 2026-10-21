@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComplianceStateOutput, User } from '@goodparty_org/sdk'
+import type { ComplianceStateOutput, User } from '@/shared/gpApi'
 import { CvPinStatus } from './CvPinStatus'
 import { UserProvider } from '../context/UserContext'
 

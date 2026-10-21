@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
-import { GoodPartyClient } from '@goodparty_org/sdk'
-import type { PaginatedList } from '@goodparty_org/sdk'
+import { GoodPartyClient } from '@/shared/gpApi'
+import type { PaginatedList } from '@/shared/gpApi'
 import {
   type GpEnvironment,
   getEnvironmentConfig,

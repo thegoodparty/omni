@@ -3,13 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import { EditCampaignClient } from './EditCampaignClient'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@/shared/gpApi'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
   BallotReadyPositionLevel,
   ElectionLevel,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 const mockPush = vi.fn()
 const mockShowToast = vi.fn()

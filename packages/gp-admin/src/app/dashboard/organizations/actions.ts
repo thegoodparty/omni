@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
-import type { AdminOrganization } from '@goodparty_org/sdk'
+import type { AdminOrganization } from '@/shared/gpApi'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 
@@ -10,7 +10,7 @@ export type {
   AdminOrganization,
   OrgDistrict,
   OrgPosition,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 // Org records are campaign-domain data with no dedicated permission, so this
 // read reuses read_campaigns.

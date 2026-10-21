@@ -16,7 +16,7 @@ import {
   TextField,
 } from '@radix-ui/themes'
 import { HiPlus } from 'react-icons/hi'
-import type { PersonLookupResult } from '@goodparty_org/sdk'
+import type { PersonLookupResult } from '@/shared/gpApi'
 import { ErrorText } from '@/components/ErrorText'
 import { FORM_MODE } from '@/shared/constants/form'
 import { useToast } from '@/components/Toast'
