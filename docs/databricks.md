@@ -33,14 +33,13 @@ mirror below.
 Every table in gp-api's Postgres (`public` schema) is mirrored by Lakeflow
 Connect CDC, a few minutes behind:
 
-| Env  | Mirror (as landed)                         | Typed views                                      |
-| ---- | ------------------------------------------ | ------------------------------------------------ |
-| dev  | `goodparty_data_catalog.gp_api_mirror_dev` | `goodparty_data_catalog.gp_api_mirror_dev_typed` |
-| prod | `goodparty_data_catalog.gp_api_mirror`     | `goodparty_data_catalog.gp_api_mirror_typed`     |
+| Env  | Mirror                                     |
+| ---- | ------------------------------------------ |
+| dev  | `goodparty_data_catalog.gp_api_mirror_dev` |
+| prod | `goodparty_data_catalog.gp_api_mirror`     |
 
-- **Timestamps are strings unless read through the typed views.** Lakeflow
-  lands `timestamp without time zone` (every Prisma `DateTime`) as `STRING`;
-  the `_typed` views cast those columns back to `TIMESTAMP`.
+- **Prisma `DateTime` columns land as `STRING` in the mirror.** Cast them when
+  you need timestamps, for example `CAST(created_at AS TIMESTAMP)`.
 - **New tables replicate automatically.** A migration's `CREATE TABLE` is
   picked up by an event trigger; it appears within a few hours.
 - **Renaming or retyping a column re-copies that table.** Auto full refresh

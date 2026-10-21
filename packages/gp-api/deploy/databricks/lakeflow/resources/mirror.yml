@@ -34,7 +34,7 @@ resources:
         name: gateway_event_log
       notifications:
         - email_recipients:
-            - ${var.alert_email}
+            - ${var.notification_email}
           alerts:
             - on-update-failure
             - on-update-fatal-failure
@@ -74,7 +74,7 @@ resources:
         name: ingestion_event_log
       notifications:
         - email_recipients:
-            - ${var.alert_email}
+            - ${var.notification_email}
           alerts:
             - on-update-fatal-failure
             - on-flow-failure
@@ -92,7 +92,7 @@ resources:
         pause_status: ${var.ingestion_job_pause_status}
       email_notifications:
         on_failure:
-          - ${var.alert_email}
+          - ${var.notification_email}
         no_alert_for_skipped_runs: true
       tasks:
         - task_key: ingest

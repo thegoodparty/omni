@@ -31,6 +31,6 @@ Postgres schema, migrations, and the Prisma client surface. Schema is split per-
   an event trigger sets `REPLICA IDENTITY FULL` and adds it to the
   `databricks_lakeflow` publication. Renaming or retyping a column, or
   changing a primary key, makes Lakeflow re-copy that table, so prefer
-  additive changes on large tables. Mirror timestamps are strings unless
-  read through the `_typed` views.
+  additive changes on large tables. `DateTime` columns land as `STRING` in
+  the mirror.
 - `binaryTargets = ["native", "linux-musl-openssl-3.0.x"]` is set so the same `node_modules/.prisma` works in the Alpine Docker image — keep it.

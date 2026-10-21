@@ -35,13 +35,19 @@ variables:
   ingestion_job_pause_status:
     description: PAUSED for the first deploy only (README step 5).
     default: UNPAUSED
-  alert_email:
-    default: swain@goodparty.org
-  deploy_root:
-    description: >-
-      One copy per target, whoever deploys. A user folder rather than
-      /Workspace/Shared, which every workspace user can write.
-    default: /Workspace/Users/swain@goodparty.org/.bundle/gp-api-lakeflow-mirror
+  run_as_service_principal:
+    description: Application ID of the service principal the bundle runs as.
+  admin_group:
+    description: Group granted CAN_MANAGE on every resource.
+  notification_email:
+    description: Team alias for gateway, pipeline and job failures.
+
+run_as:
+  service_principal_name: ${var.run_as_service_principal}
+
+permissions:
+  - group_name: ${var.admin_group}
+    level: CAN_MANAGE
 
 targets:
   dev:
@@ -49,7 +55,7 @@ targets:
     mode: production
     workspace:
       host: https://dbc-3d8ca484-79f3.cloud.databricks.com
-      root_path: ${var.deploy_root}/${bundle.target}
+      root_path: /Workspace/Users/${var.run_as_service_principal}/.bundle/${bundle.name}/${bundle.target}
     variables:
       env: dev
       mirror_schema: gp_api_mirror_dev
@@ -59,7 +65,7 @@ targets:
     mode: production
     workspace:
       host: https://dbc-3d8ca484-79f3.cloud.databricks.com
-      root_path: ${var.deploy_root}/${bundle.target}
+      root_path: /Workspace/Users/${var.run_as_service_principal}/.bundle/${bundle.name}/${bundle.target}
     variables:
       env: prod
       mirror_schema: gp_api_mirror

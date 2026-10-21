@@ -3,17 +3,17 @@
 Lakeflow Connect reads gp-api's Aurora change stream (database `gpdb`, schema
 `public`) and keeps a copy of every table in Databricks, a few minutes behind.
 
-| Env  | Aurora cluster   | Mirror (as landed)                         | Typed views                                      |
-| ---- | ---------------- | ------------------------------------------ | ------------------------------------------------ |
-| dev  | `gp-api-db`      | `goodparty_data_catalog.gp_api_mirror_dev` | `goodparty_data_catalog.gp_api_mirror_dev_typed` |
-| prod | `gp-api-db-prod` | `goodparty_data_catalog.gp_api_mirror`     | `goodparty_data_catalog.gp_api_mirror_typed`     |
+| Env  | Aurora cluster   | Mirror                                     |
+| ---- | ---------------- | ------------------------------------------ |
+| dev  | `gp-api-db`      | `goodparty_data_catalog.gp_api_mirror_dev` |
+| prod | `gp-api-db-prod` | `goodparty_data_catalog.gp_api_mirror`     |
 
 A gateway (classic compute, always on) reads the replication slot and stages
 changes. The ingestion pipeline (serverless) applies them; the PostgreSQL
 connector cannot run it continuously, so the `ingestion_loop` job runs it back
 to back. Freshness is one pipeline run plus the wait for the next, a few
-minutes. Timestamps without time zone (every Prisma `DateTime`) land as
-strings; the typed views cast them back to `TIMESTAMP`.
+minutes. Prisma `DateTime` columns land as `STRING` in the mirror, so cast
+them when you need timestamps (for example `CAST(created_at AS TIMESTAMP)`).
 
 | Piece                                                              | Where                                                                         | Applied by              |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------- |
@@ -21,7 +21,7 @@ strings; the typed views cast them back to `TIMESTAMP`.
 | Publication, `databricks_lakeflow` role, replica identity, trigger | `prisma/schema/migrations/20261021120000_add_databricks_lakeflow_publication` | `prisma migrate deploy` |
 | Replication slot                                                   | step 5                                                                        | DB admin                |
 | Unity Catalog connection                                           | `create-connection.sh`                                                        | Databricks admin        |
-| Schemas, gateway, pipeline, loop job, typed-views job              | this bundle                                                                   | Databricks admin        |
+| Schema, gateway, pipeline, loop job                                | this bundle                                                                   | Databricks admin        |
 
 The 5432 ingress from the Databricks workspace VPC (172.16.0.0/16, peering
 `pcx-013299c506ffd3395`) already exists on both clusters' security groups
@@ -53,7 +53,8 @@ in `logicalReplication` and reboot again. Drop the slot first (teardown).
   `$ADMIN_URL` below is that connection string. Needs psql 15 or later.
 - **Databricks admin**: workspace admin with `CREATE CONNECTION` on the
   metastore, `CREATE SCHEMA` on `goodparty_data_catalog` and unrestricted
-  cluster creation. Databricks CLI 0.276 or later, logged in.
+  cluster creation, and the service principal user role on the bundle's
+  run-as service principal. Databricks CLI 0.276 or later, logged in.
 - **Databricks account team or support**: enrollment and feature flags.
 
 ## Setup
@@ -136,6 +137,27 @@ us-west-2 CA bundle and the password resolved from the secret inside
 Databricks. `DATABRICKS_WAREHOUSE_ID` overrides the Starter warehouse it runs
 on.
 
+The bundle runs as a team service principal, not a person. Once, for both
+envs: create one (suggested name `sp_gp_api_mirror`), give it unrestricted
+cluster creation for the gateway, and pick an admin group and a team email
+alias. After each env's connection exists:
+
+```sql
+GRANT USE CONNECTION ON CONNECTION gp_api_dev_lakeflow TO `<application-id>`;
+GRANT USE CATALOG ON CATALOG goodparty_data_catalog TO `<application-id>`;
+```
+
+Every `bundle` command needs the three values, with no defaults, so set them
+once per shell (or pass each as `--var name=value`):
+
+```bash
+export BUNDLE_VAR_run_as_service_principal=<application-id>
+export BUNDLE_VAR_admin_group=<group>
+export BUNDLE_VAR_notification_email=<alias>
+```
+
+The deploying admin should be in that group.
+
 ### 5. Create the slot, then start the gateway at once (DB admin, then Databricks admin)
 
 The slot keeps every change from the moment it exists until the gateway reads
@@ -154,6 +176,7 @@ Then, from this folder:
 
 ```bash
 databricks bundle deploy -t dev --var ingestion_job_pause_status=PAUSED
+databricks api post /api/2.0/sql/statements --json '{"warehouse_id":"18583d8b081c6486","statement":"GRANT USE SCHEMA, CREATE TABLE, CREATE VOLUME, MODIFY, SELECT, READ VOLUME, WRITE VOLUME ON SCHEMA goodparty_data_catalog.gp_api_mirror_dev TO `<application-id>`","wait_timeout":"30s"}'
 databricks bundle run -t dev gateway --no-wait
 ```
 
@@ -169,21 +192,14 @@ databricks bundle deploy -t dev
 The first run can fail with "Timeout while waiting for table token" while the
 gateway is still snapshotting. Run it again.
 
-### 6. Typed views and access (Databricks admin)
-
-```bash
-databricks bundle run -t dev typed_views
-```
-
-It then runs daily at 07:00 UTC. Run it by hand after a migration adds tables
-or timestamp columns.
+### 6. Access (Databricks admin)
 
 The mirror holds users' personal data. Nothing is granted by default. Grant
-`USE SCHEMA` and `SELECT` on the typed schema to the specific service principal
-or group that needs it, not to a broad group:
+`USE SCHEMA` and `SELECT` on the mirror schema to the specific service
+principal or group that needs it, not to a broad group:
 
 ```sql
-GRANT USE SCHEMA, SELECT ON SCHEMA goodparty_data_catalog.gp_api_mirror_dev_typed TO `<principal>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA goodparty_data_catalog.gp_api_mirror_dev TO `<principal>`;
 ```
 
 ## Operations
@@ -262,9 +278,8 @@ slot recreated and a full refresh of everything.
    databricks secrets delete-scope gp-api-lakeflow-dev
    ```
 
-   Lakeflow does not drop destination tables. If `destroy` leaves the schemas,
-   `DROP SCHEMA goodparty_data_catalog.gp_api_mirror_dev_typed CASCADE` and the
-   same for `gp_api_mirror_dev`.
+   Lakeflow does not drop destination tables. If `destroy` leaves the schema,
+   `DROP SCHEMA goodparty_data_catalog.gp_api_mirror_dev CASCADE`.
 
 2. DB admin, after the gateway is gone (an active slot cannot be dropped). The
    slot is the step that matters: while it exists, Aurora keeps change log for
