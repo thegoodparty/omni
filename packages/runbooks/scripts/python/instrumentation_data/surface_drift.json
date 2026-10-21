@@ -31,7 +31,7 @@
  },
  "rows": {
   "Campaign Story - Rewrite Accepted": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -56,13 +56,14 @@
     "Your Story",
     "Candidate Onboarding"
    ],
+   "chosen_area": "Your Story",
    "claimed": "Campaign Story",
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Campaign Story - Rewrite Accepted",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -71,10 +72,10 @@
     "/onboarding/office-selection"
    ],
    "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
+   "proposed_display_name": "Your Story - Rewrite Accepted",
+   "proposed_fires_on": "Your Story (/dashboard/campaign-story)",
+   "proposed_surface": "your-story",
+   "proposed_url": "/dashboard/campaign-story",
    "reason": "",
    "removal_commit": null,
    "signal": {
@@ -90,7 +91,7 @@
    "verdict": "stale_area_name"
   },
   "Campaign Story - Rewrite Discarded": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -115,13 +116,14 @@
     "Your Story",
     "Candidate Onboarding"
    ],
+   "chosen_area": "Your Story",
    "claimed": "Campaign Story",
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Campaign Story - Rewrite Discarded",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -130,10 +132,10 @@
     "/onboarding/office-selection"
    ],
    "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
+   "proposed_display_name": "Your Story - Rewrite Discarded",
+   "proposed_fires_on": "Your Story (/dashboard/campaign-story)",
+   "proposed_surface": "your-story",
+   "proposed_url": "/dashboard/campaign-story",
    "reason": "",
    "removal_commit": null,
    "signal": {
@@ -174,13 +176,14 @@
     "Your Story",
     "Candidate Onboarding"
    ],
+   "chosen_area": "Your Story",
    "claimed": "Campaign Story",
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Campaign Story - Rewrite Limit Reached",
-   "disposition": "new",
+   "disposition": "accepted",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -189,10 +192,10 @@
     "/onboarding/office-selection"
    ],
    "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
+   "proposed_display_name": "Your Story - Rewrite Limit Reached",
+   "proposed_fires_on": "Your Story (/dashboard/campaign-story)",
+   "proposed_surface": "your-story",
+   "proposed_url": "/dashboard/campaign-story",
    "reason": "",
    "removal_commit": null,
    "signal": null,
@@ -200,7 +203,7 @@
    "verdict": "stale_area_name"
   },
   "Campaign Story - Rewrite Requested": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -225,13 +228,14 @@
     "Your Story",
     "Candidate Onboarding"
    ],
+   "chosen_area": "Your Story",
    "claimed": "Campaign Story",
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Campaign Story - Rewrite Requested",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -240,10 +244,10 @@
     "/onboarding/office-selection"
    ],
    "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
+   "proposed_display_name": "Your Story - Rewrite Requested",
+   "proposed_fires_on": "Your Story (/dashboard/campaign-story)",
+   "proposed_surface": "your-story",
+   "proposed_url": "/dashboard/campaign-story",
    "reason": "",
    "removal_commit": null,
    "signal": {
@@ -270,9 +274,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Assistant Chat Opened",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -284,7 +290,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
@@ -314,9 +320,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Contacts Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -328,7 +336,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.945,
@@ -358,9 +366,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Download",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -372,7 +382,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.995,
@@ -402,9 +412,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Boundary Completed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -416,7 +428,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
@@ -446,9 +458,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Boundary Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -460,7 +474,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
@@ -490,9 +504,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Conditions Completed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -504,7 +520,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.991,
@@ -534,9 +550,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Conditions Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -548,7 +566,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.993,
@@ -578,9 +596,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Method Completed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -592,7 +612,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.992,
@@ -622,9 +642,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Method Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -636,7 +658,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.992,
@@ -666,9 +688,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Name Completed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -680,7 +704,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.988,
@@ -710,9 +734,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - List Wizard Name Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -724,7 +750,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.991,
@@ -798,9 +824,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Segment Deleted",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -812,7 +840,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
@@ -842,9 +870,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Segment Updated",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -856,7 +886,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
@@ -886,9 +916,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Segment Viewed",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -900,7 +932,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.986,
@@ -930,9 +962,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Voter Data Unavailable",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -944,7 +978,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.93,
@@ -963,7 +997,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Media Displayed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -976,7 +1010,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Media Displayed",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1003,7 +1037,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Media Requested": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1016,7 +1050,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Media Requested",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1043,7 +1077,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Media Results Received": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1056,7 +1090,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Media Results Received",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1083,7 +1117,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Plan Shared": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1096,7 +1130,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Plan Shared",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1115,7 +1149,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Strategic Landscape Displayed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1128,7 +1162,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Displayed",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1155,7 +1189,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Strategic Landscape Requested": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1168,7 +1202,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Requested",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1195,7 +1229,7 @@
    "verdict": "stale_area_name"
   },
   "Dashboard - Campaign Plan: Strategic Landscape Results Received": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/campaign-plan"
    ],
@@ -1208,7 +1242,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Plan: Strategic Landscape Results Received",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1266,7 +1300,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Campaign Task Completed",
-   "disposition": "new",
+   "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1307,7 +1341,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Dashboard - Path to Victory: Exit Understand Path to Victory",
-   "disposition": "new",
+   "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1513,7 +1547,7 @@
    "verdict": "stale_area_name"
   },
   "Onboarding - Candidate Office Completed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/profile"
    ],
@@ -1526,7 +1560,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Office Details: Office Completed",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1557,7 +1591,7 @@
    "verdict": "stale_area_name"
   },
   "Onboarding - Candidate Office Searched": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/profile"
    ],
@@ -1570,7 +1604,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Office Details: Office Searched",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1632,7 +1666,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Onboarding - Magic Link Clicked",
-   "disposition": "new",
+   "disposition": "open",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1660,7 +1694,7 @@
    "verdict": "moved"
   },
   "Onboarding - Office Step: Click Can't See Office": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/profile"
    ],
@@ -1673,7 +1707,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Office Details: Click Can't Find Office",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1696,7 +1730,7 @@
    "verdict": "stale_area_name"
   },
   "Onboarding - Office Step: Click Next": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/profile"
    ],
@@ -1709,7 +1743,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Office Details: Click Next",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -1740,7 +1774,7 @@
    "verdict": "stale_area_name"
   },
   "Onboarding - Office Step: Office Selected": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/profile"
    ],
@@ -1753,7 +1787,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Office Details: Office Selected",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2304,7 +2338,7 @@
    "verdict": "moved"
   },
   "Profile - Running Against: Click Add New": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/questions"
    ],
@@ -2317,7 +2351,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Running Against: Click Add New",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2344,7 +2378,7 @@
    "verdict": "moved_then_quiet"
   },
   "Profile - Running Against: Click Edit": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/questions"
    ],
@@ -2357,7 +2391,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Running Against: Click Edit",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2384,7 +2418,7 @@
    "verdict": "moved_then_quiet"
   },
   "Profile - Running Against: Click Save": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/questions"
    ],
@@ -2397,7 +2431,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Running Against: Click Save",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2424,7 +2458,7 @@
    "verdict": "moved_then_quiet"
   },
   "Profile - Running Against: Submit Add New": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/questions"
    ],
@@ -2437,7 +2471,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Running Against: Submit Add New",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2464,7 +2498,7 @@
    "verdict": "moved_then_quiet"
   },
   "Profile - Running Against: Submit Edit": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [
     "/dashboard/questions"
    ],
@@ -2477,7 +2511,7 @@
    "dead_routes": [],
    "dismissed_areas": [],
    "display_name": "Profile - Running Against: Submit Edit",
-   "disposition": "new",
+   "disposition": "applied",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2515,9 +2549,11 @@
    "claimed_kind": "tag",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/profile"
+   ],
    "display_name": "Settings - Personal Info: Click Upload",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-19",
@@ -2529,7 +2565,7 @@
    "proposed_fires_on": "Profile (/dashboard/profile)",
    "proposed_surface": "profile",
    "proposed_url": "/dashboard/profile",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.974,
@@ -2548,11 +2584,11 @@
    "verdict": "stale_area_name"
   },
   "Win - Opponent Activity Viewed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Activity Viewed",
@@ -2562,11 +2598,11 @@
    "verdict": "relabel"
   },
   "Win - Opponent Profile Viewed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Profile Viewed",
@@ -2576,11 +2612,11 @@
    "verdict": "relabel"
   },
   "Win - Opponent Research Started": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Research Started",
@@ -2590,11 +2626,11 @@
    "verdict": "relabel"
   },
   "Win - Opponent Standout Action Clicked": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Action Clicked",
@@ -2604,11 +2640,11 @@
    "verdict": "relabel"
   },
   "Win - Opponent Standout Actions Viewed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Actions Viewed",
@@ -2618,11 +2654,11 @@
    "verdict": "relabel"
   },
   "Win - Opponent Upgrade Viewed": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponent Upgrade Viewed",
@@ -2632,11 +2668,11 @@
    "verdict": "relabel"
   },
   "Win - Opponents Manually Added": {
-   "applied_date": "",
+   "applied_date": "2026-10-21",
    "area_keys": [],
    "confidence": "proposed",
    "dismissed_areas": [],
-   "disposition": "accepted",
+   "disposition": "applied",
    "first_seen": "2026-10-08",
    "last_seen": "2026-10-19",
    "proposed_display_name": "Know Your Opponent - Opponents Manually Added",
