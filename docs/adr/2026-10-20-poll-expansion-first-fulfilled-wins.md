@@ -3,7 +3,7 @@ title: A poll expansion is keyed on its checkout id; a concurrent second checkou
 status: active
 decided_by: [agent]
 date: 2026-10-20
-code: ['#PR']
+code: ['#3037']
 scope:
   - packages/gp-api/src/polls/services/pollPurchase.service.ts
   - packages/gp-api/src/polls/services/polls.service.ts
