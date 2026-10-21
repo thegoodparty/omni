@@ -172,6 +172,16 @@ checks fail closed, so an Amplitude that does not answer reads as off and
 gets the same code; neither a kill switch nor an outage deletes what a
 canvasser recorded.
 
+**The flag is the org's.** Every route asks it of the org's owner
+(`organization.ownerId`), whoever is asking, and so does the variants
+endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
+`src/features/README.md`). On Win, volunteers do most of the door knocking,
+and Amplitude buckets by user id: asked per person, a percentage rollout
+would leave a flagged campaign's volunteers mostly without capture and give
+it to some volunteers of an unflagged one. A volunteer of an org whose owner
+is off gets the same `ISSUE_CAPTURE_OFF` 404 as anyone else, so their phone
+keeps what it holds.
+
 ## Confirmation
 
 `confirmedAt` set means the memo is confirmed and counts: its words go to

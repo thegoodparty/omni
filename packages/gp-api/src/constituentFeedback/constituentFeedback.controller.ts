@@ -109,7 +109,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(RecordConstituentFeedbackSchema))
     body: RecordConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.feedback.capture({
       organizationSlug: organization.slug,
@@ -125,12 +125,11 @@ export class ConstituentFeedbackController {
   @AllowVolunteer()
   @ResponseSchema(AudioUploadUrlResponseSchema)
   async audioUploadUrl(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(AudioUploadUrlRequestSchema))
     body: AudioUploadUrlRequest,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.feedback.audioUploadUrl({
       organizationSlug: organization.slug,
@@ -154,11 +153,11 @@ export class ConstituentFeedbackController {
     }),
   )
   async mockAudioUpload(
-    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
     @Param('clientKey', ParseUUIDPipe) _clientKey: string,
     @ReqFile() file?: FileUpload,
   ): Promise<void> {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     this.feedback.acceptMockUpload()
     if (!file) throw new BadRequestException('No recording found')
@@ -175,7 +174,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(ConfirmConstituentFeedbackSchema))
     body: ConfirmConstituentFeedback,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.feedback.confirm({
       organizationSlug: organization.slug,
@@ -189,12 +188,11 @@ export class ConstituentFeedbackController {
   @Get()
   @ResponseSchema(ConstituentFeedbackListResponseSchema)
   async list(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Query(new ZodValidationPipe(ListConstituentFeedbackQuerySchema))
     query: ListConstituentFeedbackQuery,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return {
       feedback: await this.feedback.listForPerson({
@@ -207,11 +205,10 @@ export class ConstituentFeedbackController {
   @Get('efforts/:outreachId/report')
   @ResponseSchema(FeedbackReportResponseSchema)
   async report(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.reports.effortReport({
       organizationSlug: organization.slug,
@@ -225,11 +222,10 @@ export class ConstituentFeedbackController {
   // file, not JSON.
   @Get('efforts/:outreachId/export')
   async exportNotes(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ): Promise<StreamableFile> {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.notesExport.buildNotesCsv({
       organizationSlug: organization.slug,
@@ -244,7 +240,7 @@ export class ConstituentFeedbackController {
     @ReqOrganization() organization: Organization,
     @Param('outreachId', ParseIntPipe) outreachId: number,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.synthesis.requestRun({
       organizationSlug: organization.slug,
@@ -257,11 +253,10 @@ export class ConstituentFeedbackController {
   @Get('themes/:id')
   @ResponseSchema(FeedbackThemeDetailSchema)
   async theme(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Param('id') id: string,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.reports.themeDetail({
       organizationSlug: organization.slug,
@@ -272,12 +267,11 @@ export class ConstituentFeedbackController {
   @Get('tags')
   @ResponseSchema(IssueTagListResponseSchema)
   async listTags(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Query(new ZodValidationPipe(ListIssueTagsQuerySchema))
     query: ListIssueTagsQuery,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return {
       tags: await this.tags.listForOrg({
@@ -290,12 +284,11 @@ export class ConstituentFeedbackController {
   @Patch('tags/:id')
   @ResponseSchema(IssueTagSchema)
   async updateTag(
-    @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateIssueTagSchema)) body: UpdateIssueTag,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.tags.update({
       organizationSlug: organization.slug,
@@ -313,7 +306,7 @@ export class ConstituentFeedbackController {
     @Body(new ZodValidationPipe(SeedFeedbackRequestSchema))
     body: SeedFeedbackRequest,
   ) {
-    await this.assertFeatureEnabled(user)
+    await this.assertFeatureEnabled(organization)
 
     return this.seeds.seed({
       organizationSlug: organization.slug,
@@ -327,9 +320,15 @@ export class ConstituentFeedbackController {
   // phone replaying memos it recorded with no signal: off, or an Amplitude
   // that did not answer (read as off), is not a refusal of the memo, so the
   // phone keeps it rather than dropping it with the refused ones.
-  private async assertFeatureEnabled(user: User): Promise<void> {
+  //
+  // Asked of the org's owner, whoever is asking (ORGANIZATION_FLAGS): a
+  // rollout that buckets people would otherwise split a candidate from the
+  // volunteers who do most of their door knocking.
+  private async assertFeatureEnabled(
+    organization: Organization,
+  ): Promise<void> {
     const enabled = await this.features.isFeatureEnabled({
-      user,
+      user: organization.ownerId,
       feature: ISSUE_CAPTURE_FLAG,
     })
     if (!enabled) {
