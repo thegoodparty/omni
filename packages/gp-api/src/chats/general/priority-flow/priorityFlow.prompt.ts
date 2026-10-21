@@ -470,6 +470,9 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Title: ${optional(ctx.title)}`,
     `Description: ${optional(ctx.description)}`,
     `Where it came from: ${ctx.source}`,
+    ...(ctx.sourceCommunityIssueId === null
+      ? []
+      : [`Came from community issue: ${ctx.sourceCommunityIssueId}`]),
     `Official's full name: ${optional(ctx.officialName)}`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,

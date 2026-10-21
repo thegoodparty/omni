@@ -447,7 +447,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'query aggregate, district-scoped constituent opinion (modeled issue-support scores) and demographics',
   describe_constituent_data:
     'list the recommended constituent breakdown dimensions before querying',
-  read_community_issues: 'fetch full detail for a community issue by id',
+  read_community_issues: 'list community issues, or fetch one by id',
   describe_filter_dimensions:
     'list the contact-filter dimensions and allowed values for this organization',
   count_contacts:

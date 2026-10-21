@@ -38,6 +38,7 @@ export interface PriorityFlowContext {
   title: string
   description: string
   source: PrioritySource
+  sourceCommunityIssueId: string | null
   status: PriorityStatus
   anchorSummaries: PriorityAnchorSummary[]
   districtFilters: MandatoryFilter[] | null
@@ -138,6 +139,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       title: priority.title,
       description: priority.description,
       source: priority.source,
+      sourceCommunityIssueId: priority.sourceCommunityIssueId,
       status,
       anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
