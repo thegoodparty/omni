@@ -636,7 +636,7 @@ export const createGrafanaResources = async ({
       // than `NoData -> Alerting` on five rules, which would reproduce the
       // 2026-09-28 flood in miniature.
       noDataState: 'OK',
-      execErrState: 'Alerting',
+      execErrState: alert.execErrState ?? 'Alerting',
       annotations: {
         summary: buildAlertSummary(alert, environment),
         description: buildAlertDescription(alert, environment),
