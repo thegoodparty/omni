@@ -53,6 +53,9 @@ behind, so the save never holds the motion.
   density, so each dot is about population / dots residents. Dots are
   placed in Web Mercator and fitted to the view, and the camera that fit
   implies (`basemapZoom`) frames the basemap, so each dot sits on its street.
+  The frame is square from `md` up and 16:10 below it. Both fits are built
+  once when the data lands, and the step shows the one for the current
+  width; the frame takes its shape from the model, so they never disagree.
 - **Basemap** (`DistrictBasemap`): maplibre with Geoapify's full-color `osm-bright`
   style and the `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` the contacts and
   door-knocking maps use, with the same compact attribution. maplibre opens
