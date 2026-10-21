@@ -652,6 +652,30 @@ def propose_watchlist_additions(
     return sorted(out, key=lambda r: (r["first_seen_date"], r["event_type"]), reverse=True)
 
 
+def propose_watchlist_removals(
+    watched_rows: Iterable[str],
+    code: Mapping[str, Mapping[str, Any]],
+    okr_events: Iterable[str],
+    kept: Iterable[str],
+) -> list[dict]:
+    """Watched ``events:`` rows whose event is retired in code (DATA-2676).
+
+    A retired row reads ``deprecating`` for 30 days and then goes silent, so without this
+    it is carried forever. Dormant rows are not proposed: their silence is a health finding
+    a human rules on first. OKR legs never are, since the semantic layer owns them.
+    """
+    okr_events, kept = set(okr_events), set(kept)
+    out: list[dict] = []
+    for event_type in watched_rows:
+        if event_type in okr_events or event_type in kept:
+            continue
+        retired = to_date((code.get(event_type) or {}).get(RETIRED_COL))
+        if retired is None:
+            continue
+        out.append({"event_type": event_type, "reason": "retired", "retired_date": retired})
+    return sorted(out, key=lambda r: (r["retired_date"], r["event_type"]))
+
+
 def reconcile(
     catalog: Sequence[Mapping[str, Any]],
     weekly_rows: Iterable[Mapping[str, Any]],
@@ -661,9 +685,11 @@ def reconcile(
     watched_families: Iterable[str] = (),
     dismissed_events: Iterable[str] = (),
     okr_by_event: Mapping[str, str] | None = None,
+    watched_rows: Iterable[str] = (),
+    kept_events: Iterable[str] = (),
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
-    and the self-healing watchlist proposal queue."""
+    and the watchlist proposal and removal queues."""
     current_monday = today - timedelta(days=today.weekday())
     series = weekly_series(weekly_rows, current_monday)
     watchlist_events = set(watchlist_events)
@@ -782,10 +808,15 @@ def reconcile(
     # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
     # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
     # everything else is untouched by the watchlist.
+    removals = propose_watchlist_removals(watched_rows, code, okr_by_event, kept_events)
+
     proposed_types = {p["event_type"] for p in proposals}
+    removal_types = {r["event_type"] for r in removals}
     for record in records:
         et = record["event_type"]
-        if record["on_watchlist"]:
+        if et in removal_types:
+            record["watchlist_status"] = "remove_proposed"
+        elif record["on_watchlist"]:
             record["watchlist_status"] = "tracked"
         elif et in dismissed_events:
             record["watchlist_status"] = "dismissed"
@@ -801,6 +832,7 @@ def reconcile(
         "status_counts": dict(status_counts),
         "metadata_coverage": metadata_coverage,
         "proposals": proposals,
+        "removal_proposals": removals,
         "flagged": flagged,
         "records": records,
         # Counted, not flagged: a jump here is a batch that shipped and may never fire.
@@ -1180,6 +1212,14 @@ def load_cause_dismissals(path: Path = WATCHLIST) -> tuple[dict[str, str], list[
     return dismissals, problems
 
 
+def load_watchlist_kept(path: Path = WATCHLIST) -> set[str]:
+    """Events a human ruled should stay watched despite a removal proposal (``kept:``)."""
+    if not path.exists():
+        return set()
+    doc = yaml.safe_load(path.read_text()) or {}
+    return {row["event"] for row in (doc.get("kept", []) or []) if row.get("event")}
+
+
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
     """Read the committed provenance CSV into ``{event_type: row}`` (the code axis)."""
     with open(csv_path, newline="") as fh:
@@ -1359,6 +1399,10 @@ def run_monitor(
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=watched_by_key,
+        # The literal rows, not the behavior-widened set: a behavior's instrument is the
+        # question's to drop, so only an events: row can be proposed for removal.
+        watched_rows=load_watchlist(watchlist_path)[1],
+        kept_events=load_watchlist_kept(watchlist_path),
     )
     # A read problem leaves the metrics it covers unmarked, and a partial read leaves
     # only the failed file's. Say so on any of them, or a red OKR item quietly reads

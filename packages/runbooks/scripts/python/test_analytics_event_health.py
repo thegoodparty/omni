@@ -2618,3 +2618,90 @@ def test_never_observed_watchlisted_event_is_elevated_and_gets_no_grace():
     by = {r["event_type"]: r for r in result["records"]}
     assert by["Watched Step"]["elevated"] and by["Watched Step"]["on_watchlist"]
     assert [r["event_type"] for r in result["flagged"]] == ["Watched Step"]
+
+
+# --- watchlist removals (DATA-2676) -------------------------------------------
+
+
+def test_removals_propose_retired_watched_rows():
+    code = {"A": {"retired_date": "2026-07-13"}, "B": {"retired_date": ""}}
+    out = eh.propose_watchlist_removals(["A", "B"], code, okr_events=[], kept=[])
+    assert out == [{"event_type": "A", "reason": "retired", "retired_date": date(2026, 7, 13)}]
+
+
+def test_removals_never_propose_an_okr_leg():
+    code = {"A": {"retired_date": "2026-07-13"}}
+    assert eh.propose_watchlist_removals(["A"], code, okr_events=["A"], kept=[]) == []
+
+
+def test_removals_skip_kept_events():
+    code = {"A": {"retired_date": "2026-07-13"}}
+    assert eh.propose_watchlist_removals(["A"], code, okr_events=[], kept=["A"]) == []
+
+
+def test_removals_ignore_events_missing_from_the_code_axis():
+    assert eh.propose_watchlist_removals(["A"], {}, okr_events=[], kept=[]) == []
+
+
+def test_removals_sort_oldest_retirement_first():
+    code = {"A": {"retired_date": "2026-09-01"}, "B": {"retired_date": "2026-07-13"}}
+    out = eh.propose_watchlist_removals(["A", "B"], code, okr_events=[], kept=[])
+    assert [r["event_type"] for r in out] == ["B", "A"]
+
+
+def test_load_watchlist_kept_reads_rows(tmp_path):
+    p = tmp_path / "w.yaml"
+    p.write_text('kept:\n  - {event: "A", reason: "r", date: "2026-10-21"}\n')
+    assert eh.load_watchlist_kept(p) == {"A"}
+    assert eh.load_watchlist_kept(tmp_path / "missing.yaml") == set()
+
+
+def test_run_monitor_proposes_removing_a_retired_events_row(tmp_path):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n',
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert [r["event_type"] for r in result["removal_proposals"]] == ["Old Step"]
+    record = next(r for r in result["records"] if r["event_type"] == "Old Step")
+    assert record["watchlist_status"] == "remove_proposed"
+
+
+def test_run_monitor_never_proposes_removing_a_behavior_only_event(tmp_path):
+    # Only a literal events: row can be removed; a behavior surface is the question's.
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    watchlist = (
+        "events: []\n"
+        "behaviors:\n"
+        "  - id: b1\n"
+        "    question: Q?\n"
+        "    surfaces:\n"
+        "      - {path: x.tsx, label: x, instrumented_by: \"Old Step\"}\n"
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist=watchlist,
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert result["removal_proposals"] == []
+
+
+def test_run_monitor_respects_kept_rows(tmp_path):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    watchlist = (
+        'events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n'
+        'kept:\n  - {event: "Old Step", reason: "still read", date: "2026-10-21"}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist=watchlist,
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert result["removal_proposals"] == []
