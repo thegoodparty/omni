@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -6,14 +7,17 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
+import { Poll } from 'src/generated/prisma'
 import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { UsersService } from 'src/users/services/users.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { version as uuidVersion } from 'uuid'
 import z from 'zod'
 import { PollsService } from './polls.service'
 import { MAX_POLL_MESSAGE_LENGTH } from '../schemas/poll.schema'
+import { APIPollStatus, derivePollStatus } from '../polls.types'
 import { PinoLogger } from 'nestjs-pino'
 
 const MAX_CONSTITUENTS_PER_RUN = 10000
@@ -63,6 +67,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     private readonly pollsService: PollsService,
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly usersService: UsersService,
+    private readonly stripeService: StripeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PollPurchaseHandlerService.name)
@@ -72,6 +77,27 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     const result = PollPurchaseMetadataSchema.safeParse(rawMetadata)
     if (!result.success) {
       throw new BadRequestException(result.error.message)
+    }
+    if (result.data.pollPurchaseType !== PollPurchaseType.expansion) {
+      return
+    }
+
+    // Fulfillment runs after the card is charged, so whatever it would refuse
+    // for an expansion is refused here first, before payment. userId is the
+    // authenticated buyer, merged by PurchaseService over any client value.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const userId = (rawMetadata as Record<string, string>)?.userId
+    if (!userId) {
+      throw new BadRequestException('No userId found in purchase metadata')
+    }
+    const poll = await this.findPollToExpand(
+      result.data.pollId,
+      parseInt(userId),
+    )
+    if (derivePollStatus(poll) !== APIPollStatus.COMPLETED) {
+      throw new BadRequestException(
+        "This poll isn't finished yet. You can gather more feedback once it is.",
+      )
     }
   }
 
@@ -111,7 +137,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     }
 
     if (metadata.pollPurchaseType === PollPurchaseType.expansion) {
-      return this.processExpansion(metadata, user.id)
+      return this.processExpansion(metadata, user.id, sessionId)
     }
 
     return this.processNewPoll(metadata, user.id)
@@ -125,7 +151,31 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       pollPurchaseType: PollPurchaseType.expansion
     },
     userId: number,
+    sessionId: string,
   ): Promise<void> {
+    const poll = await this.findPollToExpand(metadata.pollId, userId)
+
+    try {
+      await this.pollsService.expandPoll({
+        pollId: poll.id,
+        additionalRecipientCount: metadata.count,
+        scheduledDate: metadata.scheduledDate
+          ? new Date(metadata.scheduledDate)
+          : new Date(),
+        checkoutSessionId: sessionId,
+      })
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) {
+        throw error
+      }
+      await this.reconcileRefusedPollExpansion(poll.id, userId, sessionId)
+    }
+  }
+
+  private async findPollToExpand(
+    pollId: string,
+    userId: number,
+  ): Promise<Poll> {
     // Verify the poll belongs to the paying user's elected office before
     // mutating it. pollId comes from checkout metadata; without this check a
     // user could expand (and schedule texts on) another office's poll (IDOR),
@@ -147,15 +197,15 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     })
     if (electedOffices.length === 0) {
       throw new BadRequestException(
-        `Elected office not found for userId ${userId} poll ${metadata.pollId}`,
+        `Elected office not found for userId ${userId} poll ${pollId}`,
       )
     }
 
     const poll = await this.pollsService.findUnique({
-      where: { id: metadata.pollId },
+      where: { id: pollId },
     })
     if (!poll) {
-      throw new NotFoundException(`Poll not found: ${metadata.pollId}`)
+      throw new NotFoundException(`Poll not found: ${pollId}`)
     }
     if (
       !poll.electedOfficeId ||
@@ -165,14 +215,92 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
         'You do not have permission to expand this poll',
       )
     }
+    return poll
+  }
 
-    await this.pollsService.expandPoll({
-      pollId: metadata.pollId,
-      additionalRecipientCount: metadata.count,
-      scheduledDate: metadata.scheduledDate
-        ? new Date(metadata.scheduledDate)
-        : new Date(),
+  // expandPoll refused, so this call expanded nothing. What that means for
+  // the purchase depends on the poll it left behind:
+  //
+  //   - This checkout already expanded it. completeCheckoutSession stamps
+  //     postPurchaseCompletedAt only after the handler returns, and the browser
+  //     (PollPayment.tsx) and Stripe's checkout.session.completed webhook both
+  //     call it within a second of payment, so both run this handler. The
+  //     winner's optimistic update commits the expansion and its checkout id in
+  //     one write; the loser re-reads, finds the poll no longer COMPLETED, and
+  //     lands here. Same shape as reconcileDuplicatePollCreate below.
+  //   - Anything else: the poll cannot take this expansion, and the buyer has
+  //     paid for it. In practice a different checkout expanded it first.
+  //     validatePurchase refuses a checkout for a poll that is not COMPLETED,
+  //     but two checkouts opened while it was (two tabs) both pass, and a poll
+  //     takes one expansion at a time. The first fulfilled wins and this one
+  //     is refunded.
+  private async reconcileRefusedPollExpansion(
+    pollId: string,
+    userId: number,
+    sessionId: string,
+  ): Promise<void> {
+    const existing = await this.pollsService.findUnique({
+      where: { id: pollId },
     })
+
+    if (existing?.expansionCheckoutSessionId === sessionId) {
+      // Return normally so completeCheckoutSession stamps the marker. No
+      // POLL_EXPANSION send: the winning expandPoll already made it, and a
+      // second one would sample and text a second batch of constituents.
+      this.logger.info(
+        { pollId, userId, sessionId },
+        'Poll already expanded for this purchase; skipping duplicate fulfillment',
+      )
+      return
+    }
+
+    await this.refundUnfulfillableExpansion(pollId, userId, sessionId)
+
+    // BadRequest so the webhook acknowledges it: the refund is done, and
+    // every redelivery would meet the same refusal.
+    throw new BadRequestException(
+      'This poll is already gathering more feedback, so we refunded this payment.',
+    )
+  }
+
+  private async refundUnfulfillableExpansion(
+    pollId: string,
+    userId: number,
+    sessionId: string,
+  ): Promise<void> {
+    let refundId: string | null = null
+    try {
+      const session =
+        await this.stripeService.retrieveCheckoutSession(sessionId)
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id
+      // No PaymentIntent means a promotion code covered the whole order, so
+      // nothing was charged.
+      if (paymentIntentId) {
+        // Keyed on the checkout so the racing caller and any redelivery
+        // replay this refund instead of issuing another.
+        const refund = await this.stripeService.refundPaymentIntent(
+          paymentIntentId,
+          `poll-expansion-refund-${sessionId}`,
+        )
+        refundId = refund.id
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, pollId, userId, sessionId },
+        'Failed to refund a poll expansion the poll could not take',
+      )
+      // Not a BadRequest, so the webhook rethrows and Stripe redelivers into
+      // another refund attempt.
+      throw new BadGatewayException('Failed to refund the poll expansion')
+    }
+
+    this.logger.warn(
+      { pollId, userId, sessionId, refundId },
+      'Refunded a poll expansion checkout another expansion beat',
+    )
   }
 
   /**

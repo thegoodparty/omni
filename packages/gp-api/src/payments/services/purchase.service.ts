@@ -147,6 +147,11 @@ export class PurchaseService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       ...(dto.metadata as Record<string, unknown>),
       ...metadata,
+      // The buyer createCustomCheckoutSession stamps on the session and
+      // fulfillment reads back, so a handler can refuse before payment what
+      // its fulfillment would refuse after. completeFreePurchase passes the
+      // same. Last, so a client-sent userId never stands in for it.
+      userId: String(user.id),
     })
 
     if (existingPayment) {

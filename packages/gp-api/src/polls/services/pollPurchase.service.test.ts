@@ -9,6 +9,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { UsersService } from 'src/users/services/users.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PollPurchaseHandlerService } from './pollPurchase.service'
 import { PollsService } from './polls.service'
@@ -43,6 +44,7 @@ describe('PollPurchaseHandlerService', () => {
         { provide: PollsService, useValue: pollsService },
         { provide: ElectedOfficeService, useValue: electedOfficeService },
         { provide: UsersService, useValue: usersService },
+        { provide: StripeService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
