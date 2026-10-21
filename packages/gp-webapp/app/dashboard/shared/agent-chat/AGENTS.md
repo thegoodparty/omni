@@ -305,15 +305,16 @@ passed by the Serve home's `DashboardContent` under the meet card's intro and
 on a new chat). A card does one of three things: `message` sends a question
 as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
 message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
-`onSelect` runs anything else (open a flow or a page, as Draft an ordinance
-does). A card label with a `description` renders as a card, without
+`onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve
 home uses it for What's a civic panel?: with no panel yet the answer ends on
-Build my panel, which sends the same hidden build turn.
+Build my panel, and with members on Grow your civic panel, each sending the
+same hidden build turn, which the Chief of Staff answers with the plan's next
+step card.
 
 ## The civic panel in the Chief of Staff chat
 

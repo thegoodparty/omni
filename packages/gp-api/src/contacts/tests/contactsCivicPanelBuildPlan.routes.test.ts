@@ -330,6 +330,8 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
       goal: 240,
       answersNeeded: 96,
       expectedAnswers: 4,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
     expect(
       res.data.plan?.steps.map(({ channel, targetSize, status }) => ({
@@ -396,6 +398,37 @@ describe('POST /v1/contacts/civic-panel/plan', () => {
     ])
   })
 
+  it('makes a keep-fresh plan once the panel is past its goal, and keeps it active', async () => {
+    stubPools(TEXT_ONLY)
+    stubAnswersNeeded(1)
+    const slug = await seedOffice()
+    for (let i = 0; i < 3; i++) {
+      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
+    }
+
+    const created = await createPlan(slug, 1)
+
+    expect(created.status).toBe(HttpStatus.CREATED)
+    expect(created.data.plan).toMatchObject({
+      status: 'active',
+      keepFresh: true,
+      goalMembers: 53,
+    })
+    expect(created.data.progress).toMatchObject({ members: 3, goal: 3 })
+
+    const read = await readPlan(slug)
+    expect(read.data.plan).toMatchObject({ status: 'active', keepFresh: true })
+  })
+
+  it('makes an ordinary plan, not keep-fresh, while the panel is under its goal', async () => {
+    stubPools(TEXT_ONLY)
+    const slug = await seedOffice()
+
+    const res = await createPlan(slug, 1)
+
+    expect(res.data.plan).toMatchObject({ keepFresh: false, goalMembers: 240 })
+  })
+
   it('keeps one active plan per office', async () => {
     const slug = await seedOffice()
     stubPools(TEXT_ONLY)
@@ -458,8 +491,10 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
         goal: 240,
         answersNeeded: 96,
         expectedAnswers: 0,
+        groupsCovered: 0,
+        groupsTotal: 0,
       },
-      balance: { status: 'tooEarly', inviteMore: null },
+      balance: { status: 'tooFewMembers', inviteMore: null },
     })
   })
 
@@ -477,6 +512,8 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 24,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 
@@ -729,16 +766,18 @@ const joinPanel = async (slug: string, count: number) => {
 }
 
 describe('steering the plan by census', () => {
-  it('is too early under 30 members, without reading the census', async () => {
+  it('has too few members under 30, and leans nowhere', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
-    const mix = stubMix([members(29)])
+    stubMix([members(29)])
     await joinPanel(slug, 29)
 
     const res = await createPlan(slug, 1)
 
-    expect(res.data.balance).toEqual({ status: 'tooEarly', inviteMore: null })
-    expect(mix).not.toHaveBeenCalled()
+    expect(res.data.balance).toEqual({
+      status: 'tooFewMembers',
+      inviteMore: null,
+    })
     expect(res.data.plan?.steps.map((step) => step.steeredToward)).toEqual([
       null,
       null,
@@ -770,7 +809,7 @@ describe('steering the plan by census', () => {
     const res = await createPlan(slug, 1)
 
     expect(res.data.balance).toEqual({
-      status: 'notYetRepresentative',
+      status: 'missingGroups',
       inviteMore: 'unreachedAreas',
     })
     expect(
@@ -843,11 +882,12 @@ describe('steering the plan by census', () => {
     expect(read.steeredToward).toBe('unreachedAreas')
   })
 
-  it('records a call step that dropped landline-first with nobody to lean toward', async () => {
+  it('records a call step that dropped landline-first and leans toward the group the status names', async () => {
     const slug = await seedOffice()
     stubPools(LARGE)
     // 65 and over at 22.5% against 20%, tracts at the census's 50/40/10:
-    // nobody trails by enough to lean toward.
+    // landlines are dropped, and the step leans toward the same group the
+    // balance asks to invite next.
     stubMix([
       members(9, { ageBand: '65plus', tract: TRACT_A }),
       members(11, { tract: TRACT_A }),
@@ -858,7 +898,7 @@ describe('steering the plan by census', () => {
     const plan = await createPlan(slug, 1)
     expect(stepOf(plan, 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
     const draw = stubDraws()
 
@@ -870,7 +910,7 @@ describe('steering the plan by census', () => {
     )
     expect(stepOf(await readPlan(slug), 'phone_banking')).toMatchObject({
       landlineFirst: false,
-      steeredToward: null,
+      steeredToward: 'age18to24',
     })
   })
 
@@ -1127,6 +1167,8 @@ describe('step status and waves', () => {
       goal: 230,
       answersNeeded: 92,
       expectedAnswers: 92,
+      groupsCovered: 0,
+      groupsTotal: 0,
     })
   })
 

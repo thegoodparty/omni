@@ -40,8 +40,10 @@ unticked for the plan.
 **Reading the result.** The verdict is in the run's summary: open **Actions →
 Universal Judge comment** (or **request**, for a dispatch) and pick the run.
 Every comment on any PR starts a comment run, most of them skipped, so look
-for the one at the time you posted. The PR thread says the sweep started but
-not how it ended, so the run is where to look. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
+for the one at the time you posted. When a live sweep ends, its report is
+posted on the PR (one comment, rewritten by each sweep), and the run summary has the same text. The
+per-case rulings quote agent output, so they stay in the private bucket and
+never reach the PR. Each agent gets one verdict: **BETTER**, **WORSE**, **SAME** or
 **CAN'T SAY**. A verdict needs 5 scored cases (each run 3 times a side, so
 15 pairs); under that it's CAN'T SAY, with the measured difference still
 shown beside it. A background agent reads at most 3 cases a sweep, so its
@@ -49,32 +51,21 @@ verdicts stay CAN'T SAY. The summary also lists what was
 excluded and why, and an agent that couldn't be compared is listed as
 refused, with the reason.
 
-**Two regression signals can decide the label without the case floor**
-(`regressionSignals.ts`, thresholds in `config.gates.handling` and
-`config.gates.toolFailures`). The quality comparison cannot see an agent's own
-rules: a probe that cut `priority_flow`'s system prompt in half read CAN'T SAY
-there, at -0.06 [-0.28, 0.19].
+**The condition-handling signal can decide the label without the case floor**
+(`regressionSignals.ts`, thresholds in `config.gates.handling`). The quality
+comparison cannot see an agent's own rules: a probe that cut `priority_flow`'s
+system prompt in half read CAN'T SAY there, at -0.06 [-0.28, 0.19]. The signal
+is a one-sided sign test over the settled regressions and improvements in
+**Condition handling**, one vote per case: a case's attempts share an input,
+so a case counts once, as a regression or an improvement by its net change
+across attempts. Unsettled and shared outcomes don't count. With at least 4
+changed cases and p <= 0.05 it says WORSE or BETTER. That probe had 5 cases
+regress and none improve, p = 0.031, so WORSE.
 
-- **Condition handling.** A one-sided sign test over the settled
-  regressions and improvements in **Condition handling**. Unsettled and shared
-  outcomes don't count. With at least 4 changes and p <= 0.05 it says WORSE
-  or BETTER. That probe's 5 regressions to 0 is p = 0.031, so WORSE.
-- **Tools (chat agents).** A case fails on the candidate only when one tool
-  errored in 2 or more of the candidate's runs of it, while the base called it
-  in 2 or more runs and it never errored there. A tool only one arm called is
-  a dropped or added tool, not a failure. Two or more such cases say WORSE,
-  and the mirror image says BETTER.
-  This is how a candidate whose every tool call fails (all pairs excluded by
-  `isComparable()`) still reads WORSE.
-
-The label is WORSE when the quality verdict or either signal says WORSE.
-It is BETTER when one says BETTER and none says WORSE. Otherwise it is the
-quality label. When a signal moved the label, a bold line under the heading
-names it with its numbers and says what quality alone said. Each chat agent
-also gets a **Behavior changes** list: per case, the tools dropped (called in
-2 or more base runs, no candidate run) or added, and the tools failing on one
-arm only. A dropped or added tool is reported and never decides. Tool names
-only, through `publicToolName`. A case only one arm ran is left out.
+The label is WORSE when the quality verdict or the handling signal says WORSE.
+It is BETTER when one says BETTER and neither says WORSE. Otherwise it is the
+quality label. When the handling signal moved the label, a bold line under the
+heading gives its numbers and says what quality alone said.
 
 A sweep of one chat agent takes about half an hour. The plan comment shows the
 estimate before anything runs, priced from what each agent cost in an earlier
@@ -301,7 +292,7 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `sweep.eval.test.ts`                                   | Steps 1 and 2: the vitest shell that wires `sweepArm` to the real app.                                          |
 | `sweep.ts`                                             | Step 3: reads both arms, judges, scores, reports.                                                               |
 | `armGap.ts`                                            | The distance between the two captures.                                                                          |
-| `regressionSignals.ts`                                 | The condition-handling and tool-failure signals, and how they combine with the quality label.                   |
+| `regressionSignals.ts`                                 | The condition-handling signal, and how it combines with the quality label.                                      |
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                                                      |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                                                              |
 
@@ -654,21 +645,18 @@ cost the route's whole 300s stream timeout per case and arrive as an infraError
 with no answer to compare.
 
 \*\*The mark covers a seeded transcript and not the other two conditions, which
-is a judgement rather than an omission. A forced tool failure already separates
-itself more strongly than a report line could: `isComparable()` is false for
-it on a chat run, so the pair never reaches a delta at all. And an account state is a state
+is a judgement rather than an omission. A forced tool failure is judged on the
+answer its user received, which is a real answer to a real failure, and its
+tool error is counted beside the verdict. And an account state is a state
 production really produces — a campaign without Pro, an organization without a
 position — seeded through the same rows the app writes, so a verdict under one
 is a verdict about a real account. Only the transcript is a context the harness
 authored and production would not have built.
 
-One consequence to read before authoring these:\*\* `isComparable()` is false
-for any chat run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-rather than entering the delta. Telling an injected failure from an incidental
-one needs a field `record.ts` does not have, and `record.ts` is the frozen
-cross-track contract — so that is a change to review, not a drive-by. Until
-then a forced-failure case buys the two arms' stored answers and traces side by
-side, not a scored delta.
+One consequence to read before authoring these:\*\* a forced-failure pair is
+judged on its output like any other pair, so it enters the delta. The judge
+compares what each arm's user got when the tool failed, which is the point of
+the case.
 
 **An account state is a closed set, and the set is read off the handlers.**
 Tool registration is the only thing about an account the model can see, so the
@@ -1673,16 +1661,6 @@ chief_of_staff sweep), while each flag from a deliberate break repeated across
 cases, so a one-case flag is a reason to look, not a finding. Flags never move
 the verdict.
 
-**The report says which tools each chat arm called, per case.** Under
-"Tools called", a collapsed table per chat agent gives each case's base and
-candidate cell, e.g. `present_outreach_proposal 3/3, count_contacts 2/3 (1
-errored)`: runs that called the tool at least once, over the runs with a
-result (infraError runs are counted apart). `not run` means that arm has no
-record of the case, which is how a new case shows up. It prints tool names
-only (`toolUse.ts`, a name not shaped like a registered tool prints as
-`unknown`), never arguments or SQL, so a dropped or newly failing tool call is
-visible without the private records.
-
 **The schema the panel is sent has to fit the structured-output API's
 limits**: at most 24 optional parameters and 16 union parameters (a nullable
 field is one) across the whole schema, and a compiled grammar under a size
@@ -1837,25 +1815,20 @@ this one the Actions run. They are named apart on purpose.
 
 ## Two rules that are easy to get wrong
 
-**For a chat agent, a tool failure is never a quality signal.** The
-Databricks client resolves lazily, so a broken credential does not fail a run —
-the agent answers with less information instead. Both arms degrade
-identically, and a judge shown two degraded outputs will confidently report a
-code regression. Use `isComparable()`; any chat case where either arm hit a
-tool error resolves to CAN'T SAY and leaves the delta. Failures on one arm
-only still reach the label, through the tool signal (see "Reading the
-result").
-
-**For a background agent, a tool error does not exclude the pair.** What the
-judge scores is the final artifact. Live sweeps showed background agents
-routinely writing a Python snippet in Bash, hitting `exit code 1` or a
-`ValueError`, fixing it and carrying on: run 37355882821 excluded 7 of 9
+**A tool error does not exclude a pair, chat or background.** The judge
+compares what each arm's user received, never the trace. A chat tool that
+failed shows up in the answer (the Databricks client resolves lazily, so a
+broken credential leaves a worse-informed answer rather than a failed run),
+and a background run that hit a failing Bash snippet and recovered still
+published its artifact. Live sweeps showed background agents routinely
+writing a Python snippet in Bash, hitting `exit code 1` or a `ValueError`,
+fixing it and carrying on: run 37355882821 excluded 7 of 9
 `race_opponent_summary` pairs for `Bash — exit code 1`, and run 37352629792
 excluded all but one pair across the three gp-api agents. So `isComparable()`
-is true for a background record with tool errors, and its pair is judged. A
-background pair is still excluded for `infraError` (which is also how the
-runner records a missing or unparseable artifact, or a trace it could not
-read) and for an identical config, exactly as before. The base-arm cache does
+is false only for `infraError`, and a pair with tool errors is judged like
+any other. A pair is still excluded for `infraError` (which is also how the
+background runner records a missing or unparseable artifact, or a trace it
+could not read) and for an identical config. The base-arm cache does
 NOT follow this rule: `isCacheableBase()` caches a background base arm only
 when it is comparable and has zero tool errors, so a base arm captured during a
 credential or broker outage is scored that sweep but never becomes the cached
@@ -1898,12 +1871,10 @@ exception`, an unlisted code as `other error code`, and the rest as
   `other`. To name a new one, add it to the list in `toolErrorDetails.ts`.
 
 Causes are grouped by tool and class under the "Excluded pairs" line, with the
-pair count and the arms hit. That list covers every pair excluded for a tool
-error (only a chat pair is) and every pair excluded as identical config whose
-arms hit a tool error anyway, so a background pair that moved from one reason
-to the other still shows what failed. For a background agent, the causes on
-pairs the judge actually graded come after it under **Tool errors (scored, not
-excluded):**. A pair whose judge call failed is ungraded and is not listed
+pair count and the arms hit. That list covers every pair excluded as identical
+config whose arms hit a tool error, so a pair that moved from one reason to
+the other still shows what failed. The causes on pairs the judge actually
+graded come after it under **Tool errors (scored, not excluded):**. A pair whose judge call failed is ungraded and is not listed
 there. The two lists never mix, so a reader cannot take a scored pair for an
 excluded one. A record written before the field existed shows
 as `unknown`, `unrecorded`. Anything new that renders a tool error publicly must

@@ -23,7 +23,9 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
 - `serve-citizen-panels` on: after the term, the district story
   (`story-represent`, `story-loudest`, `story-sample`, `story-grow`), then
   `priorities`, then `pledge` (button "Meet your Chief of Staff", lands on the
-  Chief of Staff home).
+  Chief of Staff home). Completion goes through
+  `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
+  finished so a user with several lands in it, not the first on the list.
 
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
@@ -51,7 +53,7 @@ behind, so the save never holds the motion.
   density, so each dot is about population / dots residents. Dots are
   placed in Web Mercator and fitted to the view, and the camera that fit
   implies (`basemapZoom`) frames the basemap, so each dot sits on its street.
-- **Basemap** (`DistrictBasemap`): maplibre with Geoapify's light `positron`
+- **Basemap** (`DistrictBasemap`): maplibre with Geoapify's full-color `osm-bright`
   style and the `NEXT_PUBLIC_GEOAPIFY_TILES_KEY` the contacts and
   door-knocking maps use, with the same compact attribution. maplibre opens
   a compact attribution expanded and collapses it only on the first drag, so
@@ -60,7 +62,8 @@ behind, so the save never holds the motion.
   for all four steps; `interactive: false`, so it is a picture with no
   drag, zoom or scroll capture. maplibre is imported inside the effect, the
   dots never wait for it, and no key, no WebGL or a refused tile leaves the
-  muted frame. There is no district boundary geometry, so no outline.
+  muted frame. Dots carry a white edge (`stroke-card`) so they stand out on the
+  colors. There is no district boundary geometry, so no outline.
   maplibre's stylesheet sets `position: relative` on its map element and,
   unlayered, beats Tailwind's `absolute`, so a wrapper is positioned and the
   map element only fills it (`h-full w-full`). Positioning the map element
@@ -70,15 +73,18 @@ behind, so the save never holds the motion.
   marker, no tiles). The
   map never swaps once drawn, and the step never errors.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
-  middle; the sample is sized to `answersNeeded()` from contracts (100,
-  enough for every group making up 3% or more of any district to answer 3
-  times; the step has no district mix to size it to) and spread by a greedy
-  minimum-distance pick; 38 of it fill in on the grow step. No joined count is
-  shown.
+  middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
+  each part of a 4 by 4 grid over the district, so it spreads across the map;
+  half of it fills in on the grow step. No count is shown, on the map or in
+  the copy: the sample step's headline is "A few voices from every group tell
+  you where your community stands", its line is "We pick people at random from
+  every part of your district, so you hear what everyone thinks.", and its
+  info box says the aim ("We aim to hear from every age group, neighborhood,
+  race and gender in your district.").
 - **Motion** (`DISTRICT_MOTION`): intro sweeps in by neighborhood over ~1.2s
   with a 1s count-up, once a session; dim 400ms with a one-time pop on the
   loud cluster (`animate-pop-in`); sample 600ms with a 5ms stagger; grow turns
-  the sample to rings, then fills 38 at a 40ms stagger. Back runs 300ms with
+  the sample to rings, then fills half of it at a 40ms stagger. Back runs 300ms with
   no stagger. Reduced motion shows each end state. The four steps render one
   `DistrictStoryStep`, so the map stays mounted and only its mode changes.
   No Lottie: the map is per-district data.

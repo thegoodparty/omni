@@ -1,10 +1,7 @@
 import { z } from 'zod'
 import { zDate } from '../shared/Date.schema'
 import { GeoJsonPolygonSchema } from '../doorKnocking/DoorKnockingTurf.schema'
-import {
-  ReadRepresentativenessSchema,
-  UnderrepresentedGroupSchema,
-} from '../priorities/PriorityResults.schema'
+import { UnderrepresentedGroupSchema } from '../priorities/PriorityResults.schema'
 
 // Building the civic panel across texts, calls and doors, in waves
 // (/v1/contacts/civic-panel/plan). Texts are cheap and go first; calls reach
@@ -42,6 +39,9 @@ export const PANEL_DOOR_SHARE_OF_HOURS = 0.5
 // most two of them. Door hours past that go to calls.
 export const PANEL_DOORS_PER_AREA = 100
 export const PANEL_MAX_DOOR_AREAS = 2
+
+// The members a plan made past the panel's goal sets out to add.
+export const PANEL_KEEP_FRESH_MEMBERS = 50
 
 // Replies to a text arrive in batches, about three business days after it
 // goes out (the same window the results upload works to).
@@ -132,15 +132,36 @@ export type MarkCivicPanelBuildStepInput = z.infer<
   typeof MarkCivicPanelBuildStepInputSchema
 >
 
-// How the panel compares with the district's census, unweighted, on age
-// band, gender and tract (and race when enough members have one). The
-// official sees the status, in the priority read's labels, and the one group
-// to invite more of, never a share, a weight or a target. Below this many
-// members it is too early to tell.
+// Whether the panel has members in every major group of the district: 3% or
+// more of it by age band, gender and tract (and race when enough members
+// have one). The official sees the status and the one group to invite more
+// of, never a share or a target. Below this many members it is too few to
+// tell.
 export const PANEL_MIN_MEMBERS_FOR_BALANCE = 30
 
+export const CIVIC_PANEL_BALANCE_STATUSES = [
+  'tooFewMembers',
+  'missingGroups',
+  'everyGroup',
+] as const
+export const CivicPanelBalanceStatusSchema = z.enum(
+  CIVIC_PANEL_BALANCE_STATUSES,
+)
+export type CivicPanelBalanceStatus = z.infer<
+  typeof CivicPanelBalanceStatusSchema
+>
+
+export const CIVIC_PANEL_BALANCE_STATUS_LABELS: Record<
+  CivicPanelBalanceStatus,
+  string
+> = {
+  tooFewMembers: 'Too few members yet',
+  missingGroups: 'Missing some groups',
+  everyGroup: 'Every group on your panel',
+}
+
 export const CivicPanelBalanceSchema = z.object({
-  status: ReadRepresentativenessSchema.exclude(['enoughAnswers']),
+  status: CivicPanelBalanceStatusSchema,
   inviteMore: UnderrepresentedGroupSchema.nullable(),
 })
 export type CivicPanelBalance = z.infer<typeof CivicPanelBalanceSchema>
@@ -197,6 +218,7 @@ export const CivicPanelBuildPlanSchema = z.object({
   id: z.string(),
   status: CivicPanelBuildPlanStatusSchema,
   goalMembers: z.number().int(),
+  keepFresh: z.boolean().default(false),
   hoursPerWeek: z.number().int(),
   currentWave: z.number().int(),
   createdAt: zDate(),
@@ -205,19 +227,38 @@ export const CivicPanelBuildPlanSchema = z.object({
 })
 export type CivicPanelBuildPlan = z.infer<typeof CivicPanelBuildPlanSchema>
 
-// Where the panel stands, in answers to one question. `answersNeeded` is
-// the district's (answersNeeded of its smallest major group), `expectedAnswers` what the
-// members are expected to give it, and `goal` the members it takes to give
-// all of them.
+// Where the panel stands. `groupsCovered` of `groupsTotal` major groups
+// have enough members to expect three answers (PANEL_MEMBERS_PER_GROUP);
+// both are 0 when the district could not be read. `goal` is the members the
+// plan is sized to, from `answersNeeded` (the district's, of its smallest
+// major group); `expectedAnswers` is what the members are expected to give.
 export const CivicPanelBuildProgressSchema = z.object({
   members: z.number().int(),
   goal: z.number().int(),
   answersNeeded: z.number().int(),
   expectedAnswers: z.number().int(),
+  groupsCovered: z.number().int().nonnegative().default(0),
+  groupsTotal: z.number().int().nonnegative().default(0),
 })
 export type CivicPanelBuildProgress = z.infer<
   typeof CivicPanelBuildProgressSchema
 >
+
+// Where the panel stands, in the words the Chief of Staff's card and chat
+// both use: "62 members so far, from 9 of 12 groups in your district."
+export const civicPanelStandingLine = (
+  progress: Pick<
+    CivicPanelBuildProgress,
+    'members' | 'groupsCovered' | 'groupsTotal'
+  >,
+): string => {
+  const members = `${progress.members.toLocaleString('en-US')} ${
+    progress.members === 1 ? 'member' : 'members'
+  } so far`
+  return progress.groupsTotal > 0
+    ? `${members}, from ${progress.groupsCovered} of ${progress.groupsTotal} groups in your district.`
+    : `${members}.`
+}
 
 // GET and POST /v1/contacts/civic-panel/plan. `plan` is null before the
 // official has made one; progress and balance are always the panel as it

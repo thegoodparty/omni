@@ -121,6 +121,58 @@ export class OutreachCompletionService extends createPrismaBase(
   // pass is one Peerly read per open row, so two replicas doubled the
   // account's job-status traffic for no second answer (the retrieve_cv
   // budget Peerly asked us to cut in August was the same shape).
+  // Exposed for TestFixturesService's run-job allowlist, so the completion
+  // sweep can be triggered from a Playwright spec without the hourly
+  // CronLock gate — same pattern as OutreachRobocallCompletionService.
+  async runCompletion(): Promise<void> {
+    const now = new Date()
+    const candidates = await this.model.findMany({
+      where: {
+        projectId: { not: null },
+        AND: [
+          {
+            OR: [
+              { status: null },
+              { status: OutreachStatus.pending },
+              { status: OutreachStatus.in_progress },
+            ],
+          },
+          {
+            OR: [
+              {
+                date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
+              },
+              {
+                AND: [
+                  { date: null },
+                  {
+                    createdAt: {
+                      gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS),
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    for (const outreach of candidates) {
+      if (!outreach.projectId) {
+        continue
+      }
+      try {
+        await this.syncOutreachStatus(outreach, outreach.projectId, now)
+      } catch (err) {
+        this.logger.warn(
+          { err, outreachId: outreach.id, projectId: outreach.projectId },
+          '[Outreach Completion] Peerly job status check failed; will retry next sweep',
+        )
+      }
+    }
+  }
+
   @Cron(OUTREACH_COMPLETION_SWEEP_CRON, { name: OUTREACH_COMPLETION_JOB })
   async sweepOutreachCompletions(): Promise<void> {
     const now = new Date()

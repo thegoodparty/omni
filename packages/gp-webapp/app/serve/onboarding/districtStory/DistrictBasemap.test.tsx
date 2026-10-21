@@ -102,7 +102,7 @@ describe('the district basemap', () => {
     await waitFor(() => expect(created).toHaveLength(1))
     const options = created[0]!
     expect(options.style).toBe(
-      'https://maps.geoapify.com/v1/styles/positron/style.json?apiKey=test-key',
+      'https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=test-key',
     )
     expect(options.center).toEqual([
       model.camera!.center.lng,

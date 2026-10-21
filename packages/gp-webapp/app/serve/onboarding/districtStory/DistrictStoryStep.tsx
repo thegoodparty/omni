@@ -4,7 +4,6 @@ import { LoaderCircle } from 'lucide-react'
 import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import { InfoIcon, RefreshIcon } from '@styleguide/components/ui/icons'
-import { answersNeeded } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
@@ -112,12 +111,8 @@ export const DistrictStoryStep = ({
     if (ready) return
     if (!(pointsSettled && statsSettled) && !timedOut) return
     const known = stats.data?.districtPopulation ?? null
-    const sampleSize = answersNeeded()
     setPopulation(known)
-    setModel(
-      (points && buildDistrictDots(points, sampleSize)) ??
-        buildAbstractDots(sampleSize),
-    )
+    setModel((points && buildDistrictDots(points)) ?? buildAbstractDots())
   }, [
     ready,
     pointsSettled,
@@ -385,7 +380,7 @@ const StoryText = ({
             {copy.heardFrom}
           </span>
           <span className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-muted-foreground/55" />
+            <span className="h-3 w-3 rounded-full bg-muted-foreground/80" />
             {copy.notHeardFrom}
           </span>
         </div>
@@ -395,15 +390,12 @@ const StoryText = ({
 
   if (step === 'story-sample') {
     const copy = SERVE_STORY_COPY.sample
-    const answers = answersNeeded()
     return (
       <>
-        <Title title={copy.title(answers)} accentClass="text-primary" long />
+        <Title title={copy.title} accentClass="text-primary" long />
         <Description>
           {copy.description}{' '}
-          <AnswersInfo label={copy.howWeGotIt}>
-            {copy.explanation(answers)}
-          </AnswersInfo>
+          <AnswersInfo label={copy.howWeGotIt}>{copy.explanation}</AnswersInfo>
         </Description>
       </>
     )
@@ -419,18 +411,13 @@ const StoryText = ({
       <ol className="mt-6 flex flex-col gap-2">
         {copy.loop.map((item, index) => (
           <li
-            key={item.title}
+            key={item}
             className="flex items-center gap-3 rounded-xl border border-base-border bg-card px-3.5 py-2.5"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {index + 1}
             </span>
-            <span className="flex flex-col">
-              <span className="font-semibold text-foreground">
-                {item.title}
-              </span>
-              <span className="text-sm text-muted-foreground">{item.desc}</span>
-            </span>
+            <span className="font-semibold text-foreground">{item}</span>
           </li>
         ))}
       </ol>

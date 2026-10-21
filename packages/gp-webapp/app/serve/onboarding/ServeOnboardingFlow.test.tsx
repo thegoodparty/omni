@@ -198,8 +198,8 @@ const mockDistrict = ({
 const storyHeading = {
   represent: /You represent 32,000 people/,
   loudest: "Until now, you've heard from the loudest voices only",
-  sample: "With about 100 answers, you'll know where your community stands",
-  grow: "We'll help you build and grow the list of people you hear from",
+  sample: 'A few voices from every group tell you where your community stands',
+  grow: "We'll help you hear from more of your community over time",
 }
 
 const findStoryHeading = (name: string | RegExp) =>
@@ -242,7 +242,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     expect(
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       ),
     ).toBeInTheDocument()
     expect(
@@ -288,7 +288,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await findStoryHeading(storyHeading.sample)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await findStoryHeading(storyHeading.grow)
-    expect(screen.getByText('Communicate')).toBeInTheDocument()
+    expect(screen.getByText('Tell them what you did')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText(PRIORITIES_TITLE)
@@ -340,23 +340,23 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
   })
 
-  it('says how it got the answers a district needs', async () => {
+  it('says what it aims for in every group', async () => {
     resumedAt('story-sample')
     const user = userEvent.setup()
     renderFlow()
 
     await findStoryHeading(storyHeading.sample)
     await user.click(
-      screen.getByRole('button', { name: 'How we got this number' }),
+      screen.getByRole('button', { name: 'How we aim for this' }),
     )
     expect(
       await screen.findByText(
-        /We picked 100 so that every group making up 3% or more/,
+        'We aim to hear from every age group, neighborhood, race and gender in your district.',
       ),
     ).toBeInTheDocument()
   })
 
-  it('sizes the answers the same in a small district', async () => {
+  it('says the same in a small district', async () => {
     mockDistrict({ population: 500 })
     resumedAt('story-sample')
     renderFlow()
@@ -375,23 +375,23 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     expect(
       screen.getByText(
-        'Listen to the people first. Then prioritize, act, and tell them what you did.',
+        'Ask residents, see what matters, act on it, and tell them what you did.',
       ),
     ).toBeInTheDocument()
     expect(
       screen.getAllByRole('listitem').map((item) => item.textContent),
     ).toEqual([
-      '1ListenText, call or knock',
-      '2PrioritizeSee what matters most',
-      '3ActBring it to your vote',
-      '4CommunicateTell them what you did',
+      '1Ask residents',
+      '2See what matters most',
+      '3Vote with what you learned',
+      '4Tell them what you did',
     ])
     // One column at every width, so the loop reads 1 to 4 top to bottom
     // rather than left to right and wrapping.
     expect(screen.getByRole('list').className).not.toMatch(/grid-cols/)
     expect(screen.getByRole('list')).toHaveClass('flex-col')
     expect(
-      screen.getByText('Then listen again. Each round, your panel grows.'),
+      screen.getByText('Each time you ask, you hear from more people.'),
     ).toBeInTheDocument()
   })
 
@@ -408,7 +408,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(screen.getByTestId('district-story-basemap')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Every dot is about 80 residents of your district. Each of them counts on you to speak for them.',
+        'Each dot is about 80 people in your district, and you speak for all of them.',
       ),
     ).toBeInTheDocument()
   })
@@ -547,7 +547,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await screen.findByText(
-      'Hear from your whole community, not only the loudest voices',
+      'Hear from everyone in your community, not only the people who show up',
     )
     await waitFor(() => expect(communityStarts).toBe(1))
 
@@ -584,7 +584,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       answer: RegExp,
     ) => {
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByRole('button', { name: answer }))
@@ -606,7 +606,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       renderFlow()
 
       await answerInOffice(user, /I'm still campaigning/)
-      await screen.findByText("Let's switch you to campaign mode")
+      await screen.findByText("Let's get you set up for your campaign")
       expect(communityStarts).toBe(0)
     })
 
@@ -654,7 +654,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       renderFlow()
 
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
@@ -913,7 +913,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       ),
     ).not.toBeInTheDocument()
   })
@@ -1223,9 +1223,7 @@ describe('ServeOnboardingFlow', () => {
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
     // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.getByText(
-        'These details ensure we pull the right information and data to help you serve your community',
-      ),
+      screen.getByText('This keeps your briefings and meetings accurate.'),
     ).toBeInTheDocument()
     // The confirmed office renders as a plain value (the old red error state is
     // gone now that confirm is only shown when complete).
@@ -1586,7 +1584,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
 
     // The hand-off screen renders, and the office-status selection records the
     // drop-off — the standalone "Switched to Campaign" event is gone.
-    await screen.findByText("Let's switch you to campaign mode")
+    await screen.findByText("Let's get you set up for your campaign")
     expect(eventProps(OFFICE_STATUS_VIEWED)).toEqual([
       expect.objectContaining({ selection: "I'm still campaigning" }),
     ])

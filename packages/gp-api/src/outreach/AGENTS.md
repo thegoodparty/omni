@@ -157,8 +157,8 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
   a report back) holds a follow-up beside the send being created: a second
   row in the same transaction with `roundOneOutreachId` pointing at the
   first, `scheduledLocalDate` `FOLLOW_UP_BUSINESS_DAYS` (10) business days
-  later, and `textCount` `min(roundTwoSize, pool - the first send's
-  count)`, the pool being the list's whole criteria (`sampleSize: null`, so
+  later, and `textCount` `min(roundTwoSize, 90% of (pool - the
+first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool being the list's whole criteria (`sampleSize: null`, so
   never its sample) on cell phones less `roundTwoExclusions` (the
   priority's other sends' people and every opt-out). Under
   `MIN_TEXTS_PER_ROUND` (25) there is no follow-up and the response has no
@@ -582,7 +582,11 @@ false`: it hands back what was built, not a fresh build. A text holds the
   could dial, ABORTed by the cleanup sweep), `robocallOrphanedHold.prisma`
   (`RobocallOrphanedHold`: `paymentIntentId` unique, `outreachId?`, `reason`,
   `voidedAt?` — the work queue of authorization holds whose best-effort void may
-  not have landed, confirmed + re-voided by the reconcile sweep). Phone banking's own tables
+  not have landed, confirmed + re-voided by the reconcile sweep),
+  `outreachOptOutReconcile.prisma` (`OutreachOptOutReconcile`: `outreachId`
+  primary key, `attemptedAt` — when the opt-out backup pass last asked Peerly
+  for that send's flags, kept off the outreach row so it never bumps
+  `updatedAt`). Phone banking's own tables
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this

@@ -193,6 +193,7 @@ export {
   PANEL_DOOR_SHARE_OF_HOURS,
   PANEL_DOORS_PER_AREA,
   PANEL_MAX_DOOR_AREAS,
+  PANEL_KEEP_FRESH_MEMBERS,
   PANEL_MIN_HOURS_PER_WEEK,
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_WEEKS_PER_WAVE,
@@ -226,12 +227,18 @@ export {
   type CivicPanelBuildPlanResponse,
   CivicPanelBalanceSchema,
   type CivicPanelBalance,
+  civicPanelStandingLine,
+  CIVIC_PANEL_BALANCE_STATUSES,
+  CivicPanelBalanceStatusSchema,
+  type CivicPanelBalanceStatus,
+  CIVIC_PANEL_BALANCE_STATUS_LABELS,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   PrepareCivicPanelBuildStepResponseSchema,
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
 export {
   panelGoalMembers,
+  PANEL_MEMBERS_PER_GROUP,
   panelExpectedAnswers,
   panelSeedSampleSize,
   PANEL_SEED_SAMPLE_SIZE,
@@ -928,6 +935,8 @@ export {
   UnderrepresentedGroupSchema,
   type UnderrepresentedGroup,
   UNDERREPRESENTED_GROUP_NAMES,
+  UNSURE_AREAS_NAME,
+  underrepresentedGroupName,
   READ_REPRESENTATIVENESS_LABELS,
   DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
@@ -953,6 +962,7 @@ export {
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelStepCardSourceId,
   isCivicPanelStepCard,
+  CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
@@ -1617,12 +1627,6 @@ export {
   type AudioUploadUrlRequest,
   AudioUploadUrlResponseSchema,
   type AudioUploadUrlResponse,
-  PendingFeedbackReferenceSchema,
-  type PendingFeedbackReference,
-  PendingFeedbackSchema,
-  type PendingFeedback,
-  PendingFeedbackResponseSchema,
-  type PendingFeedbackResponse,
 } from './constituentFeedback/ConstituentFeedback.schema'
 
 export {
@@ -1722,6 +1726,8 @@ export {
   type DeleteTestFixtureUsersResponse,
   TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
   SeedTestFixtureActivityRequestSchema,
+  TestFixtureAnswersSchema,
+  TestFixtureSplitSchema,
   type SeedTestFixtureActivityRequest,
   TestFixtureActivityEffortSchema,
   SeedTestFixtureActivityResponseSchema,
@@ -1745,6 +1751,14 @@ export {
   type TimeTravel,
   TimeTravelResponseSchema,
   type TimeTravelResponse,
+  DeliverStripeEventRequestSchema,
+  type DeliverStripeEventRequest,
+  DeliverStripeEventResponseSchema,
+  type DeliverStripeEventResponse,
+  AdminOutreachActionRequestSchema,
+  type AdminOutreachActionRequest,
+  AdminOutreachActionResponseSchema,
+  type AdminOutreachActionResponse,
 } from './testFixtures/vendorMocks'
 
 export {

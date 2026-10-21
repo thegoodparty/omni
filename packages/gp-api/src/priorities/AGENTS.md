@@ -53,6 +53,11 @@ from `CensusCompositionSource.mrpInputs` (bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
 The representation bars compare who answered with the district, unweighted.
+`mrpReadStatus` also returns `groupsHeard` of `groupsTotal` (major groups with
+at least three coded answers), which the webapp shows instead of an answer
+count. `unreachedAreaFor` takes its tracts from the same model
+(`holdingBackTracts`: major tracts short of three answers or too unsure), so
+the area a list is saved to can never disagree with the status.
 
 ## Round 2 draw
 
@@ -78,8 +83,14 @@ day a Serve text for that date could be booked).
   whose list is still undrawn, so a follow-up never puts a check out
   before it is drawn.
 - **Shown.** `readStatuses` carries the next paid, unsent follow-up per
-  priority as `followUp` (`scheduledLocalDate`, `texts`), for the priority
-  page and the agent's `<priority>` block.
+  priority as `followUp` (`scheduledLocalDate`, `texts`), `followUpSent` once
+  one has gone out, and `checkOut` once anything has gone to residents on
+  any channel, for the priority page and the agent's `<priority>` block. The
+  agent offers no text while a follow-up is scheduled or sent
+  (`checkFollowUpPart`): a short read is closed with calls and doors.
+- **Undrawn list.** It stays off the lists index (`findByOrganizationSlug`
+  and its siblings leave out `UNDRAWN_SAMPLE_WHERE`) and
+  `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
 - **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,

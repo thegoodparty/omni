@@ -73,11 +73,31 @@ import {
   PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
 import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
+import {
+  isPeerlyCvTaxExemptBrandRejection,
+  PeerlyCvTaxExemptBrandException,
+} from '../utils/peerlyCvTaxExemptBrand.util'
 import { PinoLogger } from 'nestjs-pino'
 
 // Slack truncates long blocks silently; pretty-printing roughly doubles a
 // body's line count, so cut it here with a visible marker instead.
 const SLACK_RESPONSE_BODY_MAX_CHARS = 1500
+
+// The Slack alert stays on: the 10DLC channel post is how support learns the
+// brand needs a vendor-side fix. Only the error-level log line is dropped.
+const taxExemptBrandRejectionContext = (
+  error: unknown,
+): Partial<PeerlyApiErrorContext> =>
+  isPeerlyCvTaxExemptBrandRejection(error)
+    ? {
+        httpExceptionClass: PeerlyCvTaxExemptBrandException,
+        customMessage:
+          'Peerly refused the Campaign Verify token because the brand is ' +
+          'listed as a 501(c) tax-exempt non-profit. Retrying cannot ' +
+          'succeed; support must have the brand corrected with Peerly.',
+        expectedRejection: true,
+      }
+    : {}
 
 // Peerly's error bodies are the `Error`/`status_code` envelope the sibling
 // rejection utils read, except on gateway failures, which return an HTML or
@@ -427,6 +447,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       return await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
+        ...taxExemptBrandRejectionContext(error),
       })
     }
   }
@@ -496,7 +517,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         { campaign_verify_token: campaignVerifyToken },
       )
     } catch (error) {
-      await this.handleApiError(error, { campaign, peerlyIdentityId })
+      await this.handleApiError(error, {
+        campaign,
+        peerlyIdentityId,
+        ...taxExemptBrandRejectionContext(error),
+      })
     }
   }
 

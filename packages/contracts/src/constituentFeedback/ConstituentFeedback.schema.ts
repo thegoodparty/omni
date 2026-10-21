@@ -192,11 +192,21 @@ const ConfirmedIssueSchema = z
 // this order. Removing one means leaving it out, and an empty list confirms
 // a memo that named no issue. A confirmation is a statement about every
 // field, including the ones left null on purpose.
+//
+// `skipped` is the canvasser passing on the check: the memo is confirmed
+// with no issues, so its words still reach synthesis, and the model's
+// proposal is kept apart for measuring extraction, never counted. It says
+// nothing about any issue, so it comes with an empty list.
 export const ConfirmConstituentFeedbackSchema = z
   .object({
     issues: z.array(ConfirmedIssueSchema).max(CONSTITUENT_FEEDBACK_MAX_ISSUES),
+    skipped: z.boolean().optional(),
   })
   .strict()
+  .refine((body) => body.skipped !== true || body.issues.length === 0, {
+    message: 'A skipped memo is confirmed with no issues',
+    path: ['issues'],
+  })
 export type ConfirmConstituentFeedback = z.infer<
   typeof ConfirmConstituentFeedbackSchema
 >
@@ -275,42 +285,4 @@ export const AudioUploadUrlResponseSchema = z.object({
 })
 export type AudioUploadUrlResponse = z.infer<
   typeof AudioUploadUrlResponseSchema
->
-
-// What re-recording a memo posts to `POST /v1/constituent-feedback`
-// alongside its own `clientKey`: the knock or the call it belongs to, in the
-// same shape the capture arms take.
-export const PendingFeedbackReferenceSchema = z.discriminatedUnion('channel', [
-  z.object({
-    channel: z.literal('door_knock'),
-    knockClientKey: z.string(),
-    stopTargetId: z.number().int(),
-  }),
-  z.object({
-    channel: z.literal('phone_bank'),
-    entryId: z.number().int(),
-    personId: z.string(),
-  }),
-])
-export type PendingFeedbackReference = z.infer<
-  typeof PendingFeedbackReferenceSchema
->
-
-// A memo waiting for review, with what "Type it instead" needs to re-record
-// it as typed text: a typed note has to become a transcript, because a
-// transcript is what synthesis groups. `reference` is null when its knock or
-// call can no longer be found, and then the memo cannot be re-recorded.
-export const PendingFeedbackSchema = ConstituentFeedbackSchema.extend({
-  clientKey: z.string(),
-  reference: PendingFeedbackReferenceSchema.nullable(),
-})
-export type PendingFeedback = z.infer<typeof PendingFeedbackSchema>
-
-// An effort's unconfirmed memos, newest first: the "Notes to review" list.
-// A volunteer gets their own; an owner or manager gets everyone's.
-export const PendingFeedbackResponseSchema = z.object({
-  feedback: z.array(PendingFeedbackSchema),
-})
-export type PendingFeedbackResponse = z.infer<
-  typeof PendingFeedbackResponseSchema
 >

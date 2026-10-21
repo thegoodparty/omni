@@ -7,7 +7,10 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
-import { PrioritiesToolPort } from './services/prioritiesPort'
+import {
+  PrioritiesToolPort,
+  type PriorityRecord,
+} from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { LlmTool } from '@/llm/services/llm.service'
@@ -705,9 +708,12 @@ describe('ChiefOfStaffHandler', () => {
       )
     }
 
-    const promptFor = async () => {
+    const promptFor = async (
+      override: { priorities?: PriorityRecord[] } = {},
+    ) => {
       const { handler } = buildPanelHandler({ panels: true })
-      return handler.buildSystemPrompt(await handler.loadContext('c1', USER_ID))
+      const ctx = await handler.loadContext('c1', USER_ID)
+      return handler.buildSystemPrompt({ ...ctx, ...override })
     }
 
     const PLAN_TOOLS = [
@@ -798,13 +804,49 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).not.toContain('- Explain what a civic panel is')
     })
 
-    it('asks nothing of a panel at its goal', async () => {
+    it('ends on priorities once the first invite is out and none are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'Their first invite is out and they have no priorities on file.',
+      )
+      expect(prompt).toContain('offer to record what they tell you')
+    })
+
+    it('does not ask for priorities before the first invite is out', async () => {
+      withPanel({ members: 0, inviteSent: false })
+      const prompt = await promptFor()
+      expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain('Do not ask about priorities in this reply')
+    })
+
+    it('ends on the plan, not on priorities, when some are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor({
+        priorities: [
+          {
+            id: 'pri-1',
+            title: 'Rents',
+            description: 'Keep renters near transit.',
+            archivedAt: null,
+            flow: { currentStep: 'evidence', nextAction: null, checks: [] },
+          },
+        ],
+      })
+      expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain(
+        'They already have priorities on file. Never ask them to record priorities',
+      )
+    })
+
+    it('offers to keep a panel at its goal fresh, through the same question', async () => {
       withPanel({ members: 240, inviteSent: true })
       const prompt = await promptFor()
       expect(prompt).toContain(
         'Their civic panel already has 240 people, its goal.',
       )
-      expect(prompt).not.toContain(
+      expect(prompt).toContain('keep it fresh')
+      expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
     })
@@ -856,8 +898,8 @@ describe('ChiefOfStaffHandler', () => {
       expect(civicPanel).toContain('Never use the word "just".')
       expect(civicPanel).toContain(
         'You may say the status their panel page shows (the panelStatus a ' +
-          'panel tool returns: Too early, Not yet representative, Getting ' +
-          'close or Representative) and the group it says to invite next ' +
+          'panel tool returns: Too few members yet, Missing some groups or ' +
+          'Every group on your panel) and the group it says to invite next ' +
           '(inviteMoreNext), in those words.',
       )
       expect(civicPanel).toContain(
