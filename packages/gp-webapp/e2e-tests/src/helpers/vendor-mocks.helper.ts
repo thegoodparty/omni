@@ -83,7 +83,8 @@ export const peerlyAction = (
   client: AxiosInstance,
   campaignId: number,
   action: MockAction['action'],
-) => mockAction(client, campaignId, action)
+  params?: Record<string, unknown>,
+) => mockAction(client, campaignId, action, params)
 
 /**
  * Fires a Vercel-specific vendor-mock action for a campaign.

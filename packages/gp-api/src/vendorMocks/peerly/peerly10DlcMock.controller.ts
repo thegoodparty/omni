@@ -653,7 +653,9 @@ export class Peerly10DlcMockController {
         status: profile.status,
         street: str(source, 'street'),
         usecase: PEERLY_USECASE,
-        vertical: PEERLY_USECASE,
+        // Peerly sets `vertical` once a brand exists; submit_to_peerly reads it
+        // to decide whether the brand step can be skipped.
+        ...(brand ? { vertical: PEERLY_USECASE } : {}),
         usecases: identity.state.usecases ?? [PEERLY_USECASE],
         website: str(source, 'website'),
         will_send_over_2k: false,
