@@ -2,10 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
-  type PriorityResults,
-} from '@goodparty_org/contracts'
+import type { PriorityResults } from '@goodparty_org/contracts'
 import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -18,7 +15,7 @@ import {
   readPercent,
 } from '../../readStatusCopy'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
-import { RepresentationBars } from './RepresentationBars'
+import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
 const Section = ({
@@ -80,7 +77,7 @@ export const PriorityResultsView = ({
       groupsTotal: readStatus.groupsTotal,
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
-      representationShown: results.representation !== null,
+      representationShown: results.groups.length > 0,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
@@ -180,14 +177,16 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
         results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
       }
     >
-      {results.summarizing && (
+      {results.summarizing && results.themes.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {RESULTS_COPY.themesUpdating}
         </p>
       )}
       {results.themes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.themesEmpty}
+          {results.summarizing
+            ? RESULTS_COPY.themesProcessing
+            : RESULTS_COPY.themesEmpty}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -222,17 +221,22 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
       )}
     </Section>
 
-    <Section
-      title={RESULTS_COPY.representationTitle}
-      caption={
-        results.representation ? RESULTS_COPY.representationCaption : undefined
-      }
-    >
-      {results.representation ? (
-        <RepresentationBars representation={results.representation} />
+    <Section title={RESULTS_COPY.representationTitle}>
+      {results.groups.length > 0 ? (
+        <CivicPanelBloom
+          groups={results.groups.map(
+            ({ group, districtShare, answerShare }) => ({
+              group,
+              districtShare,
+              memberShare: answerShare,
+            }),
+          )}
+          showNext={false}
+          summary={RESULTS_COPY.groupsSummary}
+        />
       ) : (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+          {RESULTS_COPY.representationUnavailable}
         </p>
       )}
     </Section>

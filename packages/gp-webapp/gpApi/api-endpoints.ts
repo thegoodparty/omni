@@ -127,7 +127,6 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelRepresentation,
   CivicPanelBuildPlanResponse,
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
@@ -1566,15 +1565,11 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
-  // off and 400 for a Win org.
+  // Serve's civic panel as a whole. 404s with serve-citizen-panels off and
+  // 400s for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
-  }
-  'GET /v1/contacts/civic-panel/representation': {
-    Request: {}
-    Response: CivicPanelRepresentation
   }
   // The plan that builds the panel across texts, calls and doors. Reading
   // it is what moves it on (links, dates, the next wave).

@@ -499,10 +499,16 @@ const PriorityWorkspaceBody = ({
         reportBackRef.current = null
         const getAnswers = getAnswersRef.current
         getAnswersRef.current = false
+        // Dropped in place, not with router.replace: a navigation re-renders
+        // the page under a new search-param key and remounts this workspace
+        // while this open is still settling, which reopened a report back
+        // on the error screen.
         if (reportBackId !== null || getAnswers) {
-          router.replace(`/dashboard/priorities/${priorityId}`, {
-            scroll: false,
-          })
+          window.history.replaceState(
+            null,
+            '',
+            `/dashboard/priorities/${encodeURIComponent(priorityId)}`,
+          )
         }
         const reportBackTurn =
           reportBackId === null ? null : reportBackMessage(reportBackId)

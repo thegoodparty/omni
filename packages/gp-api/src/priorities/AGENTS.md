@@ -66,8 +66,10 @@ reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`
 a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
-The representation bars compare who answered with the district, unweighted.
-`mrpReadStatus` also returns `groupsHeard` of `groupsTotal` (major groups with
+`answerGroups` gives the results page each major group but tracts, its
+share of the district against its share of the coded answers, unweighted.
+`mrpReadStatus` also returns `unheard`, the named groups with no coded answer
+at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
 count. `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so

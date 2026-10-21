@@ -1005,12 +1005,9 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).toHaveBeenCalledWith(
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        {
-          scroll: false,
-        },
-      )
+      expect(window.location.pathname).toBe('/dashboard/priorities/pri-1')
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
     })
 
     it('starts the report back once in a thread already under way, hidden', async () => {
@@ -1023,6 +1020,47 @@ describe('PriorityWorkspace', () => {
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
       expect(screen.queryByText(/Help me report back/)).toBeNull()
+    })
+
+    // Reopening a report back once its chat exists: dropping the param
+    // must not navigate, since a navigation remounts the page mid-open.
+    it('reopens a report back without navigating, and an open it outlived never shows the error', async () => {
+      window.history.replaceState(
+        null,
+        '',
+        '/dashboard/priorities/pri-1?reportBack=77',
+      )
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: reportBackMessage(77),
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+      ])
+      let failFirst: ((err: Error) => void) | undefined
+      mocks.createConversation.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failFirst = reject
+          }),
+      )
+      // The first mount is replaced before its open settles, as a remount
+      // would, and its request then fails.
+      const first = renderWorkspace(emptyPriorityStatus(), 77)
+      first.unmount()
+      failFirst?.(new Error('superseded'))
+      renderWorkspace(emptyPriorityStatus(), 77)
+
+      await screen.findByText('Here is where this stands.')
+      expect(
+        screen.queryByText(/We couldn.t open this priority/),
+      ).not.toBeInTheDocument()
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
     })
 
     it('does not ask again for a send it already started on', async () => {
@@ -1053,6 +1091,7 @@ describe('PriorityWorkspace', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
+      unheard: ['age65plus'],
       checkOut: true,
     }
     const skewed: PriorityReadStatus = {
@@ -1105,7 +1144,7 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /Waiting to hear from people 65 and over/,
+        name: /Still need to hear from people 65 and over/,
       })
       expect(status).toHaveAttribute(
         'href',
@@ -1184,11 +1223,9 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('Waiting to hear back')).toBeInTheDocument()
       expect(
-        within(rail).getByText('Waiting to hear from some groups'),
-      ).toBeInTheDocument()
-      expect(
-        within(rail).getByText('Waiting to hear from people 65 and over'),
+        within(rail).getByText('Still need to hear from people 65 and over'),
       ).toBeInTheDocument()
       expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
       expect(
@@ -1211,6 +1248,10 @@ describe('PriorityWorkspace', () => {
       expect(
         within(rail).getByRole('link', { name: 'See what we heard' }),
       ).toBeInTheDocument()
+      // One way to the results, not a button and a link to the same page.
+      expect(
+        within(rail).queryByRole('link', { name: 'What we heard' }),
+      ).not.toBeInTheDocument()
     })
 
     it('says enough people answered, not every group, when the census was not checked', async () => {
@@ -1241,14 +1282,18 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText('Hear from more women and people 65 and over'),
+        within(bar).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
       ).toBeInTheDocument()
       const rail = screen.getByRole('complementary')
       expect(
         within(rail).getByText('A few groups need more answers'),
       ).toBeInTheDocument()
       expect(
-        within(rail).getByText('Hear from more women and people 65 and over'),
+        within(rail).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
       ).toBeInTheDocument()
       expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
@@ -1300,10 +1345,8 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).toHaveBeenCalledWith(
         expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
       )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        { scroll: false },
-      )
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
         { priorityId: 'pri-1', source: 'results_page' },

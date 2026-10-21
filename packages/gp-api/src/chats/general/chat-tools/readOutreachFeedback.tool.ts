@@ -18,6 +18,55 @@ export const buildReadOutreachFeedbackTool = (deps: {
   outreach: PriorityFlowOutreachService
   priorityId: string | null
   organizationSlug: string
+  // Behind serve-citizen-panels the priority flow passes its read. Before a
+  // good read the words and themes stay out of the result, because a model
+  // handed them lists them whatever its prompt says.
+  goodRead?: boolean
+}): LlmStreamTool<typeof readOutreachFeedbackInput> =>
+  deps.goodRead === false
+    ? {
+        description:
+          'Read how far each send for this priority has got: who it went ' +
+          'to, when, and how many people answered. There is no good read ' +
+          'yet, so it gives no replies, notes or themes, and you share none: ' +
+          'name the status and the groups to hear from next instead.',
+        inputSchema: readOutreachFeedbackInput,
+        execute: async ({ outreachId }): Promise<HeldBackFeedback> => {
+          const sends = await deps.outreach.feedbackFor(deps.organizationSlug, {
+            priorityId: deps.priorityId,
+            outreachId,
+          })
+          return {
+            heldBack: HELD_BACK_NOTE,
+            sends: sends.map(
+              ({ outreachId, audience, channel, sentOn, heardFrom }) => ({
+                outreachId,
+                audience,
+                channel,
+                sentOn,
+                heardFrom,
+              }),
+            ),
+          }
+        },
+      }
+    : readEverything(deps)
+
+export const HELD_BACK_NOTE =
+  'No good read yet: what people said stays out until every group is heard.'
+
+export interface HeldBackFeedback {
+  heldBack: string
+  sends: Pick<
+    OutreachFeedback,
+    'outreachId' | 'audience' | 'channel' | 'sentOn' | 'heardFrom'
+  >[]
+}
+
+const readEverything = (deps: {
+  outreach: PriorityFlowOutreachService
+  priorityId: string | null
+  organizationSlug: string
 }): LlmStreamTool<typeof readOutreachFeedbackInput> => ({
   description:
     'Read what came back from the office’s sends in people’s own words: ' +

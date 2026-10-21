@@ -54,25 +54,11 @@ const results = (
   ],
   summarizing: false,
   points: [{ lat: 35.595, lng: -82.551 }],
-  representation: {
-    respondentCount: 25,
-    groups: [
-      {
-        dimension: 'housing',
-        key: 'renters',
-        label: 'Rent their home',
-        respondentShare: 0.2,
-        districtShare: 0.4,
-      },
-      {
-        dimension: 'housing',
-        key: 'owners',
-        label: 'Own their home',
-        respondentShare: 0.8,
-        districtShare: 0.6,
-      },
-    ],
-  },
+  groups: [
+    { group: 'age65plus', districtShare: 0.2, answerShare: 0.1 },
+    { group: 'women', districtShare: 0.5, answerShare: 0.5 },
+    { group: 'men', districtShare: 0.5, answerShare: 0.5 },
+  ],
   ...overrides,
 })
 
@@ -205,43 +191,64 @@ describe('PriorityResultsView', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('says when there are no themes yet, and when new answers are being added', () => {
-    renderView(results({ themes: [], summarizing: true }))
+  it('says there are no themes yet when too few people have answered', () => {
+    renderView(results({ themes: [], summarizing: false }))
 
     expect(
       screen.getByText('Themes show up once at least 5 people have answered.'),
     ).toBeInTheDocument()
+  })
+
+  it('says the themes are on their way while the first summary runs', () => {
+    renderView(results({ themes: [], summarizing: true }))
+
+    expect(
+      screen.getByText(
+        "We're reading what people said. Themes show up here soon.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'Themes show up once at least 5 people have answered.',
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Updating with the latest answers.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the themes up while new answers are being added', () => {
+    renderView(results({ summarizing: true }))
+
+    expect(screen.getByText('Drains back up into homes')).toBeInTheDocument()
     expect(
       screen.getByText('Updating with the latest answers.'),
     ).toBeInTheDocument()
   })
 
-  it('reads over and under against the district', () => {
+  it("draws the read's groups as petals against the district", () => {
     renderView(results())
 
-    expect(screen.getAllByText('20 points under').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('20 points over').length).toBeGreaterThan(0)
-  })
-
-  it('asks for more answers before comparing with the district', () => {
-    renderView(results({ representation: null }))
-
+    expect(screen.getByTestId('civic-panel-bloom')).toBeInTheDocument()
     expect(
-      screen.getByText(
-        'Hear from at least 10 people to compare them with your district.',
-      ),
-    ).toBeInTheDocument()
+      screen.getAllByRole('img', {
+        name: '2 of 3 groups have at least their share of answers.',
+      }).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getAllByText('50% of its share').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Invite more/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Rent their home')).not.toBeInTheDocument()
   })
 
   it('says when the district census figures are unavailable', () => {
-    renderView(results({ representation: { respondentCount: 25, groups: [] } }))
+    renderView(results({ groups: [] }))
 
     expect(
       screen.getByText(
         'Census figures for your district are not available yet. Email support@goodparty.org so we can look into it.',
       ),
     ).toBeInTheDocument()
-    expect(screen.queryByText('More than their share')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-bloom')).not.toBeInTheDocument()
   })
 
   it('records the view with the read status', () => {
