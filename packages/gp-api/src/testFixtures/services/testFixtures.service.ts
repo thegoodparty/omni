@@ -421,6 +421,35 @@ export class TestFixturesService {
     }
   }
 
+  // Launches ONE robocall by id, bypassing the send sweep's GLOBAL serial gate
+  // (`runSend` dials at most one robocall at a time across the whole DB, so any
+  // dev-side robocall mid-dial blocks it). The preview shares the dev database,
+  // so that gate made the robocall E2E flaky — it stalled whenever another
+  // robocall was dialing anywhere on dev. Driving the run's own `startCampaign`
+  // directly isolates the test from that shared queue while still exercising the
+  // real launch path (claim, hold re-check, CallHub START).
+  async launchRobocall(
+    outreachId: number,
+    userId: number,
+  ): Promise<RunJobResponse> {
+    const outreach = await this.campaigns.client.outreach.findUnique({
+      where: { id: outreachId },
+    })
+    if (!outreach || !outreach.campaignId) throw new NotFoundException()
+    const campaign = await this.campaigns.findFirst({
+      where: { id: outreach.campaignId },
+    })
+    if (!campaign) throw new NotFoundException()
+    if (campaign.userId !== userId) throw new ForbiddenException()
+
+    const ranAt = new Date()
+    await this.robocallSend.startCampaign(outreachId)
+    return {
+      ranAt: formatISO(ranAt),
+      durationMs: differenceInMilliseconds(new Date(), ranAt),
+    }
+  }
+
   // `userId` is the calling test user. Campaign-scoped jobs (the 10DLC ones)
   // need it so they never touch other users' records on a shared preview DB.
   async runJob(name: string, userId?: number): Promise<RunJobResponse> {

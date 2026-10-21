@@ -51,22 +51,34 @@ HTTP routes of its own.
 - **`frequency` (calls/min) is the per-campaign dial rate, defaulted to the
   whole account pool.** CallHub's total Voice Broadcast capacity is ~120
   calls/min, SHARED across RUNNING campaigns — two at 60 each tripped
-  `over_cps_limit` when both ran (incident 2026-10-08). `createVoiceBroadcast`
-  sends `CALLHUB_VB_CALLS_PER_MINUTE` (default 120, set 2026-10-15; 10 → 30 →
-  120 as the serial model let the rate climb). The default is the full pool
-  because the serial send sweep runs exactly ONE campaign at a time, so a single
-  run never contends with our own others; a stray `over_cps` self-heals via
-  `startCampaign`'s throttle revert. Raising total throughput ABOVE ~120 needs
-  CallHub to raise the account cap (support@callhub.io, billed monthly), not
-  this knob. A live PATCH confirmed CallHub accepts 120 on a campaign.
+  `over_cps_limit` when both ran (incident 2026-10-08). The default is the full
+  pool because the serial send sweep runs exactly ONE campaign at a time, so a
+  single run never contends with our own others; a stray `over_cps` self-heals
+  via `startCampaign`'s throttle revert. Raising total throughput ABOVE ~120
+  needs CallHub to raise the account cap (support@callhub.io, billed monthly),
+  not this knob.
+  - **The create endpoint CLAMPS frequency — a PATCH is what sets it.** CallHub's
+    `POST /v1/vb_campaign/` ignores the `frequency` we send and applies an account
+    default (observed **60**/min, verified Oct 2026 across three real campaigns),
+    whatever `CALLHUB_VB_CALLS_PER_MINUTE` is. The earlier "a live PATCH confirmed
+    120" note was a PATCH on an existing campaign, not a create, and the create
+    was silently landing at 60 while our records read the requested 120. So
+    `createVoiceBroadcast` now PATCHes the fresh (PAUSED) campaign up to
+    `CALLHUB_VB_CALLS_PER_MINUTE` (default 120, set 2026-10-15; 10 → 30 → 120 as
+    the serial model let the rate climb) on the `/v1/voice_broadcasts/{pk}/`
+    detail route — the only method CallHub honors — and reads the APPLIED
+    frequency back (`raiseFrequency`). The PATCH is best-effort: a failure leaves
+    the campaign at the created (clamped) rate, which still dials, so that LOWER
+    rate is what gets frozen (the money-safe direction — a frozen rate above the
+    real dial frees the pool early and aborts a still-dialing run).
   - **The serial send sweep reads this value via
     `getConfiguredCallsPerMinute()`** to estimate when a dialing run finishes and
     the shared pool can be freed (`outreachRobocallSend.service.ts`). The rate
     each campaign was created with is FROZEN per-run at stage time
     (`OutreachRobocall.stagedCallsPerMinute`; `createVoiceBroadcast` returns the
-    `frequency` it stamped), and the dial-completion estimate (plus the backlog
-    projection) reads THAT, falling back to this live value only for a run staged
-    before the freeze. The estimate walks the frozen rate at a fixed ratio
+    APPLIED `frequency` it read back from the PATCH, NOT the one we requested), and
+    the dial-completion estimate (plus the backlog projection) reads THAT, falling
+    back to this live value only for a run staged before the freeze. The estimate walks the frozen rate at a fixed ratio
     (`ROBOCALL_DIAL_SAFETY_RATE_DIVISOR`), so raising this env never shortens an
     in-flight run's ceiling AND a higher rate shortens the estimate for new runs
     in step — no manual drain needed. The once-open caveat (does CallHub reserve

@@ -21,7 +21,8 @@ scoping every row to the caller (see below).
 | `POST /v1/test-fixtures/organizations/:slug/activity` | `AdminOrM2MGuard`    | Fill an existing org with weeks of outreach on every channel (see below)                                  |
 | `POST /v1/test-fixtures/vendor-mocks/actions`         | session + ownership  | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                   |
 | `GET /v1/test-fixtures/vendor-mocks/records`          | session + ownership  | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                   |
-| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`  | session + isTestUser | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it)        |
+| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`  | session + isTestUser | Test-user run-job: triggers a robocall sweep by name (GLOBAL — processes every eligible row in the shared dev DB) |
+| `POST /v1/test-fixtures/vendor-mocks/robocall/:outreachId/launch` | session + isTestUser + ownership | Launch ONE robocall, bypassing the send sweep's global serial gate so a dev-side in-flight robocall can't stall the E2E (the preview shares dev's DB) |
 | `POST /v1/test-fixtures/vendor-mocks/time-travel`     | session + ownership  | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today` |
 | `POST /v1/test-fixtures/jobs/:name/run`               | `AdminOrM2MGuard`    | Run a named background job on demand (robocall.staging/send/completion/capture)                           |
 | `POST /v1/test-fixtures/judge-chat-cases`             | session              | Stage one Universal Judge chat case for the caller (see below)                                            |

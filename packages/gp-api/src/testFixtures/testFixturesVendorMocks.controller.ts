@@ -69,10 +69,13 @@ export class TestFixturesVendorMocksController {
     return this.testFixtures.getMockRecords(q.campaignId)
   }
 
-  // Test-user variant of the admin run-job route. These sweeps are global,
-  // so a call processes every eligible row on the preview, not just the
-  // caller's. Acceptable on an ephemeral preview because only the robocall
-  // E2E spec creates robocall runs.
+  // Test-user variant of the admin run-job route. These sweeps are GLOBAL —
+  // a call processes every eligible row in the DB, not just the caller's. The
+  // preview shares the dev database, so the SEND sweep's one-at-a-time serial
+  // gate would stall the robocall spec whenever any dev robocall was mid-dial;
+  // the robocall spec launches its own run through `robocall/:id/launch` below
+  // instead. Staging / completion / capture have no blocking gate and only ever
+  // touch rows already due, so running them globally is harmless here.
   @Post('jobs/:name/run')
   @ResponseSchema(RunJobResponseSchema)
   async testUserRunJob(@Param('name') name: string, @ReqUser() user: User) {
@@ -91,6 +94,24 @@ export class TestFixturesVendorMocksController {
   ) {
     this.assertNonProdDeploy()
     return this.testFixtures.timeTravel(body, user.id)
+  }
+
+  // Launches ONE robocall by id, ownership-scoped. Unlike the global
+  // `robocall.send` sweep above, this bypasses the serial-send gate, so the
+  // robocall E2E does not stall when another robocall is mid-dial anywhere on
+  // the shared dev DB (the sweep dials one at a time account-wide). See the
+  // service method for why this is the isolation the robocall spec needs.
+  @Post('robocall/:outreachId/launch')
+  @ResponseSchema(RunJobResponseSchema)
+  async launchRobocall(
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    return this.testFixtures.launchRobocall(outreachId, user.id)
   }
 
   @Post('stripe/events')

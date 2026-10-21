@@ -221,6 +221,31 @@ describe('vb_campaign lifecycle', () => {
     expect(getRes2.status).toBe(HttpStatus.OK)
     expect(getRes2.data.status).toBe(1)
   })
+
+  it('clamps the create frequency and honors a PATCH up', async () => {
+    const createRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: 'my-campaign', frequency: 120 },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+    // The create clamps to the account default regardless of the POSTed value.
+    expect(createRes.data.frequency).toBe(60)
+
+    const patchRes = await service.client.patch(
+      `${BASE}/v1/voice_broadcasts/${pk}`,
+      { frequency: 120 },
+      AUTH,
+    )
+    expect(patchRes.status).toBe(HttpStatus.OK)
+    expect(patchRes.data.frequency).toBe(120)
+
+    const getRes = await service.client.get(
+      `${BASE}/v1/voice_broadcasts/${pk}`,
+      AUTH,
+    )
+    expect(getRes.data.frequency).toBe(120)
+  })
 })
 
 describe('export_data', () => {
