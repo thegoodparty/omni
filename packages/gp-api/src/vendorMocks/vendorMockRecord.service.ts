@@ -8,6 +8,16 @@ import { subSeconds } from 'date-fns'
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
 
+// `vendor_mock_record.kind` values for the Peerly 10DLC mock. externalId is
+// the Peerly identity id for every kind, so one identity's records line up.
+export const PEERLY_10DLC_KIND = {
+  identity: 'identity',
+  profile: 'profile',
+  brand: 'brand',
+  cvRequest: 'cv_request',
+  usecase: 'usecase',
+} as const
+
 @Injectable()
 export class VendorMockRecordService extends createPrismaBase(
   MODELS.VendorMockRecord,
@@ -188,6 +198,78 @@ export class VendorMockRecordService extends createPrismaBase(
       where: { vendor: VendorMockVendor.peerly, kind: 'phone_list' },
       data: { createdAt: subSeconds(new Date(), 15) },
     })
+  }
+
+  async findOne(vendor: VendorMockVendor, kind: string, externalId: string) {
+    return this.model.findUnique({
+      where: { vendor_kind_externalId: { vendor, kind, externalId } },
+    })
+  }
+
+  // Merge `patch` into an existing record's state (unlike setFlag, several
+  // keys at once) and optionally append a request body. Throws if absent.
+  async patchState(
+    vendor: VendorMockVendor,
+    kind: string,
+    externalId: string,
+    patch: Prisma.InputJsonObject,
+    requestBody?: Prisma.InputJsonValue,
+  ) {
+    this.assertNonProdDeploy()
+    const record = await this.model.findUniqueOrThrow({
+      where: { vendor_kind_externalId: { vendor, kind, externalId } },
+    })
+    const current: Prisma.JsonObject =
+      typeof record.state === 'object' &&
+      record.state !== null &&
+      !Array.isArray(record.state)
+        ? record.state
+        : {}
+    return this.upsert(
+      vendor,
+      kind,
+      externalId,
+      { ...current, ...patch },
+      undefined,
+      requestBody,
+    )
+  }
+
+  // The Peerly 10DLC mock links its records to a campaign through the
+  // TcrCompliance row, since the Peerly API itself carries no campaign id.
+  // Identity ids resolve through TcrCompliance.peerlyIdentityId once the
+  // client has saved it; before that (identity create, profile, brand submit)
+  // the only link is the EIN, which gp-api puts at the end of the identity
+  // name ("<name> - <ein>") and in the brand submit body. Several rows can
+  // share an EIN in test data, so the newest one wins.
+  async resolvePeerlyCampaignId({
+    identityId,
+    identityName,
+    ein,
+  }: {
+    identityId?: string
+    identityName?: string
+    ein?: string
+  }): Promise<number | undefined> {
+    if (identityId) {
+      const linked = await this.client.tcrCompliance.findUnique({
+        where: { peerlyIdentityId: identityId },
+        select: { campaignId: true },
+      })
+      if (linked) return linked.campaignId
+    }
+    const nameSeparator = ' - '
+    const nameEin = identityName?.includes(nameSeparator)
+      ? identityName.slice(identityName.lastIndexOf(nameSeparator) + 3).trim()
+      : undefined
+    const lookupEin = ein || nameEin
+    if (!lookupEin) return undefined
+    const byEin = await this.client.tcrCompliance.findFirst({
+      where: { ein: lookupEin },
+      orderBy: { createdAt: 'desc' },
+      select: { campaignId: true },
+    })
+    return byEin?.campaignId
   }
 
   // Fail-closed to the known non-prod deploys, 404 rather than 403 so the
