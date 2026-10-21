@@ -6,6 +6,7 @@ import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutrea
 import { Module } from '@nestjs/common'
 import { ContactEngagementController } from './contactEngagement.controller'
 import { ContactEngagementService } from './contactEngagement.service'
+import { ContactPriorityAnswersService } from './services/contactPriorityAnswers.service'
 import { UseEngagementContextGuard } from './guards/UseEngagementContext.guard'
 
 @Module({
@@ -17,7 +18,11 @@ import { UseEngagementContextGuard } from './guards/UseEngagementContext.guard'
     ContactInteractionModule,
   ],
   controllers: [ContactEngagementController],
-  providers: [ContactEngagementService, UseEngagementContextGuard],
+  providers: [
+    ContactEngagementService,
+    ContactPriorityAnswersService,
+    UseEngagementContextGuard,
+  ],
   exports: [ContactEngagementService],
 })
 export class ContactEngagementModule {}

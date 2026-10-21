@@ -3,6 +3,7 @@ import {
   PANEL_MEMBERS_PER_GROUP,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   type CivicPanelBalance,
+  type CivicPanelComposition,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import type { RespondentCell } from '@/peopleDb/databricks/districtCensusSql.util'
@@ -217,6 +218,88 @@ export const panelCoverage = (
   }
 }
 
+// "53017950102" is tract 9501.02, the way the census names it.
+export const tractNumber = (geoid: string): string => {
+  const code = geoid.slice(-6).padStart(6, '0')
+  const base = String(Number(code.slice(0, 4)))
+  const suffix = code.slice(4)
+  return suffix === '00' ? base : `${base}.${suffix}`
+}
+
+// The district by precinct, for a district with no tract data: each
+// precinct's share of the people on file and the members filed in it. The
+// unknown precinct sits out.
+export const precinctPlaces = (
+  district: ReadonlyArray<{ county: string; precinct: string; people: number }>,
+  members: ReadonlyArray<{ county: string; precinct: string; people: number }>,
+): CivicPanelComposition['places'] => {
+  const known = district.filter((row) => row.precinct !== '')
+  const total = known.reduce((sum, row) => sum + row.people, 0)
+  if (total <= 0) return []
+  const keyOf = (row: { county: string; precinct: string }) =>
+    `${row.county}|${row.precinct}`
+  const memberCounts = new Map(members.map((row) => [keyOf(row), row.people]))
+  return known.map((row) => ({
+    key: keyOf(row),
+    name: row.precinct,
+    districtShare: row.people / total,
+    members: memberCounts.get(keyOf(row)) ?? 0,
+  }))
+}
+
+// The members beside the district, read from the same targets and cells
+// coverage reads: every tract with its members, and each major group's
+// share of the district and of the members whose value is known. Tracts
+// stay apart here (the page draws each one) and have no group of their own.
+export const panelComposition = (
+  mix: PanelMix,
+  raceCells: RespondentCell[] = mix.cells,
+): CivicPanelComposition => {
+  const targets = weightingTargets(mix.census)
+  const cells = placeCells(toRakingCells(mix.cells), targets)
+  const tractMembers = new Map<string, number>()
+  for (const cell of cells) {
+    const tract = cell.values.tract
+    if (tract != null) {
+      tractMembers.set(tract, (tractMembers.get(tract) ?? 0) + cell.count)
+    }
+  }
+  const places = Object.entries(targets.tract ?? {}).map(
+    ([tract, districtShare]) => ({
+      key: tract,
+      name: tractNumber(tract),
+      districtShare,
+      members: tractMembers.get(tract) ?? 0,
+    }),
+  )
+  const withRace = raceNameable(raceCells)
+  const groups = (['age', 'gender', 'race'] as const).flatMap((dimension) => {
+    if (dimension === 'race' && !withRace) return []
+    const counts = new Map<string, number>()
+    let known = 0
+    for (const cell of cells) {
+      const value = cell.values[dimension]
+      if (value == null) continue
+      counts.set(value, (counts.get(value) ?? 0) + cell.count)
+      known += cell.count
+    }
+    return Object.entries(targets[dimension] ?? {}).flatMap(
+      ([value, districtShare]) => {
+        const group = underrepresentedGroupOf(dimension, value, true)
+        if (!group || districtShare < MAJOR_GROUP_SHARE) return []
+        return [
+          {
+            group,
+            districtShare,
+            memberShare: known > 0 ? (counts.get(value) ?? 0) / known : 0,
+          },
+        ]
+      },
+    )
+  })
+  return { placeKind: 'tract', places, groups }
+}
+
 // Too few members to tell below PANEL_MIN_MEMBERS_FOR_BALANCE, then whether
 // every major group has its members. Given `fresh` (the coverage of the
 // panel's active members, once it is past its goal) the groups short of
@@ -267,6 +350,8 @@ export const doorTractFor = (mix: PanelMix): string | null => {
 export interface PanelSteering {
   // Null when the census could not be compared with the panel.
   balance: CivicPanelBalance | null
+  // Null with no members or no census.
+  composition: CivicPanelComposition | null
   coverage: PanelCoverage | null
   // The coverage of the active members, past the goal. Null before it.
   fresh: PanelCoverage | null
@@ -283,6 +368,7 @@ export interface PanelSteering {
 
 const UNSTEERED: PanelSteering = {
   balance: null,
+  composition: null,
   coverage: null,
   fresh: null,
   weights: null,
@@ -306,10 +392,12 @@ export const panelSteering = ({
   activeMix?: PanelMix | null
 }): PanelSteering => {
   const coverage = mix ? panelCoverage(mix) : null
+  const composition = mix ? panelComposition(mix) : null
   if (members < PANEL_MIN_MEMBERS_FOR_BALANCE) {
     return {
       ...UNSTEERED,
       coverage,
+      composition,
       balance: { status: 'tooFewMembers', inviteMore: null },
     }
   }
@@ -323,17 +411,19 @@ export const panelSteering = ({
       ? {
           ...UNSTEERED,
           coverage,
+          composition,
           fresh,
           balance,
           leansToward: balance.inviteMore,
         }
-      : { ...UNSTEERED, coverage, balance }
+      : { ...UNSTEERED, coverage, composition, balance }
   }
   const older = gaps.find(
     (gap) => gap.dimension === 'age' && gap.value === '65plus',
   )
   return {
     balance,
+    composition,
     coverage,
     fresh,
     weights: steerWeights(gaps, pooled, steerMix.census),

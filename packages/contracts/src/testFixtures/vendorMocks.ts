@@ -19,6 +19,11 @@ export const MockActionSchema = z.object({
     'geoapify.route.fail',
     'callhub.campaign.complete',
     'peerly.balance.empty',
+    'peerly.cv.approve',
+    'peerly.cv.reject',
+    'peerly.cv.setPin',
+    'peerly.usecase.activate',
+    'vercel.order.fail',
   ]),
   params: z.record(z.string(), z.unknown()).optional(),
 })

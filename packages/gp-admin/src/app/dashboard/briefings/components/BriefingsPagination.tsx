@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import type { PaginationMeta } from '@goodparty_org/sdk'
+import type { PaginationMeta } from '@/shared/gpApi'
 import { Pagination } from '@/components/Pagination'
 import {
   DEFAULT_PER_PAGE,

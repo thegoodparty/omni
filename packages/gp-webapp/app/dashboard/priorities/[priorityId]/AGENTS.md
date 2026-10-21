@@ -126,7 +126,7 @@ inverted, same gates), each on its own card. Behind `serve-citizen-panels`
 every card is side `main`: the round goes to residents across the district.
 
 Behind `serve-citizen-panels` the default is round one instead
-(`buildRoundOneBlock`, "ROUND ONE"; `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`):
+(`buildRoundOneBlock`, "ROUND ONE"):
 a door knocking, a phone banking and a text card for the same check, all
 side `main`, offered together in one turn, to residents not reached in the
 last 30 days (`notContactedRecently`, plus any phone for calls and a cell
@@ -276,8 +276,7 @@ The model is MRP (`gp-api/src/priorities/util/mrp.util.ts`,
 priority (`PriorityAnswer`; yes 1, no 0, mixed half, not an answer left out,
 averaged when a person answered twice) fit by age band, gender, tract and
 race, reweighted to the district's own voter-file cells. Race is L2's
-modeled ethnicity folded as the panel's steering folds it
-(`docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`); it shapes
+modeled ethnicity folded as the panel's steering folds it; it shapes
 the model either way and counts as a group only when nameable. Scales are
 the model's defaults; nothing learns them from past priorities yet.
 `groupsHeard` of `groupsTotal` are the major groups with at least 3 coded

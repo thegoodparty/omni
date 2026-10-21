@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import { status } from '@poppanator/http-constants'
 import { getElectedOffice } from './actions'
 

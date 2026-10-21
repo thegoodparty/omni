@@ -8,7 +8,7 @@ import type {
   ElectedOffice,
   PaginatedList,
   UpdateElectedOfficeInput,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 // Elected offices are campaign-domain data with no dedicated permission, so
 // they reuse read/write_campaigns (Sales writes, Read Only views).

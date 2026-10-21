@@ -7,6 +7,7 @@ import {
   Route53DomainsServiceException,
 } from '@aws-sdk/client-route-53-domains'
 import { AwsService } from './aws.service'
+import { vendorBaseUrl, VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { PinoLogger } from 'nestjs-pino'
 import { RETRY_MODES } from '@smithy/core/retry'
 
@@ -29,6 +30,11 @@ export class AwsRoute53Service extends AwsService {
       region: AWS_ROUTE_53_REGION,
       retryMode: RETRY_MODES.ADAPTIVE,
       maxAttempts: ROUTE_53_DOMAINS_MAX_ATTEMPTS,
+      // Only set in mock mode; live leaves it unset so the SDK keeps resolving
+      // the regional endpoint itself.
+      ...(VENDOR_MODE === 'mock'
+        ? { endpoint: vendorBaseUrl('route53', '') }
+        : {}),
     })
   }
 

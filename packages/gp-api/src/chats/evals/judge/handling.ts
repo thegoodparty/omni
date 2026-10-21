@@ -7,7 +7,7 @@ import type { Arm } from './record'
 // one read as a clear win for the base. This reads the judge's per-run
 // `handled` answers instead, oriented to arms.
 //
-// No score reads this. It moves the verdict label only through the sign test
+// No score reads this. It moves the verdict label only through the test
 // in regressionSignals.ts.
 
 export type HandlingClass =

@@ -165,6 +165,12 @@ npm run generate:prisma:gp-api     # one service
 gp-api migrations run from inside its workspace (`npm run migrate:dev -w gp-api`).
 See `packages/gp-api/prisma/AGENTS.md`.
 
+## Dev environment: simulated vendors
+
+Dev uses mock vendors — no traffic reaches Peerly, CallHub, Geoapify, Vercel,
+or Route53. Timings, the rollback lever (`VENDOR_MODE=live`), and a note on
+campaigns created before the cutover: `docs/vendor-mock-dev.md`.
+
 ## Per-app detail
 
 Before deep work in an app, read its `AGENTS.md` (commands, patterns, gotchas):

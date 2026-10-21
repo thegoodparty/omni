@@ -305,9 +305,25 @@ const members = (
   ...overrides,
 })
 
+// The district's people and the given members per precinct, for a
+// district with no tract data. None by default.
+const stubPrecincts = (
+  district: Array<{ county: string; precinct: string; voters: number }> = [],
+  members: Array<{ county: string; precinct: string; people: number }> = [],
+) => {
+  const voterQuery = service.app.get(VoterQueryService)
+  vi.spyOn(voterQuery, 'findPrecincts')
+    .mockClear()
+    .mockResolvedValue({ options: district, truncated: false })
+  vi.spyOn(voterQuery, 'findPrecinctMembers')
+    .mockClear()
+    .mockResolvedValue(members)
+}
+
 beforeEach(() => {
   stubAnswersNeeded(CITY)
   stubMix(null)
+  stubPrecincts()
 })
 
 const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }
@@ -522,6 +538,7 @@ describe('GET /v1/contacts/civic-panel/plan', () => {
         groupsTotal: 0,
       },
       balance: { status: 'tooFewMembers', inviteMore: null },
+      composition: null,
     })
   })
 
@@ -820,9 +837,78 @@ describe('steering the plan by census', () => {
     const res = await createPlan(slug, 1)
 
     expect(res.data.balance).toBeNull()
+    expect(res.data.composition).toBeNull()
     expect(res.data.next?.line).toBe(
       'Invite residents to your civic panel by text',
     )
+  })
+
+  it('seats the panel by precinct when the district has no tract data', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubPrecincts(
+      [
+        { county: 'BUNCOMBE', precinct: '01.1', voters: 600 },
+        { county: 'BUNCOMBE', precinct: '02.1', voters: 400 },
+        { county: 'BUNCOMBE', precinct: '', voters: 90 },
+      ],
+      [
+        { county: 'BUNCOMBE', precinct: '02.1', people: 3 },
+        { county: 'BUNCOMBE', precinct: '', people: 1 },
+      ],
+    )
+    await joinPanel(slug, 4)
+
+    const res = await readPlan(slug)
+
+    expect(res.data.composition).toEqual({
+      placeKind: 'precinct',
+      places: [
+        {
+          key: 'BUNCOMBE|01.1',
+          name: '01.1',
+          districtShare: 0.6,
+          members: 0,
+        },
+        {
+          key: 'BUNCOMBE|02.1',
+          name: '02.1',
+          districtShare: 0.4,
+          members: 3,
+        },
+      ],
+      groups: [],
+    })
+  })
+
+  it('reads each tract and major group beside the district, under 30 members too', async () => {
+    const slug = await seedOffice()
+    stubPools(LARGE)
+    stubMix([
+      members(12, { gender: 'female' }),
+      members(6, { ageBand: '65plus', tract: TRACT_B }),
+      // Outside every known tract: counted by age, never seated.
+      members(2, { tract: null }),
+    ])
+    await joinPanel(slug, 20)
+
+    const res = await readPlan(slug)
+
+    expect(res.data.balance?.status).toBe('tooFewMembers')
+    expect(res.data.composition?.placeKind).toBe('tract')
+    expect(res.data.composition?.places).toEqual([
+      { key: TRACT_A, name: '9501', districtShare: 0.5, members: 12 },
+      { key: TRACT_B, name: '9502', districtShare: 0.4, members: 6 },
+      { key: TRACT_C, name: '9503', districtShare: 0.1, members: 0 },
+    ])
+    expect(res.data.composition?.groups).toEqual([
+      { group: 'age18to24', districtShare: 0.16, memberShare: 0 },
+      { group: 'age25to34', districtShare: 0.16, memberShare: 0 },
+      { group: 'age35to44', districtShare: 0.16, memberShare: 0.7 },
+      { group: 'age45to54', districtShare: 0.16, memberShare: 0 },
+      { group: 'age55to64', districtShare: 0.16, memberShare: 0 },
+      { group: 'age65plus', districtShare: 0.2, memberShare: 0.3 },
+    ])
   })
 
   it('names who to invite next and leans each step toward them', async () => {
