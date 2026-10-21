@@ -889,6 +889,23 @@ describe('PaymentEventsService', () => {
       expect(slackService.message).toHaveBeenCalledOnce()
     })
 
+    it('acknowledges a cancellation whose campaign user was already deleted instead of returning a 500', async () => {
+      usersService.findUser.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionDeletedHandler(deletedEvent()),
+      ).resolves.toBeUndefined()
+
+      expect(
+        campaignsService.persistCampaignProCancellation,
+      ).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ subscriptionId: 'sub_test_unmatched' }),
+        expect.stringContaining('no longer exists'),
+      )
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
     it('tracks the Pro cancellation with the reason Stripe gave', async () => {
       await service.customerSubscriptionDeletedHandler(deletedEvent())
 

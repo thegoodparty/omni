@@ -9,6 +9,11 @@ model VoterFileFilter {
   audienceUnreliableVoters   Boolean?                           @default(false) @map("audience_unreliable_voters")
   audienceUnlikelyVoters     Boolean?                           @default(false) @map("audience_unlikely_voters")
   audienceUnknown            Boolean?                           @default(false) @map("audience_unknown")
+  earlyVoteVeryLikely        Boolean?                           @default(false) @map("early_vote_very_likely")
+  earlyVoteLikely            Boolean?                           @default(false) @map("early_vote_likely")
+  earlyVoteUnlikely          Boolean?                           @default(false) @map("early_vote_unlikely")
+  earlyVoteVeryUnlikely      Boolean?                           @default(false) @map("early_vote_very_unlikely")
+  earlyVoteUnknown           Boolean?                           @default(false) @map("early_vote_unknown")
   partyIndependent           Boolean?                           @default(false) @map("party_independent")
   partyDemocrat              Boolean?                           @default(false) @map("party_democrat")
   partyRepublican            Boolean?                           @default(false) @map("party_republican")
@@ -176,6 +181,11 @@ model VoterFileFilter {
   /// Whether the candidate edited the recommendation before submitting.
   /// Null (not false) when recommendedVariant is null.
   recommendedModified        Boolean?                           @map("recommended_modified")
+  /// Serve. Set on a list our code saved as a civic panel invite's
+  /// audience: a build plan step's draw, or the panel's first text. The
+  /// outreach that used it keeps it, but the lists index leaves it out, since
+  /// the office's one panel list is the built-in Civic panel row.
+  civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

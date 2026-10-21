@@ -10,7 +10,7 @@ does nothing except cost money. This is how to actually clear it.
 ## Prerequisites
 
 **Tools**: read/write access to the gp-api production Postgres (VPN + `gp-admin` AWS
-profile for the DB secret), gp-admin access with the `write_agent_runs` permission (or
+profile for the DB secret, which needs a `/breakglass` grant in Slack first), gp-admin access with the `write_agent_runs` permission (or
 an `mt_*` Clerk M2M token for the target environment).
 
 **Written 2026-08 after campaign 325819 (William Bayer).** CampaignVerify rejected the

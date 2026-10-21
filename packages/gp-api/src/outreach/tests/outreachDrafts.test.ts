@@ -302,6 +302,7 @@ describe('POST /v1/outreach/drafts', () => {
       callbackNumber: '+15125550123',
       // Unpriced until the resume's pay step, so the history reads n/a.
       billableCount: null,
+      settleState: RobocallSettleState.draft,
     })
 
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
@@ -419,6 +420,7 @@ describe('GET /v1/outreach/:id', () => {
       callbackNumber: '+15125550123',
       // Unpriced until the resume's pay step, so the history reads n/a.
       billableCount: null,
+      settleState: RobocallSettleState.draft,
     })
   })
 

@@ -124,6 +124,7 @@ const withPlan = (
     id: 'plan-1',
     status: 'active',
     goalMembers: 240,
+    keepFresh: false,
     hoursPerWeek,
     currentWave: Math.max(...steps.map((s) => s.wave)),
     createdAt: new Date('2026-10-15T12:00:00Z'),
@@ -131,29 +132,33 @@ const withPlan = (
     steps,
   },
   next,
-  progress: { members: 60, goal: 240, answersNeeded: 96, expectedAnswers: 24 },
+  progress: {
+    members: 60,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 24,
+    groupsCovered: 3,
+    groupsTotal: 12,
+  },
   balance: null,
 })
-
-// How far the bar is filled, in percent.
-const filledShare = (top: HTMLElement) =>
-  top.querySelector('[data-slot="progress"]')?.getAttribute('data-filled')
 
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 0, goal: 240, answersNeeded: 96, expectedAnswers: 0 },
+  progress: {
+    members: 0,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 0,
+    groupsCovered: 0,
+    groupsTotal: 12,
+  },
   balance: null,
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
-  render(
-    <CitizensPanelView
-      summary={SUMMARY}
-      representation={{ representation: null }}
-      plan={plan}
-    />,
-  )
+  render(<CitizensPanelView summary={SUMMARY} plan={plan} />)
 
 const rowOf = (title: string) => {
   const row = screen.getByText(title).closest('li')
@@ -192,6 +197,30 @@ describe('the weekly time question', () => {
     expect(await screen.findByText('Text 3,150 residents')).toBeInTheDocument()
     expect(sent).toEqual({ hoursPerWeek: 1 })
     expect(screen.getByText('1 hour a week')).toBeInTheDocument()
+  })
+
+  it('offers to keep a panel past its goal fresh with the same question', async () => {
+    const user = userEvent.setup()
+    let sent: unknown
+    api.mock('POST /v1/contacts/civic-panel/plan', ({ body }) => {
+      sent = body
+      return { status: 200, data: withPlan([TEXT]) }
+    })
+    renderPage({
+      ...NO_PLAN,
+      progress: { ...NO_PLAN.progress, members: 250 },
+    })
+
+    expect(
+      screen.getByRole('heading', { name: 'Keep your panel fresh' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/How much time can you give each week\?/),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Make my plan' }))
+
+    expect(await screen.findByText('Text 3,150 residents')).toBeInTheDocument()
+    expect(sent).toEqual({ hoursPerWeek: 1 })
   })
 
   it('takes more time typed in, and says what to fix in an odd answer', async () => {
@@ -287,7 +316,46 @@ describe('the plan', () => {
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
   })
 
-  it('names who a round leans toward, never how', () => {
+  it('lines every checkbox up with the first line of its title', () => {
+    renderPage(
+      withPlan(
+        [
+          TEXT,
+          CALLS,
+          step({
+            id: 'done-doors',
+            channel: 'door_knocking',
+            targetSize: 60,
+            status: 'done',
+            reached: 58,
+            joined: 6,
+          }),
+        ],
+        NEXT_CALLS,
+      ),
+    )
+
+    const rows = [
+      { title: 'Call 30 residents', line: 'leading-7', cell: 'h-7' },
+      { title: 'Text 3,150 residents', line: 'leading-6', cell: 'h-6' },
+      {
+        title: 'Knock on 60 doors in a walkable area',
+        line: 'leading-6',
+        cell: 'h-6',
+      },
+    ]
+    for (const { title, line, cell } of rows) {
+      const box = within(rowOf(title)).getByRole('checkbox')
+      const boxCell = box.closest('[data-slot="plan-step-checkbox"]')
+      const titleText = within(rowOf(title)).getByText(title)
+      expect(boxCell).toHaveClass(cell, 'items-center')
+      expect(titleText).toHaveClass(line)
+      expect(boxCell?.parentElement).toHaveClass('items-start')
+      expect(boxCell?.parentElement).toContainElement(titleText)
+    }
+  })
+
+  it('names who a batch leans toward, never how', () => {
     renderPage(
       withPlan([
         step({ id: 'step-text', steeredToward: 'age65plus' }),
@@ -302,7 +370,7 @@ describe('the plan', () => {
 
     expect(
       within(rowOf('Text 3,150 residents')).getByText(
-        'This round invites more people 65 and over.',
+        'This batch invites more people 65 and over.',
       ),
     ).toBeInTheDocument()
     expect(
@@ -312,7 +380,7 @@ describe('the plan', () => {
     ).toBeInTheDocument()
   })
 
-  it('says landlines first on a call step only while its round puts them first', () => {
+  it('says landlines first on a call step only while its batch puts them first', () => {
     renderPage(
       withPlan([
         step({ ...CALLS, landlineFirst: true }),
@@ -322,7 +390,7 @@ describe('the plan', () => {
           channel: 'phone_banking',
           targetSize: 40,
           landlineFirst: false,
-          steeredToward: 'age18to64',
+          steeredToward: 'age18to24',
         }),
         step({
           id: 'step-calls-3',
@@ -431,6 +499,7 @@ describe('the plan', () => {
     ).toHaveAttribute('href', '/dashboard/outreach/phone-banking/12')
     const titles = screen
       .getAllByRole('listitem')
+      .filter((item) => !item.closest('[data-testid="civic-panel-milestones"]'))
       .map((item) => item.querySelector('p, h3')?.textContent)
     expect(titles).toEqual([
       'Call 30 residents',
@@ -497,33 +566,38 @@ describe('the plan', () => {
     ).toBeDisabled()
   })
 
-  it('shows members toward the goal at the top, above the plan', () => {
+  it("shows the panel's milestones at the top, above the plan", () => {
     renderPage(withPlan([TEXT, CALLS]))
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('60 of 240 members')
+    const top = screen.getByTestId('civic-panel-milestones')
     expect(
-      within(top).getByText('About 24 answers per question today'),
+      within(top).getByRole('heading', { name: 'Your panel is growing' }),
     ).toBeInTheDocument()
+    expect(within(top).getByText('60 residents have said yes.')).toBeVisible()
     expect(
-      within(top).getByText(
-        'About 4 in 10 members answer each question, so 240 members gets you the 96 answers you need.',
-      ),
-    ).toBeInTheDocument()
-    expect(filledShare(top)).toBe('25')
+      within(top)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'First yes, Done',
+      '30 members, Done',
+      'Halfway, Next',
+      'Full panel, Not yet',
+    ])
     expect(
       top.compareDocumentPosition(screen.getByText('Your plan')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
     expect(screen.queryByText(/representative/i)).toBeNull()
   })
 
-  it('shows an empty bar above the hours question before a plan', () => {
+  it('starts the milestones above the hours question before anyone joins', () => {
     renderPage(NO_PLAN)
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('0 of 240 members')
-    expect(filledShare(top)).toBe('0')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(top).toHaveTextContent('Your panel starts here')
+    expect(top).toHaveTextContent('Every resident who says yes takes a seat.')
     expect(
       top.compareDocumentPosition(
         screen.getByRole('heading', {
@@ -534,7 +608,7 @@ describe('the plan', () => {
     expect(screen.queryByTestId('civic-panel-rail')).toBeNull()
   })
 
-  it('fills the bar once the panel reaches its goal', () => {
+  it('shows the full panel once it reaches its goal, with a way to ask it', () => {
     renderPage({
       ...withPlan([TEXT]),
       progress: {
@@ -542,12 +616,20 @@ describe('the plan', () => {
         goal: 240,
         answersNeeded: 96,
         expectedAnswers: 100,
+        groupsCovered: 12,
+        groupsTotal: 12,
       },
     })
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('250 of 240 members')
-    expect(filledShare(top)).toBe('100')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(
+      within(top).getByRole('heading', { name: 'Every seat is filled' }),
+    ).toBeInTheDocument()
+    expect(top).toHaveTextContent('250 residents said yes.')
+    expect(top).toHaveTextContent('12 of 12 groups')
+    expect(
+      within(top).getByRole('link', { name: 'Ask your panel a question' }),
+    ).toHaveAttribute('href', '/dashboard/priorities')
   })
 
   it('highlights the step a Next link opened', () => {

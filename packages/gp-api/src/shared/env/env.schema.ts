@@ -191,6 +191,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'dev-env-vending',
   },
 
+  // Private bucket holding the local election seed POST /v1/dev-env/
+  // election-seed hands out. Dev deploy only, like the secret above.
+  LOCAL_ELECTION_SEED_BUCKET: {
+    tier: 'degradable',
+    feature: 'dev-env-vending',
+  },
+
   // The trio behind resolvePeopleDbxConfig(); PEOPLE_DATABRICKS_API_KEY is
   // the local personal-access-token alternative to the OAuth pair, same
   // feature. Read via a keyed-constant `process.env[WAREHOUSE_ID_ENV]`
@@ -219,6 +226,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   ELECTION_DATABASE_URL: { tier: 'degradable', feature: 'election-data' },
 
   // --- Optional: everything else ---------------------------------------
+  CLERK_JWT_KEY: { tier: 'optional' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },
@@ -357,8 +365,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },
   // Routes vendor HTTP clients at in-process mocks instead of live APIs.
   // Accepted values: 'live' | 'mock'. Default logic lives in
-  // appEnvironment.util.ts — absent (local/test) or 'preview' → mock,
-  // 'dev' → live, 'prod' → always live (never overridable).
+  // appEnvironment.util.ts — absent (local/test), 'preview', or 'dev' →
+  // mock; 'prod' → always live (never overridable). VENDOR_MODE=live on
+  // dev is the rollback lever (see docs/vendor-mock-dev.md).
   VENDOR_MODE: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { civicPanelHref } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
+import { parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
@@ -30,6 +31,7 @@ import {
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
   SMS_COMPOSED_MAX_LENGTH,
+  type ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
@@ -369,6 +371,9 @@ interface SmsFlowProps {
   // Serve: the earlier text a report back card answers. Rides on the create,
   // which marks the send as a report back rather than a new ask.
   reportBackForOutreachId?: number
+  // Serve: a priority's round 2, the number of texts its card proposed.
+  // Rides on the create, which draws who gets them before the send date.
+  roundTwoSize?: number
   // Win's create was refused while carrying the card's key, which is how a
   // card sent from another tab or an earlier session answers (409). The
   // card's surface decides whether that means it already went out.
@@ -588,6 +593,7 @@ export const SmsFlow = ({
   initialAsksToJoinCivicPanel = false,
   audienceSettled = false,
   reportBackForOutreachId,
+  roundTwoSize,
   onProposalCreateFailed,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -673,6 +679,10 @@ export const SmsFlow = ({
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
   const [stopPolling, setStopPolling] = useState(false)
+  // A priority text's follow-up, as the create settled it.
+  const [followUp, setFollowUp] = useState<
+    ServeSmsCreateResponse['followUp'] | null
+  >(null)
   const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
     null,
   )
@@ -701,6 +711,11 @@ export const SmsFlow = ({
 
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
   const [draftCreateError, setDraftCreateError] = useState(false)
+  // The server's own reason when it refused the draft, so the review step can
+  // say why instead of only "try again" (ENG-11413).
+  const [draftCreateErrorMessage, setDraftCreateErrorMessage] = useState<
+    string | null
+  >(null)
   const isDraftCreatingRef = useRef(false)
   // Bumped whenever the current draft is discarded (Back off review): an
   // in-flight create started before the bump must not resurrect its id —
@@ -939,6 +954,7 @@ export const SmsFlow = ({
     setImageError(null)
     setComposeContinueAttempts(0)
     setDraftOutreachId(null)
+    setFollowUp(null)
     setDraftCreateError(false)
     setScheduled(false)
     setPaidSend(false)
@@ -1219,12 +1235,14 @@ export const SmsFlow = ({
     ...(proposalLink && !resumeDraft && { proposalLink }),
     ...(reportBackForOutreachId !== undefined &&
       !resumeDraft && { reportBackForOutreachId }),
+    ...(roundTwoSize !== undefined && !resumeDraft && { roundTwoSize }),
     launchSource,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
     setDraftCreateError,
     setRecipientCounts: setPhoneList,
+    setFollowUp,
     isDraftCreatingRef,
     draftGenerationRef,
   })
@@ -1711,6 +1729,7 @@ export const SmsFlow = ({
     if (!phoneList?.phoneListId && !payBeforeReady) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)
+    setDraftCreateErrorMessage(null)
     const generation = draftGenerationRef.current
     // Pre-build (pay-before-ready): the count is the pre-pay estimate, a ceiling
     // gp-api's capture bills down to the actual leads_loaded. Once ready it is
@@ -1773,6 +1792,10 @@ export const SmsFlow = ({
             draft: true,
           },
           resumed ? null : image,
+          (message) => {
+            if (generation === draftGenerationRef.current)
+              setDraftCreateErrorMessage(message)
+          },
         )
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
@@ -1906,6 +1929,7 @@ export const SmsFlow = ({
       draftGenerationRef.current += 1
       isDraftCreatingRef.current = false
       setDraftOutreachId(null)
+      setFollowUp(null)
       setDraftCreateError(false)
       // A build the poll resolved to `failed` is dead state, not a snapshot
       // worth keeping — left alone, re-entering review would show the exact
@@ -2492,6 +2516,12 @@ export const SmsFlow = ({
                   (payBeforeReady ? reachableCount : 0))
             }
             pricePerContact={PRICE_PER_MESSAGE}
+            {...(followUp && {
+              followUp: {
+                count: followUp.recipientCount,
+                sendAt: parseISO(followUp.scheduledLocalDate),
+              },
+            })}
             outreachId={draftOutreachId}
             phoneListBuildId={phoneListBuildId}
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
@@ -2509,6 +2539,7 @@ export const SmsFlow = ({
                 : !phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
+            prepareErrorMessage={draftCreateErrorMessage}
             buildFailed={phoneListBuildFailed}
             retryingBuild={phoneListCreating}
             onRetryBuild={handleRetryPhoneListBuild}

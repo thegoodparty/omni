@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -171,6 +170,7 @@ import type {
   ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
@@ -1843,17 +1843,6 @@ export type APIEndpoints = {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
   }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
-  }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.
   'GET /v1/constituent-feedback/efforts/:outreachId/report': {
@@ -1929,6 +1918,10 @@ export type APIEndpoints = {
   'GET /v1/contact-engagement/:id/activities': {
     Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
+  }
+  'GET /v1/contact-engagement/:id/priority-answers': {
+    Request: {}
+    Response: GetPersonPriorityAnswersResponse
   }
 
   'GET /v1/meetings': {

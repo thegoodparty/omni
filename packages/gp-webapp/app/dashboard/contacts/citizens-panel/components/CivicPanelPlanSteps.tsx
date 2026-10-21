@@ -3,10 +3,9 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { format, subBusinessDays } from 'date-fns'
 import {
-  PANEL_CALLS_PER_HOUR,
-  PANEL_DOORS_PER_HOUR,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
-  UNDERREPRESENTED_GROUP_NAMES,
+  civicPanelOpenStepDetail,
+  civicPanelStepTitle as stepTitle,
   type CivicPanelBuildNext,
   type CivicPanelBuildPlan,
   type CivicPanelBuildPlanResponse,
@@ -26,13 +25,6 @@ const CHANNEL_ORDER: CivicPanelBuildStep['channel'][] = [
 
 const shortDay = (date: Date | string) => format(new Date(date), 'MMM d')
 
-const stepTitle = (step: CivicPanelBuildStep): string => {
-  const size = numberFormatter(step.targetSize)
-  return step.channel === 'door_knocking'
-    ? COPY.stepTitle.door_knocking(size, step.position)
-    : COPY.stepTitle[step.channel](size)
-}
-
 // A text counts as done once it is sent: waiting on its replies is part of
 // done, never a state of its own.
 const isDone = (step: CivicPanelBuildStep): boolean =>
@@ -50,17 +42,10 @@ const sendDay = (step: CivicPanelBuildStep): Date | null =>
       ? new Date(step.startedAt)
       : null
 
-const minutesOf = (step: CivicPanelBuildStep): number =>
-  (step.targetSize /
-    (step.channel === 'door_knocking'
-      ? PANEL_DOORS_PER_HOUR
-      : PANEL_CALLS_PER_HOUR)) *
-  60
-
-// The one line under a step's title.
+// The one line under a step's title. A step still to take reads the same as
+// the Chief of Staff's cards for it (civicPanelOpenStepDetail).
 const stepDetail = (step: CivicPanelBuildStep): string => {
   const joined = numberFormatter(step.joined ?? 0)
-  const reached = step.reached === null ? null : numberFormatter(step.reached)
   if (step.channel === 'text') {
     const sent = sendDay(step)
     if (
@@ -79,29 +64,16 @@ const stepDetail = (step: CivicPanelBuildStep): string => {
     if (step.status === 'in_progress' && sent) {
       return COPY.textGoesOut(format(sent, 'EEEE, MMMM d'))
     }
-    return step.steeredToward && step.status === 'not_started'
-      ? COPY.stepLean.text(UNDERREPRESENTED_GROUP_NAMES[step.steeredToward])
-      : COPY.stepDetail.text
+    return civicPanelOpenStepDetail(step)
   }
-  const calls = step.channel === 'phone_banking'
   if (step.status === 'done') {
-    if (reached === null) return COPY.joined(joined)
-    return calls
+    if (step.reached === null) return COPY.joined(joined)
+    const reached = numberFormatter(step.reached)
+    return step.channel === 'phone_banking'
       ? COPY.calledJoined(reached, joined)
       : COPY.knockedJoined(reached, joined)
   }
-  if (step.status === 'in_progress' && reached !== null) {
-    return calls ? COPY.calledSoFar(reached) : COPY.knockedSoFar(reached)
-  }
-  const time = COPY.duration(minutesOf(step))
-  if (calls) {
-    return step.landlineFirst === false
-      ? COPY.stepLean.phone_banking(time)
-      : COPY.stepDetail.phone_banking(time)
-  }
-  return step.steeredToward === 'unreachedAreas'
-    ? COPY.stepLean.door_knocking(time)
-    : COPY.stepDetail.door_knocking(time)
+  return civicPanelOpenStepDetail(step)
 }
 
 /**
@@ -208,21 +180,28 @@ export const CivicPanelPlanSteps = ({
   const featured = open.find((s) => s.id === next?.stepId) ?? null
   const rest = open.filter((s) => s !== featured)
 
-  const checkbox = (step: CivicPanelBuildStep) => {
+  // The box sits in a cell one title line tall, so it lines up with the
+  // title's first line however many lines the title wraps to.
+  const checkbox = (step: CivicPanelBuildStep, lineHeight: 'h-6' | 'h-7') => {
     const checked = isDone(step)
     // A text checks itself once it is sent; nothing to tick by hand.
     const byHand = step.channel !== 'text'
     return (
-      <Checkbox
-        checked={checked}
-        disabled={!byHand || pendingId !== null}
-        aria-label={checked ? COPY.markNotDone : COPY.markDone}
-        className={cn(
-          'size-[22px] rounded-md',
-          !byHand && 'disabled:cursor-default disabled:opacity-100',
-        )}
-        onCheckedChange={(value) => void mark(step, value === true)}
-      />
+      <span
+        data-slot="plan-step-checkbox"
+        className={cn('flex shrink-0 items-center', lineHeight)}
+      >
+        <Checkbox
+          checked={checked}
+          disabled={!byHand || pendingId !== null}
+          aria-label={checked ? COPY.markNotDone : COPY.markDone}
+          className={cn(
+            'size-5.5 rounded-md',
+            !byHand && 'disabled:cursor-default disabled:opacity-100',
+          )}
+          onCheckedChange={(value) => void mark(step, value === true)}
+        />
+      </span>
     )
   }
 
@@ -292,15 +271,15 @@ export const CivicPanelPlanSteps = ({
               ring(featured),
             )}
           >
-            <div className="flex items-center gap-3 sm:gap-3.5">
-              {checkbox(featured)}
-              <h3 className="text-xl font-bold text-foreground sm:text-[22px]">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:gap-x-3.5 sm:gap-y-2.5">
+              {checkbox(featured, 'h-7')}
+              <h3 className="text-xl leading-7 font-bold text-foreground sm:text-[22px]">
                 {stepTitle(featured)}
               </h3>
+              <p className="col-start-2 text-sm text-muted-foreground sm:text-base">
+                {stepDetail(featured)}
+              </p>
             </div>
-            <p className="ml-[34px] text-sm text-muted-foreground sm:ml-9 sm:text-base">
-              {stepDetail(featured)}
-            </p>
             <div className="mt-2 flex items-center gap-3 sm:mt-2.5 sm:ml-9 sm:gap-5">
               {actionFor(featured, true)}
               {featured.status === 'not_started' ? (
@@ -329,10 +308,10 @@ export const CivicPanelPlanSteps = ({
                 ring(step),
               )}
             >
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-3.5">
-                {checkbox(step)}
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-3.5">
+                {checkbox(step, 'h-6')}
                 <div className="flex flex-col gap-0.5">
-                  <p className="text-base font-semibold text-foreground">
+                  <p className="text-base leading-6 font-semibold text-foreground">
                     {stepTitle(step)}
                   </p>
                   <p className="text-sm text-muted-foreground">
@@ -340,7 +319,7 @@ export const CivicPanelPlanSteps = ({
                   </p>
                 </div>
                 {action ? (
-                  <div className="col-start-2 mt-3 justify-self-start sm:col-start-3 sm:row-start-1 sm:mt-0">
+                  <div className="col-start-2 mt-3 justify-self-start sm:col-start-3 sm:row-start-1 sm:mt-0 sm:self-center">
                     {action}
                   </div>
                 ) : null}
@@ -358,10 +337,10 @@ export const CivicPanelPlanSteps = ({
               ring(step),
             )}
           >
-            <div className="flex items-center gap-3 sm:gap-3.5">
-              {checkbox(step)}
+            <div className="flex items-start gap-3 sm:gap-3.5">
+              {checkbox(step, 'h-6')}
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="text-base font-semibold text-muted-foreground">
+                <p className="text-base leading-6 font-semibold text-muted-foreground">
                   {stepTitle(step)}
                 </p>
                 <p className="text-sm text-muted-foreground">

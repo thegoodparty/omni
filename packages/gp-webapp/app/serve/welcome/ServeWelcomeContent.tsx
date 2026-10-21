@@ -271,10 +271,7 @@ export default function ServeWelcomeContent() {
         <div className="w-full max-w-md text-center">
           {showError ? (
             <>
-              <h1
-                className="text-3xl leading-tight font-semibold tracking-tight text-foreground"
-                style={{ fontFamily: 'var(--font-geist)' }}
-              >
+              <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
                 We couldn’t sign you in
               </h1>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
@@ -286,10 +283,7 @@ export default function ServeWelcomeContent() {
             </>
           ) : (
             <>
-              <h1
-                className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-                style={{ fontFamily: 'var(--font-geist)' }}
-              >
+              <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
                 Welcome to GoodParty.org
               </h1>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">

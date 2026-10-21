@@ -361,7 +361,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           },
         },
         tcrCompliance: {
-          select: { kickoffSentAt: true, internalTestingAt: true },
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            peerlyIdentityId: true,
+          },
         },
       },
     })

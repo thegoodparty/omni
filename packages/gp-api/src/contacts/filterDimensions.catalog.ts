@@ -8,6 +8,7 @@ import {
 } from '@/shared/schemas/activityCondition.schema'
 import {
   AUDIENCE_VOTER_STATUS_VALUES,
+  EARLY_VOTE_STATUS_VALUES,
   CONTACTS_MADE_BUCKET_FIELDS,
   INCOME_RANGE_MAPPING,
   LANGUAGE_CODE_TO_LABEL,
@@ -215,6 +216,23 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     modes: 'both',
     provenance: 'modeled',
     values: AUDIENCE_VOTER_STATUS_VALUES.map(({ field, value }) => ({
+      key: field,
+      label: value,
+    })),
+  },
+  {
+    // Voting before Election Day, early in person or by mail. Built from
+    // within-state percentiles, so each bucket is relative to the state.
+    // Win only: an official does not target constituents by how they vote,
+    // and every UI surface already hides it for an eo- org. Stricter than
+    // 'audience' above on purpose; nothing on the backend rejects the filter
+    // for Serve, so this mark is what keeps the assistant from offering it.
+    key: 'earlyVote',
+    label: 'Early Vote Likelihood',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'modeled',
+    values: EARLY_VOTE_STATUS_VALUES.map(({ field, value }) => ({
       key: field,
       label: value,
     })),

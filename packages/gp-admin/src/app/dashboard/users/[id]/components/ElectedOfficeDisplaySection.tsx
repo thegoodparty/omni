@@ -5,7 +5,7 @@ import { HiInformationCircle } from 'react-icons/hi'
 import { formatDate } from '@/lib/utils/date'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
-import type { ElectedOffice } from '@goodparty_org/sdk'
+import type { ElectedOffice } from '@/shared/gpApi'
 import { districtTypeLabel } from '@/shared/district/districtTypeLabel'
 
 interface DistrictView {

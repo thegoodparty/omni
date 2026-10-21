@@ -40,16 +40,26 @@ the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
 
-A priority's read weights its answers to the census
+A priority's read models its coded answers against the district
 (`districtCensusSql.util.ts`, read through `StatsService`):
-`buildRespondentCellsSql` counts respondents per age band, gender, L2 tenure,
-tract (the first 11 digits of `Census_Block_Group_Geoid`) and race (L2's
-`EthnicGroups_EthnicGroup1Desc` folded into the census categories),
-`buildDistrictTractAdultsSql` sums adults per tract, and
+`buildDistrictCellsSql` (op `district-cells`) counts the district's people
+per age band, gender, tract (the first 11 digits of
+`Census_Block_Group_Geoid`) and race (L2's `EthnicGroups_EthnicGroup1Desc`
+folded into the census categories), beside the district's ACS row and its
+adults per tract (`buildDistrictTractAdultsSql`; a failed tract read gives an
+empty map and the frame keeps the voter file's tracts), and
+`buildAnswerCellsSql` (op `answer-cells`) sums the given people's answers in
+the same cells. Each person's yes share rides in on an inlined id list
+shared with others of the same value, so only sums come back.
+`buildRespondentCellsSql` counts people the same way plus L2 tenure,
+`buildDistrictTractAdultsSql` sums adults per tract,
+`buildPoolCellsSql` counts everyone a filter matches in the district's
+cells (who a channel or a door area can reach, for sizing a priority's
+first round, read through `VoterQueryService.getPoolCells`), and
 `buildTractGridCellsSql` returns the grid squares a set of tracts' people
 live in, from which gp-api draws the area a priority has not reached. All
-three return counts or square indexes, never a person. The civic panel reads
-the same cells for its members to steer its invites (see the contacts
+return counts or square indexes, never a person. The civic panel reads the
+respondent cells for its members to steer its invites (see the contacts
 AGENTS.md, "Steering by census"); its door draws keep to one tract through
 the walkable-area read's `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
@@ -176,8 +186,13 @@ published:
   `buildDistrictCensusSql` (state, district type, district name; a State
   district reads the statewide row). ACS 2024 5-year counts allocated from
   block groups by 2020 population share, so values are fractional and run
-  about 2.4% under, like `district_population`. No MOEs, no medians, no
-  gender.
+  about 2.4% under, like `district_population`. No MOEs, no medians.
+  Adults by census sex and age band (`population_{male,female}_*`) are
+  there for weighting; `priorities/util/censusSexAge.util.ts` turns them
+  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
+  bands (`ADULT_AGE_BANDS`). Census
+  sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
+  (about 1% of voters) sits the dimension out.
 - `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
   grouped by `Census_Block_Group_Geoid` and joined to
   `gp_api_block_group_census_demographics`. It returns block group figures
@@ -371,9 +386,9 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts                                                     |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                                                                   |
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
-| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups                                        |
+| `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                         |
+| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |

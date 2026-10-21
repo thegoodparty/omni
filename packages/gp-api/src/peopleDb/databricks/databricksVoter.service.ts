@@ -41,6 +41,7 @@ import {
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
+  buildPrecinctMembersSql,
   MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
@@ -72,19 +73,28 @@ import {
 } from './databricksDistrictStatsSql.util'
 import { type AffinityColumn } from '../affinityColumns.const'
 import {
+  buildAnswerCellsSql,
+  buildDistrictCellsSql,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
+  buildPoolCellsSql,
   buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   mapAcsCounts,
+  mapAnswerCells,
   mapCensusCompositionRows,
+  mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
   sampleWeightSql,
+  type AnswerCell,
   type CensusCompositionRows,
+  type DistrictCell,
+  type DistrictCells,
+  type PersonAnswer,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -253,6 +263,24 @@ export class DatabricksVoterService {
     })
   }
 
+  async findPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCell[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildPoolCellsSql({
+        district,
+        filters: dto.filters,
+        search: dto.search,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
+      }),
+    )
+    return mapDistrictCells(rows)
+  }
+
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
@@ -346,6 +374,25 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // The given people counted per (County, Precinct). A NULL precinct is ''
+  // as in findPrecincts.
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<Array<{ county: string; precinct: string; people: number }>> {
+    if (personIds.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(
+      buildPrecinctMembersSql({ district, personIds }),
+    )
+    return rows.map((row) => ({
+      county: row[0] ?? '',
+      precinct: row[1] ?? '',
+      people: Number(row[2] ?? 0),
+    }))
   }
 
   // A recommended-list variant's own count, scoped to a resolved district.
@@ -490,20 +537,6 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
-  // The district's census population on its own, without the voter scan
-  // findStats runs: the civic panel sizes its goal from it. Null without a
-  // census row. Throws on a warehouse failure; the caller decides what that
-  // means.
-  async findDistrictPopulation(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<number | null> {
-    const district = await this.resolveDistrict(districtId, dataset)
-    const { rows } = await this.client.query(buildDistrictCensusSql(district))
-    const raw = rows[0]?.[0]
-    return raw == null ? null : Math.round(Number(raw))
-  }
-
   // The district's census row and the block groups the given people live
   // in, for comparing the two. Not through `run()`: every caller treats a
   // failure as "comparison unavailable" and answers 200, so the error-level
@@ -545,6 +578,48 @@ export class DatabricksVoterService {
       cells: mapRespondentCells(cellResult.rows),
       tractAdults: mapTractAdults(tractResult.rows),
     }
+  }
+
+  // The district's census row, its adults per tract, and its people counted
+  // by age band, gender, tract and race.
+  async findDistrictCells(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCells> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractAdults] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      this.client.query(buildDistrictCellsSql(district)),
+      this.client
+        .query(buildDistrictTractAdultsSql(district))
+        .then(({ rows }) => mapTractAdults(rows))
+        .catch((err: unknown) => {
+          this.logger.warn(
+            { err, districtId },
+            'tract adults read failed; frame keeps the voter file tracts',
+          )
+          return new Map<string, number>()
+        }),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapDistrictCells(cellResult.rows),
+      tractAdults,
+    }
+  }
+
+  async findAnswerCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    answers: PersonAnswer[],
+  ): Promise<AnswerCell[]> {
+    if (answers.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildAnswerCellsSql(district, answers),
+    )
+    return mapAnswerCells(rows)
   }
 
   async findTractGridCells(

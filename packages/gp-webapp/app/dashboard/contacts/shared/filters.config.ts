@@ -104,6 +104,17 @@ const filterSections = [
         ],
       },
       {
+        key: 'early_vote',
+        label: 'Early Vote Likelihood',
+        options: [
+          { key: 'earlyVoteVeryLikely', label: 'Very Likely' },
+          { key: 'earlyVoteLikely', label: 'Likely' },
+          { key: 'earlyVoteUnlikely', label: 'Unlikely' },
+          { key: 'earlyVoteVeryUnlikely', label: 'Very Unlikely' },
+          { key: 'earlyVoteUnknown', label: 'Unknown' },
+        ],
+      },
+      {
         key: 'children',
         label: 'Children',
         options: [

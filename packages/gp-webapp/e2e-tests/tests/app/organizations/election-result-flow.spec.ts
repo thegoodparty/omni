@@ -49,5 +49,7 @@ test('"I won my race" creates an EO org and auto-selects it', async ({
   await expect(sidebar.getByText('Constituents', { exact: true })).toBeVisible({
     timeout: 10_000,
   })
-  await expect(sidebar.getByText('Polls')).toBeVisible({ timeout: 10_000 })
+  await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible({
+    timeout: 10_000,
+  })
 })

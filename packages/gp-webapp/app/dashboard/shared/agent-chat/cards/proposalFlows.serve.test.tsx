@@ -57,7 +57,6 @@ const panelAndFresh: Proposal = {
   stepId: 'define',
   side: 'main',
   sampleSize: 84,
-  panelSampleSize: 42,
   civicPanelAsk: true,
 }
 
@@ -112,17 +111,17 @@ beforeEach(() => {
   }))
 })
 
-describe("a priority's text card to the panel and new residents", () => {
+describe("a priority's text card that asks the civic panel", () => {
   // The card settled who gets it, so the list is saved before the flow
   // opens, and the flow opens on the message with that list picked.
-  it('saves one list holding both draws and opens on the message, the join ask on', async () => {
+  it('saves one sampled list and opens on the message, the join ask on', async () => {
     await openCard(panelAndFresh)
 
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatchObject({
       name: 'Flooding check',
       hasCellPhone: true,
-      sample: { size: 84, panelSize: 42, seedKey: PROPOSAL_KEY },
+      sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
     const props = smsFlow.props
     expect(props?.surface).toEqual({ isServe: true })
@@ -137,7 +136,6 @@ describe("a priority's text card to the panel and new residents", () => {
   it('leaves the join ask off for a text that did not ask for it', async () => {
     await openCard({
       ...panelAndFresh,
-      panelSampleSize: undefined,
       civicPanelAsk: undefined,
     })
 
@@ -199,6 +197,8 @@ describe("the Chief of Staff's civic panel invite", () => {
       name: 'Civic panel invite',
       hasCellPhone: true,
       sample: { size: 3334, seedKey: PROPOSAL_KEY },
+      // Kept for the send, out of the lists index.
+      civicPanelInvite: true,
     })
     const props = smsFlow.props
     expect(props?.initialPurpose).toBe('build_citizens_panel')
@@ -221,6 +221,16 @@ describe("the Chief of Staff's civic panel invite", () => {
     await openCard({ ...panelAndFresh, purpose: undefined })
 
     expect(smsFlow.props).not.toHaveProperty('initialPurpose')
+  })
+})
+
+describe('a round 2 card', () => {
+  it('saves the pool whole and hands the flow its size', async () => {
+    const { sampleSize: _sample, ...whole } = panelAndFresh
+    await openCard({ ...whole, roundTwoSize: 300 })
+
+    expect(saved[0]).not.toHaveProperty('sample')
+    expect(smsFlow.props?.roundTwoSize).toBe(300)
   })
 })
 

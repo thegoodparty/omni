@@ -5,9 +5,11 @@ import {
   buildScopeSql,
   col,
   createBag,
+  idList,
   tractSql,
   type Bag,
   type DbxDistrict,
+  type DbxScopeArgs,
   type DbxStatement,
 } from './databricksVoterSql.util'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
@@ -64,6 +66,22 @@ export const ACS_COUNT_COLUMNS = {
   householdsIncome125kTo150k: 'households_income_125k_to_150k',
   householdsIncome150kTo200k: 'households_income_150k_to_200k',
   householdsIncome200kPlus: 'households_income_200k_plus',
+  // Adults by census sex (B01001): five bands and 65 and over, and each
+  // sex's 18 and over total, which is the sum of its bands.
+  populationMale18To24: 'population_male_18_to_24',
+  populationMale25To34: 'population_male_25_to_34',
+  populationMale35To44: 'population_male_35_to_44',
+  populationMale45To54: 'population_male_45_to_54',
+  populationMale55To64: 'population_male_55_to_64',
+  populationMale65Plus: 'population_male_65_plus',
+  populationMale18Plus: 'population_male_18_plus',
+  populationFemale18To24: 'population_female_18_to_24',
+  populationFemale25To34: 'population_female_25_to_34',
+  populationFemale35To44: 'population_female_35_to_44',
+  populationFemale45To54: 'population_female_45_to_54',
+  populationFemale55To64: 'population_female_55_to_64',
+  populationFemale65Plus: 'population_female_65_plus',
+  populationFemale18Plus: 'population_female_18_plus',
 } as const
 export type AcsCountKey = keyof typeof ACS_COUNT_COLUMNS
 export const ACS_COUNT_KEYS = Object.keys(ACS_COUNT_COLUMNS).filter(
@@ -108,11 +126,31 @@ export const buildDistrictCompositionSql = (
 // works on tracts: a block group holds too few answers to carry a weight.
 const TRACT_GEOID_LENGTH = 11
 
-// The census reads age in two adult bands (18 to 64, 65 and over), so the
-// voter file's exact age folds into the same two.
+// The census's adult age bands (B01001, both sexes), youngest first.
+// `minAge` is where each starts; each runs to the next one's start, and the
+// last is open-ended. The voter file's exact age folds into the same bands.
+export const ADULT_AGE_BANDS = [
+  { key: '18to24', minAge: 18 },
+  { key: '25to34', minAge: 25 },
+  { key: '35to44', minAge: 35 },
+  { key: '45to54', minAge: 45 },
+  { key: '55to64', minAge: 55 },
+  { key: '65plus', minAge: 65 },
+] as const
+export type AdultAgeBand = (typeof ADULT_AGE_BANDS)[number]['key']
+const ADULT_AGE_BAND_KEYS = ADULT_AGE_BANDS.map(({ key }) => key)
+
+// Oldest first, so each age takes the highest band it reaches. The band
+// keys and ages are constants, never input, so they are written in.
 const ageBandSql = (): string =>
-  `CASE WHEN ${col('Age_Int')} >= 65 THEN '65plus'` +
-  ` WHEN ${col('Age_Int')} >= 18 THEN '18to64' END`
+  'CASE' +
+  [...ADULT_AGE_BANDS]
+    .reverse()
+    .map(
+      ({ key, minAge }) => ` WHEN ${col('Age_Int')} >= ${minAge} THEN '${key}'`,
+    )
+    .join('') +
+  ' END'
 
 // L2's modeled tenure. "Probable" owners count as owners because the census
 // has only owner and renter.
@@ -149,11 +187,10 @@ const raceSql = (): string => {
   )
 }
 
-// One row per block group the given people live in and age band, gender,
-// tenure and race among them, with how many share it: block group figures and a
-// count, never a person. Scoped to the district like every other people
-// read, so an id from elsewhere adds nothing, and a person with no geocoded
-// block group drops out. The profile columns let weighting reach each row.
+// One row per block group the given people live in, with how many of them
+// live there: block group figures and a count, never a person. Scoped to the
+// district like every other people read, so an id from elsewhere adds
+// nothing, and a person with no geocoded block group drops out.
 export const buildRespondentBlockGroupsSql = (
   district: DbxDistrict,
   personIds: string[],
@@ -165,14 +202,10 @@ export const buildRespondentBlockGroupsSql = (
     filters: filtersSchema.parse({ id: { in: personIds } }),
   })
   const sql =
-    `SELECT r.respondents, ${acsColumns('bg')},` +
-    ' r.age_band, r.gender, r.tenure, r.race,' +
-    ` substr(r.block_group_geoid, 1, ${TRACT_GEOID_LENGTH}) AS tract FROM (` +
-    `SELECT ${geoid} AS block_group_geoid, count(*) AS respondents,` +
-    ` ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
-    ` ${tenureSql()} AS tenure, ${raceSql()} AS race` +
+    `SELECT r.respondents, ${acsColumns('bg')} FROM (` +
+    `SELECT ${geoid} AS block_group_geoid, count(*) AS respondents` +
     ` FROM ${district.table} v ${where} AND ${geoid} IS NOT NULL` +
-    ' GROUP BY 1, 3, 4, 5, 6' +
+    ` GROUP BY ${geoid}` +
     `) r JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
     ' ON bg.block_group_geoid = r.block_group_geoid'
   return { sql, params: bag.params }
@@ -219,33 +252,17 @@ export const sampleWeightSql = (bag: Bag, weights: SampleWeights): string => {
 }
 
 const RespondentProfileSchema = z.object({
-  ageBand: z.enum(['18to64', '65plus']).nullable(),
+  ageBand: z.enum(ADULT_AGE_BAND_KEYS).nullable(),
   gender: z.enum(['male', 'female']).nullable(),
   tenure: z.enum(['owner', 'renter']).nullable(),
   race: z.enum(RACE_VALUES).nullable(),
   tract: z.string().nullable(),
 })
-// What weighting knows about a respondent. Unknowns stay null.
-export type RespondentProfile = z.infer<typeof RespondentProfileSchema>
-
-const mapProfile = ([ageBand, gender, tenure, race, tract]: ReadonlyArray<
-  string | null | undefined
->): RespondentProfile =>
-  RespondentProfileSchema.parse({
-    ageBand: ageBand ?? null,
-    gender: gender ?? null,
-    tenure: tenure ?? null,
-    race: race ?? null,
-    tract: tract ?? null,
-  })
-
 export type CensusCompositionRows = {
   // Null when the mart has no row for the district.
   district: AcsCounts | null
   // One entry per person placed in a block group, in no order.
   respondentBlockGroups: AcsCounts[]
-  // The same people in the same order: who each one is, for weighting.
-  respondentProfiles: RespondentProfile[]
 }
 
 export const mapCensusCompositionRows = (
@@ -253,18 +270,12 @@ export const mapCensusCompositionRows = (
   blockGroupRows: ReadonlyArray<ReadonlyArray<string | null>>,
 ): CensusCompositionRows => {
   const districtRow = districtRows[0]
-  const people = blockGroupRows.flatMap(([respondents, ...row]) => {
-    const counts = mapAcsCounts(row)
-    const profile = mapProfile(row.slice(ACS_COUNT_KEYS.length))
-    return Array.from({ length: Number(respondents ?? 0) }, () => ({
-      counts,
-      profile,
-    }))
-  })
   return {
     district: districtRow ? mapAcsCounts(districtRow) : null,
-    respondentBlockGroups: people.map(({ counts }) => counts),
-    respondentProfiles: people.map(({ profile }) => profile),
+    respondentBlockGroups: blockGroupRows.flatMap(([respondents, ...row]) => {
+      const counts = mapAcsCounts(row)
+      return Array.from({ length: Number(respondents ?? 0) }, () => counts)
+    }),
   }
 }
 
@@ -286,6 +297,82 @@ export const buildRespondentCellsSql = (
     ` ${raceSql()} AS race, count(*) AS respondents` +
     ` FROM ${district.table} v ${where}` +
     ' GROUP BY 1, 2, 3, 4, 5'
+  return { sql, params: bag.params }
+}
+
+// How many of the people a scope matches share each age band, gender,
+// tract and race: counts per combination, never a person. Unknowns stay
+// NULL.
+export const buildPoolCellsSql = (args: DbxScopeArgs): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race, count(*) AS people` +
+    ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
+// The district's people counted by age band, gender, tract and race: the
+// frame a priority's answers are reweighted to. Counts per combination,
+// never a person. Unknowns stay NULL.
+export const buildDistrictCellsSql = (district: DbxDistrict): DbxStatement => {
+  const bag = createBag()
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({}),
+  })
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race, count(*) AS people` +
+    ` FROM ${district.table} v ${where}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
+// One person's answer as a share of a yes: 1, 0, or between for a mixed
+// answer or several answers.
+export interface PersonAnswer {
+  personId: string
+  yes: number
+}
+
+// The given people's answers in buildDistrictCellsSql's cells: per
+// combination, how many answered and how many yeses they add up to. Each
+// person's yes rides in on the id list it shares with others of the same
+// value, so only the sums come back, never a person.
+export const buildAnswerCellsSql = (
+  district: DbxDistrict,
+  answers: PersonAnswer[],
+): DbxStatement => {
+  const bag = createBag()
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({
+      id: { in: answers.map(({ personId }) => personId) },
+    }),
+  })
+  const byYes = new Map<number, string[]>()
+  for (const { personId, yes } of answers) {
+    if (yes === 0) continue
+    const ids = byYes.get(yes) ?? []
+    ids.push(personId)
+    byYes.set(yes, ids)
+  }
+  const arms = [...byYes]
+    .map(
+      ([yes, ids]) =>
+        ` WHEN ${col('id')} IN (${idList(ids)})` +
+        ` THEN CAST(${bag.bind(String(yes))} AS DOUBLE)`,
+    )
+    .join('')
+  const yesSql = arms === '' ? '0.0' : `CASE${arms} ELSE 0.0 END`
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race,` +
+    ` sum(${yesSql}) AS yes, count(*) AS answers` +
+    ` FROM ${district.table} v ${where}` +
+    ' GROUP BY 1, 2, 3, 4'
   return { sql, params: bag.params }
 }
 
@@ -316,6 +403,52 @@ const RespondentCellSchema = RespondentProfileSchema.extend({
   count: z.number().int().positive(),
 })
 export type RespondentCell = z.infer<typeof RespondentCellSchema>
+
+const DistrictCellSchema = RespondentProfileSchema.omit({
+  tenure: true,
+}).extend({ count: z.number().int().positive() })
+export type DistrictCell = z.infer<typeof DistrictCellSchema>
+
+export const mapDistrictCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): DistrictCell[] =>
+  rows.map(([ageBand, gender, tract, race, people]) =>
+    DistrictCellSchema.parse({
+      ageBand,
+      gender,
+      tract,
+      race,
+      count: Number(people),
+    }),
+  )
+
+const AnswerCellSchema = DistrictCellSchema.extend({
+  yes: z.number().nonnegative(),
+})
+export type AnswerCell = z.infer<typeof AnswerCellSchema>
+
+export const mapAnswerCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): AnswerCell[] =>
+  rows.map(([ageBand, gender, tract, race, yes, answers]) =>
+    AnswerCellSchema.parse({
+      ageBand,
+      gender,
+      tract,
+      race,
+      yes: Number(yes),
+      count: Number(answers),
+    }),
+  )
+
+export interface DistrictCells {
+  // Null when the mart has no row for the district.
+  district: AcsCounts | null
+  cells: DistrictCell[]
+  // Adults per tract from the block groups; empty when that read failed, so
+  // the frame keeps the voter file's tracts.
+  tractAdults: Map<string, number>
+}
 
 export interface WeightingInputs {
   // Null when the mart has no row for the district.

@@ -39,6 +39,7 @@ const mockPersonPayload = () => ({
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: 'Super',
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,

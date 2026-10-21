@@ -14,6 +14,7 @@ import {
 import { Injectable } from '@nestjs/common'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
+import type { DistrictCell } from '../databricks/districtCensusSql.util'
 import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
@@ -51,6 +52,20 @@ export class VoterQueryService {
     })
   }
 
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ) {
+    return this.readLog.measure({
+      op: 'precinct-members',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.findPrecinctMembers(districtId, dataset, personIds),
+    })
+  }
+
   async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
     return this.readLog.measure({
       op: 'list',
@@ -72,6 +87,20 @@ export class VoterQueryService {
       districtId: dto.districtId,
       dataset,
       read: () => this.databricks.getAggregates(dto, dataset),
+    })
+  }
+
+  // The audience counted by age band, gender, tract and race, for sizing
+  // outreach so every sizable group can be heard from.
+  async getPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCell[]> {
+    return this.readLog.measure({
+      op: 'pool-cells',
+      districtId: dto.districtId,
+      dataset,
+      read: () => this.databricks.findPoolCells(dto, dataset),
     })
   }
 

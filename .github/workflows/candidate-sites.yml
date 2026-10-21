@@ -12,8 +12,13 @@ permissions:
 # Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
 # and while cancel was off the new run also queued behind it. The Vercel preview
 # is re-aliased by the next run, so a killed deploy self-heals. Never on main.
+#
+# On main the group is the run id, so pushes never share a group. A shared
+# group still dropped runs with cancel-in-progress off: GitHub keeps one
+# pending run per group, so a third quick merge cancelled the queued one,
+# and release.yml then failed that commit as "cancelled".
 concurrency:
-  group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: candidate-sites-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

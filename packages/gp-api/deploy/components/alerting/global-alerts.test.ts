@@ -841,3 +841,32 @@ describe('alert-notification-delivery-failing', () => {
     expect(alert.knownCauses).toBeUndefined()
   })
 })
+
+describe('evaluation error handling', () => {
+  // The estate pages on an evaluation error, so a rule that cannot look reads
+  // as a fault. On 2026-10-21 a Prometheus query timeout paged the health probe
+  // alert (ENG-11393) with the endpoint never measured. That rule holds its
+  // last answer instead, and the only thing that makes this safe is the rule
+  // that reports a broken query path still paging.
+  it('lets the health probe rule hold its last answer when it cannot evaluate', () => {
+    const probe = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'health-check-probe-failure',
+    )
+    const meta = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'alerting-rule-evaluations-failing',
+    )
+
+    expect(probe?.execErrState).toEqual('KeepLast')
+    expect(meta).toBeDefined()
+    expect(meta?.disabled).toBeFalsy()
+    expect(meta?.execErrState ?? 'Alerting').toEqual('Alerting')
+  })
+
+  it('keeps every other global rule paging on an evaluation error', () => {
+    const relaxed = GLOBAL_ALERTS.filter(
+      (a) => a.execErrState && a.execErrState !== 'Alerting',
+    ).map((a) => a.slug)
+
+    expect(relaxed).toEqual(['health-check-probe-failure'])
+  })
+})

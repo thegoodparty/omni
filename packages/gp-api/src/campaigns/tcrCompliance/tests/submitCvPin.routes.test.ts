@@ -1,8 +1,17 @@
+import {
+  AxiosError,
+  AxiosHeaders,
+  AxiosRequestConfig,
+  AxiosResponse,
+} from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OfficeLevel, TcrCompliance } from '../../../generated/prisma'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
+import { PeerlyHttpService } from '../../../vendors/peerly/services/peerlyHttp.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { SlackChannel } from '../../../vendors/slack/slackService.types'
 
 const service = useTestService()
 
@@ -143,6 +152,70 @@ describe('POST /v1/campaigns/tcr-compliance/:id/submit-cv-pin', () => {
       expect(peerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     },
   )
+
+  // ENG-11389: TCR tagged the brand 501(c) tax-exempt, so Peerly refuses the
+  // CV token on /approve. No retry can succeed, so it must not answer 502.
+  it('returns 422 with an errorCode when Peerly refuses a tax-exempt brand', async () => {
+    stubCvStatus(PeerlyCvVerificationStatus.APPROVED)
+    vi.mocked(peerly.submitCampaignVerifyTokenToBrand).mockRestore()
+    vi.spyOn(peerly, 'getIdentityProfile').mockResolvedValue(null)
+    const slackMessage = vi
+      .spyOn(service.app.get(SlackService), 'message')
+      .mockResolvedValue(undefined)
+    const config: AxiosRequestConfig = {
+      url: `/v2/tdlc/${record.peerlyIdentityId}/approve`,
+      method: 'POST',
+      headers: new AxiosHeaders(),
+    }
+    const response: AxiosResponse = {
+      data: {
+        Error:
+          'Unable to submit CV token.\nCampaign verify vet cannot be ' +
+          'imported for a non-profit brand having 501c tax-exempt status',
+      },
+      status: 400,
+      statusText: 'Bad Request',
+      headers: {},
+      config: config as AxiosResponse['config'],
+    }
+    const post = vi
+      .spyOn(service.app.get(PeerlyHttpService), 'post')
+      .mockRejectedValue(
+        new AxiosError(
+          'Request failed',
+          'ERR_BAD_REQUEST',
+          config as AxiosError['config'],
+          {},
+          response,
+        ),
+      )
+
+    const res = await service.client.post(
+      submitPinUrl(record.id),
+      { pin: PIN },
+      { headers },
+    )
+
+    expect(res.status).toBe(422)
+    expect(res.data.errorCode).toBe('CAMPAIGN_VERIFY_TAX_EXEMPT_BRAND')
+    expect(post).toHaveBeenCalledWith(
+      `/v2/tdlc/${record.peerlyIdentityId}/approve`,
+      expect.anything(),
+    )
+    // The 10DLC channel post is how support learns the brand needs fixing.
+    expect(slackMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      SlackChannel.bot10DlcCompliance,
+    )
+    const after = await service.prisma.tcrCompliance.findUniqueOrThrow({
+      where: { id: record.id },
+    })
+    expect(after.status).toBe('submitted')
+
+    post.mockRestore()
+    slackMessage.mockRestore()
+    vi.mocked(peerly.getIdentityProfile).mockRestore()
+  })
 
   it('leaves the record at `submitted` when no PIN has been issued', async () => {
     stubCvStatus(PeerlyCvVerificationStatus.IN_REVIEW)

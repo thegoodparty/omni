@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import { extractApiErrorMessage } from './sdkError'
 
 const FALLBACK = 'Failed to save changes'

@@ -71,6 +71,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   type PeopleDataset,
   PeopleDatasetService,
@@ -2194,8 +2195,9 @@ export class ContactsService {
   // match members and non-members alike, so saved whole it would hold
   // neither part at the size proposed.
   //
-  // A report back's sample is never null: it is the people one send reached,
-  // minus anyone who opted out since, frozen, which no live filter can say.
+  // A report back's sample is never null: it is everyone who answered the
+  // priority on any channel, minus anyone who opted out since, frozen, which
+  // no live filter can say.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -2223,7 +2225,7 @@ export class ContactsService {
         )
       }
       const reached =
-        await this.voterFileFilterSampleService.personIdsReachedBy(
+        await this.voterFileFilterSampleService.personIdsAnsweredFor(
           organization.slug,
           sample.recipientsOfOutreachId,
         )
@@ -2422,6 +2424,47 @@ export class ContactsService {
         )
         return pagination.totalResults
       },
+    )
+  }
+
+  // The people the criteria match, counted by age band, gender, tract and
+  // race: who a channel can reach, group by group, or only among
+  // `withinPersonIds` when given. Counts only.
+  async countByGroupWithin(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    withinPersonIds?: string[],
+  ): Promise<DistrictCell[]> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution: criteria, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    const idResolution =
+      withinPersonIds === undefined
+        ? criteria
+        : intersectIdFilterResolutions(
+            criteria,
+            withinPersonIds.length === 0
+              ? { kind: 'empty' }
+              : { kind: 'filter', idFilter: { in: withinPersonIds } },
+          )
+    if (idResolution.kind === 'empty') return []
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId, dataset }) =>
+        this.voterQueryService.getPoolCells(
+          AggregatesDTO.create({
+            districtId,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            affinityColumn: await this.affinityColumnFor(organization, filters),
+          }),
+          dataset,
+        ),
     )
   }
 
@@ -3022,28 +3065,6 @@ export class ContactsService {
       ({ districtId, dataset }) =>
         this.fetchStatsByDistrictId(districtId, dataset),
     )
-  }
-
-  // The district's census population, for sizing the civic panel to the
-  // answers a question needs. Null when there is no census row, no district,
-  // or the read fails: the sizing then uses the uncorrected figure, which
-  // only ever asks for a few more answers than a small district needs.
-  async getDistrictPopulation(
-    organization: Organization,
-  ): Promise<number | null> {
-    try {
-      return await this.withOrgDistrictResolution(
-        organization,
-        ({ districtId, dataset }) =>
-          this.peopleStatsService.findDistrictPopulation(districtId, dataset),
-      )
-    } catch (err) {
-      this.logger.warn(
-        { err, organizationSlug: organization.slug },
-        'district population read failed; panel sized without it',
-      )
-      return null
-    }
   }
 
   async resolveDistrictIdFromPosition(
