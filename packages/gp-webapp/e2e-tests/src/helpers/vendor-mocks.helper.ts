@@ -41,6 +41,17 @@ export const runJob = (client: AxiosInstance, name: string) =>
   client.post<void>(`/v1/test-fixtures/vendor-mocks/jobs/${name}/run`)
 
 /**
+ * Launches ONE robocall by id, bypassing the send sweep's global serial gate.
+ * The preview shares the dev DB, so the sweep (one dial at a time account-wide)
+ * stalls whenever any dev robocall is mid-dial; this drives only the caller's
+ * run so the robocall spec is isolated from that shared queue.
+ */
+export const launchRobocall = (client: AxiosInstance, outreachId: number) =>
+  client.post<void>(
+    `/v1/test-fixtures/vendor-mocks/robocall/${outreachId}/launch`,
+  )
+
+/**
  * Shifts outreach timing so a sweep processes this specific robocall:
  * - `robocall.send_due_now`     → sets Outreach.date to now - 1 min (staging and send pick it up)
  * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)

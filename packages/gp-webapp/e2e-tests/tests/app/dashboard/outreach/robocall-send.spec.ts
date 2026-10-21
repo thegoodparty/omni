@@ -9,6 +9,7 @@ import {
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   callhubAction,
+  launchRobocall,
   mockRecords,
   runJob,
   timeTravel,
@@ -156,7 +157,12 @@ const runRobocallPipeline = async (
   )
   await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
 
-  await withGatewayRetry('robocall.send', () => runJob(client, 'robocall.send'))
+  // Launch THIS run directly rather than the global send sweep: the sweep dials
+  // one robocall at a time account-wide, and the preview shares the dev DB, so a
+  // dev-side robocall mid-dial would otherwise stall this launch (the flake).
+  await withGatewayRetry('robocall.launch', () =>
+    launchRobocall(client, outreachId),
+  )
   await expectVbCampaignStatus(client, campaignId, VB_STATUS.START)
 
   await withGatewayRetry('callhub.campaign.complete', () =>

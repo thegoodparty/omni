@@ -439,3 +439,87 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 })
+
+describe('POST /v1/test-fixtures/vendor-mocks/robocall/:outreachId/launch', () => {
+  beforeEach(() => {
+    envNonProd.value = true
+  })
+
+  const seedRobocall = async (userId: number) => {
+    const campaign = await seedCampaign(userId)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.robocall,
+        campaignId: campaign.id,
+        date: new Date('2026-01-01T12:00:00Z'),
+      },
+    })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: outreach.id,
+        audioKey: `audio-${outreach.id}`,
+        callbackNumber: '+15551234567',
+      },
+    })
+    return outreach
+  }
+
+  it('launches the caller own robocall (no-op when not yet staged)', async () => {
+    // A pending_payment run is not launchable, so startCampaign claims nothing
+    // and returns — the endpoint still answers 200, proving the wiring + auth.
+    const outreach = await seedRobocall(service.user.id)
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/robocall/${outreach.id}/launch`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.ranAt).toBeTruthy()
+    expect(typeof res.data.durationMs).toBe('number')
+  })
+
+  it('403s another user robocall', async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const outreach = await seedRobocall(other.id)
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/robocall/${outreach.id}/launch`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('404s a missing outreach', async () => {
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/robocall/99999999/launch',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('404s off a non-prod deploy', async () => {
+    envNonProd.value = false
+    const outreach = await seedRobocall(service.user.id)
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/robocall/${outreach.id}/launch`,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
