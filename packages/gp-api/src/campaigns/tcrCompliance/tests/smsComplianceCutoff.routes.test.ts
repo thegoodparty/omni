@@ -454,4 +454,22 @@ describe('SMS compliance window on reads', () => {
     expect(res.status).toBe(200)
     expect(res.data.smsCompliance).toBe('closed')
   })
+
+  // ENG-11328: legacy TCR records (approved before the kickoffSentAt column
+  // shipped on 2026-05-16) have kickoffSentAt NULL forever but a live Peerly
+  // identity; they must read as not_applicable at the cutoff — otherwise the
+  // audience picker shows "Not available for this race" even though the
+  // candidate is actively texting.
+  it('returns not_applicable on compliance-state for a legacy record with a Peerly identity', async () => {
+    const campaign = await seedCampaign(electionDateIn(CLOSED_DAYS_OUT))
+    await seedRecord(campaign.id, { peerlyIdentityId: '11539648' })
+
+    const res = await service.client.get(
+      '/v1/campaigns/tcr-compliance/mine/compliance-state',
+      orgHeaders(campaign.slug),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.smsCompliance).toBe('not_applicable')
+  })
 })

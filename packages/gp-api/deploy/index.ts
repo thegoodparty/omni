@@ -541,6 +541,13 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // Explicit so the running value is visible in the task definition
+      // and rollback is a one-line diff (set dev to 'live').
+      VENDOR_MODE: select({
+        preview: 'mock',
+        dev: 'mock',
+        prod: 'live',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
       // Clerk instance public key, so tokens verify without fetching Clerk's

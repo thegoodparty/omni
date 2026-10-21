@@ -1,11 +1,19 @@
 'use client'
 
-import { Button, Input, InputWithButton, Skeleton } from '@styleguide'
+import {
+  Button,
+  FilterPill,
+  FilterPillGroup,
+  Input,
+  InputWithButton,
+  RadioCardItem,
+  RadioGroup,
+  Skeleton,
+} from '@styleguide'
 import { useQuery } from '@tanstack/react-query'
 import Fuse, { type IFuseOptions } from 'fuse.js'
-import { Check, Loader2, Search } from 'lucide-react'
+import { Loader2, Search } from 'lucide-react'
 import { useMemo, useState, useEffect } from 'react'
-import { cn } from '@styleguide/lib/utils'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { dateUsHelper } from 'helpers/dateHelper'
@@ -282,26 +290,17 @@ export default function ServeOfficePicker({
           />
 
           {sortedPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {sortedPills.map((pill) => {
-                const active = activePill === pill
-                return (
-                  <button
-                    key={pill}
-                    type="button"
-                    onClick={() => setActivePill(active ? null : pill)}
-                    className={cn(
-                      'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                      active
-                        ? 'border-primary bg-primary/10 text-foreground'
-                        : 'border-base-border bg-background text-foreground hover:border-primary/50',
-                    )}
-                  >
-                    {pill} ({pillCounts[pill] ?? 0})
-                  </button>
-                )
-              })}
-            </div>
+            <FilterPillGroup
+              aria-label="Filter offices by type"
+              value={activePill ?? ''}
+              onValueChange={(value) => setActivePill(value || null)}
+            >
+              {sortedPills.map((pill) => (
+                <FilterPill key={pill} value={pill}>
+                  {pill} ({pillCounts[pill] ?? 0})
+                </FilterPill>
+              ))}
+            </FilterPillGroup>
           ) : null}
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -322,55 +321,36 @@ export default function ServeOfficePicker({
               }
             />
           ) : (
-            <div
+            <RadioGroup
               aria-label="Available offices"
-              className="max-h-[480px] space-y-2 overflow-y-auto pr-1"
-              role="radiogroup"
-            >
-              {filteredPositions.map((row) => {
-                const isSelected = selected?.positionId === row.positionId
-                return (
-                  <button
-                    key={row.positionId}
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    onClick={() => onSelect(toSelectedOffice(row))}
-                    className={cn(
-                      'flex w-full items-start gap-3 rounded-md border border-base-border bg-muted/30 p-3 text-left transition-all hover:border-primary/50',
-                      isSelected &&
-                        'border-primary bg-primary/5 ring-2 ring-primary/20',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
-                        isSelected
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-muted-foreground/40',
-                      )}
-                    >
-                      {isSelected ? <Check className="h-2.5 w-2.5" /> : null}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block break-words text-sm font-semibold text-foreground">
-                        {row.positionName}
-                      </span>
-                      {row.level ? (
-                        <span className="block break-words text-xs text-muted-foreground">
-                          {row.level}
-                        </span>
-                      ) : null}
-                      {row.electionDate ? (
-                        <span className="block break-words text-xs text-muted-foreground">
-                          Last election: {dateUsHelper(row.electionDate)}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
+              className="max-h-[480px] overflow-y-auto p-1"
+              value={selected?.positionId ?? ''}
+              onValueChange={(positionId) => {
+                const row = filteredPositions.find(
+                  (candidate) => candidate.positionId === positionId,
                 )
-              })}
-            </div>
+                if (row) onSelect(toSelectedOffice(row))
+              }}
+            >
+              {filteredPositions.map((row) => (
+                <RadioCardItem
+                  key={row.positionId}
+                  value={row.positionId}
+                  id={`office-${row.positionId}`}
+                  title={row.positionName}
+                  description={
+                    [
+                      row.level,
+                      row.electionDate
+                        ? `Last elected: ${dateUsHelper(row.electionDate)}`
+                        : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || undefined
+                  }
+                />
+              ))}
+            </RadioGroup>
           )}
 
           <div className="pt-1 text-center">

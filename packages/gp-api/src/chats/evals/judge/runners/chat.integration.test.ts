@@ -260,9 +260,9 @@ describe('runChatCase', () => {
           message: expect.stringContaining('Priority not found'),
         },
       ])
-      // A tool failure is never a quality signal: both arms degrade the same
-      // way and a judge shown two degraded answers reports a regression.
-      expect(isComparable(record)).toBe(false)
+      // The failure shows up in the answer the user received, so the run is
+      // judged on that answer like any other.
+      expect(isComparable(record)).toBe(true)
     },
     TURN_TIMEOUT_MS,
   )
@@ -817,11 +817,10 @@ describe('runChatCase', () => {
       expect(
         forced.trace.find((step) => step.tool === 'crud_priorities')?.error,
       ).toContain('forced failure')
-      // AND THE CONSEQUENCE WORTH KNOWING: isComparable is false for any run
-      // that hit a tool error, so a forced-failure pair resolves CAN'T SAY
-      // rather than entering the delta. Telling an injected failure from an
-      // incidental one needs a field record.ts does not have.
-      expect(isComparable(forced)).toBe(false)
+      // The forced-failure pair is judged on its output: the failed tool
+      // shows up in the answer the user received, and the tool error is
+      // still counted beside the verdict.
+      expect(isComparable(forced)).toBe(true)
     },
     TURN_TIMEOUT_MS,
   )

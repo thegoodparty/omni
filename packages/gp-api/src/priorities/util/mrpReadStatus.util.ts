@@ -10,7 +10,7 @@ import {
   MIN_VOICES_PER_GROUP,
   type TargetedDimension,
 } from '@/contacts/utils/civicPanelAllocation.util'
-import type { MrpResult } from './mrp.util'
+import type { MrpGroupEstimate, MrpResult } from './mrp.util'
 import { underrepresentedGroupOf } from './priorityReadStatus.util'
 
 // A major group whose 90% range is wider than this leaves the read getting
@@ -29,6 +29,22 @@ export interface MrpRead {
 
 const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
   raceNameable ? ['age', 'gender', 'tract', 'race'] : ['age', 'gender', 'tract']
+
+const isHoldingBack = (group: MrpGroupEstimate): boolean =>
+  group.answers < MIN_VOICES_PER_GROUP ||
+  group.high - group.low > MAX_REPRESENTATIVE_RANGE
+
+// The tracts the model has too few voices from, or is too unsure of: the
+// parts of the district the status asks to hear from.
+export const holdingBackTracts = (read: MrpRead | null): string[] =>
+  (read?.result.groups ?? [])
+    .filter(
+      (group) =>
+        group.dimension === 'tract' &&
+        isHoldingBack(group) &&
+        isTargeted(group, ['tract']),
+    )
+    .map((group) => group.value)
 
 // The fewest further answers that could give every major group its voices:
 // an answer counts once on every dimension, so the dimension furthest short
@@ -71,6 +87,8 @@ export const mrpReadStatus = (input: {
     return {
       answers,
       needed,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good,
       status: good ? 'enoughAnswers' : 'tooEarly',
       underrepresented: [],
@@ -91,11 +109,7 @@ export const mrpReadStatus = (input: {
   // holding the read back: short of voices, or still too unsure.
   const holdingBack = new Set(
     majors
-      .filter(
-        (group) =>
-          group.answers < MIN_VOICES_PER_GROUP ||
-          group.high - group.low > MAX_REPRESENTATIVE_RANGE,
-      )
+      .filter(isHoldingBack)
       .map((group) => `${group.dimension}:${group.value}`),
   )
   const underrepresented: UnderrepresentedGroup[] = []
@@ -112,6 +126,9 @@ export const mrpReadStatus = (input: {
   return {
     answers,
     needed: Math.max(1, answers + answersMissing(majors, dimensions)),
+    groupsHeard: majors.filter((group) => group.answers >= MIN_VOICES_PER_GROUP)
+      .length,
+    groupsTotal: majors.length,
     good: status === 'representative',
     status,
     underrepresented,

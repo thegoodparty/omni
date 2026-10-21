@@ -21,6 +21,23 @@ describe('sizePanelWave', () => {
     ).toEqual([{ channel: 'text', position: 1, targetSize: 3_334 }])
   })
 
+  it("sizes a panel nobody is short on by the official's hours alone, with no text", () => {
+    expect(sizePanelWave({ gap: null, hoursPerWeek: 1, pools })).toEqual([
+      { channel: 'phone_banking', position: 1, targetSize: 30 },
+      { channel: 'door_knocking', position: 1, targetSize: 40 },
+    ])
+  })
+
+  it('makes no step when nobody can be called or visited and nobody is short', () => {
+    expect(
+      sizePanelWave({
+        gap: null,
+        hoursPerWeek: 5,
+        pools: { text: 50_000, phone: 0, door: 0 },
+      }),
+    ).toEqual([])
+  })
+
   it('splits an hour a week between calls and one walkable area', () => {
     expect(sizePanelWave({ gap: 100, hoursPerWeek: 1, pools })).toEqual([
       { channel: 'text', position: 1, targetSize: 3_150 },

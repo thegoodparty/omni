@@ -1,13 +1,15 @@
 import { MAX_LIST_SAMPLE_SIZE } from './ListSample.schema'
-import { answersNeeded } from '../outreach/AnswersNeeded.const'
+import {
+  answersNeeded,
+  MIN_VOICES_PER_GROUP,
+} from '../outreach/AnswersNeeded.const'
 import {
   PANEL_ASSUMED_REPLY_RATE,
   PANEL_SEED_ASSUMED_JOIN_RATE,
 } from '../outreach/CivicPanelJoin'
 
-// Everything the civic panel sizes targets answers to one question, not
-// members (Bryan, 2026-10-15): the district's answersNeeded, enough for
-// every major group to answer three times.
+// The civic panel is sized so every major group is expected to answer one
+// question three times: the district's answersNeeded, over the answer rate.
 
 // Rounded to six places first so float noise (100 / 0.4) never asks one
 // more person than the math says.
@@ -18,6 +20,12 @@ const ceilClean = (value: number): number => Math.ceil(Number(value.toFixed(6)))
 // at most.
 export const panelGoalMembers = (answers: number): number =>
   ceilClean(answers / PANEL_ASSUMED_REPLY_RATE)
+
+// The members a group needs on the panel to expect three answers to one
+// question. A group with this many is covered.
+export const PANEL_MEMBERS_PER_GROUP = ceilClean(
+  MIN_VOICES_PER_GROUP / PANEL_ASSUMED_REPLY_RATE,
+)
 
 // The answers a panel of this many members is expected to give one question.
 export const panelExpectedAnswers = (members: number): number =>

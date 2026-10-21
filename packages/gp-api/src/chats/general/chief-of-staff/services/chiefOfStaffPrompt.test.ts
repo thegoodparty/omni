@@ -137,9 +137,11 @@ describe('buildChiefOfStaffSystemPrompt', () => {
               {
                 answers: 54,
                 needed: 96,
+                groupsHeard: 9,
+                groupsTotal: 12,
                 good: false,
                 status: 'gettingClose',
-                underrepresented: ['renters'],
+                underrepresented: ['age65plus', 'unreachedAreas'],
               },
             ],
           ]),
@@ -147,7 +149,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         toolNames: TOOLS,
       })
       expect(prompt).toContain(
-        '- Downtown parking, answers: 54 of 96 needed for a good read, representative: Getting close, hear more from: renters, good read: no: Not enough spaces near Main.',
+        '- Downtown parking, groups heard from: 9 of 12, status: Still unsure what some groups think, hear more from: people 65 and over and people in a few neighborhoods, good read: no: Not enough spaces near Main.',
       )
       expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
       expect(prompt).toContain(
@@ -155,10 +157,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       )
       expect(prompt).toContain('Nudge toward a good read instead')
       expect(prompt).toContain(
-        'you could not check them against the census, and never call them representative',
+        'you could not check which groups they came from, and never say every group was heard',
       )
       expect(prompt).toContain(
-        'Never mention weights, weighting, quotas, discounting',
+        'Never mention weights, weighting, raking, models, quotas or confidence ranges',
       )
       expect(prompt).toContain(
         'If they ask directly what people have said so far, answer honestly in one or two sentences',
@@ -171,7 +173,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         ctx: baseCtx({ priorities: [priority] }),
         toolNames: TOOLS,
       })
-      expect(prompt).not.toContain('needed for a good read')
+      expect(prompt).not.toContain('groups heard from')
       expect(prompt).not.toContain('BEFORE A GOOD READ')
     })
   })

@@ -392,7 +392,7 @@ describe('the welcome tiles behind serve-citizen-panels', () => {
       'Ask residents before you vote',
       'Know what your community is talking about',
       'Follow through on the issues you were elected to solve',
-      'Walk into every meeting prepared',
+      'Be ready for your next meeting',
     ])
   })
 })

@@ -71,7 +71,8 @@ when the turn is actually queued). What the official types or picks in a
 clarify card is `AI Chat - Message Sent` (`shared/agent-chat/chatAnalytics.ts`);
 the hidden kickoff, sent markers and Get answers turn never fire it.
 `Results Viewed` fires on the results page with `heldBack` and
-`weightingStatus` (the read's status, snake case, `weightingStatus.ts`). A
+`readStatus` (the read's status, snake case, `readStatusProperty.ts`),
+`answersFloor` and `groupsHeard` of `groupsTotal`. A
 priority card's outreach carries `launchSource` on the `Outreach -` events:
 `expand_panel` when the card answers a Get answers turn (read from the user
 turn before it, so it survives a reload), `priorities` otherwise. Creates,

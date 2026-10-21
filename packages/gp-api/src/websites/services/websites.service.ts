@@ -4,7 +4,22 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { Prisma, User } from '../../generated/prisma'
+import {
+  Prisma,
+  User,
+  VendorMockVendor,
+  WebsiteStatus,
+} from '../../generated/prisma'
+import {
+  NON_PROD_LIVE_VENDOR_BYPASS,
+  VENDOR_MODE,
+} from '@/shared/util/appEnvironment.util'
+import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
+import { VercelService } from '@/vendors/vercel/services/vercel.service'
+import {
+  VercelDnsRecordStateSchema,
+  VercelProjectDomainStateSchema,
+} from '@/vendors/vercel/schemas/vercelMock.schema'
 import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import { promisify } from 'node:util'
@@ -23,6 +38,18 @@ import {
 } from '../util/genericContent.util'
 
 const dnsLookup = promisify(dns.lookup)
+
+const VERCEL_PROJECT_DOMAIN_KIND = 'project_domain'
+const VERCEL_DNS_RECORD_KIND = 'dns_record'
+// What a customer's DNS must point at for Vercel to serve the project.
+const VERCEL_DNS_TARGETS = ['76.76.21.21', 'cname.vercel-dns.com']
+
+const NO_CONTENT_CHECKS = {
+  http_200: false,
+  has_privacy_policy: false,
+  has_terms: false,
+  has_candidate_identity: false,
+} as const
 
 export type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
@@ -117,6 +144,13 @@ export const wouldBePublishableAfterFallbacks = (
 
 @Injectable()
 export class WebsitesService extends createPrismaBase(MODELS.Website) {
+  constructor(
+    private readonly vendorMocks: VendorMockRecordService,
+    private readonly vercel: VercelService,
+  ) {
+    super()
+  }
+
   createByCampaign(user: User, campaign: CampaignWith<'campaignPositions'>) {
     // Seed only real positions; a site with none stays unpublishable until the
     // candidate authors genuine issues (the publish gate enforces this).
@@ -242,8 +276,9 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     // Vercel project — the domain DNS resolves to a generic GP placeholder
     // page that lacks the privacy/terms/identity markers verify-live looks for.
     // Short-circuit so the rest of the compliance flow (TCR submission) is
-    // testable in dev.
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+    // testable in dev. Only in live mode: where vendors are mocked (preview,
+    // local) the mock-mode check below runs instead.
+    if (NON_PROD_LIVE_VENDOR_BYPASS) {
       return {
         verified: true,
         url,
@@ -255,6 +290,14 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
           has_candidate_identity: true,
         },
       }
+    }
+
+    if (VENDOR_MODE === 'mock') {
+      return this.verifyLiveAgainstMocks(
+        website.status,
+        website.domain.name,
+        url,
+      )
     }
 
     await assertPublicHostname(website.domain.name)
@@ -278,6 +321,80 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
       )
     }
     return result
+  }
+
+  // Mock mode never fetches over HTTP: candidates.goodparty.org reads the prod
+  // DB, so it never serves a dev or preview site. "Live" here means the site is
+  // published and its domain is attached to the Vercel project in the mock.
+  // Failures reuse the existing reasons: not_live for an unpublished site (no
+  // page would be served), unreachable for a domain Vercel does not route.
+  private async verifyLiveAgainstMocks(
+    status: WebsiteStatus,
+    domainName: string,
+    url: string,
+  ): Promise<VerifyLiveResponse> {
+    if (status !== WebsiteStatus.published) {
+      return {
+        verified: false,
+        url,
+        reason: VerifyLiveReason.notLive,
+        checks: { ...NO_CONTENT_CHECKS },
+      }
+    }
+    if (!(await this.isDomainAttachedInVercelMock(domainName))) {
+      return {
+        verified: false,
+        url,
+        reason: VerifyLiveReason.unreachable,
+        checks: { ...NO_CONTENT_CHECKS },
+      }
+    }
+    return {
+      verified: true,
+      url,
+      reason: null,
+      checks: {
+        http_200: true,
+        has_privacy_policy: true,
+        has_terms: true,
+        has_candidate_identity: true,
+      },
+    }
+  }
+
+  private async isDomainAttachedInVercelMock(
+    domainName: string,
+  ): Promise<boolean> {
+    const projectDomain = await this.vendorMocks.findOne(
+      VendorMockVendor.vercel,
+      VERCEL_PROJECT_DOMAIN_KIND,
+      domainName,
+    )
+    if (projectDomain) {
+      const state = VercelProjectDomainStateSchema.safeParse(
+        projectDomain.state,
+      )
+      if (
+        state.success &&
+        state.data.projectId === this.vercel.getProjectId()
+      ) {
+        return true
+      }
+    }
+    const dnsRecords = await this.vendorMocks.findMany({
+      where: {
+        vendor: VendorMockVendor.vercel,
+        kind: VERCEL_DNS_RECORD_KIND,
+        externalId: { startsWith: `${domainName}/` },
+      },
+    })
+    return dnsRecords.some((record) => {
+      const state = VercelDnsRecordStateSchema.safeParse(record.state)
+      return (
+        state.success &&
+        VERCEL_DNS_TARGETS.includes(state.data.value.replace(/\.$/, ''))
+      )
+    })
   }
 }
 

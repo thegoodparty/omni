@@ -27,6 +27,14 @@ name: release
 on:
   push:
     branches: [main]
+    # A push that only touches these deploys nothing, so it starts no train;
+    # the next code push releases everything since. Root-level *.md only:
+    # Markdown under packages/ is read at runtime (runbooks, prompts). The
+    # autopilot image bakes in a copy of the repo, but it fetches and resets
+    # to main before each run, so it doesn't need a release to see new docs.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       sha:
@@ -114,8 +122,8 @@ jobs:
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
           # images here; gp-api/election-api build inside the train's dev stage.
-          # contracts/gp-sdk/styleguide/prototypes are omitted deliberately —
-          # contracts/gp-sdk are transitively covered (a service build fails if
+          # contracts/styleguide/prototypes are omitted deliberately —
+          # contracts is transitively covered (a service build fails if
           # they do), and a broken styleguide/prototypes fails its own deploy
           # job in the train's dev stage.
           REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
@@ -129,11 +137,11 @@ jobs:
           }
 
           # A red check on a commit that main has already moved past is not
-          # worth a red train and a #bot-urgent alert when the newer commit
-          # fixed it. Such a run cancels itself, which the failure alert
-          # already treats as batching. The rule is per failed workflow: wait
-          # until the newer commit's run of it finishes, cancel only if every
-          # one passed there, and fail if any failed there too. Deciding
+          # worth a red train when the newer commit fixed it. Such a run
+          # cancels itself, which reads as batching rather than a failure.
+          # The rule is per failed workflow: wait until the newer commit's run
+          # of it finishes, cancel only if every one passed there, and fail if
+          # any failed there too. Deciding
           # earlier would rely on the newer commit getting its own train to
           # report a failure, which a path-filtered or superseded push would
           # not. Only push runs qualify: a dispatch names its SHA on purpose.
@@ -568,9 +576,6 @@ jobs:
       - name: apply dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
 
       - wait-all:
 
@@ -612,9 +617,6 @@ jobs:
       - name: reverify dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
@@ -727,11 +729,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
     env:
+      # The Clerk throttle splits its budget across every worker of the run
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
     steps:
       - uses: actions/checkout@v5
@@ -765,7 +770,7 @@ jobs:
         working-directory: packages/gp-webapp/e2e-tests
         run: >-
           npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/4 --reporter=blob
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
         env:
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
@@ -899,12 +904,6 @@ jobs:
             # file, describes, title and tags joined by SPACES, so no separator
             # this prints would match. The file path is the part a repro command
             # takes, and it takes it positionally.
-            #
-            # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
-            # decides whether the bot files a ticket for it, and that judgement
-            # is single-sourced in clickup_bot/dev_test_triage.py where tests
-            # pin it. A second grep in YAML is how the two start disagreeing
-            # about which failures are nobody's problem.
             {
               echo "failed_tests<<E2E_FAILED_TESTS"
               jq -r '
@@ -1098,8 +1097,6 @@ jobs:
         with:
           app: gp-admin
           build-contracts: 'true'
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
       - name: Deploy to Vercel
         uses: ./.github/actions/vercel-deploy
         with:
@@ -1190,7 +1187,7 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
+          for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
               found=$((found+1))
@@ -1200,10 +1197,10 @@ jobs:
           done
           if [ "$missing" -eq 0 ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "All 7 gp-ai images present for $SHA; promoting gp-ai."
+            echo "All 6 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all seven on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all six on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
@@ -1267,9 +1264,6 @@ jobs:
       - name: apply prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
-      - name: apply prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/clickup-bot
       - name: apply prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/pmf-engine-control-plane
@@ -1285,9 +1279,6 @@ jobs:
       - name: apply prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: apply prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
@@ -1296,7 +1287,7 @@ jobs:
 
       # shared-infra applies alone, after everything above, because it is the
       # only root that consumes other roots' outputs: it reads the lambda ARN
-      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # and name out of alert-filter and ddhq-matcher-fargate state
       # to build a target group and permission for each. Nothing reads
       # shared-infra in turn, so it is free to go last.
       #
@@ -1323,9 +1314,6 @@ jobs:
       - name: reverify prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
-      - name: reverify prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/clickup-bot
       - name: reverify prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/pmf-engine-control-plane
@@ -1341,9 +1329,6 @@ jobs:
       - name: reverify prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: reverify prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter

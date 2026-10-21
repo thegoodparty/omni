@@ -495,6 +495,47 @@ describe('PostAuthRedirectPage', () => {
     expect(replaceSpy).toHaveBeenCalledWith('/dashboard/briefings')
   })
 
+  it('next param: lands in the office just onboarded when the user holds several', async () => {
+    setLocation('?next=%2Fdashboard%2Fchief-of-staff&org=eo-2')
+    const firstOfficeOrg = {
+      ...orgFixture,
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    }
+    const newOfficeOrg = {
+      ...orgFixture,
+      slug: 'eo-2',
+      electedOfficeId: 'eo-2',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [firstOfficeOrg, newOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [
+        { id: 1, onboardingCompletedAt: '2026-02-01' },
+        { id: 2, onboardingCompletedAt: '2026-03-01' },
+      ] as any,
+    })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() =>
+      expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'eo-2'),
+    )
+    expect(replaceSpy).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+  })
+
   it('next param: ignores protocol-relative/open-redirect values', async () => {
     setLocation('?next=%2F%2Fevil.com')
     api.mock('GET /v1/organizations', {

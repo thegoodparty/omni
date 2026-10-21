@@ -86,10 +86,17 @@ const PostAuthRedirectPage = () => {
         // isServeRoutePath so landing there can't overwrite the org-slug cookie
         // for a user who also owns a campaign org.
         const wantsServe = !!safeNext && isServeRoutePath(safeNext)
+        // Serve onboarding names the office it just finished, so a user who
+        // holds several lands in that one, not the first on the list.
+        const handedOffSlug = new URLSearchParams(window.location.search).get(
+          'org',
+        )
+        const serveOrg =
+          organizations.find(
+            (o) => o.electedOfficeId && o.slug === handedOffSlug,
+          ) ?? electedOrg
         const slug =
-          wantsServe && electedOrg
-            ? electedOrg.slug
-            : resolveSlug(organizations)
+          wantsServe && serveOrg ? serveOrg.slug : resolveSlug(organizations)
         if (slug) {
           setCookie(ORG_SLUG_COOKIE, slug)
         }

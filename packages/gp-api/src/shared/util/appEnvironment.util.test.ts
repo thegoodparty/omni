@@ -88,16 +88,16 @@ describe('resolveVendorMode', () => {
     expect(resolveVendorMode('preview', undefined)).toBe('mock')
   })
 
-  it('defaults to live when OTEL_SERVICE_ENVIRONMENT is dev', () => {
-    expect(resolveVendorMode('dev', undefined)).toBe('live')
+  it('defaults to mock when OTEL_SERVICE_ENVIRONMENT is dev', () => {
+    expect(resolveVendorMode('dev', undefined)).toBe('mock')
   })
 
   it('defaults to live when OTEL_SERVICE_ENVIRONMENT is prod', () => {
     expect(resolveVendorMode('prod', undefined)).toBe('live')
   })
 
-  it('explicit VENDOR_MODE=mock overrides dev default', () => {
-    expect(resolveVendorMode('dev', 'mock')).toBe('mock')
+  it('VENDOR_MODE=live on dev returns live (rollback lever)', () => {
+    expect(resolveVendorMode('dev', 'live')).toBe('live')
   })
 
   it('explicit VENDOR_MODE=live overrides local default', () => {

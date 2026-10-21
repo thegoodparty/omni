@@ -711,6 +711,11 @@ export const SmsFlow = ({
 
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
   const [draftCreateError, setDraftCreateError] = useState(false)
+  // The server's own reason when it refused the draft, so the review step can
+  // say why instead of only "try again" (ENG-11413).
+  const [draftCreateErrorMessage, setDraftCreateErrorMessage] = useState<
+    string | null
+  >(null)
   const isDraftCreatingRef = useRef(false)
   // Bumped whenever the current draft is discarded (Back off review): an
   // in-flight create started before the bump must not resurrect its id —
@@ -1724,6 +1729,7 @@ export const SmsFlow = ({
     if (!phoneList?.phoneListId && !payBeforeReady) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)
+    setDraftCreateErrorMessage(null)
     const generation = draftGenerationRef.current
     // Pre-build (pay-before-ready): the count is the pre-pay estimate, a ceiling
     // gp-api's capture bills down to the actual leads_loaded. Once ready it is
@@ -1786,6 +1792,10 @@ export const SmsFlow = ({
             draft: true,
           },
           resumed ? null : image,
+          (message) => {
+            if (generation === draftGenerationRef.current)
+              setDraftCreateErrorMessage(message)
+          },
         )
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
@@ -2529,6 +2539,7 @@ export const SmsFlow = ({
                 : !phoneList || (!draftOutreachId && !draftCreateError))
             }
             prepareError={draftCreateError}
+            prepareErrorMessage={draftCreateErrorMessage}
             buildFailed={phoneListBuildFailed}
             retryingBuild={phoneListCreating}
             onRetryBuild={handleRetryPhoneListBuild}

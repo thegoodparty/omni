@@ -51,6 +51,8 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   // Same posture: non-prod only, 404 in live mode, 23 stub routes would
   // push the total route map past the Loki tenant series cap (500).
   'vendor-mocks/peerly',
+  'vendor-mocks/vercel',
+  'vendor-mocks/route53',
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',
@@ -210,8 +212,27 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: '1 - (sum(rate(probe_all_success_sum{job="gp-api-$ENV-health"}[5m])) / sum(rate(probe_all_success_count{job="gp-api-$ENV-health"}[5m])))',
     threshold: 0.3,
     for: '2m',
+    // A query to Grafana Cloud Prometheus timing out (2026-10-21 06:46Z,
+    // ENG-11393) paged as a probe failure with the endpoint never measured.
+    // Keep the last real answer instead; a broken query path is reported by
+    // `alerting-rule-evaluations-failing`.
+    execErrState: 'KeepLast',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
+  },
+  {
+    slug: 'delegate-swarm-probe-failure',
+    name: '[Ops] Delegate agent swarm unreachable',
+    type: 'metric',
+    // Two probes every 2 minutes, so 10 minutes holds about 8 executions. One
+    // failed round (2/8) stays under 30%; two consecutive rounds page.
+    expr: '1 - (sum(rate(probe_all_success_sum{job="delegate-swarm-health"}[10m])) / sum(rate(probe_all_success_count{job="delegate-swarm-health"}[10m])))',
+    threshold: 0.3,
+    for: '2m',
+    message: [
+      'Synthetic probes to https://delegate-swarm.infra.goodparty.org/health are failing, so Delegate is probably not answering Slack mentions either.',
+      'The usual cause is the swarm host running out of memory: the single-threaded API stalls on disk and logs `[db-client] slow sync statement blocked the event loop` in the `agent-swarm-api-1` stream of CloudWatch Logs `/delegate-swarm/containers` (infrastructure account 394495727159). It normally recovers on its own once the build that caused it is killed. Diagnosis and restart steps are in the ops repo, `agent-swarm/README.md`.',
+    ].join('\n\n'),
   },
   {
     slug: 'shared-synthesis-prompt-fallback',

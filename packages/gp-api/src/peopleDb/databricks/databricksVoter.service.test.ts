@@ -1016,8 +1016,14 @@ describe('DatabricksVoterService', () => {
           columns: [],
           rows: [['65plus', 'female', '53017950100', 'black', '40']],
         })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['53017950100', '1200']],
+        })
 
       const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+
+      expect(result.tractAdults).toEqual(new Map([['53017950100', 1200]]))
 
       expect(query.mock.calls[1]?.[0].sql).toContain('count(*) AS people')
       expect(result.district?.totalPopulation).toBe(100)
@@ -1031,6 +1037,28 @@ describe('DatabricksVoterService', () => {
         },
       ])
       expect(logger.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('findDistrictCells without tract adults', () => {
+    it('keeps the district and its people when the tract read fails', async () => {
+      stubDistrict('City_Ward', 'WARD 1')
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [Array.from({ length: 34 }, () => '100')],
+        })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['65plus', 'female', '53017950100', 'black', '40']],
+        })
+        .mockRejectedValueOnce(new Error('warehouse timeout'))
+
+      const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+
+      expect(result.tractAdults).toEqual(new Map())
+      expect(result.cells).toHaveLength(1)
+      expect(logger.warn).toHaveBeenCalledOnce()
     })
   })
 

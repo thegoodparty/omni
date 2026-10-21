@@ -45,7 +45,9 @@ A priority's read models its coded answers against the district
 `buildDistrictCellsSql` (op `district-cells`) counts the district's people
 per age band, gender, tract (the first 11 digits of
 `Census_Block_Group_Geoid`) and race (L2's `EthnicGroups_EthnicGroup1Desc`
-folded into the census categories), beside the district's ACS row, and
+folded into the census categories), beside the district's ACS row and its
+adults per tract (`buildDistrictTractAdultsSql`; a failed tract read gives an
+empty map and the frame keeps the voter file's tracts), and
 `buildAnswerCellsSql` (op `answer-cells`) sums the given people's answers in
 the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.

@@ -14,11 +14,14 @@ const StanceSplit = ({
   const labels = STANCE_LABELS[isServe ? 'serve' : 'win']
 
   return (
-    <ul aria-label={copy.stanceSplit} className="grid grid-cols-4 gap-2">
+    <ul
+      aria-label={copy.stanceSplit}
+      className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+    >
       {STANCE_ORDER.map((stance) => (
         <li
           key={stance}
-          className="flex flex-col rounded-md bg-muted px-2 py-1.5"
+          className="flex flex-col rounded-lg bg-muted px-2 py-1.5"
         >
           <span className="text-base font-semibold tabular-nums text-foreground">
             {counts[stance].toLocaleString()}

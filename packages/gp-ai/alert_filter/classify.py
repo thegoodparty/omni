@@ -31,7 +31,7 @@ TWO RULES THAT ARE NOT NEGOTIABLE, both about failing in the safe direction:
   cause whose evidence could not be read — every one of those routes to NOTIFY
   with a stated reason, never to SUPPRESS. A filter that goes quiet when it
   breaks is indistinguishable from a filter that is working, which is this
-  organisation's signature failure mode (see clickup_bot/weekly_digest.py).
+  organisation's signature failure mode.
 
 URGENCY IS JUDGED, NOT DECLARED. There is deliberately no `escalate` action in
 the registry: whoever writes down a known cause is describing the past, and
