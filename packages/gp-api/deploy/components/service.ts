@@ -84,6 +84,11 @@ export function createService({
     // A preview has no traffic worth draining, and the drain sat on the
     // critical path of every preview deploy.
     deregistrationDelay: select({ preview: 0, dev: 15, prod: 120 }),
+    // Round robin kept handing a task its full share while the hourly
+    // outreachInboundSweep cron parsed Peerly CSVs on its one thread, and on
+    // 2026-10-21 that task saturated while the others idled. Routing to the
+    // task with the fewest requests in flight sends traffic around a busy one.
+    loadBalancingAlgorithmType: 'least_outstanding_requests',
     healthCheck: {
       path: '/v1/health',
       // `interval * healthyThreshold` is on the critical path of every deploy:
