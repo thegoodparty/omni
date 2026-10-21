@@ -1314,12 +1314,7 @@ const StepHeading = ({
   center?: boolean
 }): React.JSX.Element => (
   <div className={center ? 'text-center' : undefined}>
-    <h1
-      className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-      style={{ fontFamily: 'var(--font-geist)' }}
-    >
-      {title}
-    </h1>
+    <h1 className="text-4xl font-bold text-foreground sm:text-5xl">{title}</h1>
     <p className="mt-4 text-base leading-relaxed text-muted-foreground">
       {description}
     </p>
@@ -1339,13 +1334,10 @@ const WelcomeStep = ({
     : SERVE_WELCOME_VALUE_PROPS
   return (
     <div>
-      <h1
-        className="text-4xl leading-tight font-semibold tracking-tight text-foreground md:text-5xl"
-        style={{ fontFamily: 'var(--font-geist)' }}
-      >
+      <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
         {copy.title}
       </h1>
-      <p className="mt-4 text-base leading-relaxed text-muted-foreground md:text-lg">
+      <p className="mt-4 text-base leading-relaxed text-muted-foreground">
         {copy.description}
       </p>
 
@@ -1809,10 +1801,7 @@ const PledgeStep = ({
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-6 sm:p-8">
-        <h2
-          className="mb-6 text-xl font-semibold text-foreground"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
+        <h2 className="mb-6 text-2xl leading-[1.08] font-bold text-foreground sm:text-3xl">
           I pledge to be...
         </h2>
         <div className="space-y-6">
@@ -1822,10 +1811,7 @@ const PledgeStep = ({
               <div key={commitment.title}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-5 w-5 text-foreground" />
-                  <h3
-                    className="text-lg font-semibold text-foreground"
-                    style={{ fontFamily: 'var(--font-geist)' }}
-                  >
+                  <h3 className="text-xl font-semibold text-foreground">
                     {commitment.title}
                   </h3>
                 </div>
@@ -1874,10 +1860,7 @@ const SwitchToCampaignStep = ({
   return (
     <>
       <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
-        <h1
-          className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
+        <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
           Let&apos;s get you set up for your campaign
         </h1>
         <p className="mt-4 text-base leading-relaxed text-muted-foreground">
