@@ -239,6 +239,9 @@ export const panelBalance = ({
   if (coverage.groupsCovered < coverage.groupsTotal) {
     return {
       status: 'missingGroups',
+      // Whoever is short of members is short of active members too, so the
+      // largest short of active members is never smaller than the largest
+      // short of members.
       inviteMore: (fresh ?? coverage).missing[0] ?? null,
       ...freshness,
     }
@@ -319,7 +322,7 @@ export const panelSteering = ({
   if (gaps.length === 0) {
     return fresh
       ? { ...UNSTEERED, coverage, fresh, balance }
-      : { ...UNSTEERED, coverage }
+      : { ...UNSTEERED, coverage, balance }
   }
   const older = gaps.find(
     (gap) => gap.dimension === 'age' && gap.value === '65plus',
