@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     # Keyed on the shard as well: a group shared across the matrix would have
     # the shards cancelling each other on every run.
     concurrency:
