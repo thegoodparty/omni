@@ -650,7 +650,7 @@ export const createGrafanaResources = async ({
       // that metric's existence directly. That is deliberately one page rather
       // than `NoData -> Alerting` on five rules, which would reproduce the
       // 2026-09-28 flood in miniature.
-      noDataState: 'OK',
+      noDataState: alert.noDataState ?? 'OK',
       execErrState: alert.execErrState ?? 'Alerting',
       annotations: {
         summary: buildAlertSummary(alert, environment),

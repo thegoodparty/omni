@@ -28,6 +28,12 @@ describe('lakeflowReplicationAlerts', () => {
     }
   })
 
+  it('pages when the metric stops arriving', () => {
+    for (const alert of lakeflowReplicationAlerts) {
+      expect(alert.noDataState, alert.slug).toBe('Alerting')
+    }
+  })
+
   it('sends Metrics Insights SQL that follows the writer', () => {
     for (const alert of lakeflowReplicationAlerts) {
       const model = JSON.parse(alertQueryModel(alert, 'prod'))

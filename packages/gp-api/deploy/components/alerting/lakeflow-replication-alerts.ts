@@ -54,6 +54,9 @@ export const lakeflowReplicationAlerts: Alert[] = CLUSTERS.flatMap(
       threshold,
       for: '15m' as const,
       evaluationIntervalSeconds: 300,
+      // Aurora publishes these with or without a slot (0 or -1 when there is
+      // none), so no data means the query broke, not that all is well.
+      noDataState: 'Alerting' as const,
       message: [
         `${metric} on the ${cluster} writer has been above ${threshold / GIB} GiB for 15 minutes: ${meaning}.`,
         `Check the gateway (Jobs & Pipelines > gp-api-mirror-${label}-gateway) and the slot (\`SELECT slot_name, active, wal_status FROM pg_replication_slots\`). If the gateway is down, restart it; if the mirror is being retired, drop the slot. Steps for both: ${RUNBOOK} § Failure modes.`,

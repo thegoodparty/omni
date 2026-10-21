@@ -303,6 +303,16 @@ export type Alert = {
    */
   execErrState?: 'Alerting' | 'KeepLast'
 
+  /**
+   * What the rule does when its query returns no data. Defaults to `OK`, which
+   * is right for the Loki rules: a route with no errors produces no series.
+   *
+   * `Alerting` is for a rule whose metric is always published, so an empty
+   * result can only mean the query or the datasource broke and the rule has
+   * stopped looking.
+   */
+  noDataState?: 'OK' | 'Alerting'
+
   /** Whether the alert is disabled. */
   disabled?: boolean
 }
