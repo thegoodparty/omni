@@ -190,6 +190,24 @@ export class VendorMockRecordService extends createPrismaBase(
     })
   }
 
+  // Resolve a campaignId from a Peerly identity_name. The real service sends
+  // identity_name as "${userFullName} - ${EIN}" (or "TEST-..." in test mode).
+  // WHY: Peerly identity creation carries no campaign identifier, so we extract
+  // the EIN suffix and join through TcrCompliance to tie mock records to the
+  // campaign for GET /v1/test-fixtures/vendor-mocks/records.
+  async campaignIdFromIdentityName(
+    identityName: string,
+  ): Promise<number | undefined> {
+    const ein = identityName.split(' - ').pop()
+    if (!ein) return undefined
+    const compliance = await this.client.tcrCompliance.findFirst({
+      where: { ein },
+      orderBy: { createdAt: 'desc' },
+      select: { campaignId: true },
+    })
+    return compliance?.campaignId ?? undefined
+  }
+
   // Fail-closed to the known non-prod deploys, 404 rather than 403 so the
   // service doesn't advertise itself in prod. Mirrors TestFixturesController.
   private assertNonProdDeploy() {

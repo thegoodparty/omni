@@ -22,8 +22,8 @@ import { createHmac, randomUUID } from 'crypto'
 import { addSeconds, differenceInMilliseconds, getUnixTime } from 'date-fns'
 import { FastifyReply } from 'fastify'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+import { PEERLY_MOCK_JWT_SECRET } from './peerlyMockJwt'
 
-const MOCK_JWT_SECRET = 'peerly-mock-secret-2026'
 const PHONE_LIST_COMPLETE_MS = 10_000
 const MOCK_BALANCE_ID = 'mock-balance'
 
@@ -34,7 +34,7 @@ const signHs256Jwt = (payload: Record<string, number | string>): string => {
     JSON.stringify({ alg: 'HS256', typ: 'JWT' }),
   ).toString('base64url')
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const sig = createHmac('sha256', MOCK_JWT_SECRET)
+  const sig = createHmac('sha256', PEERLY_MOCK_JWT_SECRET)
     .update(`${header}.${body}`)
     .digest('base64url')
   return `${header}.${body}.${sig}`
