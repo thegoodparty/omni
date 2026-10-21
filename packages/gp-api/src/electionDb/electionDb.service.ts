@@ -21,9 +21,10 @@ const PRISMA_LOG_LEVELS = [
 ]
 
 // Previews share one small Aurora across ~10 concurrent PR stacks, so they get
-// the same cap gp-api's own pool takes in docker-entrypoint.sh. dev/prod keep
-// election-api's per-task value so the total against the cluster is unchanged.
-const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '25'
+// the same cap gp-api's own pool takes in docker-entrypoint.sh. dev/prod take
+// 50: at the 24-task prod max, doubled during a deploy, that is 2,400
+// connections against the cluster's 5,000 cap.
+const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '50'
 
 export type ElectionDbPrismaClient = PrismaClient<
   Prisma.PrismaClientOptions,
@@ -78,9 +79,12 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
   ): Promise<ElectionDbPrismaClient> {
     const url = new URL(databaseUrl)
     url.searchParams.set('connection_limit', CONNECTION_LIMIT)
-    // election-api ran at 20s after exhausting its pool under load (P2024);
-    // gp-api now carries that same traffic.
-    url.searchParams.set('pool_timeout', '20')
+    // A request that cannot get a connection fails after this long. At 20s a
+    // burst from one machine caller (81k reads in 20 minutes on 2026-10-19)
+    // left tens of thousands of requests parked in the pool queue, and the
+    // health probe on the same tasks stalled past its 10s timeout. Failing the
+    // queue fast sheds the excess instead of holding it.
+    url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
 
     const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({

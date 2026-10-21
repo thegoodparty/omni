@@ -36,7 +36,14 @@ const REPRESENTATION: CivicPanelRepresentation = {
 const PLAN = {
   plan: null,
   next: null,
-  progress: { members: 40, goal: 240, answersNeeded: 96, expectedAnswers: 16 },
+  progress: {
+    members: 40,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 16,
+    groupsCovered: 5,
+    groupsTotal: 12,
+  },
   balance: null,
 }
 
@@ -53,7 +60,7 @@ describe('CitizensPanelView', () => {
         representation={REPRESENTATION}
         plan={{
           ...PLAN,
-          balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+          balance: { status: 'missingGroups', inviteMore: 'age65plus' },
         }}
       />,
     )
@@ -62,9 +69,11 @@ describe('CitizensPanelView', () => {
       members: 40,
       goalMembers: 240,
       expectedAnswers: 16,
-      answersNeeded: 96,
+      answersFloor: 96,
+      groupsCovered: 5,
+      groupsTotal: 12,
       planStatus: 'none',
-      howCloseStatus: 'not_yet_representative',
+      howCloseStatus: 'missing_groups',
       entry: 'direct',
     })
   })
@@ -91,7 +100,7 @@ describe('CitizensPanelView', () => {
         representation={REPRESENTATION}
         plan={{
           ...PLAN,
-          balance: { status: 'notYetRepresentative', inviteMore: 'age65plus' },
+          balance: { status: 'missingGroups', inviteMore: 'age65plus' },
         }}
       />,
     )
@@ -99,10 +108,55 @@ describe('CitizensPanelView', () => {
     expect(
       screen.getByText('How your panel compares with your district'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Not yet representative')).toBeInTheDocument()
+    expect(screen.getByText('Missing some groups')).toBeInTheDocument()
     expect(
       screen.getByText('Invite more people 65 and over next.'),
     ).toBeInTheDocument()
+  })
+
+  it('says how many groups need fresh voices past the goal, and who to invite', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={{
+          ...PLAN,
+          balance: {
+            status: 'everyGroup',
+            inviteMore: 'age65plus',
+            groupsNeedingFresh: 3,
+          },
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'Every group on your panel \u00b7 3 groups need fresh voices',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Invite more people 65 and over next.'),
+    ).toBeInTheDocument()
+  })
+
+  it('says every group has fresh voices once none need them', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        representation={REPRESENTATION}
+        plan={{
+          ...PLAN,
+          balance: {
+            status: 'everyGroup',
+            inviteMore: null,
+            groupsNeedingFresh: 0,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Every group has fresh voices')).toBeInTheDocument()
   })
 
   it('waits for 30 members before comparing, and hides without the census', () => {
@@ -110,10 +164,13 @@ describe('CitizensPanelView', () => {
       <CitizensPanelView
         summary={SUMMARY}
         representation={REPRESENTATION}
-        plan={{ ...PLAN, balance: { status: 'tooEarly', inviteMore: null } }}
+        plan={{
+          ...PLAN,
+          balance: { status: 'tooFewMembers', inviteMore: null },
+        }}
       />,
     )
-    expect(screen.getByText('Too early')).toBeInTheDocument()
+    expect(screen.getByText('Too few members yet')).toBeInTheDocument()
     expect(
       screen.getByText(
         "We'll compare your panel with your district once 30 people join.",

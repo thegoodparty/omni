@@ -352,13 +352,15 @@ export function createService({
     ),
   })
 
-  new aws.ecs.Service(
+  const prodMinTasks = 4
+
+  const ecsService = new aws.ecs.Service(
     'ecsService',
     {
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      desiredCount: isProd ? 2 : 1,
+      desiredCount: isProd ? prodMinTasks : 1,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,
@@ -412,8 +414,68 @@ export function createService({
       customTimeouts: { create: '10m', update: '10m' },
       // ECS rejects a target group that no load balancer forwards to yet.
       dependsOn: listenerRule ? [listenerRule] : [],
+      // Autoscaling owns the prod task count. Without this, a deploy can reset
+      // it to the minimum mid-traffic.
+      ignoreChanges: isProd ? ['desiredCount'] : [],
     },
   )
+
+  if (isProd) {
+    // Register and Put are upserts, so these adopt the SST-era target and
+    // policies by name instead of creating duplicates. The register is only an
+    // upsert while it carries no tags: AWS treats a tagged
+    // RegisterScalableTarget as create-only and rejects it when the target
+    // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
+    // it. A provider without defaultTags keeps the adoption working.
+    const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+      region: aws.config.region,
+    })
+    const scalableTarget = new aws.appautoscaling.Target(
+      'scalableTarget',
+      {
+        serviceNamespace: 'ecs',
+        scalableDimension: 'ecs:service:DesiredCount',
+        resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+        minCapacity: prodMinTasks,
+        maxCapacity: 24,
+      },
+      { provider: untaggedProvider },
+    )
+
+    // The SST-era policies scaled in with a 0s cooldown: on 2026-10-19 they
+    // removed a task every minute, 16 down to 2, and the 2 left saturated
+    // under election traffic. Average CPU then hid it, because each saturated
+    // task failed health checks and its booting replacement read near 0%.
+    const scalingPolicy = (
+      name: string,
+      policyName: string,
+      metricType: string,
+    ) =>
+      new aws.appautoscaling.Policy(name, {
+        name: policyName,
+        policyType: 'TargetTrackingScaling',
+        serviceNamespace: scalableTarget.serviceNamespace,
+        scalableDimension: scalableTarget.scalableDimension,
+        resourceId: scalableTarget.resourceId,
+        targetTrackingScalingPolicyConfiguration: {
+          targetValue: 50,
+          predefinedMetricSpecification: { predefinedMetricType: metricType },
+          scaleInCooldown: 600,
+          scaleOutCooldown: 0,
+        },
+      })
+
+    scalingPolicy(
+      'cpuScalingPolicy',
+      'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu',
+      'ECSServiceAverageCPUUtilization',
+    )
+    scalingPolicy(
+      'memoryScalingPolicy',
+      'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft',
+      'ECSServiceAverageMemoryUtilization',
+    )
+  }
 
   return {
     url: pulumi.interpolate`https://${domain}`,

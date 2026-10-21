@@ -105,6 +105,7 @@ import type { AgentExperimentResultData } from '../queue.types'
 
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
+import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -608,6 +609,7 @@ export class QueueConsumerService {
         billableTextCount: true,
         textCount: true,
         pollDetails: { select: { audienceKind: true } },
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
       },
     })
 
@@ -625,6 +627,16 @@ export class QueueConsumerService {
         { outreachId, sendSeq },
         'outreachTextSend: a poll reached delivery without approval, which ' +
           'should never happen; acking without sending',
+      )
+      return true
+    }
+    // A round 2 text is enqueued by its draw, never before: its list holds
+    // nobody until then.
+    if (isUndrawnSample(outreach.voterFileFilter)) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: a round 2 text reached delivery before its draw, ' +
+          'which should never happen; acking without sending',
       )
       return true
     }

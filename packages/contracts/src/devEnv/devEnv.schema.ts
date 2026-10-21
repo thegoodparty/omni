@@ -21,3 +21,14 @@ export const DevEnvBundleResponseSchema = z.object({
   bundles: z.array(DevEnvPackageBundleSchema),
 })
 export type DevEnvBundleResponse = z.infer<typeof DevEnvBundleResponseSchema>
+
+// A short-lived presigned GET for the local election seed: the slice of the
+// dev election database local setup loads into `electiondb`. The URL is a
+// bearer credential for a restricted dataset until it expires — never log it.
+export const DevEnvElectionSeedResponseSchema = z.object({
+  url: z.string().url(),
+  expiresAt: z.string(),
+})
+export type DevEnvElectionSeedResponse = z.infer<
+  typeof DevEnvElectionSeedResponseSchema
+>

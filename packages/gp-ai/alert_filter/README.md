@@ -66,8 +66,7 @@ knownCauses: [
 - `action: 'suppress'` requires `evidence`; the tests enforce it. Suppressing on
   a hunch is the one failure this design cannot recover from.
 - `ticket` is where the real fix is tracked. A suppressed cause without one is a
-  bug being hidden rather than deferred, and the weekly digest calls those out
-  by name.
+  bug being hidden rather than deferred.
 
 ## Where things are
 
@@ -80,7 +79,6 @@ knownCauses: [
 | Infrastructure | `../infrastructure/modules/alert-filter/` |
 | Registry + contact point | `gp-api/deploy/components/alerts.ts`, `.../grafana.ts` |
 | Logs | `/aws/lambda/alert-filter-prod` |
-| Weekly summary | `clickup_bot/weekly_digest.py`, from `GPALERT_METRIC` lines |
 
 ## Things that will look like bugs
 

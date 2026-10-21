@@ -20,6 +20,24 @@ import { PinoLogger } from 'nestjs-pino'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
 import { isTestUser } from '../util/users.util'
+import { z } from 'zod'
+
+const HubspotFormErrorBodySchema = z.object({
+  correlationId: z.string().optional(),
+  errors: z.array(z.object({ errorType: z.string() })).optional(),
+})
+
+// The request body is the form submission (name, email, phone), and a raw
+// AxiosError would carry it into stdout and Slack.
+const dropFormBody = (err: AxiosError) => {
+  delete err.config?.data
+}
+
+const isRetryableFormError = (error: unknown) => {
+  if (!isAxiosError(error)) return false
+  const status = error.response?.status
+  return !status || status === 429 || status >= 500
+}
 
 @Injectable()
 export class CrmUsersService {
@@ -267,8 +285,8 @@ export class CrmUsersService {
       )
       return
     }
-    try {
-      return await lastValueFrom(
+    const submit = () =>
+      lastValueFrom(
         this.httpService.post(
           `https://api.hsforms.com/submissions/v3/integration/submit/21589597/${formId}`,
           {
@@ -288,24 +306,44 @@ export class CrmUsersService {
           },
         ),
       )
-    } catch (error) {
-      let message = 'Error submitting form to HubSpot: '
-      if (isAxiosError(error)) {
-        const axiosError = error as AxiosError
-        if (axiosError.response) {
-          message += JSON.stringify(axiosError.response.data)
-          // Handle error response body here
-        } else if (axiosError.request) {
-          message += axiosError.request
-        } else {
-          message += axiosError.message
-        }
-      } else {
-        this.logger.error({ error }, 'Unexpected Error:')
+    try {
+      try {
+        return await submit()
+      } catch (err) {
+        if (!isRetryableFormError(err)) throw err
+        if (isAxiosError(err)) dropFormBody(err)
+        this.logger.warn({ err, formId }, 'retrying HubSpot form submission')
+        return await submit()
       }
-      this.logger.error({ message, error }, 'hubspot error')
-      await this.slack.errorMessage({ message: 'Error submitting form', error })
-      throw new BadGatewayException(message)
+    } catch (err) {
+      const axiosError = isAxiosError(err) ? err : undefined
+      if (axiosError) dropFormBody(axiosError)
+      const response = axiosError?.response
+      const body = HubspotFormErrorBodySchema.safeParse(response?.data)
+      // The OTel log bridge that feeds Loki keeps only an error's code,
+      // message and stack, so HubSpot's status and error types go alongside.
+      // Error types only: their messages can quote what the visitor typed.
+      this.logger.error(
+        {
+          err,
+          formId,
+          hubspotStatus: response?.status,
+          hubspotCorrelationId: body.data?.correlationId,
+          hubspotErrorTypes: body.data?.errors?.map(
+            ({ errorType }) => errorType,
+          ),
+        },
+        'HubSpot form submission failed',
+      )
+      await this.slack.errorMessage({
+        message: 'Error submitting form',
+        error: err,
+      })
+      throw new BadGatewayException(
+        `Error submitting form to HubSpot: ${
+          response?.status ?? axiosError?.code ?? 'unexpected error'
+        }`,
+      )
     }
   }
 

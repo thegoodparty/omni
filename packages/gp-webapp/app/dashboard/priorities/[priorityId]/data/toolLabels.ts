@@ -9,6 +9,10 @@ export const PRIORITY_TOOL_LABELS: Record<string, string | undefined> = {
   count_contacts: 'Counting constituents',
   list_precincts: 'Looking up precincts',
   crud_saved_filters: 'Working on your lists',
+  size_round_one: 'Sizing your first round of outreach',
+  size_outreach_sample: 'Sizing a sample',
+  read_outreach_feedback: 'Reading what came back',
+  read_report_back: 'Checking who still needs a report back',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',
 }

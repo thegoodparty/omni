@@ -47,6 +47,7 @@ type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
 export const WIN_ONLY_FILTER_FIELD_KEYS = [
   'political_party',
   'voter_likely',
+  'early_vote',
   'contacts_made',
   // Serve may not subset constituents by ethnicity (#1933), so the group is
   // hidden in the create flow and its option keys are stripped here. Sitting

@@ -1,8 +1,16 @@
 import { HttpService } from '@nestjs/axios'
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  Injectable,
+} from '@nestjs/common'
+import { AxiosError, isAxiosError } from 'axios'
+import csvParser from 'csv-parser'
 import JSZip from 'jszip'
 import parseCsv from 'neat-csv'
 import { PinoLogger } from 'nestjs-pino'
+import { Readable, Transform, TransformCallback } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
@@ -20,6 +28,11 @@ export interface PeerlyReportDateWindow {
   endDate: string
 }
 
+export interface PeerlyReportRequestOptions {
+  timeoutMs: number
+  retry: boolean
+}
+
 // Per-lead job results only exist as generated report files (ENG-10727):
 // the API returns a signed file URL, downloaded without Peerly auth. There
 // is no pagination — every call exports the whole window, so callers bound
@@ -31,6 +44,21 @@ export interface PeerlyReportDateWindow {
 // services do.
 const MAX_REPORT_SIZE = 104857600
 
+// The CDR is streamed and only inbound rows are kept, so memory no longer
+// scales with the file; the cap only stops a runaway download. A big job's
+// report already passes 60MB and keeps growing as an election nears.
+export const MAX_CDR_REPORT_BYTES = 524288000
+
+// Inbound rows read 'received' in prod; anything that is not an outbound
+// row is kept rather than matched against that literal, so a vendor rename
+// degrades to extra rows, not to silently dropped replies.
+const PEERLY_CDR_OUTBOUND_DIRECTION = 'sent'
+
+const isTimeoutError = (error: Error): boolean =>
+  isAxiosError(error) &&
+  (error.code === AxiosError.ECONNABORTED ||
+    error.code === AxiosError.ETIMEDOUT)
+
 @Injectable()
 export class PeerlyJobResultsService extends PeerlyBaseConfig {
   constructor(
@@ -41,7 +69,11 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     super(logger)
   }
 
-  async fetchCdrRows(
+  // The full CDR is every message of the job (tens of MB for a big send).
+  // Parsing it whole on the main thread froze the 1-vCPU container for
+  // seconds at a time, so it is parsed as it streams and outbound rows are
+  // dropped before validation.
+  async fetchInboundCdrRows(
     jobId: string,
     window: PeerlyReportDateWindow,
   ): Promise<PeerlyCdrCsvRow[]> {
@@ -51,19 +83,21 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       window,
       context,
     )
-    const csv = await this.downloadText(link, context)
-    return this.parseRows(await parseCsv(csv), peerlyCdrCsvRowSchema, context)
+    const body = await this.downloadStream(link, context)
+    return this.parseInboundCdrRows(body, context)
   }
 
   async fetchQuestionResponseRows(
     jobId: string,
     window: PeerlyReportDateWindow,
+    request?: PeerlyReportRequestOptions,
   ): Promise<PeerlyQuestionResponsesCsvRow[]> {
     const context = 'question responses report'
     const link = await this.fetchReportLink(
       `/1to1/jobs/${jobId}/questionresponses`,
       window,
       context,
+      request,
     )
     const zipBuffer = await this.downloadBuffer(link, context)
     const csv = await this.unzipSingleCsv(zipBuffer, context)
@@ -78,17 +112,23 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     path: string,
     window: PeerlyReportDateWindow,
     context: string,
+    request?: PeerlyReportRequestOptions,
   ): Promise<string> {
+    const params = {
+      date_range: 'CUSTOM',
+      start_date: window.startDate,
+      end_date: window.endDate,
+      show_headers: true,
+    }
     let data: PeerlyReportLinkResponseDto
     try {
-      const response = await this.peerlyHttpService.get(path, {
-        params: {
-          date_range: 'CUSTOM',
-          start_date: window.startDate,
-          end_date: window.endDate,
-          show_headers: true,
-        },
-      })
+      const response = await (request
+        ? this.peerlyHttpService.get(
+            path,
+            { params, timeout: request.timeoutMs },
+            { retry: request.retry },
+          )
+        : this.peerlyHttpService.get(path, { params }))
       data = this.peerlyHttpService.validateResponse(
         response.data,
         PeerlyReportLinkResponseDto,
@@ -102,6 +142,11 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
         { message: error instanceof Error ? error.message : String(error) },
         `Failed to fetch Peerly ${context} link`,
       )
+      if (error instanceof Error && isTimeoutError(error)) {
+        throw new GatewayTimeoutException(
+          `Timed out fetching Peerly ${context} link`,
+        )
+      }
       throw new BadGatewayException(`Failed to fetch Peerly ${context} link`)
     }
     // SSRF guard: the link is vendor-supplied and fetched server-side, so a
@@ -128,14 +173,15 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     return data.link
   }
 
-  private async downloadText(link: string, context: string): Promise<string> {
+  private async downloadStream(
+    link: string,
+    context: string,
+  ): Promise<Readable> {
     try {
       const response = await lastValueFrom(
-        this.httpService.get<string>(link, {
-          responseType: 'text',
+        this.httpService.get<Readable>(link, {
+          responseType: 'stream',
           timeout: this.httpTimeoutMs,
-          maxContentLength: MAX_REPORT_SIZE,
-          maxBodyLength: MAX_REPORT_SIZE,
         }),
       )
       return response.data
@@ -148,6 +194,83 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
       throw new BadGatewayException(`Failed to download Peerly ${context} file`)
     }
+  }
+
+  private async parseInboundCdrRows(
+    body: Readable,
+    context: string,
+  ): Promise<PeerlyCdrCsvRow[]> {
+    const inboundRows: PeerlyCdrCsvRow[] = []
+    let streamedBytes = 0
+    let rowCount = 0
+    // axios does not enforce maxContentLength on a stream response, so the
+    // cap is counted here as bytes arrive.
+    const byteCap = new Transform({
+      transform: (
+        chunk: Buffer,
+        _encoding: BufferEncoding,
+        callback: TransformCallback,
+      ) => {
+        streamedBytes += chunk.length
+        if (streamedBytes > MAX_CDR_REPORT_BYTES) {
+          callback(
+            new BadGatewayException(
+              `Peerly ${context} file exceeds ${MAX_CDR_REPORT_BYTES} bytes`,
+            ),
+          )
+          return
+        }
+        callback(null, chunk)
+      },
+    })
+    try {
+      await pipeline(
+        body,
+        byteCap,
+        csvParser(),
+        async (records: AsyncIterable<Record<string, string>>) => {
+          for await (const record of records) {
+            rowCount += 1
+            if (
+              record.Direction?.trim().toLowerCase() ===
+              PEERLY_CDR_OUTBOUND_DIRECTION
+            ) {
+              continue
+            }
+            const parsed = peerlyCdrCsvRowSchema.safeParse(record)
+            if (!parsed.success) {
+              // Rows are PII — log issue locations, never row values.
+              this.logger.error(
+                {
+                  rowCount,
+                  issues: parsed.error.issues
+                    .slice(0, 5)
+                    .map(({ code, path }) => ({ code, path })),
+                },
+                `Peerly ${context} rows failed validation`,
+              )
+              throw new BadGatewayException(
+                `Invalid ${context} rows from Peerly report`,
+              )
+            }
+            inboundRows.push(parsed.data)
+          }
+        },
+      )
+    } catch (error) {
+      if (error instanceof BadGatewayException) throw error
+      // A mid-stream socket error can carry the signed URL in its config —
+      // log only the message.
+      this.logger.error(
+        {
+          message: error instanceof Error ? error.message : String(error),
+          rowCount,
+        },
+        `Failed to stream Peerly ${context} file`,
+      )
+      throw new BadGatewayException(`Failed to download Peerly ${context} file`)
+    }
+    return inboundRows
   }
 
   private async downloadBuffer(link: string, context: string): Promise<Buffer> {

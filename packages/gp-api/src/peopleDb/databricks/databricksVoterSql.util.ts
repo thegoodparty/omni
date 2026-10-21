@@ -14,6 +14,7 @@ import {
 } from '../affinityColumns.const'
 import { FilterData, type FilterOperator } from '../schemas/filters.schema'
 import { VALUE_MAPPERS } from '../utils/valueMappers.util'
+import { earlyVoteStatusToMart } from '../earlyVoteStatus'
 import {
   ALL_KNOWN_PARTY_VALUES,
   POLITICAL_PARTY_EXACT_VALUES,
@@ -100,7 +101,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // STRING and compares byte-exact, where Postgres compared as `uuid` and
 // normalized case — an exclude set that matches nothing silently WIDENS an
 // audience.
-const idList = (values: ReadonlyArray<string | number>): string =>
+export const idList = (values: ReadonlyArray<string | number>): string =>
   values
     .map((value) => {
       const id = String(value).toLowerCase()
@@ -650,6 +651,34 @@ export const buildVoterFiltersSql = (
         sql = hasIdOverrides(idOverrides)
           ? composeIdOverridesClause(voterStatusClause, idOverrides)
           : voterStatusClause
+        break
+      }
+      case 'earlyVoteStatus': {
+        // Filter values arrive in the product's Title Case; the column is
+        // sentence case (earlyVoteStatus.ts).
+        const martOp: FilterOperator | undefined =
+          op?.operator === 'in'
+            ? {
+                ...op,
+                values: op.values?.map((value) =>
+                  earlyVoteStatusToMart(String(value)),
+                ),
+              }
+            : op?.operator === 'eq' && op.value !== undefined
+              ? { ...op, value: earlyVoteStatusToMart(String(op.value)) }
+              : op
+        const statusClause = buildFieldFilter(bag, 'Early_Vote_Status', martOp)
+        // Consumer-only constituents carry no score at all; they are Unknown
+        // too, as with Voter_Status above.
+        const selectsUnknown =
+          op?.operator === 'eq'
+            ? op.value === 'Unknown'
+            : op?.operator === 'in' &&
+              !!op.values?.map(String).includes('Unknown')
+        sql =
+          statusClause && selectsUnknown
+            ? `(${statusClause} OR ${col('Early_Vote_Status')} IS NULL)`
+            : statusClause
         break
       }
       case 'politicalParty':

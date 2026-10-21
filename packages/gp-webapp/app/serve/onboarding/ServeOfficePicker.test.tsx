@@ -68,9 +68,9 @@ describe('ServeOfficePicker', () => {
     const rows = await screen.findAllByRole('radio', { name: /Ward 1/ })
     expect(rows).toHaveLength(2)
     // The date is what disambiguates two identically-named cohort positions.
-    expect(screen.getByText(/Last election:.*2022/)).toBeInTheDocument()
+    expect(screen.getByText(/Last elected:.*2022/)).toBeInTheDocument()
     // Cohort B shows its 2024 general, not the later 2024 runoff.
-    expect(screen.getByText(/Last election:.*2024/)).toBeInTheDocument()
+    expect(screen.getByText(/Last elected:.*2024/)).toBeInTheDocument()
   })
 
   it('requests upcoming races for the submitted zip', async () => {
@@ -99,6 +99,6 @@ describe('ServeOfficePicker', () => {
 
     const rows = await screen.findAllByRole('radio', { name: /Ward 1/ })
     expect(rows).toHaveLength(1)
-    expect(screen.queryByText(/Last election:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Last elected:/)).not.toBeInTheDocument()
   })
 })

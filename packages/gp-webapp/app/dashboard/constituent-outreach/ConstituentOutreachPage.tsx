@@ -136,6 +136,19 @@ const ConstituentOutreachContent = () => {
   const { ready: pollsFlagReady, enabled: pollsFlagEnabled } =
     useServeSelfServePollsFlag()
   const pollsMounted = pollsFlagReady && pollsFlagEnabled
+  // A community issue's "Run a poll on this issue" links here as
+  // `?compose=poll` once the polls flag is on for the office.
+  const pollDeepLinkRef = useRef(false)
+  useEffect(() => {
+    if (composeParam !== 'poll') {
+      pollDeepLinkRef.current = false
+      return
+    }
+    if (pollDeepLinkRef.current || !pollsFlagReady) return
+    pollDeepLinkRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    if (pollsMounted) setPollFlowOpen(true)
+  }, [composeParam, pollsFlagReady, pollsMounted, router])
   const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
     useServeCitizenPanelsFlag(false)
   // The Chief of Staff's "Build your civic panel" card links here as

@@ -68,6 +68,7 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // field missing from this array still renders, after the ordered set.
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'voter_likely',
+  'early_vote',
   'political_party',
   'age',
   'marital_status',
@@ -136,6 +137,7 @@ export default function VoterFileStep({
         (!isElectedOfficial ||
           (field.key !== 'political_party' &&
             field.key !== 'voter_likely' &&
+            field.key !== 'early_vote' &&
             field.key !== 'ethnicity')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))

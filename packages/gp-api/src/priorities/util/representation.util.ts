@@ -200,8 +200,6 @@ const share = (count: Figure, universe: Figure): number | null =>
 export const computeRepresentation = (
   district: AcsCounts,
   respondentBlockGroups: AcsCounts[],
-  // One per respondent, in the same order. Absent, everyone counts once.
-  weights?: number[],
 ): RepresentationGroup[] => {
   if (respondentBlockGroups.length === 0) return []
   const showRace = respondentBlockGroups.length >= MIN_RESPONDENTS_FOR_RACE
@@ -228,18 +226,12 @@ export const computeRepresentation = (
     ) {
       return []
     }
-    const weightOf = (index: number): number => weights?.[index] ?? 1
-    const totalWeight = respondentBlockGroups.reduce(
-      (total, _bg, index) => total + weightOf(index),
-      0,
-    )
     const respondentShare =
       respondentBlockGroups.reduce(
-        (total, bg, index) =>
-          total +
-          weightOf(index) * (share(group.count(bg), group.universe(bg)) ?? 0),
+        (total, bg) =>
+          total + (share(group.count(bg), group.universe(bg)) ?? 0),
         0,
-      ) / totalWeight
+      ) / respondentBlockGroups.length
     return [
       {
         dimension: group.dimension,

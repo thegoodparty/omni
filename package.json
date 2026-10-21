@@ -33,6 +33,7 @@
     "dev": "bash scripts/dev.sh",
     "setup": "bash scripts/setup.sh",
     "seed:activity": "npx tsx scripts/setup/lib/cli.ts seed-activity",
+    "seed:election": "bash scripts/setup/election-db.sh --fetch --reload",
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
     "prepare": "husky || true",

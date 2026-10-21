@@ -6,6 +6,8 @@ import {
   type OutreachProposal,
   type ProposalChannel,
   type SupportStatusRollup,
+  type GeoJsonPolygon,
+  type WalkableAreaBox,
 } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import { segmentToVoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -97,7 +99,6 @@ export const proposedAudienceOf = (
     | 'proposalKey'
     | 'count'
     | 'sampleSize'
-    | 'panelSampleSize'
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
     | 'areaTarget'
@@ -127,6 +128,23 @@ export const proposedAudienceOf = (
       priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
   }
 }
+
+/**
+ * A door card's walkable area as the polygon its list is kept to, so the
+ * list holds the doors gp-api picked and the walk opens on the same box.
+ */
+export const walkableAreaPolygon = (box: WalkableAreaBox): GeoJsonPolygon => ({
+  type: 'Polygon',
+  coordinates: [
+    [
+      [box.west, box.south],
+      [box.east, box.south],
+      [box.east, box.north],
+      [box.west, box.north],
+      [box.west, box.south],
+    ],
+  ],
+})
 
 export const outreachDetailHref = (
   outreachId: number,
@@ -170,10 +188,16 @@ export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
   count: number
   sampleSize?: number
+  roundTwoSize?: number
   widensOutreachIds?: number[]
 }): string | null => {
   const verb = SAMPLE_VERB[proposal.channel]
   const of = proposal.count.toLocaleString()
+  // One purchase in two rounds: the total, then how it splits.
+  if (proposal.roundTwoSize !== undefined && isSampled(proposal)) {
+    const total = proposal.sampleSize + proposal.roundTwoSize
+    return `${verb} ${total.toLocaleString()} of ${of}: ${proposal.sampleSize.toLocaleString()} now, ${proposal.roundTwoSize.toLocaleString()} two weeks later`
+  }
   if (widens(proposal)) {
     return isSampled(proposal)
       ? `${verb} up to ${proposal.sampleSize.toLocaleString()} of the ${of} not asked yet`
@@ -194,7 +218,6 @@ export const proposalListSample = (proposal: {
   proposalKey: string
   count: number
   sampleSize?: number
-  panelSampleSize?: number
   widensOutreachIds?: number[]
   reportBackForOutreachId?: number
 }): ListSample | undefined => {
@@ -205,22 +228,6 @@ export const proposalListSample = (proposal: {
       size: Math.min(Math.max(proposal.count, 1), MAX_LIST_SAMPLE_SIZE),
       seedKey: proposal.proposalKey,
       recipientsOfOutreachId: proposal.reportBackForOutreachId,
-    }
-  }
-  // The panel and the fresh residents are two draws, so the list always
-  // freezes them: saved whole it would hold neither part at its size.
-  if (
-    proposal.panelSampleSize !== undefined &&
-    proposal.sampleSize !== undefined &&
-    proposal.panelSampleSize < proposal.sampleSize
-  ) {
-    return {
-      size: proposal.sampleSize,
-      panelSize: proposal.panelSampleSize,
-      seedKey: proposal.proposalKey,
-      ...(widens(proposal) && {
-        excludeOutreachIds: proposal.widensOutreachIds,
-      }),
     }
   }
   if (widens(proposal)) {

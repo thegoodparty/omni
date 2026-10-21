@@ -1,6 +1,9 @@
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
+import { OutreachModule } from '@/outreach/outreach.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { StripeModule } from '@/vendors/stripe/stripe.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { Module } from '@nestjs/common'
 import { ActivitySeedModule } from './activitySeed.module'
@@ -17,7 +20,9 @@ import { StateTransitionsModule } from './stateTransitions.module'
     ClerkModule,
     ElectionsModule,
     OrganizationsModule,
+    OutreachModule,
     StateTransitionsModule,
+    StripeModule,
     VendorMocksModule,
   ],
   controllers: [
@@ -25,6 +30,10 @@ import { StateTransitionsModule } from './stateTransitions.module'
     TestFixturesJudgeController,
     TestFixturesVendorMocksController,
   ],
-  providers: [JudgeChatFixtureService, TestFixturesService],
+  providers: [
+    DistrictResolverService,
+    JudgeChatFixtureService,
+    TestFixturesService,
+  ],
 })
 export class TestFixturesModule {}

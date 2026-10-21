@@ -20,7 +20,7 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
 const service = useTestService()
 
 const BASE = '/v1/vendor-mocks/callhub'
-const AUTH = { headers: { Authorization: 'Token test-callhub-key' } }
+const AUTH = { headers: { Authorization: 'Token mock-key' } }
 
 describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   beforeEach(() => {
@@ -31,6 +31,18 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
     const res = await service.client.post(`${BASE}/v1/numbers/rent`, {}, AUTH)
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.phone_number).toBe('+15551234567')
+  })
+
+  it('serves the trailing-slash paths the CallHub client calls', async () => {
+    const rent = await service.client.post(`${BASE}/v1/numbers/rent/`, {}, AUTH)
+    expect(rent.status).toBe(HttpStatus.CREATED)
+    expect(rent.data.phone_number).toBe('+15551234567')
+
+    const dnc = await service.client.get(
+      `${BASE}/v1/dnc_contacts/?page_size=100`,
+      AUTH,
+    )
+    expect(dnc.status).toBe(HttpStatus.OK)
   })
 
   it('GET rented_calling_numbers returns rented number', async () => {
@@ -53,6 +65,21 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
     mockMode.value = 'live'
     const res = await service.client.post(`${BASE}/v1/numbers/rent`, {}, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('accepts the mock key the client sends when CALLHUB_API_KEY is set', async () => {
+    vi.stubEnv('CALLHUB_API_KEY', 'real-dev-key')
+    const mockKey = { headers: { Authorization: 'Token mock-key' } }
+    const ok = await service.client.post(`${BASE}/v1/numbers/rent`, {}, mockKey)
+    expect(ok.status).toBe(HttpStatus.CREATED)
+
+    const wrong = await service.client.post(
+      `${BASE}/v1/numbers/rent`,
+      {},
+      { headers: { Authorization: 'Token some-other-key' } },
+    )
+    expect(wrong.status).toBe(HttpStatus.UNAUTHORIZED)
+    vi.unstubAllEnvs()
   })
 })
 
@@ -89,6 +116,71 @@ describe('POST phonebooks + bulk_create + numbers_count', () => {
     )
     expect(countRes.status).toBe(HttpStatus.OK)
     expect(countRes.data.phonenumber_count).toBe(2)
+  })
+
+  it('counts the rows of the CSV the client sends as csv_url', async () => {
+    const csvUrl = 'https://bucket.s3.amazonaws.com/robocall-phonebook/1.csv'
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('phone\n+15551111111\n+15552222222\n'))
+
+    const createRes = await service.client.post(
+      `${BASE}/v1/phonebooks/`,
+      { name: 'csv-url-book' },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+
+    const bulkRes = await service.client.post(
+      `${BASE}/v1/contacts/bulk_create/`,
+      { phonebook_id: pk, csv_url: csvUrl },
+      AUTH,
+    )
+    expect(bulkRes.status).toBe(HttpStatus.CREATED)
+    expect(fetchSpy).toHaveBeenCalledWith(csvUrl)
+
+    const countRes = await service.client.get(
+      `${BASE}/v1/phonebooks/${pk}/numbers_count`,
+      AUTH,
+    )
+    expect(countRes.data.phonenumber_count).toBe(2)
+    fetchSpy.mockRestore()
+  })
+
+  it('rejects csv_url not from amazonaws.com', async () => {
+    const createRes = await service.client.post(
+      `${BASE}/v1/phonebooks/`,
+      { name: 'ssrf-book' },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+
+    const bulkRes = await service.client.post(
+      `${BASE}/v1/contacts/bulk_create/`,
+      { phonebook_id: pk, csv_url: 'https://attacker.example.com/data.csv' },
+      AUTH,
+    )
+    expect(bulkRes.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+})
+
+describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
+  beforeEach(() => {
+    mockMode.value = 'mock'
+  })
+
+  it('accepts the multipart upload the CallHub client sends', async () => {
+    const form = new FormData()
+    form.append('file', new Blob(['RIFF']), 'audio.wav')
+    form.append('name', 'audio.wav')
+
+    const res = await service.client.post(
+      `${BASE}/v1/media/upload/`,
+      form,
+      AUTH,
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.data.media_file_id).toBeTruthy()
   })
 })
 

@@ -93,6 +93,22 @@ export type ProposalAudienceFilters = z.infer<
 >
 
 /**
+ * A walkable area as the box around its doors, in degrees. The same box the
+ * door knocking page takes on `?area=` as a new walk's first turf.
+ */
+export const WalkableAreaBoxSchema = z
+  .object({
+    west: z.number().min(-180).max(180),
+    south: z.number().min(-90).max(90),
+    east: z.number().min(-180).max(180),
+    north: z.number().min(-90).max(90),
+  })
+  .refine((box) => box.west < box.east && box.south < box.north, {
+    message: 'A box runs west to east and south to north',
+  })
+export type WalkableAreaBox = z.infer<typeof WalkableAreaBoxSchema>
+
+/**
  * A ready-to-send piece of outreach. The agent has counted the audience and
  * written the message; the official finishes it in the channel's own flow.
  *
@@ -154,21 +170,6 @@ export const OutreachProposalSchema = z.object({
    * whole audience.
    */
   sampleSize: z.number().int().positive().max(MAX_LIST_SAMPLE_SIZE).optional(),
-  /**
-   * Of `sampleSize`, how many are drawn from the official's civic panel.
-   * The rest are drawn from residents not on it, so one send asks the panel
-   * and invites new people to join. Absent, the sample ignores the panel.
-   */
-  panelSampleSize: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_LIST_SAMPLE_SIZE)
-    .optional()
-    .describe(
-      'Text only: how many of sampleSize are civic panel members. The ' +
-        'rest of sampleSize are residents not on the panel.',
-    ),
   /** The replies a text sample was sized to bring back. */
   targetResponses: z.number().int().positive().optional(),
   /** The reply rate it was sized with, as a fraction: 0.025 is 2.5%. */
@@ -195,6 +196,23 @@ export const OutreachProposalSchema = z.object({
         'opted out since.',
     ),
   /**
+   * On a priority: the follow-up held from this text's own purchase. The
+   * card's sampleSize goes out first, at random; this many more go out
+   * FOLLOW_UP_BUSINESS_DAYS later, drawn shortly before toward the groups the
+   * answers so far say least about, leaving out everyone already reached.
+   */
+  roundTwoSize: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_LIST_SAMPLE_SIZE)
+    .optional()
+    .describe(
+      'Text only, on a priority: the follow-up texts held from the same ' +
+        'purchase, exactly as size_round_one returns them. sampleSize is ' +
+        'the first send.',
+    ),
+  /**
    * On a priority: keep the audience to the parts of the district its
    * answers have not reached. The list is saved with that area as a drawn
    * boundary, built by gp-api when the list is saved; no card carries
@@ -207,6 +225,15 @@ export const OutreachProposalSchema = z.object({
       'unreached to keep the audience to the parts of the district this ' +
         "priority's answers have not reached. The app draws the area.",
     ),
+  /**
+   * Door knocking on a priority: the one walkable area gp-api picked for the
+   * doors. The list is saved kept to that box, and the walk opens with it as
+   * its first turf.
+   */
+  walkableArea: WalkableAreaBoxSchema.optional().describe(
+    'Door knocking only: the walkableArea size_round_one returned, exactly ' +
+      'as given.',
+  ),
 })
 export type OutreachProposal = z.infer<typeof OutreachProposalSchema>
 

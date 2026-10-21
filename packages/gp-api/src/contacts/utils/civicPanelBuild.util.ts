@@ -39,23 +39,26 @@ export const CHANNEL_ORDER: CivicPanelBuildChannel[] = [
 // How many asks it takes to expect `joins` yeses. Rounded to six places
 // first so float noise (94.5 / 0.03 = 3150.0000000000005) never asks one
 // more person than the math says.
-const asksFor = (joins: number, rate: number) =>
+export const asksFor = (joins: number, rate: number) =>
   Math.ceil(Number((joins / rate).toFixed(6)))
 
 // One wave, sized to the members still missing. Doors and calls spend about
 // a month of the official's weekly time (doors take their share up to two
 // walkable areas, the rest goes to calls) and are never sized past what the
 // gap needs; texts cover whatever gap the calls and doors are not expected
-// to fill. A channel nobody can be reached on gets no step.
+// to fill. A channel nobody can be reached on gets no step. A null gap is a
+// panel with nobody short: the official's calls and doors fill their hours
+// and no text is sent.
 export const sizePanelWave = ({
-  gap,
+  gap: wanted,
   hoursPerWeek,
   pools,
 }: {
-  gap: number
+  gap: number | null
   hoursPerWeek: number
   pools: PanelWavePools
 }): PlannedStep[] => {
+  const gap = wanted ?? Infinity
   if (gap <= 0) return []
   const hours = hoursPerWeek * PANEL_WEEKS_PER_WAVE
   const doorHours = hours * PANEL_DOOR_SHARE_OF_HOURS
@@ -83,7 +86,7 @@ export const sizePanelWave = ({
         )
   const textGap = callGap - calls * PANEL_CALL_ASSUMED_JOIN_RATE
   const texts =
-    textGap <= 0
+    wanted === null || textGap <= 0
       ? 0
       : Math.min(
           asksFor(textGap, PANEL_SEED_ASSUMED_JOIN_RATE),
