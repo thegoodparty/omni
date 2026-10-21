@@ -175,14 +175,20 @@ export const buildSeats = ({
   const shareSum = places.reduce((a, p) => a + p.districtShare, 0) || 1
   const shares = places.map((p) => p.districtShare / shareSum)
   const seatsFor = allocate(shares, SEAT_COUNT)
+  // A place with no seat fills none, so its members never count toward the
+  // seats others show.
   const counted = places.map((p, i) =>
-    Math.min(p.members, (shares[i] ?? 0) * target),
+    (seatsFor[i] ?? 0) > 0 ? Math.min(p.members, (shares[i] ?? 0) * target) : 0,
   )
   const filledTotal = Math.min(
     SEAT_COUNT,
     Math.round((counted.reduce((a, b) => a + b, 0) / target) * SEAT_COUNT),
   )
-  const filledFor = allocate(counted, filledTotal, seatsFor)
+  // Never more seats than a place's own members earn, nor than it has.
+  const earned = counted.map((c, i) =>
+    Math.min(seatsFor[i] ?? 0, Math.ceil((c / target) * SEAT_COUNT)),
+  )
+  const filledFor = allocate(counted, filledTotal, earned)
   const placed = places.reduce((a, p) => a + p.members, 0)
   const overall = placed / target
   const canTell = members >= PANEL_MIN_MEMBERS_FOR_BALANCE

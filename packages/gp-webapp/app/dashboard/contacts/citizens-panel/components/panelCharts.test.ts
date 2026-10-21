@@ -113,6 +113,36 @@ describe('buildSeats', () => {
     expect(chart.places.map((p) => p.count)).toEqual([100])
   })
 
+  it('lights no seat its own members did not earn, among many seatless places', () => {
+    // 20 places with seats and 300 too small for one, every member in the
+    // seatless ones but one place.
+    const places = [
+      ...Array.from({ length: 20 }, (_, i) => ({
+        key: `big-${i}`,
+        name: `${i}`,
+        districtShare: 0.04,
+        members: i === 0 ? 5 : 0,
+      })),
+      ...Array.from({ length: 300 }, (_, i) => ({
+        key: `small-${i}`,
+        name: `s${i}`,
+        districtShare: 0.2 / 300,
+        members: 1,
+      })),
+    ]
+    const chart = buildSeats({ places, members: 305, goal: 240, cx: 0, cy: 0 })
+    expect(sum(chart.places.map((p) => p.count))).toBe(SEAT_COUNT)
+    for (const place of chart.places) {
+      const own = places.find((p) => p.key === place.key)?.members ?? 0
+      if (own === 0) expect(place.filled).toBe(0)
+      expect(place.filled).toBeLessThanOrEqual(
+        Math.ceil((own / 240) * SEAT_COUNT),
+      )
+    }
+    expect(chart.places.find((p) => p.key === 'big-0')?.filled).toBe(2)
+    expect(chart.filled).toBe(sum(chart.places.map((p) => p.filled)))
+  })
+
   it('calls nobody behind before the panel can tell', () => {
     const chart = seatsAt(20, (_, i) => (i === 0 ? 20 : 0))
     expect(chart.stage).toBe('tooEarly')
