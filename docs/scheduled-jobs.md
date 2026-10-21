@@ -180,6 +180,15 @@ async sweepUnsubmittedUsecases() {
 }
 ```
 
+### Extracted bodies and the test-fixtures run-job
+
+The work after the claim is its own method (`runUnsubmittedUsecaseSweep`) so
+the non-prod test-fixtures run-job endpoint can call it without the lock. Keep
+the claim and `markHourlyCompleted` in the `@Cron` wrapper; only the fixture
+path may skip it. Same idea for queue-driven jobs: `checkUsecaseActivation`
+(the `TCR_COMPLIANCE_STATUS_CHECK` body) and `cvStatusPoll.runFreshScan` are
+public so run-job can call them synchronously, scoped to the caller's campaign.
+
 ## Checklist for a new job
 
 - [ ] `@Cron`, not `@Interval`.

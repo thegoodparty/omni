@@ -80,7 +80,7 @@ export class TestFixturesVendorMocksController {
     if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
-    return this.testFixtures.runJob(name)
+    return this.testFixtures.runJob(name, user.id)
   }
 
   @Post('time-travel')
