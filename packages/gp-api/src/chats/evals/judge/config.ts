@@ -92,11 +92,12 @@ export interface JudgeGates {
   // regressionSignals.ts). Not held to `minCases`: that floor is for a noisy
   // pairwise preference, and this counts discrete events. A probe that cut
   // the agent's system prompt in half read CAN'T SAY on quality while
-  // handling showed 5 regressions to 0.
+  // handling showed the base meeting its checks far more often.
   //
-  // A one-sided sign test over the settled handling changes. `minChanges`
-  // keeps 3 to 0 (p = 0.125) from ever being argued down to a verdict.
-  handling: { minChanges: number; alpha: number }
+  // The one-sided p-value a within-case permutation test over handled runs
+  // must come in under. One case going from 3 of 3 to 0 of 3 is exactly
+  // 0.05, so a single case never decides the label. See regressionSignals.ts.
+  handling: { alpha: number }
 }
 
 export interface JudgePanelConfig {
@@ -237,7 +238,7 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,
-    handling: { minChanges: 4, alpha: 0.05 },
+    handling: { alpha: 0.05 },
   },
   orderSwap: {
     enabled: true,

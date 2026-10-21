@@ -16,7 +16,7 @@ import type {
   TenDlcStatusBucketKey,
   TenDlcStatusEntry,
   TenDlcStatusSnapshot,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { describeActionFailure } from '@/shared/util/actionFailure.util'
 import { getTenDlcStatusSnapshot } from '../actions'

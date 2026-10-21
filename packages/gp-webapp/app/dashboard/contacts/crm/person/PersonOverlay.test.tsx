@@ -1083,7 +1083,7 @@ describe('<PersonOverlay>', () => {
 
       render(<PersonOverlay />)
 
-      expect(await screen.findByText("What they've told you")).toBeVisible()
+      expect(await screen.findByText('Their answers')).toBeVisible()
       expect(
         screen.getByRole('link', { name: 'Safer streets near schools' }),
       ).toHaveAttribute('href', '/dashboard/priorities/pri_1')
@@ -1106,9 +1106,7 @@ describe('<PersonOverlay>', () => {
 
       await screen.findByText('Address')
       await new Promise((resolve) => setTimeout(resolve, 50))
-      expect(
-        screen.queryByText("What they've told you"),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
     })
 
     it('never asks on a Win contact card', async () => {
@@ -1125,9 +1123,7 @@ describe('<PersonOverlay>', () => {
       await screen.findByText('Address')
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(asked).toBe(false)
-      expect(
-        screen.queryByText("What they've told you"),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
     })
 
     it('stays out of the card with the civic panel flag off', async () => {

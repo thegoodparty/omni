@@ -16,6 +16,7 @@ import {
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   UnderrepresentedGroupSchema,
   type CivicPanelBuildPlanResponse,
+  type CivicPanelComposition,
   type PrepareCivicPanelBuildStepResponse,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
@@ -58,9 +59,11 @@ import {
 } from '../utils/civicPanelBuild.util'
 import {
   panelSteering,
+  precinctPlaces,
   type PanelMix,
   type PanelSteering,
 } from '../utils/civicPanelSteering.util'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ContactsService } from './contacts.service'
 
 // Every list a step draws is never invited to the panel and not reached in
@@ -196,6 +199,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
+    private readonly voterQuery: VoterQueryService,
   ) {
     super()
   }
@@ -474,6 +478,11 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
+    const composition = await this.compositionFor(
+      organization,
+      memberIds,
+      steering,
+    )
     const progressToward = (goal: number) => ({
       members,
       goal,
@@ -492,6 +501,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         next: null,
         progress: progressToward(districtGoal),
         balance: steering.balance,
+        composition,
       }
     }
     const now = new Date()
@@ -543,6 +553,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           : null,
       progress: progressToward(goal),
       balance: steering.balance,
+      composition,
     }
   }
 
@@ -1073,6 +1084,47 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
           ? await this.activeMixOf(organization, memberIds, mix)
           : null,
     })
+  }
+
+  // The panel page's seats and petals: by tract from the census, or by
+  // precinct when the district has no tract data. Null when neither can be
+  // read.
+  private async compositionFor(
+    organization: Organization,
+    memberIds: Set<string>,
+    steering: PanelSteering,
+  ): Promise<CivicPanelComposition | null> {
+    const fromCensus = steering.composition
+    if (fromCensus && fromCensus.places.length > 0) return fromCensus
+    if (memberIds.size === 0) return null
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const [precincts, members] = await Promise.all([
+        this.voterQuery.findPrecincts(district.districtId, district.dataset),
+        this.voterQuery.findPrecinctMembers(
+          district.districtId,
+          district.dataset,
+          [...memberIds],
+        ),
+      ])
+      const places = precinctPlaces(
+        precincts.options.map(({ county, precinct, voters }) => ({
+          county,
+          precinct,
+          people: voters,
+        })),
+        members,
+      )
+      if (places.length === 0) return fromCensus
+      return {
+        placeKind: 'precinct',
+        places,
+        groups: fromCensus?.groups ?? [],
+      }
+    } catch {
+      return fromCensus
+    }
   }
 
   // The members who answered a priority's text, call or door in the last

@@ -8,9 +8,12 @@ import {
 import {
   doorTractFor,
   panelBalance,
+  panelComposition,
   panelCoverage,
   panelGaps,
   panelSteering,
+  precinctPlaces,
+  tractNumber,
   type PanelMix,
 } from './civicPanelSteering.util'
 
@@ -74,6 +77,91 @@ const raceMixOf = (cells: RespondentCell[]): PanelMix => ({
 const mixOf = (cells: RespondentCell[]): PanelMix => ({
   cells,
   census: { district: DISTRICT, tractAdults: TRACTS },
+})
+
+describe('panelComposition', () => {
+  it('reads every tract with its members and each major group beside the district', () => {
+    const composition = panelComposition(
+      mixOf([
+        cell({ count: 6, gender: 'female' }),
+        cell({ count: 4, ageBand: '65plus', tract: B, gender: 'male' }),
+      ]),
+    )
+
+    expect(composition.placeKind).toBe('tract')
+    expect(composition.places).toEqual([
+      { key: A, name: '9501', districtShare: 0.5, members: 6 },
+      { key: B, name: '9502', districtShare: 0.4, members: 4 },
+      { key: C, name: '9503', districtShare: 0.1, members: 0 },
+    ])
+    expect(composition.groups.map((group) => group.group)).toEqual([
+      'age18to24',
+      'age25to34',
+      'age35to44',
+      'age45to54',
+      'age55to64',
+      'age65plus',
+    ])
+    expect(
+      composition.groups.find((group) => group.group === 'age35to44'),
+    ).toEqual({ group: 'age35to44', districtShare: 0.16, memberShare: 0.6 })
+  })
+
+  it('names race groups only when race may be named, never other', () => {
+    const named = panelComposition(
+      raceMixOf([
+        cell({ count: 8, race: 'white' }),
+        cell({ count: 4, race: 'black' }),
+      ]),
+    )
+    expect(named.groups.map((group) => group.group)).toEqual(
+      expect.arrayContaining(['white', 'black', 'hispanic']),
+    )
+    expect(named.groups.find((group) => group.group === 'white')).toEqual({
+      group: 'white',
+      districtShare: 0.5,
+      memberShare: 8 / 12,
+    })
+
+    const unnamed = panelComposition(raceMixOf([cell({ count: 12 })]))
+    expect(unnamed.groups.some((group) => group.group === 'white')).toBe(false)
+  })
+})
+
+describe('tractNumber', () => {
+  it('names a tract the way the census does', () => {
+    expect(tractNumber('37021000100')).toBe('1')
+    expect(tractNumber('53017950102')).toBe('9501.02')
+  })
+})
+
+describe('precinctPlaces', () => {
+  it('shares the district by precinct, leaving the unknown precinct out', () => {
+    expect(
+      precinctPlaces(
+        [
+          { county: 'BUNCOMBE', precinct: '01.1', people: 300 },
+          { county: 'BUNCOMBE', precinct: '02.1', people: 100 },
+          { county: 'BUNCOMBE', precinct: '', people: 50 },
+        ],
+        [{ county: 'BUNCOMBE', precinct: '02.1', people: 7 }],
+      ),
+    ).toEqual([
+      {
+        key: 'BUNCOMBE|01.1',
+        name: '01.1',
+        districtShare: 0.75,
+        members: 0,
+      },
+      {
+        key: 'BUNCOMBE|02.1',
+        name: '02.1',
+        districtShare: 0.25,
+        members: 7,
+      },
+    ])
+    expect(precinctPlaces([], [])).toEqual([])
+  })
 })
 
 describe('panelGaps', () => {

@@ -38,7 +38,9 @@ The rule fires when more than 30% of probe executions fail over 5 minutes, susta
 
 **It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Overview](#overview)). The dev check stays provisioned but disabled; dev has no alert rules for it to raise, so re-enabling it would also mean provisioning alerting there.
 
-The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month against the 100,000 included.
+The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month and the Delegate swarm check below is 43,200/month, against the 100,000 included.
+
+**The Delegate agent swarm is probed from here too**, though it is not part of gp-api: the prod deploy provisions `delegate-swarm-health`, hitting `https://delegate-swarm.infra.goodparty.org/health` from two probes every 2 minutes, and the `delegate-swarm-probe-failure` rule. The swarm lives in the ops repo, which has no Grafana provider, so this deploy owns its probe. The rule reads 10 minutes, about 8 executions: one failed round (2/8) stays under the 30% threshold, two consecutive failed rounds page, so a full outage pages about 6 minutes in. The failure it was added for is the swarm host running out of memory, which freezes the single-threaded swarm API, and with it Slack, for minutes at a time (2026-10-19 and 2026-10-21). Runbook: `agent-swarm/README.md` in ops.
 
 ## Route alerts are two grouped rules
 

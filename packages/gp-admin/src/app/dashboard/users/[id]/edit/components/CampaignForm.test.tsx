@@ -3,17 +3,14 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
 import { CampaignForm } from './CampaignForm'
-import type {
-  AdminOrganization,
-  CampaignWithLiveContext,
-} from '@goodparty_org/sdk'
+import type { AdminOrganization, CampaignWithLiveContext } from '@/shared/gpApi'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
   BallotReadyPositionLevel,
   ElectionLevel,
   CampaignTier,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { type CombinedCampaignFormData } from '../schema'
 import { UNSAVED_CHANGES_MESSAGE } from '../constants'
 import { useNavigationGuard } from 'next-navigation-guard'
