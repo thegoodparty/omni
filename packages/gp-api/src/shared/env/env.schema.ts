@@ -365,8 +365,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   VENDOR_READ_TIMEOUT_MS: { tier: 'optional' },
   // Routes vendor HTTP clients at in-process mocks instead of live APIs.
   // Accepted values: 'live' | 'mock'. Default logic lives in
-  // appEnvironment.util.ts — absent (local/test) or 'preview' → mock,
-  // 'dev' → live, 'prod' → always live (never overridable).
+  // appEnvironment.util.ts — absent (local/test), 'preview', or 'dev' →
+  // mock; 'prod' → always live (never overridable). VENDOR_MODE=live on
+  // dev is the rollback lever (see docs/vendor-mock-dev.md).
   VENDOR_MODE: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also

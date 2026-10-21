@@ -105,14 +105,15 @@ export type MockedVendor =
   | 'route53'
 
 // Pure so it can be unit-tested without module-reset gymnastics.
+// Prod is always live. Every other env defaults to mock; VENDOR_MODE=live
+// on dev is the rollback lever (restores real-vendor traffic without a
+// code change).
 export function resolveVendorMode(
   otelServiceEnvironment: string | undefined,
   vendorModeEnv: string | undefined,
 ): 'live' | 'mock' {
   if (otelServiceEnvironment === 'prod') return 'live'
   if (vendorModeEnv === 'live') return 'live'
-  if (vendorModeEnv === 'mock') return 'mock'
-  if (otelServiceEnvironment === 'dev') return 'live'
   return 'mock'
 }
 
@@ -124,6 +125,17 @@ export const VENDOR_MODE = resolveVendorMode(
 if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
   throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
 }
+
+// The non-prod fake-success shortcuts in the 10DLC flow (accept any PIN, skip
+// submit_cv, report CV APPROVED, resend-PIN no-op, verify-live always passes)
+// exist because dev is still in live mode: without them a dev tester would
+// submit real Campaign Verify requests to Peerly with dev credentials. Where
+// the vendors are mocked (preview, local) the real code runs against the
+// mocks instead, so the shortcuts apply only to a non-prod deploy in live mode.
+// WHY narrowed rather than deleted: M5 moves dev onto mocks and then deletes
+// these bypasses, and this constant, outright.
+export const NON_PROD_LIVE_VENDOR_BYPASS =
+  !IS_PROD_DEPLOY && VENDOR_MODE === 'live'
 
 // The organization rides in the mock's path, never in a live URL, so the mock
 // can keep one caller's fixture state (a seeded failure, its request records)
