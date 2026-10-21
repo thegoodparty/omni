@@ -243,7 +243,17 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       where: { id: pollId },
     })
 
-    if (existing?.expansionCheckoutSessionId === sessionId) {
+    if (!existing) {
+      // Deleted between the refusal and this re-read, so whether this checkout
+      // expanded it first can no longer be told, and a refund could repay a
+      // delivered expansion. Rethrow a non-BadRequest so Stripe redelivers;
+      // the next attempt meets the deletion in findPollToExpand.
+      throw new ConflictException(
+        `Poll ${pollId} refused the expansion but could not be re-read`,
+      )
+    }
+
+    if (existing.expansionCheckoutSessionId === sessionId) {
       // Return normally so completeCheckoutSession stamps the marker. No
       // POLL_EXPANSION send: the winning expandPoll already made it, and a
       // second one would sample and text a second batch of constituents.

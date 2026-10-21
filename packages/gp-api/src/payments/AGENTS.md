@@ -444,6 +444,8 @@ marker:
   wins; the other is refunded in full (keyed
   `poll-expansion-refund-<sessionId>`) and rejected with a 400 the webhook
   acknowledges. A failed refund is a 502, so Stripe redelivers into a retry.
+  A poll gone on the re-read is a 409 and no refund, since nothing can tell
+  any more whether this checkout expanded it first.
   See `docs/adr/2026-10-20-poll-expansion-first-fulfilled-wins.md`.
 
 ## Gotchas
