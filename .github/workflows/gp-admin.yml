@@ -38,9 +38,6 @@ jobs:
           app: gp-admin
           build-contracts: 'true'
 
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
-
       - name: Typecheck
         run: npm run typecheck -w ${{ env.WORKSPACE }}
 
@@ -78,9 +75,6 @@ jobs:
         with:
           app: gp-admin
           build-contracts: 'true'
-
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
 
       - name: Deploy to Vercel
         id: vercel

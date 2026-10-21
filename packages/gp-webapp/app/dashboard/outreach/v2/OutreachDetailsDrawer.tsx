@@ -109,6 +109,7 @@ import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
 import { CampaignTurfList } from './CampaignTurfList'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import {
   DetailsSection,
   FilterGroup,
@@ -227,6 +228,7 @@ export const OutreachDetailsDrawer = ({
   isServe = false,
   onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
+  const copy = getOutreachHistoryCopy(isServe)
   const { smsCutoffDate } = useSmsCompliance()
   const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
     smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
@@ -493,11 +495,7 @@ export const OutreachDetailsDrawer = ({
     },
     onSuccess: ({ data }) => applyArchivedAt(data.archivedAt),
     onError: () =>
-      errorSnackbar(
-        isArchived
-          ? "Couldn't restore this campaign. Please try again."
-          : "Couldn't archive this campaign. Please try again.",
-      ),
+      errorSnackbar(isArchived ? copy.restoreError : copy.archiveError),
   })
 
   // One button, two writers. Door knocking archives the CAMPAIGN, which is
@@ -831,7 +829,7 @@ export const OutreachDetailsDrawer = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-[22px] font-semibold text-foreground">
-                  {row.name || row.title || 'Untitled campaign'}
+                  {row.name || row.title || copy.untitled}
                 </h2>
                 <HistoryStatusText
                   label={displayStatusLabel}
@@ -981,7 +979,7 @@ export const OutreachDetailsDrawer = ({
                           disabled={campaignLifecycle.pendingAction !== null}
                           onClick={() => setMarkCampaignDoneOpen(true)}
                         >
-                          Mark campaign done
+                          {copy.markDone}
                         </Button>
                       ) : (
                         // `none` alongside `done`, which is the one state this slot
@@ -1047,7 +1045,9 @@ export const OutreachDetailsDrawer = ({
               // the act — and with the section saying it, the group's own
               // "Audience" label would say it twice.
               <DetailsSection
-                title={isDoorKnocking ? 'Voter list used' : 'Applied filters'}
+                title={
+                  isDoorKnocking ? copy.audienceSection : 'Applied filters'
+                }
               >
                 {audienceName && (
                   <FilterGroup
@@ -1083,7 +1083,7 @@ export const OutreachDetailsDrawer = ({
                   <Metric
                     icon={<FileTextIcon />}
                     label="Name"
-                    value={row.name || row.title || 'Untitled campaign'}
+                    value={row.name || row.title || copy.untitled}
                   />
                   <Metric
                     icon={<RadioIcon />}
@@ -1642,6 +1642,7 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={setMarkCampaignDoneOpen}
         pending={campaignLifecycle.pendingAction === 'complete'}
         onConfirm={markCampaignDone}
+        isServe={isServe}
       />
     </>
   )

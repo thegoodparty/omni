@@ -161,14 +161,31 @@ follow-up is closed with calls and doors, never a third text. The model feeds th
 shapes the page already reads, through `PriorityResultsService`
 (`resultsFor`, `readStatuses`):
 
-- **The frame and the answers.** `buildDistrictCellsSql` counts the
-  district's people by age band, gender, tract and race;
-  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half, a
-  person's answers averaged) in the same cells. Race folds into `other` as
-  the steering folds it (under 2% of the district), and sits out when the
+- **The frame and the answers.** The frame is the district's people
+  from the voter file (`buildDistrictCellsSql`: age band, gender, tract,
+  race counts) reweighted so age band, sex and tract take the census's
+  adult shares (`censusFrame`, iterative proportional fitting): ACS
+  B01001 sex by age band from the district's census row, and adults per
+  tract summed from the block groups the district's people live in. The
+  voter file keeps how the dimensions overlap, its unknowns (they sit out
+  a dimension) and race, which stays the voter file's because the census
+  publishes race over everyone, children included. A dimension the census
+  cannot give (a suppressed figure, no district row, no tract adults)
+  keeps the voter file's counts for it, logged at warn. Samuel decided
+  this on 2026-10-20 (`docs/adr/2026-10-20-civic-panel-frame-from-census-sex-age.md`).
+  `buildAnswerCellsSql` sums the coded answers (yes 1, no 0, mixed half,
+  a person's answers averaged) in the same cells; an answer in a tract the
+  frame does not hold sits tract out. Race folds into `other` as the
+  steering folds it (under 2% of the district), and sits out when the
   census has no race figures. Both are counts, never a person
   (`CensusCompositionSource.mrpInputs`; the district's cells are shared for
   15 minutes, a priority's read is kept 15 minutes per its coded answers).
+  Age and sex margins are the district's, not each tract's: the district
+  row is the block groups allocated by population share, and the voter
+  file supplies the pattern within it.
+- **Major groups** (`mrpReadStatus` and `districtAnswersNeeded`) are read
+  off this same frame, so the groups named on screen and the answers
+  sized for them are the groups the model has.
 - **Status** (`mrpReadStatus`, in the page's existing labels): `tooEarly`
   while a major group has no answer, `notYetRepresentative` while one has
   fewer than three, `gettingClose` while a major group's 90% range is wider

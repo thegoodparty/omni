@@ -1,5 +1,8 @@
 export const VIEW_WIDTH = 100
-export const VIEW_HEIGHT = 93
+// The map is square on desktop and 16:10 on a phone; the dots are fitted to
+// whichever frame shows them.
+export const SQUARE_VIEW_HEIGHT = 100
+export const WIDE_VIEW_HEIGHT = 62.5
 
 export const TARGET_DOTS = 640
 // Illustrative: a few highlighted dots in each part of the district.
@@ -41,6 +44,7 @@ export interface DistrictDots {
   // True when the map is a stand-in, not the official's district.
   abstract: boolean
   center: { x: number; y: number }
+  viewHeight: number
 }
 
 export interface LatLng {
@@ -79,9 +83,9 @@ const toPath = (points: { x: number; y: number }[]): string =>
 
 const GRID = 4
 
-const cellOf = (p: { x: number; y: number }): number => {
+const cellOf = (p: { x: number; y: number }, viewHeight: number): number => {
   const column = Math.min(GRID - 1, Math.floor((p.x / VIEW_WIDTH) * GRID))
-  const row = Math.min(GRID - 1, Math.floor((p.y / VIEW_HEIGHT) * GRID))
+  const row = Math.min(GRID - 1, Math.floor((p.y / viewHeight) * GRID))
   return row * GRID + column
 }
 
@@ -92,13 +96,14 @@ const assignRoles = (
   positions: { x: number; y: number }[],
   rand: () => number,
   center: { x: number; y: number },
+  viewHeight: number,
 ): DistrictDot[] => {
   const byCell = new Map<number, number[]>()
   for (const index of shuffle(
     positions.map((_, position) => position),
     rand,
   )) {
-    const cell = cellOf(positions[index]!)
+    const cell = cellOf(positions[index]!, viewHeight)
     const picks = byCell.get(cell) ?? []
     if (picks.length < SAMPLE_PER_CELL) byCell.set(cell, [...picks, index])
   }
@@ -144,7 +149,7 @@ const assignRoles = (
     return {
       x: p.x,
       y: p.y,
-      wave: cellWave.get(cellOf(p)) ?? 0,
+      wave: cellWave.get(cellOf(p, viewHeight)) ?? 0,
       loud: loud.has(index),
       sample: sampleOrder.has(index),
       sampleOrder: sampleOrder.get(index) ?? -1,
@@ -184,7 +189,10 @@ export const basemapZoom = (camera: DistrictCamera, widthPx: number): number =>
 // Real locations, cut down to about TARGET_DOTS by a seeded random pick. A
 // random pick keeps the district's density, so each dot stands for about the
 // same number of residents. Returns null when there is too little to draw.
-export const buildDistrictDots = (points: LatLng[]): DistrictDots | null => {
+export const buildDistrictDots = (
+  points: LatLng[],
+  viewHeight: number,
+): DistrictDots | null => {
   const unique = new Map<string, LatLng>()
   for (const point of points) {
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) continue
@@ -219,10 +227,10 @@ export const buildDistrictDots = (points: LatLng[]): DistrictDots | null => {
   const spanY = maxY - minY || 1e-6
   const fit = Math.min(
     (VIEW_WIDTH - PADDING * 2) / spanX,
-    (VIEW_HEIGHT - PADDING * 2) / spanY,
+    (viewHeight - PADDING * 2) / spanY,
   )
   const offsetX = (VIEW_WIDTH - spanX * fit) / 2
-  const offsetY = (VIEW_HEIGHT - spanY * fit) / 2
+  const offsetY = (viewHeight - spanY * fit) / 2
   const fitted = kept.map((p) => ({
     x: offsetX + (p.x - minX) * fit,
     y: offsetY + (p.y - minY) * fit,
@@ -232,19 +240,22 @@ export const buildDistrictDots = (points: LatLng[]): DistrictDots | null => {
   const positions = shuffle(fitted, rand).slice(0, TARGET_DOTS)
   const center = centroid(positions)
   return {
-    dots: assignRoles(positions, rand, center),
+    dots: assignRoles(positions, rand, center, viewHeight),
     outline: null,
     camera: {
       center: fromMercator({
         x: minX + (VIEW_WIDTH / 2 - offsetX) / fit,
-        y: minY + (VIEW_HEIGHT / 2 - offsetY) / fit,
+        y: minY + (viewHeight / 2 - offsetY) / fit,
       }),
       worldUnits: fit,
     },
     abstract: false,
     center,
+    viewHeight,
   }
 }
+
+const ABSTRACT_HEIGHT = 93
 
 const ABSTRACT_OUTLINE: [number, number][] = [
   [12, 18],
@@ -281,7 +292,7 @@ const insideOutline = (x: number, y: number): boolean => {
 
 // The stand-in when an office has no location data: the same story on a
 // generic district, so the step never errors.
-export const buildAbstractDots = (): DistrictDots => {
+export const buildAbstractDots = (viewHeight: number): DistrictDots => {
   const rand = seededRandom(SEED)
   const neighborhoods: [number, number, number][] = [
     [30, 30, 9],
@@ -309,13 +320,26 @@ export const buildAbstractDots = (): DistrictDots => {
     }
     if (insideOutline(x, y)) positions.push({ x, y })
   }
-  const center = { x: 50, y: 46 }
+  // The stand-in is drawn on a 100x93 canvas; fit it evenly into the view
+  // and center it, so its shape is not squashed.
+  const scale = Math.min(1, viewHeight / ABSTRACT_HEIGHT)
+  const toView = (x: number, y: number): { x: number; y: number } => ({
+    x: VIEW_WIDTH / 2 + (x - 50) * scale,
+    y: viewHeight / 2 + (y - ABSTRACT_HEIGHT / 2) * scale,
+  })
+  const center = toView(50, 46)
   return {
-    dots: assignRoles(positions, rand, center),
-    outline: toPath(ABSTRACT_OUTLINE.map(([x, y]) => ({ x, y }))),
+    dots: assignRoles(
+      positions.map((p) => toView(p.x, p.y)),
+      rand,
+      center,
+      viewHeight,
+    ),
+    outline: toPath(ABSTRACT_OUTLINE.map(([x, y]) => toView(x, y))),
     camera: null,
     abstract: true,
     center,
+    viewHeight,
   }
 }
 

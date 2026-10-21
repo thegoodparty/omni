@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { DistrictBasemap } from './DistrictBasemap'
 import {
-  VIEW_HEIGHT,
   VIEW_WIDTH,
   type DistrictDot,
   type DistrictDots,
@@ -190,7 +189,7 @@ export const DistrictStoryMap = ({
 
   const svg = (
     <svg
-      viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
+      viewBox={`0 0 ${VIEW_WIDTH} ${model.viewHeight}`}
       className={
         model.camera
           ? 'pointer-events-none absolute inset-0 h-full w-full'
@@ -295,7 +294,8 @@ export const DistrictStoryMap = ({
   // box and the dots sit on their streets.
   return (
     <div
-      className="relative aspect-[100/93] w-full overflow-hidden bg-muted"
+      className="relative w-full overflow-hidden bg-muted"
+      style={{ aspectRatio: `${VIEW_WIDTH} / ${model.viewHeight}` }}
       data-testid="district-story-frame"
     >
       <DistrictBasemap camera={model.camera} />

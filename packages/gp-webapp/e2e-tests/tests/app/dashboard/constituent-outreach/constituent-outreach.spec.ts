@@ -71,7 +71,7 @@ test.describe('Outreach hub — no flag overrides', () => {
     // + mobile card list, toggled by CSS), so scope to the table cell.
     await expect(
       page.getByRole('cell', {
-        name: 'No campaigns yet. Pick a channel above to create your first.',
+        name: 'No outreach yet. Pick a channel above to send your first.',
       }),
     ).toBeVisible({ timeout: 30_000 })
   })

@@ -122,8 +122,8 @@ jobs:
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
           # images here; gp-api/election-api build inside the train's dev stage.
-          # contracts/gp-sdk/styleguide/prototypes are omitted deliberately —
-          # contracts/gp-sdk are transitively covered (a service build fails if
+          # contracts/styleguide/prototypes are omitted deliberately —
+          # contracts is transitively covered (a service build fails if
           # they do), and a broken styleguide/prototypes fails its own deploy
           # job in the train's dev stage.
           REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
@@ -729,11 +729,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
     env:
+      # The Clerk throttle splits its budget across every worker of the run
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
     steps:
       - uses: actions/checkout@v5
@@ -767,7 +770,7 @@ jobs:
         working-directory: packages/gp-webapp/e2e-tests
         run: >-
           npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/4 --reporter=blob
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
         env:
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
@@ -1094,8 +1097,6 @@ jobs:
         with:
           app: gp-admin
           build-contracts: 'true'
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
       - name: Deploy to Vercel
         uses: ./.github/actions/vercel-deploy
         with:

@@ -78,6 +78,25 @@ import {
   PeerlyCvTaxExemptBrandException,
 } from '../utils/peerlyCvTaxExemptBrand.util'
 import { PinoLogger } from 'nestjs-pino'
+import { z } from 'zod'
+import { parseVendorResponse } from '../../shared/parseVendorResponse'
+import {
+  peerlyGetIdentitiesResponseBodySchema,
+  peerlyIdentityCreateResponseBodySchema,
+  peerlyIdentityProfileResponseBodySchema,
+  peerlyIdentityUseCaseResponseBodySchema,
+} from '../schemas/peerlyIdentity.schema'
+import {
+  approve10DLCBrandResponseBodySchema,
+  peerly10DLCBrandSubmitResponseBodySchema,
+  peerlyCreateCVTokenResponseSchema,
+  peerlyGetCvRequestResponseBodySchema,
+  peerlyResendPinResponseBodySchema,
+  peerlyRetrieveCampaignVerifyStatusResponseBodySchema,
+  peerlyRetrieveCvResponseBodySchema,
+  peerlySubmitCVResponseBodySchema,
+  peerlyVerifyCVPinResponseSchema,
+} from '../schemas/peerlyTdlc.schema'
 
 // Slack truncates long blocks silently; pretty-printing roughly doubles a
 // body's line count, so cut it here with a visible marker instead.
@@ -131,6 +150,22 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       : `${userFullName} - ${campaignEIN}`
   }
 
+  // Every 10DLC/identity response goes through here in observe mode: a shape
+  // mismatch logs + counts but never breaks the live call. `endpoint` is the
+  // path template, not the concrete URL (it is a metric label).
+  private parseResponse<S extends z.ZodType>(
+    schema: S,
+    body: unknown,
+    endpoint: string,
+  ): z.infer<S> {
+    return parseVendorResponse(schema, body, {
+      vendor: 'peerly',
+      endpoint,
+      mode: 'observe',
+      logger: this.logger,
+    })
+  }
+
   async createIdentity(
     identityName: string,
     campaign: Campaign,
@@ -146,7 +181,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             usecases: [PEERLY_USECASE],
           },
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyIdentityCreateResponseBodySchema,
+        response.data,
+        '/identities',
+      )
       const { Data: identity } = data
       this.logger.debug({ identity }, 'Successfully created identity:')
       return identity
@@ -164,7 +203,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           '/identities/listByAccount',
           { params: { account_id: this.accountNumber } },
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyGetIdentitiesResponseBodySchema,
+        response.data,
+        '/identities/listByAccount',
+      )
       const { identities } = data
       this.logger.debug(
         { data: identities.map((identity) => identity.identity_name) },
@@ -183,7 +226,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.get<PeerlyIdentityUseCaseResponseBody>(
           `/v2/tdlc/${peerlyIdentityId}/get_usecases`,
         )
-      const { data: useCases } = response
+      const useCases = this.parseResponse(
+        peerlyIdentityUseCaseResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/get_usecases',
+      )
       this.logger.debug(
         { useCases },
         `Successfully fetched use cases for identityId: ${peerlyIdentityId}: `,
@@ -217,7 +264,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             is_political: true,
           },
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyIdentityProfileResponseBodySchema,
+        response.data,
+        '/identities/:id/submitProfile',
+      )
       this.logger.debug({ data }, 'Successfully submitted identity profile:')
       result = data
     } catch (error) {
@@ -240,7 +291,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.get<PeerlyIdentityProfileResponseBody>(
           `/identities/${peerlyIdentityId}/getProfile`,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyIdentityProfileResponseBodySchema,
+        response.data,
+        '/identities/:id/getProfile',
+      )
       this.logger.debug(
         { data },
         `Successfully fetched identity profile for identityId: ${peerlyIdentityId}: `,
@@ -395,7 +450,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           `/v2/tdlc/${peerlyIdentityId}/submit`,
           submitBrandData,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerly10DLCBrandSubmitResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/submit',
+      )
       const { submission_key: submissionKey } = data
       this.logger.debug({ data }, 'Successfully submitted 10DLC brand:')
       return submissionKey
@@ -437,9 +496,12 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           data,
         )
 
-      const {
-        data: { campaign_verify_token: _campaignVerifyToken, ...identityBrand },
-      } = response
+      const { campaign_verify_token: _campaignVerifyToken, ...identityBrand } =
+        this.parseResponse(
+          approve10DLCBrandResponseBodySchema,
+          response.data,
+          '/v2/tdlc/:id/approve',
+        )
       this.logger.debug(`Successfully approved 10DLC Brand: ${identityBrand}`)
 
       return identityBrand
@@ -512,9 +574,15 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     campaign: Campaign,
   ): Promise<void> {
     try {
-      await this.peerlyHttpService.post<Peerly10DLCBrandSubmitResponseBody>(
-        `/v2/tdlc/${peerlyIdentityId}/submit`,
-        { campaign_verify_token: campaignVerifyToken },
+      const response =
+        await this.peerlyHttpService.post<Peerly10DLCBrandSubmitResponseBody>(
+          `/v2/tdlc/${peerlyIdentityId}/submit`,
+          { campaign_verify_token: campaignVerifyToken },
+        )
+      this.parseResponse(
+        peerly10DLCBrandSubmitResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/submit',
       )
     } catch (error) {
       await this.handleApiError(error, {
@@ -562,7 +630,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.get<PeerlyGetCvRequestResponseBody>(
           `/v2/tdlc/${peerlyIdentityId}/retrieve_cv`,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyGetCvRequestResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/retrieve_cv',
+      )
       this.logger.debug(
         { data },
         `Successfully fetched Campaign Verify status for identityId: ${peerlyIdentityId}: `,
@@ -750,7 +822,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           `/v2/tdlc/${peerlyIdentityId}/submit_cv`,
           submitCVData,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlySubmitCVResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/submit_cv',
+      )
       this.logger.debug(`Successfully submitted CV request: ${data}`)
       result = data
     } catch (error) {
@@ -852,7 +928,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.get<PeerlyRetrieveCampaignVerifyStatusResponseBody>(
           `/v2/tdlc/${peerlyIdentityId}/retrieve_cv`,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyRetrieveCampaignVerifyStatusResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/retrieve_cv',
+      )
       const { verification_status: verificationStatus } = data
       this.logger.debug(
         { data },
@@ -899,7 +979,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.get<PeerlyRetrieveCvResponseBody>(
           `/v2/tdlc/${peerlyIdentityId}/retrieve_cv`,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyRetrieveCvResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/retrieve_cv',
+      )
       return {
         status: data.verification_status ?? null,
         pinDelivery: derivePinDelivery(data.verification_data),
@@ -932,7 +1016,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           `/v2/tdlc/${peerlyIdentityId}/verify_pin`,
           { code: pin },
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyVerifyCVPinResponseSchema,
+        response.data,
+        '/v2/tdlc/:id/verify_pin',
+      )
       const { cv_verification_status: cvVerificationStatus } = data
       return cvVerificationStatus === CampaignVerificationStatus.VERIFIED
     } catch (e) {
@@ -968,8 +1056,14 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     campaign: Campaign,
   ): Promise<void> {
     try {
-      await this.peerlyHttpService.post<PeerlyResendPinResponseBody>(
-        `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
+      const response =
+        await this.peerlyHttpService.post<PeerlyResendPinResponseBody>(
+          `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
+        )
+      this.parseResponse(
+        peerlyResendPinResponseBodySchema,
+        response.data,
+        '/v2/tdlc/:id/resend_pin',
       )
     } catch (e) {
       // CV refuses a resend within 10 days of mailing a PIN. That refusal is
@@ -996,7 +1090,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         await this.peerlyHttpService.post<PeerlyCreateCVTokenResponse>(
           `/v2/tdlc/${peerlyIdentityId}/create_cv_token`,
         )
-      const { data } = response
+      const data = this.parseResponse(
+        peerlyCreateCVTokenResponseSchema,
+        response.data,
+        '/v2/tdlc/:id/create_cv_token',
+      )
       const { campaign_verify_token: campaignVerifyToken } = data
       return campaignVerifyToken
     } catch (e) {

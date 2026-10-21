@@ -267,6 +267,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       'See what matters in your community',
       'Build your civic panel',
       'Get ready for your next meeting',
+      'Something else',
     ]) {
       expect(
         screen.getByRole('button', { name: new RegExp(label) }),
@@ -337,6 +338,27 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       ),
     )
     expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
+  })
+
+  it('Something else opens a box and sends what they write as their own message', async () => {
+    const written = 'Help me plan a town hall.'
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', written),
+      message('a1', 'assistant', REPLY),
+    ])
+    const user = await meet()
+    await user.click(screen.getByRole('button', { name: /Something else/ }))
+    const box = screen.getByPlaceholderText('Type your answer...')
+    expect(screen.getByText('Send', { selector: 'button' })).toBeDisabled()
+    await user.type(box, `${written}{Enter}`)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: written }),
+      ),
+    )
+    await waitFor(() => expect(screen.getByText(written)).toBeInTheDocument())
+    expect(completedACard()).toBe(false)
   })
 
   it('leaves the civic panel out with serve-citizen-panels off', async () => {

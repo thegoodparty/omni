@@ -144,6 +144,7 @@ gating is per-action inside the services (see Access control).
 | `GET/POST/PATCH /v1/contacts/civic-panel/plan` · `POST …/plan/steps/:id/prepare` · `POST …/plan/steps/:id/skip` · `POST …/plan/steps/:id/mark` | Serve's plan to build the panel across texts, calls and doors (`CivicPanelBuildPlanService`). 404 with the flag off, 400 for a non-`eo-` org. See "Building the panel across channels"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /v1/contacts/:personId/interactions`                                                                                                     | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /v1/contact-engagement/:id/activities`                                                                                                    | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET /v1/contact-engagement/:id/priority-answers`                                                                                              | Serve only (Win and a missing office read empty): every `PriorityAnswer` for the person with its priority's title, newest first, from `ContactPriorityAnswersService`. The activity feed reads the same rows onto its text (by send), call and door (by interaction id) entries as `data.priorityAnswer`, Serve only, so a Win feed is unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`                                                              | Saved-filter CRUD; PUT/DELETE 409 once locked. Create is not Pro-gated (outreach-pro-gating-v2, a free candidate can save a list before upgrading); PUT/DELETE still call `filterAccessCheck`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `POST /v1/outreach`                                                                                                                            | Outreach create (draft-first); launch triggers materialization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -714,13 +715,19 @@ office's one build card (`sourceExternalId` from contracts'
 `civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) carries contracts'
 `CIVIC_PANEL_BUILD_CARD_HREF`, the panel page (`CIVIC_PANEL_PAGE_HREF`), which
 asks the weekly time question or shows the plan already made (see "Building
-the panel across channels"). Its pre-plan button, `CIVIC_PANEL_BUILD_CARD_CTA`
-(Build my panel), does not follow that link on the home: `TaskStack` sends the
-hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the chat, so every entry point
-starts the same conversation; the panel page keeps its own form. The Chief of
+the panel across channels"). Its words never change, with or without a plan
+(`CIVIC_PANEL_BUILD_CARD_CONTENT`): "Know what residents think before you
+decide", "A civic panel gives you residents from across your district who
+answer when you ask what they think.", and `CIVIC_PANEL_BUILD_CARD_CTA`
+(Build your panel). No step and no member count: the card's one job is to get
+the panel built. Its button does not follow that link on the home:
+`TaskStack` sends the hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the
+chat for the build card (`isCivicPanelBuildCard`, never the label), so every
+entry point starts the same conversation, which shows the plan's next step
+once there is one; the panel page keeps its own form. The Chief of
 Staff chat runs that same plan (`chats/general/chief-of-staff`,
 `civicPanelPlan.tools.ts` and `civicPanelBuildBlock`). Asked to build the
-panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build my
+panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build your
 panel, the intro's Build your civic panel or Grow your civic panel, or the
 explainer's Build my panel, or in their own words) with no
 plan, it explains the panel in a line or two and calls
@@ -728,11 +735,13 @@ plan, it explains the panel in a line or two and calls
 and answers (1, 2, 3, or 4 or more hours a week). The answer goes to
 `save_panel_weekly_time`, which calls `CivicPanelBuildPlanService.create`
 (4 for "4 or more", a written number as given, 1 to 20); then
-`present_panel_next_step` shows the plan's next step as a card that reads the
-plan itself (`GET …/plan`): the Next line, members of the goal, the
-panel page's status and its line naming who to invite next (`balance`), the
-page's button for that step (it opens the step's own text, call or door flow
-the way the page does, not `next.href`), and See your plan. The tools return
+`present_panel_next_step` shows the plan's next step as the standard outreach
+card, reading the plan itself (`GET …/plan`): the step in the panel page's
+words (contracts' `civicPanelStepTitle` and `civicPanelOpenStepDetail`, "Call
+60 residents" over who and how long) and the page's button for it (it opens
+the step's own text, call or door flow the way the page does, not
+`next.href`). No member count and no panel status on it. With no step to
+take, it is a See your plan row with the Next line. The tools return
 that status and group in the page's words (`panelStatus`,
 `inviteMoreNext`); the agent may repeat them, but never promises the panel
 will match the district, never mentions weights, quotas or targets, and never
@@ -751,23 +760,19 @@ priorities they want to work on and offering to record them
 panel? opens the Chief of Staff chat with the hidden turn
 `EXPLAIN_CIVIC_PANEL_MESSAGE`: the agent explains the panel and builds
 nothing unless the official says yes (`civicPanelExplainLines`).
-Once the office has an active plan, the open card follows it: the sync
-reads the plan first (`CivicPanelBuildPlanService.read`, looked up through
-`ModuleRef` because importing the contacts module closes a module cycle, and
-before the lock, since the read is what moves the plan), and the card's
-title is always "Hear from more than the loudest voices", its summary where the panel stands
-(`civicPanelStandingLine`: "62 members so far, from 9 of 12 groups in your
-district.", without the groups when the census could not be read), its button the panel page's own words for that step ("Start the
-text", "Start the calls", "Start door knocking"; "Keep calling", "Keep
-knocking"; "See your plan" while waiting) and its link `next.href` (the
-panel page on that step, or the page itself with no link). With no plan, an
-ended plan or nothing next, it reads "Start with the people you represent"
-and Build my panel, as before. A plan read that fails leaves the words as
-they are. Once the build card is done, the plan's ready step gets a card of
-its own (`syncCivicPanelStepCard`, `sourceExternalId` from contracts'
-`civicPanelStepCardSourceId`, `panel-step:<stepId>`), so the calls, doors and
-later rounds still reach the home: the same words as the build card would
-show, opening that step. It exists only while the plan is active, the build
+The sync reads the plan first (`CivicPanelBuildPlanService.read`, looked up
+through `ModuleRef` because importing the contacts module closes a module
+cycle, and before the lock, since the read is what moves the plan) for the
+goal and the step card. Once the build card is done, the plan's ready step
+gets a card of its own (`syncCivicPanelStepCard`, `sourceExternalId` from
+contracts' `civicPanelStepCardSourceId`, `panel-step:<stepId>`), so the
+calls, doors and later rounds still reach the home. It says the one next step
+in the panel page's words (`civicPanelStepCardContent`): the step's title
+("Call 60 residents"), its one line on who and how long ("People a text can't
+reach, landlines first. About 4 hours of your time.", or "Called 12 so far."
+underway), its button ("Start the text", "Start the calls", "Start door
+knocking"; "Keep calling", "Keep knocking") and its link `next.href`. No
+member count. A plan read that fails leaves the card as it is. It exists only while the plan is active, the build
 card is done, and `next` has a link (waiting on replies is not a step to
 take); one at a time, so a card whose step is no longer next is deleted and
 the new step gets its own. Keyed by the step, a skipped one stays skipped
@@ -778,9 +783,9 @@ next read. The card is done once any `text` row of the org with
 `asksToJoinCivicPanel` is past checkout (not `pending_payment`, `draft`,
 `canceled`, `denied` or `failed`): the purpose is not stored on the row, and
 the ask is what recruits. It is also done once the plan reaches its goal
-(`completed`). A done card keeps the start words in the archive. While it is
+(`completed`). While it is
 open its due date rolls forward so it never lapses into missed. A skipped
-card stays skipped while its words follow the plan. The webapp offers it no
+card stays skipped once there is a plan. The webapp offers it no
 Mark done, and `complete` leaves it untouched. It takes `dismiss` (Not for me, undone by
 `restore`, Bring it back in the archive) and `snooze` (Show in 3 days:
 `snoozedUntil` keeps it off the active list for `DASHBOARD_CARD_SNOOZE_DAYS`).
@@ -795,9 +800,10 @@ forward. It is deleted, skipped or not, once its priority is archived, and
 recreated if it is unarchived; a ready plan (null step) deletes it too,
 unless it is done, and it is recreated when a step comes open again.
 The webapp leads with the Chief of Staff's `meet` get-started card while it
-is active, then the build card (or the plan step card in its place, under
-the same People first headline), then the `priorities` get-started card, then
-the rest. `meet` is done only once its button opens the intro
+is active, then any open `report_back` card (the people who answered are
+waiting to hear back), then the build card (or the plan step card in its
+place, under the same People first headline), then the `priorities`
+get-started card, then the rest. `meet` is done only once its button opens the intro
 (`PUT /v1/dashboard/onboarding-cards/meet/complete`, an
 `OnboardingCardCompletion` row), never by any Chief of Staff conversation:
 the build card's own chat would otherwise hide it from a new official. One
@@ -876,8 +882,7 @@ doors, in waves (`CivicPanelBuildPlanService`, pure math in
 question, the steps, Next and the groups the panel covers.
 
 **Sized for coverage.** The member goal is the members it takes for every
-major group to be expected to answer one question three times
-(`docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+major group to be expected to answer one question three times.
 Officials never see the answer count behind it; the panel page shows the
 groups covered.
 Contracts' `answersNeeded(smallestMajorShare)`
@@ -888,8 +893,8 @@ when `raceNameable` holds for the district) to be expected to answer 3
 times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
-`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
-reads, cached 15 minutes per district); without them (no district row, no
+`utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
+the priority model reads, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
@@ -930,18 +935,32 @@ answer rate) members. The census is read for any panel with a member, and
 both are 0 when it cannot be. Without an active plan `goal` is the
 district's, so an office whose old plan completed at 100 can make a new one.
 
-**Keep your panel fresh.** A panel past its goal is not done. `create` with
-members at or over the district's goal makes a plan with `keepFresh` true
-(`CivicPanelBuildPlan.keepFresh`) and a `goalMembers` of members plus
-`PANEL_KEEP_FRESH_MEMBERS` (50), sized from the same weekly hours question.
-Its goal stays where it was set (it does not follow the district's), the
-read's `progress.goal` stays the district's so the bar still reads "every
-group", and the plan completes once those members join, after which a new one
-can be made. Waves, steps and steering are the ordinary plan's, and steering
-already leans toward the thinnest groups. The panel page shows the hours form
-under "Keep your panel fresh" in place of the plan start, and the Chief of
-Staff's build turn asks the same question, so Grow your civic panel leads
-into it.
+**Keep your panel fresh.** A panel past its goal is not done: it is kept
+fresh by active coverage. An active member is a panel member who answered a
+priority's text, call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90)
+days (`answeredPersonIds` with no priority and a `since`, read live from the
+interaction rows, never stored; opted-out people do not count). Past the
+goal (`members >= panelGoalMembers`) every read also counts them the way it
+counts members (`activeMixOf`, the same census cells and the same groups,
+with race named only when it is for the members) and every major group is
+judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its
+member-based `status` and gains `groupsNeedingFresh`, the groups short of
+active members, with `inviteMore` the largest group short of members, else of active members; absent before the
+goal. `create` with members at or over the district's goal makes a plan with
+`keepFresh` true (`CivicPanelBuildPlan.keepFresh`, the past-goal marker) and
+a `goalMembers` of the district's goal: it has no member target and never
+closes on its members, only `exhausted` once a wave can reach nobody. Its
+waves run on the weekly hours and steer by the active mix
+(`PanelSteering.fresh`): while groups are short the gap is the fewest more
+members that would fill them (`PanelCoverage.membersShort`), so texts, calls
+and doors are sized as for any plan; once none is short the gap is null and a
+wave is the official's calls and doors at their hours, no text, a light
+trickle. The panel page shows the hours form under "Keep your panel fresh"
+in place of the plan start, and the Chief of Staff's build turn asks the
+same question, so Grow your civic panel leads into it. The Chief of Staff
+card and `civicPanelStandingLine` follow `groupsNeedingFresh` ("250 members.
+3 groups need fresh voices."). See
+`docs/adr/2026-10-20-civic-panel-active-members-read-live.md`.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
 official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`
@@ -993,7 +1012,7 @@ panel drifts toward the district's census mix. Dimensions are age (the
 census's six adult bands, 18 to 24 through 65+), gender (census sex against
 the voter file's `M`/`F`), tract and race, all from `weightingTargets`. Tenure
 is out until a statistician rules on its household target. Race (Bryan and
-Samuel, 2026-10-19, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`) is L2's
+Samuel, 2026-10-19) is L2's
 modeled `EthnicGroups_EthnicGroup1Desc` folded into white, Black, Hispanic,
 Asian and other against all-ages ACS shares (Native American and any group
 under 2% of the district fold into other). It leans a draw and names a
@@ -1035,10 +1054,22 @@ largest missing group, set whenever groups are missing, even once the goal
 is met; a text step's `steeredToward` is that same group (draw weights still
 follow the share gaps). Past the member goal the panel page's
 form is Keep your panel fresh (see below), and the balance section's line
-names the next group. The official never sees a share, weight or target.
+names the next group. The official never sees a share, weight or target
+as a number. The response's `composition` (null with no members, or when
+nothing can be read) feeds the panel page's seats and petals: `places` is
+every census tract from `weightingTargets`' tract shares with the members
+living there (`panelComposition`, `placeKind: 'tract'`, `name` the tract
+number), or, when the census has no tract for the district, every
+(County, Precinct) by its share of the people on file with the members
+filed there (`precinctPlaces` over `VoterQueryService.findPrecincts` and
+`findPrecinctMembers`, `placeKind: 'precinct'`, the unknown precinct left
+out). `groups` is each major group by age, gender and nameable race with
+its district share and the members' share among those with a known value,
+from the same mix the balance reads. The page draws seats and petal
+lengths from them and shows only seats and "X% of its share".
 
 **Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
-Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).
+Samuel, 2026-10-19).
 A priority check's first round, which the priority chat proposes as a door,
 a call and a text card at once (`size_round_one`,
 `chats/general/chat-tools/sizeRoundOne.tool.ts`). A major group holds
@@ -1369,7 +1400,7 @@ scope.
 | Serve = `eo-` slug prefix         | `hasElectedOfficeAccess`; Serve orgs are license-equivalent to Pro                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Affinity + ideology are Win-only  | `assertNoRecommendedListFilterForElectedOffice` 400s either at the same five choke points the party gate covers, and the dimensions catalog marks both `modes: 'win'`. Not a licensing rule like party — a permanent product rule, and a separate mechanism from the webapp's own visibility prop; see the recommended-list dimensions section                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Party never reaches Serve         | `stripWinOnlyFieldsIfElectedOffice` (list + detail + typeahead), download drops party (plus turnout propensity + vote history, ENG-10830) via projection, party **filters** 400 (`assertNoPartyFilterForElectedOffice`), the door-knocking route payload nulls it per target (`doorKnockingServe.service.ts`, which also declares `isServe` so the two paper surfaces can read one field rather than re-derive the prefix), and the dimensions catalog hides party. A party value in any `eo-` response is a bug — there's a party-leak test suite, in `contacts.service.test.ts` and in `doorKnocking.routes.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Ethnicity never reaches Serve     | Win-only, and a product rule rather than a licensing one. #1933 removed ethnicity subsetting from both products; the Win half was reverted and the rule now binds Serve alone. The catalog marks the dimension `modes: 'win'` so the Chief of Staff never learns it exists, `assertNoEthnicityFilterForElectedOffice` 400s the key at the same six choke points the party gate covers, `resolveSavedFilterSets` drops a pre-rule saved list carrying the columns rather than failing the whole union, `stripWinOnlyFieldsIfElectedOffice` removes `ethnicityGroup` from list/detail/typeahead, both CSV paths drop the column via projection (`EXCLUDABLE_VOTER_COLUMNS` and `SERVE_EXCLUDED_VOTER_FILE_COLUMNS`), and the door-knocking route payload nulls it per target. Aggregate district composition is a different question and stays (`voters.service.ts`'s `getEthnicityCounts`), and so does the civic panel's own use of the column in aggregate counts and draw weights (`docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`): no official ever filters, sees or downloads it. The Chief of Staff prompt refuses the ask by name and refuses a proxy for it (language, surname, a neighborhood standing in); the Campaign Manager prompt carries no ethnicity rule, because Win may cut a list by the dimension                                           |
+| Ethnicity never reaches Serve     | Win-only, and a product rule rather than a licensing one. #1933 removed ethnicity subsetting from both products; the Win half was reverted and the rule now binds Serve alone. The catalog marks the dimension `modes: 'win'` so the Chief of Staff never learns it exists, `assertNoEthnicityFilterForElectedOffice` 400s the key at the same six choke points the party gate covers, `resolveSavedFilterSets` drops a pre-rule saved list carrying the columns rather than failing the whole union, `stripWinOnlyFieldsIfElectedOffice` removes `ethnicityGroup` from list/detail/typeahead, both CSV paths drop the column via projection (`EXCLUDABLE_VOTER_COLUMNS` and `SERVE_EXCLUDED_VOTER_FILE_COLUMNS`), and the door-knocking route payload nulls it per target. Aggregate district composition is a different question and stays (`voters.service.ts`'s `getEthnicityCounts`), and so does the civic panel's own use of the column in aggregate counts and draw weights: no official ever filters, sees or downloads it. The Chief of Staff prompt refuses the ask by name and refuses a proxy for it (language, surname, a neighborhood standing in); the Campaign Manager prompt carries no ethnicity rule, because Win may cut a list by the dimension                                           |
 | One people table per request      | `withOrgDistrictResolution` resolves the org's `PeopleDataset` (`PeopleDatasetService`, `peopleDb/AGENTS.md`) next to the district and hands both to every peopleDb read. Callers paging one org's audience (`resolveFilterAudience`, the robocall phonebook, materialization, phone lookups) resolve it once with `resolvePeopleDataset` and pass it into `findContacts` / `findContactsForFilter` / `findPersonByPhone`, as they already do `resolveProAccess`. `resolveEligibleDistrict` returns the pair to modules that call peopleDb directly                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | L2 voter id never leaves a file   | Narrower than the party and ethnicity rules by design, and not a dimension gate: there is no filter to 400 and nothing to strip from a response — `lalVoterId` stays on the person payload, because contact activity is keyed on it. Only the file that leaves someone's hands drops it, and both CSV paths do so via projection (`EXCLUDABLE_VOTER_COLUMNS` and `SERVE_EXCLUDED_VOTER_FILE_COLUMNS`). Win keeps the column — its download is a voter-file extract, and this is a Serve rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Free tier / AI                    | District stats stay open to non-Pro; counts are Pro-gated like search (the assistant's `count_contacts` recognizes `PRO_FILTERING_REQUIRED_MESSAGE` and suggests the upgrade); assistant tools are aggregate-only by construction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

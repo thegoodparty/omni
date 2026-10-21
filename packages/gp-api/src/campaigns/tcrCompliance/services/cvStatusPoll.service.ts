@@ -193,11 +193,24 @@ export class CvStatusPollService extends createPrismaBase(
   // scoped to recent submissions that have no PIN detected yet — the window
   // where a prompt CompliancePinSent actually changes what the candidate
   // gets told. Everything older stays on the twice-daily scan's budget.
-  async runFreshScan(scanKey: string) {
+  //
+  // `opts.campaignId` narrows the pass to one campaign (test-fixtures run-job,
+  // so a spec on a shared preview DB never polls other users' records) and
+  // bypasses the Pro/internal-email scoping, since fixture users are internal
+  // by design. `opts.spacingMs` overrides the per-record retrieve_cv pacing;
+  // the run-job path passes 0 so one record does not sleep 60s.
+  async runFreshScan(
+    scanKey: string,
+    opts: { campaignId?: number; spacingMs?: number } = {},
+  ) {
+    const spacingMs = opts.spacingMs ?? RETRIEVE_CV_SPACING_MS
     const freshCandidates: RecordWithCampaignUser[] = await this.model.findMany(
       {
         where: {
-          campaign: scannableCampaign,
+          campaign:
+            opts.campaignId === undefined
+              ? scannableCampaign
+              : { id: opts.campaignId },
           internalTestingAt: null,
           peerlyIdentityId: { not: null },
           pinSentDetectedAt: null,
@@ -243,7 +256,7 @@ export class CvStatusPollService extends createPrismaBase(
           '[CV fresh poll] CV poll failed for record',
         )
       }
-      await sleep(RETRIEVE_CV_SPACING_MS)
+      await sleep(spacingMs)
     }
     this.logger.info(
       {

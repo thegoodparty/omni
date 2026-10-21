@@ -2,12 +2,13 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  civicPanelStandingLine,
+  civicPanelOpenStepDetail,
+  civicPanelStepTitle,
   type ChatClarifyQuestion,
   type CivicPanelBuildNext,
   type CivicPanelBuildStep,
 } from '@goodparty_org/contracts'
-import { Button, cn } from '@styleguide'
+import { Button } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
 import ClarifyQuestionWidget from '../../../shared/agent-chat/ClarifyQuestionWidget'
 import {
@@ -16,16 +17,16 @@ import {
 } from '../../../shared/agent-chat/clarifyWidget'
 import { defineWidgetTool } from '../../../shared/agent-chat/widgetRegistry'
 import {
+  CompactCardLink,
   CompactCardLoading,
+  CompactCardStatic,
   CompactCardUnavailable,
 } from '../../../shared/agent-chat/cards/cardShell'
-import { OPTION_CARD_CLASS } from '../../../shared/agent-chat/optionCard'
 import {
   civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as PANEL_COPY,
 } from '../../../contacts/citizens-panel/citizensPanelCopy'
 import { civicPanelPlanQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
-import { CivicPanelBalanceStatus } from '../../../contacts/citizens-panel/components/CivicPanelBalance'
 import {
   keepGoingHref,
   useCivicPanelStepFlow,
@@ -36,8 +37,6 @@ export const PANEL_NEXT_STEP_TOOL = 'present_panel_next_step'
 // card are read again once it returns.
 export const SAVE_PANEL_WEEKLY_TIME_TOOL = 'save_panel_weekly_time'
 
-// The progress line is the home's panel card summary, word for word
-// (gp-api civicPanelBuildCardContent), so the chat and the home agree.
 export const CIVIC_PANEL_CHAT_COPY = {
   seePlan: 'See your plan',
 } as const
@@ -67,10 +66,12 @@ export const nextStepLabel = (next: CivicPanelBuildNext): string | null => {
   return next.channel === 'text' ? null : PANEL_COPY.keepGoing[next.channel]
 }
 
-// The plan's next step, read live from the plan so it never holds state of
-// its own: the panel page's Next line, members against the goal, a button
-// that opens that step's own text, call or door flow the way the panel page
-// does, and the panel page.
+// The plan's next step as the standard outreach card, read live from the
+// plan so it never holds state of its own: the step in the panel page's
+// words and a button that opens its own text, call or door flow the way the
+// panel page does. No member count or panel status: before anyone is
+// invited, "too few members" only discourages. With no step to take (waiting
+// on replies), a row to the panel page with its Next line.
 export const CivicPanelNextStepCard = () => {
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
@@ -113,25 +114,22 @@ export const CivicPanelNextStepCard = () => {
   }
 
   const keepGoing = step ? keepGoingHref(step) : null
+  const textingOff = step?.channel === 'text' && stepFlow.textingOff
   const action = (() => {
     if (!label || !next?.href || !step) return null
     if (keepGoing && step.channel !== 'text') {
       return (
-        <Button asChild size="small">
+        <Button asChild size="small" className="shrink-0">
           <Link href={keepGoing}>{label}</Link>
         </Button>
       )
     }
-    if (step.status !== 'not_started') return null
-    if (step.channel === 'text' && stepFlow.textingOff) {
-      return (
-        <p className="text-sm text-muted-foreground">{PANEL_COPY.textingOff}</p>
-      )
-    }
+    if (step.status !== 'not_started' || textingOff) return null
     return (
       <Button
         type="button"
         size="small"
+        className="shrink-0"
         loading={starting}
         onClick={() => void start(step)}
       >
@@ -140,32 +138,42 @@ export const CivicPanelNextStepCard = () => {
     )
   })()
 
-  const progress = civicPanelStandingLine(data.progress)
   return (
     <div
-      className={cn(OPTION_CARD_CLASS, 'flex w-full max-w-md flex-col gap-3')}
+      className="flex w-full max-w-md flex-col gap-2"
       data-testid="civic-panel-next-step"
     >
-      <div className="flex flex-col">
-        <span className="text-sm font-medium text-foreground">
-          {next?.line ?? progress}
-        </span>
-        {next ? (
-          <span className="text-sm leading-6 text-muted-foreground">
-            {progress}
-          </span>
-        ) : null}
-      </div>
-      {data.balance ? <CivicPanelBalanceStatus balance={data.balance} /> : null}
-      <div className="flex flex-wrap items-center gap-3">
-        {action}
-        <Link
+      {step && label ? (
+        <CompactCardStatic
+          title={civicPanelStepTitle(step)}
+          subtitle={
+            textingOff ? PANEL_COPY.textingOff : civicPanelOpenStepDetail(step)
+          }
+          action={
+            // With nothing to start here (texting not set up), the panel
+            // page is still the way forward.
+            action ?? (
+              <Button
+                asChild
+                size="small"
+                variant="outline"
+                className="shrink-0"
+              >
+                <Link href={civicPanelHref('chief_of_staff_chat')}>
+                  {CIVIC_PANEL_CHAT_COPY.seePlan}
+                </Link>
+              </Button>
+            )
+          }
+          wrapSubtitle
+        />
+      ) : (
+        <CompactCardLink
+          title={CIVIC_PANEL_CHAT_COPY.seePlan}
+          subtitle={next?.line}
           href={civicPanelHref('chief_of_staff_chat')}
-          className="text-sm text-foreground underline underline-offset-2"
-        >
-          {CIVIC_PANEL_CHAT_COPY.seePlan}
-        </Link>
-      </div>
+        />
+      )}
       {failed ? (
         <p className="text-sm text-destructive" role="alert">
           {PANEL_COPY.stepError}

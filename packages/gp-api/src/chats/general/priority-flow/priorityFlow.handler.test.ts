@@ -58,6 +58,7 @@ const baseCtx = (): PriorityFlowContext => ({
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
   source: 'user_stated',
+  sourceCommunityIssueId: null,
   status: emptyPriorityStatus(),
   anchorSummaries: [],
   districtFilters: null,
@@ -316,7 +317,7 @@ describe('PriorityFlowHandler', () => {
       { voters: [], constituents: [] },
       undefined,
       undefined,
-      { getDetail: vi.fn() },
+      { list: vi.fn(), getDetail: vi.fn() },
       {
         getFilterDimensions: vi.fn(() => []),
         countContacts: vi.fn(),
@@ -1109,6 +1110,23 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Exactly one step is active at any moment')
     expect(prompt).toContain(
       'New information has to meaningfully invalidate what that step',
+    )
+  })
+
+  it('names the community issue a priority came from in <priority>', () => {
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      source: 'community_issue',
+      sourceCommunityIssueId: 'issue-7',
+    })
+    expect(prompt).toContain(
+      'Where it came from: community_issue\nCame from community issue: issue-7\n',
+    )
+  })
+
+  it('leaves the community issue line out when the priority has none', () => {
+    expect(build().buildSystemPrompt(baseCtx())).not.toContain(
+      'Came from community issue',
     )
   })
 

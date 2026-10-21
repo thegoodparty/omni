@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { DistrictStoryMap } from './DistrictStoryMap'
-import { buildAbstractDots, type DistrictMapMode } from './districtDots'
+import {
+  buildAbstractDots,
+  type DistrictMapMode,
+  SQUARE_VIEW_HEIGHT,
+} from './districtDots'
 
-const model = buildAbstractDots()
+const model = buildAbstractDots(SQUARE_VIEW_HEIGHT)
 const SAMPLE = model.dots.filter((dot) => dot.sample).length
 const JOINED = Math.ceil(SAMPLE / 2)
 

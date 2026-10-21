@@ -23,6 +23,10 @@ export const apiRoutes = {
       path: '/contact-engagement/:id/activities',
       method: 'GET',
     },
+    priorityAnswers: {
+      path: '/contact-engagement/:id/priority-answers',
+      method: 'GET',
+    },
   },
   contacts: {
     list: {

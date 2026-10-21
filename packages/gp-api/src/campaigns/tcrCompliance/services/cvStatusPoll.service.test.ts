@@ -489,6 +489,15 @@ describe('CvStatusPollService', () => {
       expect(freshCall.where.campaign.isPro).toBe(true)
     })
 
+    it('scopes to one campaign when a campaignId filter is given', async () => {
+      await service.runFreshScan('slot', { campaignId: 77, spacingMs: 0 })
+
+      const [call] = mockModel.findMany.mock.calls[0] as [
+        { where: { campaign: unknown } },
+      ]
+      expect(call.where.campaign).toEqual({ id: 77 })
+    })
+
     it('runs the same per-record pipeline as the full scan', async () => {
       const record = scanRecord('tcr-a', 1)
       mockModel.findMany.mockResolvedValueOnce([record])

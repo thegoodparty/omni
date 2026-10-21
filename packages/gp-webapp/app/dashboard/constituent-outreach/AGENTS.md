@@ -11,7 +11,10 @@ step, the code lives in `outreach/v2/` and BOTH surfaces feel it — read
 **Vocabulary.** This surface has regressed four times on one bug: Win nouns
 reaching an elected official. They have constituents, an office and a term —
 never voters, an election, a candidate or a ballot, and "campaign" only in the
-outreach sense ("Campaign name" is fine, "your campaign tone" is not). Every
+outreach sense ("Campaign name" is fine, "your campaign tone" is not). The history table and
+drawer read `outreach/v2/outreachHistoryCopy.ts` (`getOutreachHistoryCopy`):
+Serve says "Your outreach", an "Outreach" column and "N need follow-up" on a
+call list, never "campaign" or "supporters". Every
 string here is Serve copy, and everything under `outreach/v2/` is shared, so
 fix a shared string with a mode-keyed copy object rather than a rename. The
 rule, the models, and the check that gates it:

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import { Check, LoaderCircle, Pencil } from 'lucide-react'
+import { LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
 import type {
   ElectedOffice,
@@ -16,6 +16,7 @@ import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
+import { RadioCardGroup } from 'app/onboarding/components/RadioCardGroup'
 import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
 import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
@@ -167,6 +168,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // event report `hadBrPrefill: false`. Used to diff the BR suggestion against
   // the user's final pick so we can measure how inaccurate BallotReady data is.
   const [brPrefill, setBrPrefill] = useState<BrPrefillSnapshot | null>(null)
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step, loading, switchToCampaign])
 
   useEffect(() => {
     if (!flagReady) return
@@ -1314,12 +1319,7 @@ const StepHeading = ({
   center?: boolean
 }): React.JSX.Element => (
   <div className={center ? 'text-center' : undefined}>
-    <h1
-      className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-      style={{ fontFamily: 'var(--font-geist)' }}
-    >
-      {title}
-    </h1>
+    <h1 className="text-4xl font-bold text-foreground sm:text-5xl">{title}</h1>
     <p className="mt-4 text-base leading-relaxed text-muted-foreground">
       {description}
     </p>
@@ -1339,13 +1339,10 @@ const WelcomeStep = ({
     : SERVE_WELCOME_VALUE_PROPS
   return (
     <div>
-      <h1
-        className="text-4xl leading-tight font-semibold tracking-tight text-foreground md:text-5xl"
-        style={{ fontFamily: 'var(--font-geist)' }}
-      >
+      <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
         {copy.title}
       </h1>
-      <p className="mt-4 text-base leading-relaxed text-muted-foreground md:text-lg">
+      <p className="mt-4 text-base leading-relaxed text-muted-foreground">
         {copy.description}
       </p>
 
@@ -1371,44 +1368,6 @@ const WelcomeStep = ({
   )
 }
 
-const OptionCard = ({
-  selected,
-  title,
-  desc,
-  onClick,
-}: {
-  selected: boolean
-  title: string
-  desc: string
-  onClick: () => void
-}): React.JSX.Element => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'w-full rounded-xl border border-base-border bg-card p-5 text-left transition-all hover:border-primary/50',
-      selected && 'border-primary bg-primary/5 ring-2 ring-primary/20',
-    )}
-  >
-    <div className="flex items-start gap-3">
-      <span
-        className={cn(
-          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2',
-          selected
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-muted-foreground/40',
-        )}
-      >
-        {selected && <Check className="h-3 w-3" />}
-      </span>
-      <div>
-        <div className="font-semibold text-foreground">{title}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{desc}</div>
-      </div>
-    </div>
-  </button>
-)
-
 const InOfficeStep = ({
   value,
   onChange,
@@ -1420,16 +1379,17 @@ const InOfficeStep = ({
   return (
     <div>
       <StepHeading title={copy.title} description={copy.description} />
-      <div className="mt-8 space-y-3">
-        {SERVE_IN_OFFICE_OPTIONS.map((option) => (
-          <OptionCard
-            key={option.value}
-            selected={value === option.value}
-            title={option.title}
-            desc={option.desc}
-            onClick={() => onChange(option.value)}
-          />
-        ))}
+      <div className="mt-8">
+        <RadioCardGroup
+          name="serve-in-office"
+          value={value ?? undefined}
+          onChange={onChange}
+          options={SERVE_IN_OFFICE_OPTIONS.map((option) => ({
+            value: option.value,
+            title: option.title,
+            description: option.desc,
+          }))}
+        />
       </div>
     </div>
   )
@@ -1451,16 +1411,17 @@ const PartyStep = ({
           <MajorPartyBlockedAlert />
         </div>
       )}
-      <div className="mt-8 space-y-3">
-        {SERVE_PARTY_OPTIONS.map((option) => (
-          <OptionCard
-            key={option.value}
-            selected={value === option.value}
-            title={option.title}
-            desc={option.desc}
-            onClick={() => onChange(option.value)}
-          />
-        ))}
+      <div className="mt-8">
+        <RadioCardGroup
+          name="serve-party"
+          value={value ?? undefined}
+          onChange={onChange}
+          options={SERVE_PARTY_OPTIONS.map((option) => ({
+            value: option.value,
+            title: option.title,
+            description: option.desc,
+          }))}
+        />
       </div>
     </div>
   )
@@ -1496,20 +1457,20 @@ const OfficeStep = ({
         {manualEntry ? (
           <div className="space-y-2">
             <Label htmlFor="custom-office">Office name</Label>
-            <input
+            <Input
               id="custom-office"
-              className="w-full rounded-md border border-base-border px-3 py-2"
               placeholder="e.g. Springfield City Council, Ward 3"
               value={customOfficeName}
               onChange={(event) => onCustomOfficeNameChange(event.target.value)}
             />
-            <button
+            <Button
               type="button"
-              className="text-sm font-medium text-primary hover:underline"
+              variant="link"
+              size="small"
               onClick={onDisableManual}
             >
               Search for my office instead
-            </button>
+            </Button>
           </div>
         ) : (
           <ServeOfficePicker
@@ -1585,14 +1546,10 @@ const ConfirmRow = ({
         {value}
       </div>
     </div>
-    <button
-      type="button"
-      onClick={onChange}
-      className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-    >
-      <Pencil className="h-3.5 w-3.5" />
+    <Button type="button" variant="link" size="small" onClick={onChange}>
+      <Pencil />
       {changeLabel}
-    </button>
+    </Button>
   </div>
 )
 
@@ -1809,10 +1766,7 @@ const PledgeStep = ({
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-6 sm:p-8">
-        <h2
-          className="mb-6 text-xl font-semibold text-foreground"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
+        <h2 className="mb-6 text-2xl leading-[1.08] font-bold text-foreground sm:text-3xl">
           I pledge to be...
         </h2>
         <div className="space-y-6">
@@ -1822,10 +1776,7 @@ const PledgeStep = ({
               <div key={commitment.title}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-5 w-5 text-foreground" />
-                  <h3
-                    className="text-lg font-semibold text-foreground"
-                    style={{ fontFamily: 'var(--font-geist)' }}
-                  >
+                  <h3 className="text-xl font-semibold text-foreground">
                     {commitment.title}
                   </h3>
                 </div>
@@ -1874,10 +1825,7 @@ const SwitchToCampaignStep = ({
   return (
     <>
       <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
-        <h1
-          className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
+        <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
           Let&apos;s get you set up for your campaign
         </h1>
         <p className="mt-4 text-base leading-relaxed text-muted-foreground">

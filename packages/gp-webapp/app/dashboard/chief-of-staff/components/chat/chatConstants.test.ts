@@ -68,10 +68,12 @@ describe('buildChiefOfStaffNextSteps', () => {
     expect(labels({ panelsEnabled: true, panelLoading: true })).toEqual([
       'See what matters in your community',
       'Get ready for your next meeting',
+      'Something else',
     ])
     expect(labels({ panelsEnabled: false, panelLoading: true })).toEqual([
       'See what matters in your community',
       'Get ready for your next meeting',
+      'Something else',
     ])
   })
 
