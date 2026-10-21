@@ -49,7 +49,9 @@ of its coded answers (`util/mrp.util.ts`), mapped to the page's existing
 `PriorityReadStatus` by `util/mrpReadStatus.util.ts`. The rule, the major
 groups and `needed` are in the webapp's priority AGENTS.md ("A good read")
 and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
-from `CensusCompositionSource.mrpInputs` (bound in
+from `CensusCompositionSource.mrpInputs` (the voter file's district cells
+reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`;
+a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
 The representation bars compare who answered with the district, unweighted.

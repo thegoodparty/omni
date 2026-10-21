@@ -888,8 +888,8 @@ when `raceNameable` holds for the district) to be expected to answer 3
 times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
-`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
-reads, cached 15 minutes per district); without them (no district row, no
+`utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
+the priority model reads, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is

@@ -27,6 +27,7 @@ import {
   weightingTargets,
   type WeightingCensus,
 } from '../util/censusWeighting.util'
+import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
 import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
 import { computeRepresentation } from '../util/representation.util'
@@ -42,7 +43,9 @@ export type CensusComposition =
 
 // What a priority's model reads: the district's people and the answers,
 // in the same cells (age, gender, tract, race), race folded as the civic
-// panel's steering folds it. Unknowns sit out their dimension.
+// panel's steering folds it. The frame's age, sex and tract margins are the
+// census's adults (see censusFrame); race stays the voter file's. Unknowns
+// sit out their dimension.
 export interface MrpInputs {
   frame: MrpFrameCell[]
   answers: MrpAnswerCell[]
@@ -168,25 +171,46 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     answers: PersonAnswer[]
   }): Promise<MrpInputs | null> {
     try {
-      const [{ district, cells }, answerCells] = await Promise.all([
-        this.districtCellsOf(input),
-        this.stats.findAnswerCells(
-          input.districtId,
-          input.dataset,
-          input.answers,
-        ),
-      ])
+      const [{ district, cells, tractAdults }, answerCells] = await Promise.all(
+        [
+          this.districtCellsOf(input),
+          this.stats.findAnswerCells(
+            input.districtId,
+            input.dataset,
+            input.answers,
+          ),
+        ],
+      )
       if (!district || cells.length === 0) return null
-      const races = weightingTargets({ district, tractAdults: new Map() }).race
+      const { frame, races } = this.frameOf(input.districtId, {
+        district,
+        cells,
+        tractAdults,
+      })
+      const known = new Map<string, Set<string>>()
+      for (const cell of frame) {
+        for (const [dimension, value] of Object.entries(cell.values)) {
+          known.set(dimension, (known.get(dimension) ?? new Set()).add(value))
+        }
+      }
+      // An answer in a tract the census placement left out of the frame sits
+      // that dimension out, as the people in it do.
+      const placed = (
+        values: Record<string, string | null>,
+      ): Record<string, string | null> => {
+        const tract = values.tract ?? null
+        return {
+          ...values,
+          tract:
+            tract !== null && known.get('tract')?.has(tract) ? tract : null,
+        }
+      }
       return {
-        frame: cells.map((cell) => ({
-          count: cell.count,
-          values: knownValues(modelValues(cell, races)),
-        })),
+        frame,
         answers: answerCells.map((cell) => ({
           yes: cell.yes,
           answers: cell.count,
-          values: modelValues(cell, races),
+          values: placed(modelValues(cell, races)),
         })),
         raceNameable: raceNameable(answerCells),
       }
@@ -196,6 +220,46 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         'model inputs read failed; reading the count alone',
       )
       return null
+    }
+  }
+
+  // The one frame every read of the district shares: the model, the read
+  // status's major groups and the sizing, so the groups named on screen are
+  // the groups the model has. A dimension the census cannot give keeps the
+  // voter file's counts, logged.
+  private frameOf(
+    districtId: string,
+    input: {
+      district: AcsCounts
+      cells: DistrictCell[]
+      tractAdults: Map<string, number>
+    },
+  ): {
+    frame: MrpFrameCell[]
+    races: Record<string, number> | undefined
+    raked: DistrictCell[]
+  } {
+    const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
+      district: input.district,
+      tractAdults: input.tractAdults,
+    })
+    if (fromVoterFile.length > 0) {
+      this.logger.warn(
+        { districtId, dimensions: fromVoterFile },
+        'census margin missing or suppressed; frame keeps the voter file counts',
+      )
+    }
+    const races = weightingTargets({
+      district: input.district,
+      tractAdults: new Map(),
+    }).race
+    return {
+      frame: raked.map((cell) => ({
+        count: cell.count,
+        values: knownValues(modelValues(cell, races)),
+      })),
+      races,
+      raked,
     }
   }
 
@@ -276,14 +340,14 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     dataset: PeopleDataset
   }): Promise<number | null> {
     try {
-      const { district, cells } = await this.districtCellsOf(input)
+      const { district, cells, tractAdults } = await this.districtCellsOf(input)
       if (!district || cells.length === 0) return null
-      const races = weightingTargets({ district, tractAdults: new Map() }).race
-      const frame = cells.map((cell) => ({
-        count: cell.count,
-        values: knownValues(modelValues(cell, races)),
-      }))
-      const dimensions: TargetedDimension[] = raceNameable(cells)
+      const { frame, raked } = this.frameOf(input.districtId, {
+        district,
+        cells,
+        tractAdults,
+      })
+      const dimensions: TargetedDimension[] = raceNameable(raked)
         ? ['age', 'gender', 'tract', 'race']
         : ['age', 'gender', 'tract']
       return answersNeeded(smallestMajorShare(frame, dimensions))
