@@ -2229,6 +2229,21 @@
     const rows = item.evidence || []
     const selectable =
       item.queue === 'flags' && new Set(rows.map((r) => r.event_type)).size > 1
+    // Per-event rulings stored while this cause still held several events have no
+    // picker to show or retract them once it holds one, yet would still ride out in the
+    // handoff. Drop the unsent ones; applied ones stay as the record.
+    if (!selectable) {
+      const stale = Object.keys(judgments).filter(
+        (k) =>
+          judgments[k].scope === 'event' &&
+          judgments[k].id === item.id &&
+          !judgments[k].applied_at,
+      )
+      if (stale.length) {
+        stale.forEach((k) => delete judgments[k])
+        saveJudgments()
+      }
+    }
     const picker = selectable ? renderEventVerdicts(item, row, summary) : null
     const evidence = renderEvidence(rows, {
       selectable,
