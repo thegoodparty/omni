@@ -5,8 +5,10 @@ import {
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelBalance,
   type CivicPanelBalanceStatus as BalanceStatus,
+  type CivicPanelCompositionGroup,
 } from '@goodparty_org/contracts'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import { CivicPanelBloom } from './CivicPanelBloom'
 
 // The dot beside a status, so the label is never read by colour alone.
 const PANEL_STATUS_DOT: Record<BalanceStatus, string> = {
@@ -59,15 +61,24 @@ export const CivicPanelBalanceStatus = ({
   )
 }
 
+// The status, then each group as a petal once the panel can be compared.
 export const CivicPanelBalanceSection = ({
   balance,
+  groups,
 }: {
   balance: CivicPanelBalance
+  groups: CivicPanelCompositionGroup[]
 }) => (
   <section className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5">
     <h2 className="text-base font-semibold text-foreground">
       {COPY.balanceTitle}
     </h2>
     <CivicPanelBalanceStatus balance={balance} />
+    {balance.status !== 'tooFewMembers' && groups.length > 0 ? (
+      <CivicPanelBloom
+        groups={groups}
+        showNext={balanceLine(balance) === null}
+      />
+    ) : null}
   </section>
 )

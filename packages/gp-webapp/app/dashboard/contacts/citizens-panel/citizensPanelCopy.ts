@@ -1,4 +1,8 @@
-import { CIVIC_PANEL_SEGMENT } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_SEGMENT,
+  type CivicPanelPlaceKind,
+  type UnderrepresentedGroup,
+} from '@goodparty_org/contracts'
 
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
 
@@ -32,17 +36,124 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   seeMembers: 'See members',
   listTitle: 'Civic panel',
   listFilter: 'On your civic panel.',
-  representationTitle: "Who's on your panel",
-  representationCaption:
-    'Compares the neighborhoods members live in with your whole district.',
-  representationEmpty: (minimum: number) =>
-    `Once your panel has ${minimum} members, you can compare it with your district.`,
-  representationUnmapped:
-    'Not enough members have an address we can map yet. This fills in as more people join.',
-  representationError:
-    "We couldn't load this comparison. Refresh the page to try again.",
-  shares: (member: number, district: number) =>
-    `${member}% of members, ${district}% of your district`,
+  // The seats' places in the words of what the district was split by.
+  seatPlaces: {
+    tract: {
+      title: "Who's on your panel, by census tract",
+      name: (name: string) => `Tract ${name}`,
+      invite: (name: string) => `people in tract ${name}`,
+      one: 'tract',
+      many: 'tracts',
+      full: 'Every tract has its share of seats filled.',
+    },
+    precinct: {
+      title: "Who's on your panel, by precinct",
+      name: (name: string) => `Precinct ${name}`,
+      invite: (name: string) => `people in precinct ${name}`,
+      one: 'precinct',
+      many: 'precincts',
+      full: 'Every precinct has its share of seats filled.',
+    },
+  } satisfies Record<
+    CivicPanelPlaceKind,
+    {
+      title: string
+      name: (name: string) => string
+      invite: (name: string) => string
+      one: string
+      many: string
+      full: string
+    }
+  >,
+  milestone: {
+    firstYes: () => 'First yes',
+    canCompare: (at: number) => `${at} members`,
+    halfway: () => 'Halfway',
+    full: () => 'Full panel',
+  },
+  milestoneState: {
+    done: 'Done',
+    next: 'Next',
+    upcoming: 'Not yet',
+  },
+  milestonesLabel: "Your panel's milestones",
+  cheerStart: 'Your panel starts here',
+  cheerStartLine: 'Every resident who says yes takes a seat.',
+  cheerStarted: 'Your panel has started',
+  cheerGrowing: 'Your panel is growing',
+  cheerHalfway: 'Halfway there',
+  cheerAlmost: 'Almost there',
+  saidYes: (members: number) =>
+    members === 1
+      ? '1 resident has said yes.'
+      : `${members.toLocaleString('en-US')} residents have said yes.`,
+  keepingPace: (members: number, pace: number, total: number, many: string) =>
+    `${members.toLocaleString('en-US')} residents have said yes, and ${pace} of ${total} ${many} are keeping pace.`,
+  seatsToGo: (seats: number, full: number, total: number, many: string) =>
+    `${seats} ${seats === 1 ? 'seat' : 'seats'} to go, and ${full} of ${total} ${many} are full.`,
+  membersToGo: (members: number) =>
+    `${members.toLocaleString('en-US')} more ${members === 1 ? 'resident' : 'residents'} to go.`,
+  fullTitle: 'Every seat is filled',
+  fullLine: (members: number, places: number, many: string) =>
+    `${members.toLocaleString('en-US')} residents from all ${places} ${many} said yes.`,
+  fullLineNoPlaces: (members: number) =>
+    `${members.toLocaleString('en-US')} residents said yes.`,
+  fullMembers: ' members',
+  fullPlaces: (places: number, many: string) => ` of ${places} ${many}`,
+  fullGroups: (total: number) => ` of ${total} groups`,
+  askPanel: 'Ask your panel a question',
+  seatsCaption:
+    'Your district as 100 seats, filling as people join your panel.',
+  seatsFilled: ' of 100 seats filled',
+  seatsSummary: (filled: number, behind: number, one: string, many: string) =>
+    behind > 0
+      ? `Your district as 100 seats. ${filled} of 100 seats filled. ${behind} ${
+          behind === 1 ? `${one} is` : `${many} are`
+        } behind the rest.`
+      : `Your district as 100 seats. ${filled} of 100 seats filled.`,
+  legendMember: 'Someone from your panel',
+  legendNotFilled: 'Not filled yet',
+  legendBehind: 'Behind the rest',
+  legendEmpty: 'Empty seat',
+  furthestBehind: 'Furthest behind',
+  mostEmptySeats: 'Most empty seats',
+  seatsOf: (filled: number, count: number) =>
+    `${filled} of ${count} ${count === 1 ? 'seat' : 'seats'} filled`,
+  emptySeats: (empty: number) => `${empty} empty`,
+  placeFull: 'Full',
+  placesBehind: (behind: number, total: number, many: string) =>
+    `${behind} of ${total} ${many} ${behind === 1 ? 'is' : 'are'} behind the rest.`,
+  emptyIn: (places: number, total: number, many: string) =>
+    `Empty seats are in ${places} of ${total} ${many}.`,
+  bloomCaption:
+    'Each petal is a group, and past the ring means more than its share.',
+  bloomAtShare: (atShare: number, total: number) => `${atShare} of ${total}`,
+  bloomAtShareLabel: 'at their share',
+  bloomSummary: (atShare: number, total: number) =>
+    `${atShare} of ${total} groups have at least their share of members.`,
+  aboutShare: 'About its share',
+  percentOfShare: (percent: number) => `${percent}% of its share`,
+  legendOver: 'More than their share',
+  legendUnder: 'Fewer than their share',
+  legendEven: 'About even',
+  legendRing: 'Their share of your district',
+  everyGroupShare: 'Every group has its share.',
+  // A petal's name, short enough to sit around the flower.
+  groupLabel: {
+    age18to24: '18 to 24',
+    age25to34: '25 to 34',
+    age35to44: '35 to 44',
+    age45to54: '45 to 54',
+    age55to64: '55 to 64',
+    age65plus: '65 and over',
+    unreachedAreas: 'Unreached areas',
+    men: 'Men',
+    women: 'Women',
+    white: 'White',
+    black: 'Black',
+    hispanic: 'Hispanic or Latino',
+    asian: 'Asian',
+  } satisfies Record<UnderrepresentedGroup, string>,
   weeklyQuestion: 'How much time can you give each week?',
   weeklyCaption:
     'Your own calls and door knocking reach the residents a text misses.',
