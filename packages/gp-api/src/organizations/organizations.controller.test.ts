@@ -1,3 +1,4 @@
+import { BadGatewayException } from '@nestjs/common'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { describe, expect, it, vi } from 'vitest'
@@ -1861,5 +1862,47 @@ describe('GET /v1/organizations/admin/list', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.organizations).toHaveLength(0)
+  })
+})
+
+describe('GET /v1/organizations when the election API is unavailable', () => {
+  it('still lists the organization without position or district', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockRejectedValue(
+      new BadGatewayException('Election API GET positions/pos-1 failed'),
+    )
+    vi.spyOn(electionsService, 'getDistrict').mockRejectedValue(
+      new BadGatewayException('Election API GET districts/d-1 failed'),
+    )
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-election-api-down',
+        ownerId: service.user.id,
+        positionId: 'pos-1',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({ slug: 'campaign-election-api-down' }),
+    ])
+  })
+
+  it('still fails when the position lookup returns nothing', async () => {
+    const electionsService = service.app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-missing-position',
+        ownerId: service.user.id,
+        positionId: 'pos-gone',
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(500)
   })
 })
