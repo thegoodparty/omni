@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { isAfter, subMinutes } from 'date-fns'
 import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 
@@ -796,5 +797,115 @@ describe('Ordinances endpoints', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+describe('PATCH carrying only lastViewedStep', () => {
+  it('records the step without moving updatedAt', async () => {
+    const orgSlug = 'eo-ordinances-position-patch'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Sidewalk repair' },
+      header,
+    )
+    const { id, slug } = created.data
+    // Push updatedAt into the past so a bump would be unmistakable.
+    const past = subMinutes(new Date(), 5)
+    await service.prisma.ordinance.update({
+      where: { id },
+      data: { updatedAt: past },
+    })
+
+    const positioned = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { lastViewedStep: 'comparables' },
+      header,
+    )
+    expect(positioned.status).toBe(200)
+    expect(positioned.data.lastViewedStep).toBe('comparables')
+    expect(positioned.data.updatedAt).toBe(past.toISOString())
+
+    const edited = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { status: 'draft', draftTitle: 'Sidewalks', draftBody: 'Section 1.' },
+      header,
+    )
+    expect(edited.data.lastViewedStep).toBe('comparables')
+    expect(isAfter(new Date(edited.data.updatedAt), past)).toBe(true)
+  })
+
+  it('drops the position when a content edit lands first', async () => {
+    const orgSlug = 'eo-ordinances-position-race'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Park hours' },
+      header,
+    )
+    const { id, slug } = created.data
+    const past = subMinutes(new Date(), 5)
+    await service.prisma.ordinance.update({
+      where: { id },
+      data: { updatedAt: past },
+    })
+
+    // Hold a content edit open so the position write reads the old row,
+    // then blocks on the row lock and re-checks its fence against the
+    // committed edit, the way two concurrent requests interleave in prod.
+    let releaseEdit!: () => void
+    const editHeld = new Promise<void>((resolve) => {
+      releaseEdit = resolve
+    })
+    let editApplied!: () => void
+    const editReady = new Promise<void>((resolve) => {
+      editApplied = resolve
+    })
+    const edit = service.prisma.$transaction(
+      async (tx) => {
+        await tx.ordinance.update({
+          where: { id },
+          data: { draftTitle: 'Edited while the step was loading' },
+        })
+        editApplied()
+        await editHeld
+      },
+      { timeout: 15_000 },
+    )
+    await editReady
+
+    const positioned = service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { lastViewedStep: 'authority' },
+      header,
+    )
+    let blocked = false
+    for (let attempt = 0; attempt < 200 && !blocked; attempt += 1) {
+      const rows = await service.prisma.$queryRaw<Array<{ waiting: number }>>`
+        SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%UPDATE%ordinance%'`
+      blocked = (rows[0]?.waiting ?? 0) > 0
+      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(blocked).toBe(true)
+    releaseEdit()
+    await edit
+    const res = await positioned
+
+    expect(res.status).toBe(200)
+    expect(res.data.lastViewedStep).toBeNull()
+    expect(res.data.draftTitle).toBe('Edited while the step was loading')
+    const stored = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id },
+    })
+    expect(stored.lastViewedStep).toBeNull()
+    expect(stored.draftTitle).toBe('Edited while the step was loading')
+    expect(isAfter(stored.updatedAt, past)).toBe(true)
+    expect(res.data.updatedAt).toBe(stored.updatedAt.toISOString())
   })
 })

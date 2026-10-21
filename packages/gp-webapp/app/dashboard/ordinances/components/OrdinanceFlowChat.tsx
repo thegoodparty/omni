@@ -38,7 +38,11 @@ import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
+import {
+  fetchOrdinanceBySlug,
+  saveClarifyAnswer,
+  updateOrdinance,
+} from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
   ORDINANCE_NEXT_STEP_CTA,
@@ -378,6 +382,16 @@ export default function OrdinanceFlowChat({
         )
         setMessages(history)
         setPhase('ready')
+        // Only in-progress rows resume by step; drafted ones open their
+        // document. Best effort: a failed save never blocks the step.
+        if (
+          ordinance.status === 'in_progress' &&
+          ordinance.lastViewedStep !== stepValue
+        ) {
+          void updateOrdinance(slug, { lastViewedStep: stepValue }).catch(
+            () => undefined,
+          )
+        }
         // Brand-new conversation: let the agent take the first turn.
         if (history.length === 0) {
           void sendRef.current(kickoffFor(step), {
