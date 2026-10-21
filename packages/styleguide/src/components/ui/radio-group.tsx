@@ -113,8 +113,9 @@ function RadioCardItem({
       value={value}
       id={id}
       disabled={disabled}
-      aria-labelledby={`${id}-title`}
-      aria-describedby={description ? `${id}-description` : undefined}
+      aria-labelledby={
+        description ? `${id}-title ${id}-description` : `${id}-title`
+      }
       className={cn(
         'group/radio-card flex w-full cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors outline-none',
         'focus-visible:ring-[3px] focus-visible:ring-components-input-focus',

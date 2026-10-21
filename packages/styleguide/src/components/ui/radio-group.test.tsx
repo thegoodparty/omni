@@ -52,13 +52,12 @@ describe('RadioCardItem', () => {
     expect(onValueChange).toHaveBeenCalledWith('campaigning')
   })
 
-  it('is the radio itself, named by its title', () => {
+  it('is the radio itself, named by its title and description', () => {
     renderCards()
 
     const radio = screen.getByRole('radio', {
-      name: "I'm an elected official",
+      name: /I'm an elected official.*I hold an elected office\./,
     })
-    expect(radio).toHaveAccessibleDescription('I hold an elected office.')
     expect(radio).toContainElement(screen.getByText("I'm an elected official"))
   })
 })

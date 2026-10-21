@@ -984,7 +984,7 @@ describe('ServeOnboardingFlow', () => {
     await user.click(await screen.findByText("I'm an elected official"))
 
     expect(
-      screen.getByRole('radio', { name: "I'm an elected official" }),
+      screen.getByRole('radio', { name: /I'm an elected official/ }),
     ).toBeChecked()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
