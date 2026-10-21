@@ -63,6 +63,7 @@ describe('mrpReadStatus', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
+      unheard: ['age65plus'],
     })
   })
 
@@ -76,6 +77,7 @@ describe('mrpReadStatus', () => {
       needed: 15,
       good: false,
       underrepresented: ['age65plus'],
+      unheard: [],
     })
   })
 
@@ -95,6 +97,7 @@ describe('mrpReadStatus', () => {
       good: false,
       status: 'gettingClose',
       underrepresented: ['age65plus'],
+      unheard: [],
     })
   })
 
@@ -111,6 +114,7 @@ describe('mrpReadStatus', () => {
       good: true,
       status: 'representative',
       underrepresented: [],
+      unheard: [],
     })
   })
 
@@ -161,7 +165,37 @@ describe('mrpReadStatus', () => {
     expect(status).toMatchObject({
       status: 'tooEarly',
       underrepresented: ['unreachedAreas', 'age65plus'],
+      unheard: ['unreachedAreas'],
     })
+  })
+
+  it('says which named groups have no answer at all, apart from those with a few', () => {
+    const status = mrpReadStatus({
+      answers: 14,
+      read: read([
+        ...AGES(12, 2),
+        group('gender', 'male', 0.5, 0),
+        group('gender', 'female', 0.5, 14),
+      ]),
+    })
+    expect(status).toMatchObject({
+      status: 'tooEarly',
+      underrepresented: ['men', 'age65plus'],
+      unheard: ['men'],
+    })
+  })
+
+  it('counts the parts of the district as unheard when any one has no answer', () => {
+    const status = mrpReadStatus({
+      answers: 12,
+      read: read([
+        ...AGES(9, 3),
+        group('tract', '53017950100', 0.5, 9),
+        group('tract', '53017950200', 0.3, 2),
+        group('tract', '53017950300', 0.2, 0),
+      ]),
+    })
+    expect(status.unheard).toEqual(['unreachedAreas'])
   })
 
   it('needs the answers the dimension furthest short is missing', () => {
@@ -188,6 +222,7 @@ describe('mrpReadStatus', () => {
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
+      unheard: [],
     })
     expect(mrpReadStatus({ answers: 12, read: null })).toMatchObject({
       needed: 100,

@@ -447,7 +447,7 @@ emits `EVENTS.Robocall.SendFailed`. It logs a `CRITICAL robocall` line, which th
 `win-robocall-critical` alert (`deploy/components/alerts.ts`) matches to page —
 that alert fires on ANY `CRITICAL robocall` log across the send
 
-- settlement chain (send_failed, uncollectable capture, dial
+- settlement chain (send_failed, fresh-charge decline, dial
   commit-miss, ETag mismatch, orphaned-hold), so every exceptional path surfaces to
   ops. The SEND path fails only on a read that RULES OUT a dial: a confirmed PAUSED
   for either permanent kind, plus — for a definitive 4xx (`permanent`) only — an
@@ -511,7 +511,7 @@ Invariants:
   captured (a prior run that lost its DB commit), so reconcile to `captured` off
   `amount_received` withOUT capturing again; anything else (`canceled` / expired)
   on a NON-zero run → the hold lapsed and the delivered run is uncapturable →
-  `uncollectable` + CRITICAL alert (never blind-charge a fresh PI here;
+  `uncollectable` + a warn log, no CRITICAL (never blind-charge a fresh PI here;
   `OutreachRobocallFreshChargeService` recovers it with a fresh off-session charge
   — see "Fresh-charge recovery" below). A gone hold on a ZERO-CONNECTED run is
   released to `voided`, no CRITICAL: a run that connected zero calls owes

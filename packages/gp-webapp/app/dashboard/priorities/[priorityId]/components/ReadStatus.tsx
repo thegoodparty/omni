@@ -84,24 +84,31 @@ const GetAnswers = ({
   </Button>
 )
 
-// Phone: one compact row under the top bar. The text opens the results
-// page; the button is the one action.
+// Phone: one compact block under the top bar. The text opens the results
+// page; the button is the one action. The line wraps to two lines rather
+// than cutting off the groups it names, so a short read puts the bar and
+// Get answers on a row of their own below it.
 export const ReadStatusStrip = ({
   priorityId,
   readStatus,
   onGetAnswers,
   getAnswersDisabled = false,
-}: ReadStatusProps): React.JSX.Element => (
-  <>
-    <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
+}: ReadStatusProps): React.JSX.Element => {
+  const showBar = readStatus.checkOut === true && readStatus.groupsTotal > 0
+  const showGetAnswers = READ_STATUS_COPY.canGetAnswers(readStatus)
+  return (
+    <>
       {readStatus.good ? (
-        <>
+        <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
           <Link
             href={resultsHref(priorityId)}
             className="flex min-w-0 flex-1 items-center gap-2 text-foreground no-underline"
           >
             <GoodReadMark size="small" />
-            <span className="truncate text-sm font-semibold">
+            <span
+              data-testid="read-status-line"
+              className="line-clamp-2 text-sm font-semibold"
+            >
               {READ_STATUS_COPY.statusLine(readStatus)}
             </span>
           </Link>
@@ -110,40 +117,52 @@ export const ReadStatusStrip = ({
               {READ_STATUS_COPY.seeWhatWeHeard}
             </Link>
           </Button>
-        </>
+        </div>
       ) : (
-        <>
+        <div className="flex flex-col gap-2 px-4 pb-2.5 pt-0.5">
           <Link
             href={resultsHref(priorityId)}
-            className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
+            className="flex min-w-0 items-start gap-2 text-foreground no-underline"
           >
-            <span className="flex min-w-0 items-center gap-2">
+            <span className="flex h-5 shrink-0 items-center">
               <StatusDot readStatus={readStatus} />
-              <span className="truncate text-sm font-semibold">
-                {READ_STATUS_COPY.statusLine(readStatus)}
-              </span>
             </span>
-            {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
-              <ReadProgress readStatus={readStatus} className="h-1.5" />
-            ) : null}
+            <span
+              data-testid="read-status-line"
+              className="line-clamp-2 text-sm font-semibold"
+            >
+              {READ_STATUS_COPY.statusLine(readStatus)}
+            </span>
           </Link>
-          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
-            <GetAnswers
-              onGetAnswers={onGetAnswers}
-              disabled={getAnswersDisabled}
-              className="shrink-0 rounded-full"
-            />
+          {showBar || showGetAnswers ? (
+            <div className="flex items-center gap-3">
+              {showBar ? (
+                <ReadProgress
+                  readStatus={readStatus}
+                  className="h-1.5 min-w-0 flex-1"
+                />
+              ) : (
+                <span className="flex-1" />
+              )}
+              {showGetAnswers ? (
+                <GetAnswers
+                  onGetAnswers={onGetAnswers}
+                  disabled={getAnswersDisabled}
+                  className="shrink-0 rounded-full"
+                />
+              ) : null}
+            </div>
           ) : null}
-        </>
+        </div>
       )}
-    </div>
-    {readStatus.followUp ? (
-      <div className="px-4 pb-2.5">
-        <FollowUpLine readStatus={readStatus} />
-      </div>
-    ) : null}
-  </>
-)
+      {readStatus.followUp ? (
+        <div className="px-4 pb-2.5">
+          <FollowUpLine readStatus={readStatus} />
+        </div>
+      ) : null}
+    </>
+  )
+}
 
 // Desktop: the top of the right rail, above "Where this stands".
 export const ReadStatusRailBlock = ({
@@ -198,11 +217,14 @@ export const ReadStatusRailBlock = ({
       </>
     )}
     <FollowUpLine readStatus={readStatus} />
-    <Link
-      href={resultsHref(priorityId)}
-      className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-    >
-      {READ_STATUS_COPY.whatWeHeard}
-    </Link>
+    {/* A good read already leads with See what we heard. */}
+    {readStatus.good ? null : (
+      <Link
+        href={resultsHref(priorityId)}
+        className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        {READ_STATUS_COPY.whatWeHeard}
+      </Link>
+    )}
   </div>
 )

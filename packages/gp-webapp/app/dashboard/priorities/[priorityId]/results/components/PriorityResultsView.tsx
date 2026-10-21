@@ -2,10 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
-  type PriorityResults,
-} from '@goodparty_org/contracts'
+import type { PriorityResults } from '@goodparty_org/contracts'
 import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -18,7 +15,7 @@ import {
   readPercent,
 } from '../../readStatusCopy'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
-import { RepresentationBars } from './RepresentationBars'
+import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
 const Section = ({
@@ -80,7 +77,7 @@ export const PriorityResultsView = ({
       groupsTotal: readStatus.groupsTotal,
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
-      representationShown: results.representation !== null,
+      representationShown: results.groups.length > 0,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
@@ -126,9 +123,14 @@ export const PriorityResultsView = ({
             />
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
+          {readStatus.checkOut && readStatus.underrepresented.length > 0 ? (
+            <p className="text-sm text-foreground">
+              {READ_STATUS_COPY.statusLine(readStatus)}
+            </p>
+          ) : null}
           {readStatus.groupsTotal > 0 ? (
             <>
-              <p className="text-sm text-foreground">
+              <p className="text-sm text-muted-foreground">
                 {READ_STATUS_COPY.progress(readStatus)}
               </p>
               <Progress
@@ -139,24 +141,8 @@ export const PriorityResultsView = ({
             </>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {readStatus.status === 'gettingClose'
-              ? READ_STATUS_COPY.unsureGroups
-              : READ_STATUS_COPY.missingGroups}
+            {READ_STATUS_COPY.heldBack(readStatus)}
           </p>
-          {readStatus.underrepresented.length > 0 ? (
-            <div data-testid="results-hear-from-more">
-              <h3 className="text-sm font-semibold text-foreground">
-                {READ_STATUS_COPY.hearFromMoreHeading}
-              </h3>
-              <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
-                {readStatus.underrepresented.map((group) => (
-                  <li key={group}>
-                    {READ_STATUS_COPY.groupName(group, readStatus)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
             <Button asChild size="small" className="self-start rounded-full">
               <Link href={getAnswersHref(priorityId)}>
@@ -180,14 +166,16 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
         results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
       }
     >
-      {results.summarizing && (
+      {results.summarizing && results.themes.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {RESULTS_COPY.themesUpdating}
         </p>
       )}
       {results.themes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.themesEmpty}
+          {results.summarizing
+            ? RESULTS_COPY.themesProcessing
+            : RESULTS_COPY.themesEmpty}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -222,17 +210,22 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
       )}
     </Section>
 
-    <Section
-      title={RESULTS_COPY.representationTitle}
-      caption={
-        results.representation ? RESULTS_COPY.representationCaption : undefined
-      }
-    >
-      {results.representation ? (
-        <RepresentationBars representation={results.representation} />
+    <Section title={RESULTS_COPY.representationTitle}>
+      {results.groups.length > 0 ? (
+        <CivicPanelBloom
+          groups={results.groups.map(
+            ({ group, districtShare, answerShare }) => ({
+              group,
+              districtShare,
+              memberShare: answerShare,
+            }),
+          )}
+          showNext={false}
+          summary={RESULTS_COPY.groupsSummary}
+        />
       ) : (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+          {RESULTS_COPY.representationUnavailable}
         </p>
       )}
     </Section>

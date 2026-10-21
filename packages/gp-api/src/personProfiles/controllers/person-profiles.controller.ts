@@ -308,6 +308,16 @@ export class PersonProfilesController {
   @HttpCode(HttpStatus.OK)
   async clearRemoval(@Body() body: ClearPersonProfileRemovalDto) {
     await this.personProfilesService.clearRemoval(body.personId, body.clearedBy)
+    // Reinstating makes the page render again, so make sure the id it renders
+    // under is current. A user whose Person was merged upstream while hidden
+    // would otherwise come back under a stale id (and the wrong identity).
+    // Best-effort: the reinstate itself has already succeeded.
+    try {
+      const owner = await this.users.findUser({ personId: body.personId })
+      if (owner) await this.personIdBackfill.resyncLinkedUser(owner)
+    } catch {
+      // The daily drift sweep is the backstop.
+    }
     void this.revalidation.revalidatePerson(body.personId)
     return { personId: body.personId, removed: false as const }
   }

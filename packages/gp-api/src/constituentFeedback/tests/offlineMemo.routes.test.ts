@@ -9,6 +9,7 @@ import {
   onTestFinished,
   vi,
 } from 'vitest'
+import { ISSUE_CAPTURE_OFF_ERROR_CODE } from '@goodparty_org/contracts'
 import {
   ConstituentFeedbackCaptureMethod,
   ConstituentFeedbackConfirmation,
@@ -205,7 +206,8 @@ describe('offline memo capture', () => {
       expect((await postToSink()).status).toBe(404)
     })
 
-    it('404s when the issue-capture flag is off', async () => {
+    // The code is what tells a phone holding the memo to keep it.
+    it('404s, naming the flag, when issue-capture is off', async () => {
       const flags = vi
         .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
         .mockImplementation(async ({ feature }) => feature !== 'issue-capture')
@@ -214,6 +216,7 @@ describe('offline memo capture', () => {
       const res = await uploadUrl(randomUUID())
 
       expect(res.status).toBe(404)
+      expect(res.data.errorCode).toBe(ISSUE_CAPTURE_OFF_ERROR_CODE)
     })
   })
 

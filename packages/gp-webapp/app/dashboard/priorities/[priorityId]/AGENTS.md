@@ -237,7 +237,11 @@ says where the read stands and what to do. It links here with
 `?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
 `REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
 of the kickoff, otherwise queued behind any turn in flight, never twice for a
-send already in the transcript, and the param is dropped from the address.
+send already in the transcript, and the param is dropped from the address
+with `window.history.replaceState`, never `router.replace`: a navigation
+re-renders the page under a new search-param key and remounted the workspace
+while the open was still settling, which reopened a report back on the error
+screen.
 
 The agent (`REPORT_BACK_BLOCK` in `priorityFlow.prompt.ts`) reads the send
 with `read_report_back`, walks the official through who it went to, how many
@@ -258,14 +262,14 @@ group in the district has answered on it, pooled across texts, calls and
 doors, and a model of the coded answers is sure enough of each. gp-api
 decides it in one place, `mrpReadStatus`
 (`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
-`{ answers, needed, groupsHeard, groupsTotal, good, status, underrepresented }`. A major group holds
+`{ answers, needed, groupsHeard, groupsTotal, good, status, underrepresented, unheard }`. A major group holds
 3% or more of the district on age band, tract, gender, or race when
 `raceNameable` holds (10 coded answers with a known race, 70% of all); the
 pooled `other` never counts.
 
 | `status`               | Label                               | Rule                                                                                                     |
 | ---------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `tooEarly`             | Waiting to hear from some groups    | a major group has no coded answer                                                                        |
+| `tooEarly`             | Waiting to hear back                | a major group has no coded answer                                                                        |
 | `notYetRepresentative` | A few groups need more answers      | a major group has fewer than 3                                                                           |
 | `gettingClose`         | Still unsure what some groups think | a major group's 90% range is wider than 20 points                                                        |
 | `representative`       | Every group heard                   | none of the above; `good` is exactly this                                                                |
@@ -288,9 +292,12 @@ short). It is a floor, not a promise, and no screen shows it: only analytics
 `underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
 the one or two groups holding the read back: short of voices, or with a
 range still too wide; every tract reads as `unreachedAreas`
-(`underrepresentedGroupName` in contracts: "people in parts of your district
-we haven't heard from", or "people in a few neighborhoods" once every
-neighborhood has answered and the model is only unsure). When the district
+(`underrepresentedGroupName` in contracts: "people in some parts of your
+district", or "people in a few neighborhoods" once every neighborhood has
+answered and the model is only unsure). Every name reads whole in a list,
+and `joinGroupNames` joins them. `unheard` is the named groups nobody in has
+answered yet (for `unreachedAreas`, any of its tracts), so the line can tell
+"Still need to hear from" apart from "Need a few more answers from". When the district
 cannot be read, `needed` is `answersNeeded()` from contracts (100, enough for
 the smallest major group any district can have), enough answers are a good
 read labeled "Enough people have answered", never "Every group heard", and
@@ -305,19 +312,24 @@ a model**: only the status, the groups and actions.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it one row: a status dot and the status line naming the
-  groups ("Waiting to hear from people 65 and over", "Hear from more people
-  18 to 64 and women", "Still unsure what people 65 and over think"), a thin
+  sheet. Under it the status dot and the status line naming the
+  groups, wrapping to two lines rather than cutting the groups off (`READ_STATUS_COPY.statusLine`: "Still need to hear from men" for a
+  group with no answers, "Need a few more answers from women and people 65
+  and over" for groups with a few or still too unsure, both in one sentence
+  when both kinds are named, "Still unsure what people 65 and over think"
+  once every group has three), then a row of its own with a thin
   bar of groups ("9 of 12 groups heard") and Get answers; or a check, "You've
-  heard from every group" (or "Enough people have answered") and See what we
-  heard. Before a check is out with residents (`readStatus.checkOut`) the row
+  heard from every group" (or "Enough people have answered") with See what we
+  heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
   reads "No one asked yet" with no bar and no button, and while a follow-up
   text is scheduled "Follow-up text to N people on Nov 3" stands in for the
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
   with the status label and dot, the status line naming the groups, "9 of 12
-  groups heard" with a bar, Get answers, a quiet "What we heard" link, then "Where this stands".
+  groups heard" with a bar, Get answers, a quiet "What we heard" link, then
+  "Where this stands". With a good read the rail has See what we heard and
+  no second link to the same page.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. It is a detour that returns: the agent
@@ -329,14 +341,22 @@ a model**: only the status, the groups and actions.
   step. Nothing sends from the button. The results page's Get answers shows on
   the same terms and links back with `?getAnswers=1`, which `page.tsx` reads
   and the workspace turns into the same turn once, then drops from the
-  address.
+  address. Because it queues, the button is held only while its own turn is
+  queued or streaming, never for other turns, the load or an awaited reply:
+  holding it for every open turn made it look disabled while the chat looked
+  idle.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,
   quotes or "most said"; it names the status and the group to hear more
   from and offers outreach aimed at it, and a direct "what have people said"
   gets one or two honest sentences and "too early to act on". It never
-  mentions weights, models or counts of answers.
+  mentions weights, models or counts of answers. The prompt alone did not
+  hold: `read_outreach_feedback` handed it the themes and replies and said
+  to lead with them, so it listed what residents raised. Before a good read
+  the tool returns only who each send went to and how many answered
+  (`goodRead: false` from the handler), and judge case
+  `themes-before-good-read` pins it.
 - **Parts not reached yet**: a proposal on a priority can carry
   `areaTarget: 'unreached'`. Saving its list sends `unreachedAreaOfPriorityId`
   to `POST /v1/voters/voter-file/filter`, and gp-api draws the area and saves
@@ -354,13 +374,16 @@ the good read row and the "What we heard" link in the rail, pools every send lin
 priority (`Outreach.priorityId`) through `GET /v1/priorities/:id/results`
 (gp-api `PriorityResultsService`): who answered (with the channels that
 brought answers under the count), how many of those people are now civic
-panel members, a heat grid of where they live, and over/under bars against
-the district. The response also carries reach and answers per send; the page
+panel members, a heat grid of where they live, and who you're hearing from
+against the district. The response also carries reach and answers per send; the page
 does not list sends, since the tiles already give those counts.
 
-Before a good read it shows the answered tiles and the answers still needed
-with the bar, and holds back the themes, the map and the census comparison
-behind one line and a Get answers button. After, it shows everything below.
+Before a good read it shows the answered tiles, then a card with the status,
+the strip's own status line naming which groups have no answers and which
+are short (`READ_STATUS_COPY.statusLine`), the groups bar, and one line
+(`READ_STATUS_COPY.heldBack`) holding back the themes, the map and who
+you're hearing from, with a Get answers button. It never says nobody
+answered. After, it shows everything below.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,
   the page reads the flag server-side (`getFlagVariants`) and 404s when off,
@@ -372,26 +395,25 @@ behind one line and a Get answers button. After, it shows everything below.
 - **The map never pins a house.** Coordinates arrive rounded to about 100 m
   with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
   the contact map's tile style, so no new map dependency.
-- **The bars compare places, not people** (product decision Q10): each
-  respondent stands for their census block group's makeup, averaged, against
-  the district's, so both sides read one census source. Race shows only from
-  25 respondents and only for groups at 2% or more of the district; nothing
-  shows below 10 respondents.
-- **The census figures are ACS 2024 5-year estimates** that gp-api reads
-  from `mart_gp_api` (`CENSUS_COMPOSITION_SOURCE`, shared with the civic
-  panel page). Age is shares of adults (18 to 64, 65 and over), since
-  everyone who answers is an adult. There is no gender row: gender is
-  weighted (above) but not drawn as a bar. When the district's figures cannot be read, the
-  comparison arrives with no `groups`, and `RepresentationBars` says the
-  figures are not available instead of drawing bars.
+- **Who you're hearing from is the read's own groups**, drawn as the civic
+  panel page's petals (`CivicPanelBloom`, reused with `showNext` off and a
+  `summary` that speaks of answers). `groups` on the response is each major
+  group the read counts by age band, gender, and race when it may be named
+  (no neighborhoods, no housing): its share of the district and of the coded
+  answers on that dimension (gp-api `answerGroups`). It is empty when the
+  district could not be read, and the page says the figures are not
+  available. The results carry no places, so there are no seats.
 - **Themes are pooled across every send.** "Top themes" reads the
   priority's latest completed `priority`-scope synthesis run (gp-api
   `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
   and call notes grouped together. Any send on the priority finishing (a
   results upload, a turf's Done, a list's last call) starts a new run that
   replaces the last, so a door walk after a text feeds the same themes.
-  `people` counts distinct people, and `summarizing` shows while a run is in
-  flight with the previous themes still up. Each send's own report keeps its
+  `people` counts distinct people. `summarizing` is a run in flight, or
+  enough answers for themes (5) with no run completed or failed yet, since a
+  send's run starts only after it commits. With themes up it adds "Updating
+  with the latest answers."; with none it says "We're reading what people
+  said. Themes show up here soon." instead of asking for more answers. Each send's own report keeps its
   own themes and tags; a pooled run tags nothing.
 
 ## A check asks a sample, not everyone

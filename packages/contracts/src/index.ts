@@ -183,8 +183,6 @@ export {
   CIVIC_PANEL_SEGMENT,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
-  CivicPanelRepresentationSchema,
-  type CivicPanelRepresentation,
 } from './people/CivicPanelSummary.schema'
 export {
   isCivicPanelOnlyList,
@@ -243,6 +241,11 @@ export {
   CivicPanelCompositionGroupSchema,
   type CivicPanelCompositionGroup,
   civicPanelStandingLine,
+  CIVIC_PANEL_STEP_COPY,
+  civicPanelStepMinutes,
+  civicPanelStepTitle,
+  civicPanelOpenStepDetail,
+  civicPanelStepAction,
   CIVIC_PANEL_BALANCE_STATUSES,
   CivicPanelBalanceStatusSchema,
   type CivicPanelBalanceStatus,
@@ -934,20 +937,12 @@ export {
 } from './priorities/PriorityOnboarding.schema'
 
 export {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   PRIORITY_RESULTS_CHANNELS,
   PriorityResultsChannelSchema,
   type PriorityResultsChannel,
   PriorityResultsSendSchema,
   type PriorityResultsSend,
   PriorityResultsPointSchema,
-  REPRESENTATION_DIMENSIONS,
-  RepresentationDimensionSchema,
-  type RepresentationDimension,
-  RepresentationGroupSchema,
-  type RepresentationGroup,
-  PriorityRepresentationSchema,
-  type PriorityRepresentation,
   PriorityResultsSchema,
   type PriorityResults,
   PriorityReadStatusSchema,
@@ -959,9 +954,12 @@ export {
   UNDERREPRESENTED_GROUP_NAMES,
   UNSURE_AREAS_NAME,
   underrepresentedGroupName,
+  joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
+  PriorityResultsGroupSchema,
+  type PriorityResultsGroup,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'
 
@@ -984,6 +982,7 @@ export {
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelStepCardSourceId,
   isCivicPanelStepCard,
+  isGoodReadReportBackCard,
   CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
@@ -1630,6 +1629,7 @@ export {
   CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_MAX_ISSUES,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   ConstituentFeedbackIssueSchema,
   type ConstituentFeedbackIssue,
   RecordConstituentFeedbackSchema,
@@ -1850,3 +1850,8 @@ export {
   EXPLAIN_CIVIC_PANEL_MARKER,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'
+
+export {
+  PICKED_NEXT_STEPS_LEAD,
+  pickedNextStepsMessage,
+} from './chats/ChiefOfStaffNextSteps'

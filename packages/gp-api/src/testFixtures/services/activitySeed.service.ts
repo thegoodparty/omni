@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -30,7 +31,6 @@ import {
   PhoneBankingPurpose,
   PollIndividualMessageSender,
   Prisma,
-  PriorityAnswerCode,
   PriorityAnswerSource,
   PrioritySource,
   SupportAnswer,
@@ -50,9 +50,22 @@ import {
 import { SEED_MEMOS } from '@/constituentFeedback/services/feedbackSeedMemos'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { OutreachTextIngestService } from '@/outreach/services/outreachTextIngest.service'
+import { SamplePeopleDTO } from '@/peopleDb/schemas/people.schema'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { PhoneBankingCallService } from '@/phoneBanking/services/phoneBankingCall.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import {
+  allocateAnswers,
+  answerCodes,
+  readGroups,
+  type SeedGroup,
+  seedValuesOf,
+} from '../util/priorityAnswerAllocation.util'
 
 const DEFAULT_PEOPLE = 250
 // A turf is a walkable slice of the district, not the whole sample.
@@ -80,13 +93,9 @@ const PRIORITY = {
 const PRIORITY_QUESTION =
   'What would make the walk to school safer on your street?'
 const PRIORITY_ASK_DAYS_AGO = 5
-// Nine in ten yes: near-unanimous answers are what narrow the model's ranges
-// enough for every group to read as heard.
-const LEAN_CODES = [
-  ...Array.from({ length: 9 }, () => PriorityAnswerCode.yes),
-  PriorityAnswerCode.mixed,
-]
-const EVEN_CODES = [PriorityAnswerCode.yes, PriorityAnswerCode.no]
+// Doors drawn in each major tract for the priority ask, enough for the
+// tract's voices once opt-outs and doors with no cell phone are left out.
+const TRACT_HOUSEHOLDS = 5
 const PRIORITY_REPLIES = [
   'A crosswalk at the corner by the elementary school. Cars never slow down there.',
   'Speed bumps on our block. People cut through at 40 during pickup.',
@@ -121,6 +130,9 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     private readonly panelPlans: CivicPanelBuildPlanService,
     private readonly textIngest: OutreachTextIngestService,
     private readonly priorities: PrioritiesService,
+    private readonly voters: VoterQueryService,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
   ) {
     super()
   }
@@ -515,6 +527,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     // Reading the plan is what links its text step to the invite send.
     await this.panelPlans.read(organization)
     const { effort, priorityId } = await this.seedPriorityAsk(
+      organization,
       context,
       people,
       answers,
@@ -601,10 +614,12 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
   }
 
   // Panel members are asked first, then residents not on it, the way the
-  // priority flow sizes an ask. Each resident who answers also gets a coded
-  // answer, which is what the priority's read counts; all of them answer
-  // unless `answers` says how many.
+  // priority flow sizes an ask, then residents drawn from each of the read's
+  // major tracts. Each resident who answers also gets a coded answer, which
+  // is what the priority's read counts; all of them answer unless `answers`
+  // says how many, and then every major group gets its voices first.
   private async seedPriorityAsk(
+    organization: Organization,
     context: ActivityContext,
     people: Array<Person & { cellPhone: string }>,
     options: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
@@ -620,7 +635,13 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       'priorities_page',
     )
     const [optedOut, members] = await this.optedOutAndMembers(context)
-    const reachable = people.filter((person) => !optedOut.has(person.id))
+    const { groups, tractOf, drawn } = await this.readGroupsAndTractDraws(
+      organization,
+      people,
+    )
+    const reachable = [...people, ...drawn].filter(
+      (person) => !optedOut.has(person.id),
+    )
     const recipients = [
       ...reachable.filter((person) => members.has(person.id)),
       ...reachable.filter((person) => !members.has(person.id)),
@@ -632,26 +653,33 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       date: askedAt,
       priorityId: priority.id,
     })
-    const answering = recipients.slice(0, options.answers ?? recipients.length)
+    const answering = allocateAnswers(
+      recipients.map((person) => ({
+        person,
+        values: seedValuesOf(person, tractOf.get(person.id) ?? null),
+      })),
+      groups,
+      options.answers ?? recipients.length,
+    )
     if (answering.length > 0) {
       await this.textIngest.ingestReplies({
         outreachId: outreach.id,
         sourceLabel: 'staff_upload',
-        rows: answering.map((person, index) => ({
+        rows: answering.map(({ person }, index) => ({
           phone: person.cellPhone,
           content: PRIORITY_REPLIES[index % PRIORITY_REPLIES.length]!,
           receivedAt: addMinutes(askedAt, 20 + index * 11),
         })),
       })
-      const codes = options.split === 'even' ? EVEN_CODES : LEAN_CODES
+      const codes = answerCodes(answering, options.split)
       await this.client.priorityAnswer.createMany({
-        data: answering.map((person, index) => ({
+        data: answering.map(({ person }, index) => ({
           organizationSlug: context.organizationSlug,
           outreachId: outreach.id,
           personId: person.id,
           source: PriorityAnswerSource.text,
           sourceId: `${outreach.id}:${person.id}`,
-          code: codes[index % codes.length]!,
+          code: codes[index]!,
           model: 'seed',
           codedAt: new Date(),
         })),
@@ -661,6 +689,64 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     return {
       effort: effortSummary(outreach, recipients.length, answering.length),
       priorityId: priority.id,
+    }
+  }
+
+  // The read's major groups, from the same census-weighted frame the model
+  // reads, and a few residents from each major tract. The census weighs a
+  // tract by its adults, so one the district line cuts through can be a
+  // major group while holding almost none of a voter file sample. No frame
+  // (no district, or one the warehouse cannot read) draws nothing extra.
+  private async readGroupsAndTractDraws(
+    organization: Organization,
+    people: Array<Person & { cellPhone: string }>,
+  ): Promise<{
+    groups: SeedGroup[]
+    tractOf: Map<string, string>
+    drawn: Array<Person & { cellPhone: string }>
+  }> {
+    const none = { groups: [], tractOf: new Map<string, string>(), drawn: [] }
+    const district = await this.contacts
+      .resolveEligibleDistrict(organization)
+      .catch(() => null)
+    if (!district) return none
+    const inputs = await this.census.mrpInputs({ ...district, answers: [] })
+    if (!inputs) return none
+    const groups = readGroups(inputs.frame)
+    const tractOf = new Map<string, string>()
+    for (const group of groups) {
+      if (group.dimension !== 'tract') continue
+      const doors = await this.contacts.walkableAreaWithin(
+        organization,
+        { hasCellPhone: true },
+        [],
+        TRACT_HOUSEHOLDS,
+        group.value,
+      )
+      for (const id of doors.flatMap((door) => door.personIds)) {
+        tractOf.set(id, group.value)
+      }
+    }
+    const sampled = new Set(people.map((person) => person.id))
+    const missing = [...tractOf.keys()].filter((id) => !sampled.has(id))
+    const drawn =
+      missing.length === 0
+        ? []
+        : await this.voters.samplePeople(
+            SamplePeopleDTO.create({
+              districtId: district.districtId,
+              size: missing.length,
+              filters: { id: { in: missing } },
+            }),
+            district.dataset,
+          )
+    return {
+      groups,
+      tractOf,
+      drawn: drawn.filter(
+        (person): person is Person & { cellPhone: string } =>
+          person.cellPhone !== null,
+      ),
     }
   }
 

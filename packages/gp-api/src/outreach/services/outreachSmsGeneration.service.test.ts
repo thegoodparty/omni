@@ -320,8 +320,8 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
   // a reply the response schema would then reject.
   it('treats a polish that restores past the length limit as a miss', async () => {
     const { service, jsonCompletion } = replyWith(
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}\n\n⟦3⟧ ⟦4⟧`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}\n\n⟦3⟧ ⟦4⟧`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}\n\n⟦3⟧ ⟦4⟧`,
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
     expect(jsonCompletion).toHaveBeenCalledTimes(2)

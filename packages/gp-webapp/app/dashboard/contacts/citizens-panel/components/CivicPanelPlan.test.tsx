@@ -316,6 +316,45 @@ describe('the plan', () => {
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
   })
 
+  it('lines every checkbox up with the first line of its title', () => {
+    renderPage(
+      withPlan(
+        [
+          TEXT,
+          CALLS,
+          step({
+            id: 'done-doors',
+            channel: 'door_knocking',
+            targetSize: 60,
+            status: 'done',
+            reached: 58,
+            joined: 6,
+          }),
+        ],
+        NEXT_CALLS,
+      ),
+    )
+
+    const rows = [
+      { title: 'Call 30 residents', line: 'leading-7', cell: 'h-7' },
+      { title: 'Text 3,150 residents', line: 'leading-6', cell: 'h-6' },
+      {
+        title: 'Knock on 60 doors in a walkable area',
+        line: 'leading-6',
+        cell: 'h-6',
+      },
+    ]
+    for (const { title, line, cell } of rows) {
+      const box = within(rowOf(title)).getByRole('checkbox')
+      const boxCell = box.closest('[data-slot="plan-step-checkbox"]')
+      const titleText = within(rowOf(title)).getByText(title)
+      expect(boxCell).toHaveClass(cell, 'items-center')
+      expect(titleText).toHaveClass(line)
+      expect(boxCell?.parentElement).toHaveClass('items-start')
+      expect(boxCell?.parentElement).toContainElement(titleText)
+    }
+  })
+
   it('names who a batch leans toward, never how', () => {
     renderPage(
       withPlan([
@@ -549,7 +588,6 @@ describe('the plan', () => {
       top.compareDocumentPosition(screen.getByText('Your plan')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
     expect(screen.queryByText(/representative/i)).toBeNull()
   })
 
@@ -580,6 +618,14 @@ describe('the plan', () => {
         groupsCovered: 12,
         groupsTotal: 12,
       },
+      composition: {
+        placeKind: 'tract',
+        places: [],
+        groups: [
+          { group: 'women', districtShare: 0.52, memberShare: 0.52 },
+          { group: 'men', districtShare: 0.48, memberShare: 0.48 },
+        ],
+      },
     })
 
     const top = screen.getByTestId('civic-panel-milestones')
@@ -587,7 +633,8 @@ describe('the plan', () => {
       within(top).getByRole('heading', { name: 'Every seat is filled' }),
     ).toBeInTheDocument()
     expect(top).toHaveTextContent('250 residents said yes.')
-    expect(top).toHaveTextContent('12 of 12 groups')
+    // Counted the way the petals are, not the API's covered groups.
+    expect(top).toHaveTextContent('2 of 2 groups at their share')
     expect(
       within(top).getByRole('link', { name: 'Ask your panel a question' }),
     ).toHaveAttribute('href', '/dashboard/priorities')

@@ -196,10 +196,15 @@ shapes the page already reads, through `PriorityResultsService`
   answers that could give every major group three.
 - **Hear from more** (`underrepresented`): of the groups holding the read
   back, the first two `batchTargets` ranks, in the page's existing group
-  names; every tract reads as the parts not reached.
-- **Representation bars** stay as they are: who answered against the
-  district, unweighted. The contract carries no model share, so the model's
-  estimates are not shown anywhere yet.
+  names; every tract reads as the parts not reached. `unheard` marks the
+  named ones with no answer at all (for the parts not reached, any of their
+  tracts), so the page says "Still need to hear from men" for those and
+  "Need a few more answers from women" for the rest.
+- **Who you're hearing from** on the results page is the read's own major
+  groups (age band, gender, race when nameable), each one's share of the
+  district against its share of the coded answers, unweighted, drawn as the
+  panel page's petals (`answerGroups`). The model's estimates are not shown
+  anywhere yet.
 
 ## Not yet
 

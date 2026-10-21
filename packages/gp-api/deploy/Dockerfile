@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/node:22.23.0-alpine3.23
+FROM public.ecr.aws/docker/library/node:22.23.4-alpine3.23
 
 RUN apk add --no-cache \
   libc6-compat \
