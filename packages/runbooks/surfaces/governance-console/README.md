@@ -168,6 +168,11 @@ So a `govern` verdict is held until the box carries code-removal proof: a commit
 commit or PR URL, or `#1234`. Prose is refused, because "the code is gone, I checked" is
 exactly the unevidenced claim the rule exists to stop. Absent data is not removal.
 
+The accepted shapes are printed under the box, not only in its placeholder, because a
+placeholder disappears the moment you type. While the text matches none of them the line
+turns red and starts "Not one of these yet". A bare `323` is the usual miss: it needs the
+`#`.
+
 **Why there is a second accepted answer.** "Fix in Govern" is not always a retirement,
 and `intent_divergence` is where that bites. One cause covers two opposite situations:
 

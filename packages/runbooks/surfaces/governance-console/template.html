@@ -776,6 +776,35 @@
     font-size: 12px;
   }
 
+  .proof-help {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .proof-help code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
+  .proof[hidden] + .proof-help {
+    display: none;
+  }
+
+  .proof-help .proof-verdict {
+    display: none;
+    font-weight: 600;
+  }
+
+  .proof-help.is-bad,
+  .proof.required + .proof-help {
+    color: var(--crit);
+  }
+
+  .proof-help.is-bad .proof-verdict {
+    display: inline;
+  }
+
   .fields > .reason[hidden] {
     display: none;
   }
@@ -1644,6 +1673,29 @@
     'Proof the code is gone: #1234, a commit sha, or a PR/commit URL. ' +
     'Not a retirement? Write "no removal: <why>".'
 
+  // A placeholder vanishes the moment you type, which is exactly when you need it, so
+  // the accepted shapes also sit under the box and say so when the text matches none.
+  const proofHelp = (proof) => {
+    const help = el('p', 'proof-help')
+    const verdict = el('span', 'proof-verdict', 'Not one of these yet. ')
+    help.appendChild(verdict)
+    help.appendChild(document.createTextNode('Accepted: '))
+    ;['#1234', '0218c06', 'github.com/…/pull/1234'].forEach((example, i) => {
+      if (i) help.appendChild(document.createTextNode(i === 2 ? ' or a link like ' : ', '))
+      help.appendChild(el('code', null, example))
+    })
+    help.appendChild(
+      document.createTextNode(' for the PR or commit that deleted the code. Not a retirement? '),
+    )
+    help.appendChild(el('code', null, 'no removal: <why>'))
+    const check = () => {
+      help.classList.toggle('is-bad', Boolean(proof.value.trim()) && !isProof(proof.value))
+    }
+    proof.addEventListener('input', check)
+    check()
+    return { node: help, check }
+  }
+
   let onJudgmentChange = () => {}
 
   // Every row's setter, so "approve all recommended" can drive the same path a click
@@ -1770,6 +1822,7 @@
     proof.value =
       (judgments[key] && judgments[key].proof) || item.proof_hint || ''
     proof.hidden = true
+    const help = proofHelp(proof)
 
     // A verdict chosen but not yet recorded, because a precondition is unmet. Held
     // rather than written: recording it and asking afterwards means a page reload keeps
@@ -1896,6 +1949,7 @@
       pending = null
       reason.value = ''
       proof.value = ''
+      help.check()
       saveJudgments()
       paint()
       onJudgmentChange()
@@ -1954,7 +2008,7 @@
     })
 
     paint()
-    add(fields, reason, proof)
+    add(fields, reason, proof, help.node)
     add(block, bar, fields)
     return block
   }
@@ -1983,6 +2037,7 @@
     proof.addEventListener('input', () => {
       proof.dataset.typed = proof.value ? '1' : ''
     })
+    const help = proofHelp(proof)
 
     const chip = el('span', 'chip verdict picked-chip')
     chip.hidden = true
@@ -2041,6 +2096,7 @@
       reason.value = ''
       proof.value = ''
       proof.dataset.typed = ''
+      help.check()
       paintSummary()
       onJudgmentChange()
     }
@@ -2071,7 +2127,7 @@
     bar.appendChild(clear)
 
     const wrap = el('div', 'picked-wrap')
-    add(wrap, tally, bar, reason, proof)
+    add(wrap, tally, bar, reason, proof, help.node)
     reason.hidden = true
 
     paintSummary()
@@ -2105,6 +2161,7 @@
             if (refs.indexOf(ref) < 0) refs.push(ref)
           })
           proof.value = refs.join(', ')
+          help.check()
         }
         // Hiding the whole-cause case must not lose proof typed before it: coming back
         // to a subset shows the box again with what is in it.
