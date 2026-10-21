@@ -77,13 +77,22 @@ services so the rows match what a real office writes:
   writes the `civic_panel` events. The plan is read afterward, which is
   what links the step to the send and reads it done.
 - **Priority ask**: `PrioritiesService.create`, then a text with
-  `priorityId` set, `campaignId` null, to panel members first and then
-  other residents. Every one of them replies with fixed answers from
-  `PRIORITY_REPLIES`, through the same ingest, and gets a `PriorityAnswer`
-  row coded the way the classifier would (the priority's read counts coded
-  answers, not replies). The body's `answers` caps how many reply (0 to 500)
-  and `split` (`lean`, nine in ten yes, or `even`, half yes and half
-  no) sets the codes; `--answers` and `--split` on `npm run seed:activity`
+  `priorityId` set, `campaignId` null, to panel members first, then other
+  residents, then residents from each of the read's major tracts. The
+  groups come from `CensusCompositionSource.mrpInputs`'s frame, the one the
+  read poststratifies to (`readGroups` in
+  `util/priorityAnswerAllocation.util.ts`); the census weighs a tract by its
+  adults, so a tract the district line cuts can be major while a voter file
+  sample holds almost none of it. Each tract gets `walkableAreaWithin` doors
+  with cell phones, which is also how the seed knows their tract. With no
+  frame (route tests, no warehouse) nothing extra is drawn. Every one of
+  them replies with fixed answers from `PRIORITY_REPLIES`, through the same
+  ingest, and gets a `PriorityAnswer` row coded the way the classifier would
+  (the priority's read counts coded answers, not replies). The body's
+  `answers` caps how many reply (0 to 500), and `allocateAnswers` picks them
+  so every major group gets five before anyone else. `split` (`lean`, nine
+  in ten yes, or `even`, half yes and half no) sets the codes, cycled within
+  each age band and sex so no group comes out all one way; `--answers` and `--split` on `npm run seed:activity`
   send them, to `--org` and `--fixture` alike (`POST /users` takes them beside
   `activity: 'seeded'`). The pooled `requestPriorityRun` gives the results
   page themes, and is skipped when fewer than five answers can be summarized.
