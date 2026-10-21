@@ -42,13 +42,17 @@ const labeledPetals = (bloom: Bloom): Petal[] =>
         .sort((a, b) => a.ratio - b.ratio)
         .slice(0, LIST_SIZE)
 
+type Summary = (atShare: number, total: number) => string
+
 const Flower = ({
   bloom,
   labeled,
+  summary,
   className,
 }: {
   bloom: Bloom
   labeled: boolean
+  summary: Summary
   className?: string
 }) => {
   const viewBox = labeled
@@ -61,7 +65,7 @@ const Flower = ({
       viewBox={viewBox}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={COPY.bloomSummary(bloom.atShare, bloom.petals.length)}
+      aria-label={summary(bloom.atShare, bloom.petals.length)}
     >
       <path
         d={bloom.petals.map((petal) => sector(petal, BLOOM_RMAX)).join(' ')}
@@ -148,21 +152,34 @@ const Swatch = ({ className }: { className: string }) => (
 
 // Each group as a petal sized by its share of the members against its share
 // of the district. `showNext` is off when the status above already names
-// who to invite.
+// who to invite. A priority's results draw the same petals from who
+// answered, with their own `summary`.
 export const CivicPanelBloom = ({
   groups,
   showNext,
+  summary = COPY.bloomSummary,
 }: {
   groups: CivicPanelCompositionGroup[]
   showNext: boolean
+  summary?: Summary
 }) => {
   const bloom = buildBloom(groups)
   return (
     <div className="flex flex-col gap-3" data-testid="civic-panel-bloom">
       <p className="text-sm text-muted-foreground">{COPY.bloomCaption}</p>
       <div className="mx-auto w-full max-w-[20rem] sm:max-w-[37.5rem]">
-        <Flower bloom={bloom} labeled className="hidden sm:block" />
-        <Flower bloom={bloom} labeled={false} className="sm:hidden" />
+        <Flower
+          bloom={bloom}
+          labeled
+          summary={summary}
+          className="hidden sm:block"
+        />
+        <Flower
+          bloom={bloom}
+          labeled={false}
+          summary={summary}
+          className="sm:hidden"
+        />
       </div>
       {/* Names around the flower do not fit on a phone, so they list here. */}
       <ul className="flex flex-col gap-1 sm:hidden">

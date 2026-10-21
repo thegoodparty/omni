@@ -572,6 +572,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {
         tools.read_report_back = buildReadReportBackTool({

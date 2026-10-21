@@ -150,7 +150,7 @@ describe('CivicPanelNextStepCard', () => {
     expect(await screen.findByText('Missing some groups')).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Invite more people in parts of your district we haven't heard from next.",
+        'Invite more people in some parts of your district next.',
       ),
     ).toBeInTheDocument()
   })

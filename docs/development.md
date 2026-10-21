@@ -101,7 +101,7 @@ each with a coded answer) and `--split even` (answers split half yes, half
 no, instead of nine in ten yes), on `--org` or `--fixture`:
 
 ```bash
-npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear from some groups
+npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear back
 npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
 npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
 ```

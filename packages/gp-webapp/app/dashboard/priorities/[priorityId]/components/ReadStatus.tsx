@@ -198,11 +198,14 @@ export const ReadStatusRailBlock = ({
       </>
     )}
     <FollowUpLine readStatus={readStatus} />
-    <Link
-      href={resultsHref(priorityId)}
-      className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-    >
-      {READ_STATUS_COPY.whatWeHeard}
-    </Link>
+    {/* A good read already leads with See what we heard. */}
+    {readStatus.good ? null : (
+      <Link
+        href={resultsHref(priorityId)}
+        className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        {READ_STATUS_COPY.whatWeHeard}
+      </Link>
+    )}
   </div>
 )

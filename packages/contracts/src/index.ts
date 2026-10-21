@@ -183,8 +183,6 @@ export {
   CIVIC_PANEL_SEGMENT,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
-  CivicPanelRepresentationSchema,
-  type CivicPanelRepresentation,
 } from './people/CivicPanelSummary.schema'
 export {
   isCivicPanelOnlyList,
@@ -934,20 +932,12 @@ export {
 } from './priorities/PriorityOnboarding.schema'
 
 export {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   PRIORITY_RESULTS_CHANNELS,
   PriorityResultsChannelSchema,
   type PriorityResultsChannel,
   PriorityResultsSendSchema,
   type PriorityResultsSend,
   PriorityResultsPointSchema,
-  REPRESENTATION_DIMENSIONS,
-  RepresentationDimensionSchema,
-  type RepresentationDimension,
-  RepresentationGroupSchema,
-  type RepresentationGroup,
-  PriorityRepresentationSchema,
-  type PriorityRepresentation,
   PriorityResultsSchema,
   type PriorityResults,
   PriorityReadStatusSchema,
@@ -959,9 +949,12 @@ export {
   UNDERREPRESENTED_GROUP_NAMES,
   UNSURE_AREAS_NAME,
   underrepresentedGroupName,
+  joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
+  PriorityResultsGroupSchema,
+  type PriorityResultsGroup,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'
 
