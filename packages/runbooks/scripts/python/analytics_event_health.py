@@ -9,8 +9,8 @@ severity-ranked digest section prepended (newest first, below the header) to
 ``instrumentation_data/analytics-event-health-log.md``.
 
 Hybrid scope: every catalog event gets an SOP status; a curated watchlist
-(``monitored_events.yaml``) drives severity elevation and the self-healing proposal queue
-(new events in watched families that are not yet on the list). The deeper per-flag code
+(``monitored_events.yaml``) drives severity elevation, an additions queue (OKR legs in
+watched families not yet on the list) and a removals queue (watched events retired in code). The deeper per-flag code
 investigation (reading the diffs) is the runbook agent's job — see books/monitor-analytics-event-health.md.
 
 It READS from Databricks (the ``mart_analytics`` exposures ``amplitude_event_catalog`` and the
@@ -613,7 +613,7 @@ def propose_watchlist_additions(
     window_days: int = PROPOSAL_WINDOW_DAYS,
     dismissed_events: Iterable[str] = (),
 ) -> list[dict]:
-    """Self-healing watchlist: events worth adding to the curated list.
+    """Watchlist additions eligible on liveness alone; ``reconcile`` keeps only OKR legs.
 
     A proposal is a catalog event that is in a watched family, first seen within the
     window, not already on the list, not system/auto-tracked, and **currently live** —
@@ -809,7 +809,7 @@ def reconcile(
     proposals = [p for p in eligible if p["event_type"] in okr_by_event]
 
     # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
-    # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
+    # curated) beats dismissed (human rejected) beats proposed (an unwatched OKR leg);
     # everything else is untouched by the watchlist.
     removals = propose_watchlist_removals(watched_rows, code, okr_by_event, kept_events)
 
@@ -1108,7 +1108,7 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         shown = proposals[:PROPOSAL_CAP]
         lines += [
             "",
-            "### Watchlist proposals (self-healing)",
+            "### Watchlist proposals (OKR legs)",
             "",
             f"{len(proposals)} OKR leg(s) in a watched family, first seen in the last "
             f"{PROPOSAL_WINDOW_DAYS}d, not yet on the watchlist. Triage in the runbook, "

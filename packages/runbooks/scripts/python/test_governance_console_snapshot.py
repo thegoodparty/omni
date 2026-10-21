@@ -1066,10 +1066,13 @@ def test_unwatch_is_not_offered_on_a_non_dormant_cause():
     assert "unwatch" not in item["verbs"]
 
 
-def test_a_low_value_gap_is_recommended_defer():
+def test_a_low_value_gap_gets_no_recommendation_so_it_stays_rejudged():
+    # defer writes `open`, and select_candidates never re-judges an open gap, so a
+    # deferred low-value gap could never turn needed once someone asks its question.
     verdict, why = gcs.recommend_gap({"value": "low", "judge_reason": "r"})
-    assert verdict == "defer"
-    assert why == "No question anyone asked needs this event yet."
+    assert verdict == ""
+    assert why == ("No question anyone asked needs this event yet. Leave it unruled and "
+                   "it is judged again next run.")
 
 
 def test_a_gap_without_a_value_keeps_accept():

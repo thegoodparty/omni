@@ -1223,7 +1223,7 @@ def test_render_collapses_dormant_tail_and_caps_changes():
     assert "fill first): Onboarding - Party Step" in out
     assert "missing a description: 14 (not listed)" in out
     # self-healing proposals section, rendered as a ready-to-paste yaml row
-    assert "### Watchlist proposals (self-healing)" in out
+    assert "### Watchlist proposals (OKR legs)" in out
     assert '- {event: "Onboarding - New Step", product: win, family: win_onboarding' in out
 
 

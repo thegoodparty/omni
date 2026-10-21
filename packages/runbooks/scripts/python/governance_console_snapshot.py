@@ -282,7 +282,10 @@ def recommend_gap(gap: Mapping) -> tuple[str, str]:
             + ". Usually the same call.",
         )
     if gap.get("value") == "low":
-        return ("defer", "No question anyone asked needs this event yet.")
+        # No verb: defer writes `open`, which the sweep never re-judges, so the gap could
+        # not turn needed once someone asks its question. Unruled, it stays `new`.
+        return ("", "No question anyone asked needs this event yet. Leave it unruled and "
+                    "it is judged again next run.")
     return ("accept", gap.get("judge_reason") or "The judge called this a real gap.")
 
 
@@ -903,7 +906,7 @@ def build_gap_queue(gaps: Mapping) -> list[dict]:
 
 
 def build_proposal_queue(report: Mapping) -> list[dict]:
-    """Watchlist proposals: catalog events in a watched family not yet on the list."""
+    """Watchlist proposals: unwatched OKR legs to add, and retired watched rows to remove."""
     return [{
         "id": p["event_type"],
         "queue": "proposals",
@@ -911,8 +914,8 @@ def build_proposal_queue(report: Mapping) -> list[dict]:
         "caveat": QUEUE_CAVEATS["proposals"],
         "recommended": "accept",
         "recommendation_reason": (
-            "A live event in a watched family that is not on the list. The list exists "
-            "to watch this family, so the default is to watch it."
+            "A live event a governed metric counts, and nobody is watching it. The "
+            "default is to watch it."
         ),
         "label": p["event_type"],
         "rank": PROPOSAL_RANK,
