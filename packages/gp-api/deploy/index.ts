@@ -489,6 +489,25 @@ export = async () => {
           `arn:aws:secretsmanager:${region}:${accountId}:secret:${localDevEnvSecretId}-*`,
         ]
 
+  // The local election seed POST /v1/dev-env/election-seed presigns: the
+  // slice of the dev election database local setup loads into `electiondb`.
+  // Restricted data, so private and dev only; refresh.sh uploads it.
+  const localElectionSeedBucket =
+    environment === 'dev'
+      ? new aws.s3.BucketV2('local-election-seed-bucket', {
+          bucket: 'gp-local-election-seed-dev',
+        })
+      : undefined
+  if (localElectionSeedBucket) {
+    new aws.s3.BucketPublicAccessBlock('local-election-seed-pab', {
+      bucket: localElectionSeedBucket.id,
+      blockPublicAcls: true,
+      blockPublicPolicy: true,
+      ignorePublicAcls: true,
+      restrictPublicBuckets: true,
+    })
+  }
+
   const containerSecrets: Record<
     string,
     pulumi.Output<string>
@@ -522,8 +541,47 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // Explicit so the running value is visible in the task definition
+      // and rollback is a one-line diff (set dev to 'live').
+      VENDOR_MODE: select({
+        preview: 'mock',
+        dev: 'mock',
+        prod: 'live',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      // Clerk instance public key, so tokens verify without fetching Clerk's
+      // JWKS on the request path. Public, so it lives here and not in the
+      // secret. Previews use the dev Clerk instance.
+      CLERK_JWT_KEY: select({
+        preview: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        dev: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5vPRpG6stRNHuJkOX/K3
+ukS2x2Hp34QXVnTIsQhgJ/D4T8tw7Ui9KRny2oXWMr9hDBPtVawNwYeqJQzvxucZ
+4a3bOpd5cY/Pc2KY2ecO5HErB2+GVcg/JetzVHfXcFeIAppL03PRmztrwETUtBV4
+G025CUa+131r8QvYMRdrp5BDtEz/2ZY5vJIgkxptGSZuzgNpIP10Vx4bCAMu3yBa
+iaQ0t6Zq6Gixa+yKAtGUTLywT28YRJIo/cdt/98GJhIWENGhJsag4WFOvha5YXS5
+Teo/vpW87LUUDxFkF1VWCMZwxhUzOyI3ZTKZSBsO8sZK9HtC1CAKHv5CAck47AIn
+gQIDAQAB
+-----END PUBLIC KEY-----`,
+        prod: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv7mX9LgkMjP5eeqaufE/
+gKslsuuKY8rRVlYfLiIGHFo6UbB8Nm3ZY4VDHNGCP8ewE0CrEuY5LaRbYaIuDeB5
+9dWfgTIbieUBHPr2lmA1crMyRKVQEkYNHFGyvoR6wF3m8FUbiT03gEsnTsmKdeFl
+rmbyjAacxbn75BLOwZZm1abvRxPXj6/MwbahCKVSvtrBdsjhQBxxOv5+9UFhQ14p
+WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
+4RFIVMAkgqfj2C8dnFR2sQS2NkR9DqQabf6aY4Yme2/RRT5489atX1kUFh1Tt167
+jwIDAQAB
+-----END PUBLIC KEY-----`,
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
@@ -609,6 +667,9 @@ export = async () => {
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       LOCAL_DEV_ENV_SECRET_ID: localDevEnvSecretId,
+      LOCAL_ELECTION_SEED_BUCKET: localElectionSeedBucket
+        ? localElectionSeedBucket.bucket
+        : '',
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -718,6 +779,23 @@ export = async () => {
               Effect: 'Allow' as const,
               Action: ['secretsmanager:GetSecretValue'],
               Resource: localDevEnvSecretArns,
+            },
+          ]
+        : []),
+      ...(localElectionSeedBucket
+        ? [
+            {
+              Effect: 'Allow' as const,
+              Action: ['s3:GetObject'],
+              Resource: [pulumi.interpolate`${localElectionSeedBucket.arn}/*`],
+            },
+            {
+              // Without ListBucket, S3 answers a HeadObject for a key that
+              // does not exist with 403 rather than 404, and the endpoint
+              // could not tell "not uploaded yet" from a real denial.
+              Effect: 'Allow' as const,
+              Action: ['s3:ListBucket'],
+              Resource: [localElectionSeedBucket.arn],
             },
           ]
         : []),

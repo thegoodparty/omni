@@ -39,17 +39,18 @@ npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 
 **If you added or renamed a controller, run `npm run generate` first.**
 `src/generated/route-types.ts` is gitignored and built by
-`scripts/generate-route-types.ts`, and the alerting ownership tests read
+`scripts/generate-route-types.ts`, and the route alerting tests read
 `CONTROLLER_NAMES` from it. CI always generates fresh, so a stale local copy
-makes those tests pass here and fail there — a new controller with no entry in
-`CONTROLLER_OWNERS` is invisible until the PR is already open.
+makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 2 shards
-(`--shard=N/2`, no coverage), one runner each, so the whole suite finishes in
-about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
-branch-protection-required `Validate` check is green only when all of them pass.
+against a shadow DB; a `Test` job fans the vitest suite across 4 shards
+(`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
+are saturated by its own workers plus Postgres. More shards finish faster but
+each one holds a runner, and the org is capped at 60 concurrent jobs. And an empty `Validate` gate
+`needs` both so the branch-protection-required `Validate` check is green only
+when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 `lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
@@ -115,7 +116,6 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | Adding/debugging an alert                    | `docs/observability.md`                                          |
 | Reproducing a reported bug                   | `docs/debugging.md`                                              |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| Why a thing is the way it is                 | `docs/adr/`                                                      |
 | AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
@@ -169,7 +169,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
-| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md` + `docs/adr/`                |
+| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
 | Recommended lists (the audience picker's cards)          | `docs/features/recommended-lists.md`                 |
@@ -179,6 +179,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
+| Priorities, their results, AI-coded answers              | `src/priorities/AGENTS.md`                           |
 | What the chat assistants know about the product          | `src/chats/general/product-knowledge/AGENTS.md`      |
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
@@ -190,6 +191,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
+| Universal Judge turn telemetry (non-prod only)           | `src/judge/AGENTS.md`                                |
 | Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
@@ -228,7 +230,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 }
 ```
 
-Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMany`, `findFirst`, `count`, etc.), and `optimisticLockingUpdate`. ADR: `docs/adr/0001-prisma-base-pattern.md`.
+Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMany`, `findFirst`, `count`, etc.), and `optimisticLockingUpdate`.
 
 ## Auth
 
@@ -237,15 +239,15 @@ Two global guards run in order:
 1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
 2. `RolesGuard` — enforces `@Roles(...)`
 
-Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`. ADR: `docs/adr/0004-clerk-m2m-auth.md`.
+Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`.
 
 ## Zod validation
 
-Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponseInterceptor` to validate outgoing responses at runtime. Never use `.passthrough()` on input schemas. ADR: `docs/adr/0002-zod-everywhere.md`.
+Use `@ResponseSchema(zodSchema)` on controller methods + the global `ZodResponseInterceptor` to validate outgoing responses at runtime. Never use `.passthrough()` on input schemas.
 
 ## Queue (SQS FIFO)
 
-One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`. ADR: `docs/adr/0003-fifo-sqs-single-queue.md`.
+One queue, switch on `QueueType` enum. Producer in `src/queue/producer/`, consumer in `src/queue/consumer/`. The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
 
 ## Testing
 
@@ -276,7 +278,7 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
 - **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
-- **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` (rules.mdc Rule 3).
+- **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` to stdout, but the OTel log bridge that feeds Loki keeps only the error's code, message and stack, so a provider field you need in Grafana also goes alongside `err` as its own top-level field (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 
 ## Design rules — high-cost mistakes

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { DoNotKnockStatusSchema } from '../people/ContactStatus.schema'
 
-// ADR 0007. Separate from RecordDoorKnockInteractionSchema on purpose: that
+// Separate from RecordDoorKnockInteractionSchema on purpose: that
 // payload requires an outcome and gates its answers on `answered`, while a
 // do-not-knock is recordable when there is nothing to log — a neighbor
 // mentions hospice, a sign in the window — and has to be reversible on its

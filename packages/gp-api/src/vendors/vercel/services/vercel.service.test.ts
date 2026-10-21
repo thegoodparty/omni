@@ -73,6 +73,7 @@ describe('VercelService when not configured', () => {
   })
 
   it('logs once on construction and throws on every public method', async () => {
+    vi.stubEnv('VENDOR_MODE', 'live')
     vi.stubEnv('VERCEL_TOKEN', '')
     vi.stubEnv('VERCEL_PROJECT_ID', '')
     vi.resetModules()

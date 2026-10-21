@@ -1,4 +1,4 @@
-import { UserRole } from '@goodparty_org/sdk'
+import { UserRole } from '@/shared/gpApi'
 
 export { FORM_MODE, INPUT_TYPE } from '@/shared/constants/form'
 export type { FormMode, InputType } from '@/shared/constants/form'

@@ -12,7 +12,6 @@ scan_roots:
 #   gp-ai        Python service with its own telemetry, not a client surface
 #   nest-common  shared library, no user-facing surfaces of its own
 #   contracts    Zod types only
-#   gp-sdk       generated API client
 #   styleguide   presentational components, instrumented by their consumers
 #   runbooks     this tooling
 # gp-admin, prototypes and candidate-sites are excluded below with their own reasons.

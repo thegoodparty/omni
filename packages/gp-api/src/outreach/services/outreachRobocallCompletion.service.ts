@@ -50,7 +50,10 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   })
   async sweepRobocallCompletion(): Promise<void> {
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    return this.runCompletion()
+  }
 
+  async runCompletion(): Promise<void> {
     const now = new Date()
     const runWindowElapsed = subHours(now, ROBOCALL_RUN_HOURS)
     const captureDeadlineSoon = addHours(now, ROBOCALL_SETTLE_MARGIN_HOURS)

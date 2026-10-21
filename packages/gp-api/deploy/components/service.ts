@@ -290,10 +290,12 @@ export function createService({
     ],
   })
 
-  // Preview gets a full vCPU because its boot is on the critical path of every
-  // PR: migrations and Nest startup are CPU-bound, and at half a vCPU
-  // Nest alone took ~45s to come up. Dev stays at half.
-  const cpu = select({ preview: '1024', dev: '512', prod: '1024' })
+  // A full vCPU everywhere. Preview's boot is on the critical path of every
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev's single task
+  // takes the release train's E2E (16 Playwright workers): at half a vCPU it
+  // ran at its CPU quota for the whole run, gp-api medians went from ~5ms to
+  // ~600ms, and webapp server renders hit Vercel's function timeout.
+  const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
@@ -352,13 +354,15 @@ export function createService({
     ),
   })
 
-  new aws.ecs.Service(
+  const prodMinTasks = 4
+
+  const ecsService = new aws.ecs.Service(
     'ecsService',
     {
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      desiredCount: isProd ? 2 : 1,
+      desiredCount: isProd ? prodMinTasks : 1,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,
@@ -412,8 +416,68 @@ export function createService({
       customTimeouts: { create: '10m', update: '10m' },
       // ECS rejects a target group that no load balancer forwards to yet.
       dependsOn: listenerRule ? [listenerRule] : [],
+      // Autoscaling owns the prod task count. Without this, a deploy can reset
+      // it to the minimum mid-traffic.
+      ignoreChanges: isProd ? ['desiredCount'] : [],
     },
   )
+
+  if (isProd) {
+    // Register and Put are upserts, so these adopt the SST-era target and
+    // policies by name instead of creating duplicates. The register is only an
+    // upsert while it carries no tags: AWS treats a tagged
+    // RegisterScalableTarget as create-only and rejects it when the target
+    // already exists, and the stack's aws:defaultTags (infra-cli.ts) would tag
+    // it. A provider without defaultTags keeps the adoption working.
+    const untaggedProvider = new aws.Provider('scalableTargetProvider', {
+      region: aws.config.region,
+    })
+    const scalableTarget = new aws.appautoscaling.Target(
+      'scalableTarget',
+      {
+        serviceNamespace: 'ecs',
+        scalableDimension: 'ecs:service:DesiredCount',
+        resourceId: pulumi.interpolate`service/${cluster.name}/${ecsService.name}`,
+        minCapacity: prodMinTasks,
+        maxCapacity: 24,
+      },
+      { provider: untaggedProvider },
+    )
+
+    // The SST-era policies scaled in with a 0s cooldown: on 2026-10-19 they
+    // removed a task every minute, 16 down to 2, and the 2 left saturated
+    // under election traffic. Average CPU then hid it, because each saturated
+    // task failed health checks and its booting replacement read near 0%.
+    const scalingPolicy = (
+      name: string,
+      policyName: string,
+      metricType: string,
+    ) =>
+      new aws.appautoscaling.Policy(name, {
+        name: policyName,
+        policyType: 'TargetTrackingScaling',
+        serviceNamespace: scalableTarget.serviceNamespace,
+        scalableDimension: scalableTarget.scalableDimension,
+        resourceId: scalableTarget.resourceId,
+        targetTrackingScalingPolicyConfiguration: {
+          targetValue: 50,
+          predefinedMetricSpecification: { predefinedMetricType: metricType },
+          scaleInCooldown: 600,
+          scaleOutCooldown: 0,
+        },
+      })
+
+    scalingPolicy(
+      'cpuScalingPolicy',
+      'gp-master-gpapimasterAutoScalingCpuPolicy-xtcnedeu',
+      'ECSServiceAverageCPUUtilization',
+    )
+    scalingPolicy(
+      'memoryScalingPolicy',
+      'gp-master-gpapimasterAutoScalingMemoryPolicy-tttferft',
+      'ECSServiceAverageMemoryUtilization',
+    )
+  }
 
   return {
     url: pulumi.interpolate`https://${domain}`,

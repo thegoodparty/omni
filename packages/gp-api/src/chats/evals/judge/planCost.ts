@@ -75,9 +75,10 @@ export const MEASURED_BACKGROUND_RUN_COST: Readonly<
 }
 
 // WHAT ONE CHAT TURN COST IN A JUDGE SWEEP. The report's per-run mean is
-// per case attempt, and every chat case list today is one turn a case, so
-// that is a turn. chief_of_staff's three live sweeps measured $0.112 to
-// $0.124; the latest, the one that wired it, is the entry.
+// per case attempt, and that sweep's lists were one turn a case, so that is
+// a turn. chief_of_staff's three live sweeps measured $0.112 to $0.124; the
+// latest, the one that wired it, is the entry. priority_flow's was measured
+// in process with no district, so a deployed arm may run somewhat higher.
 export const MEASURED_CHAT_TURN_COST: Readonly<
   Partial<Record<string, MeasuredRunCost>>
 > = {
@@ -86,6 +87,13 @@ export const MEASURED_CHAT_TURN_COST: Readonly<
     date: '2026-10-02',
     baseUsd: 0.1221,
     candidateUsd: 0.123,
+    pairs: 24,
+  },
+  priority_flow: {
+    runUrl: 'https://github.com/thegoodparty/omni/actions/runs/38762654603',
+    date: '2026-10-15',
+    baseUsd: 0.203,
+    candidateUsd: 0.183,
     pairs: 24,
   },
 }

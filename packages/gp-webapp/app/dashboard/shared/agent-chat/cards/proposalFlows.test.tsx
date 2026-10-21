@@ -286,7 +286,85 @@ describe('ProposalFlowsProvider', () => {
       priorityId: 'priority-1',
       stepId: 'method',
       side: 'main',
+      launchSource: 'priorities',
     })
+  })
+
+  // Round 1's doors are one walkable area gp-api picked: the list is kept
+  // to it and the walk opens with it as the first turf.
+  it('keeps a walkable area card’s list to its box and opens the walk on it', async () => {
+    router.push?.mockClear()
+    const lists = mockSavedLists()
+    const box = { west: -82.56, south: 35.59, east: -82.54, north: 35.61 }
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener
+          card={proposal({
+            channel: 'doorKnocking',
+            stepId: 'define',
+            side: 'main',
+            walkableArea: box,
+          })}
+        />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    expect(lists[0]).toMatchObject({
+      geoPoly: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-82.56, 35.59],
+            [-82.54, 35.59],
+            [-82.54, 35.61],
+            [-82.56, 35.61],
+            [-82.56, 35.59],
+          ],
+        ],
+      },
+    })
+    expect(lists[0]).not.toHaveProperty('sample')
+    const url = new URL(
+      String(router.push?.mock.calls[0]?.[0]),
+      'https://app.test',
+    )
+    expect(url.searchParams.get('listId')).toBe('88')
+    expect(url.searchParams.get('area')).toBe('-82.56,35.59,-82.54,35.61')
+  })
+
+  it('saves the walk’s list once when the card is pressed twice', async () => {
+    router.push?.mockClear()
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let saves = 0
+    api.mock('POST /v1/voters/voter-file/filter', async () => {
+      saves += 1
+      await held
+      return { status: 200, data: { id: 79, name: 'Flood block renters' } }
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal({ channel: 'doorKnocking' })} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    release()
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1))
+    expect(saves).toBe(1)
+
+    // Back on the card, pressing it again reuses the list it saved.
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(2))
+    expect(saves).toBe(1)
+    expect(String(router.push?.mock.calls[1]?.[0])).toContain('listId=79')
   })
 
   it('says so when the walk’s list cannot be saved, and the card can be pressed again', async () => {

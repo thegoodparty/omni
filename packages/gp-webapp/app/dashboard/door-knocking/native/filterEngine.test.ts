@@ -114,11 +114,11 @@ describe('applyLoggedKnocks', () => {
 })
 
 describe('the knockable mask', () => {
-  // Do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are suppression, not
-  // criteria: every server-side evaluation drops these people before it
-  // counts anything, and the map was the last surface still drawing them.
-  // So the plane is read here as a mask rather than through `selections` —
-  // nothing selects it and there is no pill to clear.
+  // Do-not-knock and not-a-voter are suppression, not criteria: every
+  // server-side evaluation drops these people before it counts anything, and
+  // the map was the last surface still drawing them. So the plane is read here
+  // as a mask rather than through `selections` — nothing selects it and there
+  // is no pill to clear.
   const suppressing = (plane: number[]): DecodedPack => {
     const decoded = pack()
     decoded.manifest.dims = [

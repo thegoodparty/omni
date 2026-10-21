@@ -3,8 +3,12 @@ import {
   ControllerName,
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
-import { Alert, SlackGroup } from './alerts.types'
-import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
+import { Alert } from './alerts.types'
+import {
+  CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  SERVER_ERRORS_ONLY,
+  VOTER_QUERY_TIMEOUTS_NOT_PAGED,
+} from '../alerts'
 
 // 400 is excluded because a 400 is never evidence of a fault on its own. In
 // this codebase it is overwhelmingly designed vocabulary — Zod rejecting a
@@ -124,7 +128,7 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // exist, all with `noDataState: OK`, and none of them could fire.
 // Cost fell and detection died in the same change.
 //
-// Now: the alerts read Loki again, but there are five rules rather than 75, and
+// Now: the alerts read Loki again, but there are two rules rather than 75, and
 // each reads exactly the window it judges. The count is what makes it
 // affordable — see ROUTE_ALERT_GROUPS.
 //
@@ -136,7 +140,7 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // the vector, so each of these read two minutes a minute, not one.) Gapless
 // coverage needs window >= interval, so ONE is the floor for any rule that must not miss
 // anything, and the only remaining lever is how many rules there are. 75 rules
-// at the floor is 75x ingest; five is five. `global-alerts.test.ts` sums this
+// at the floor is 75x ingest; two is two. `global-alerts.test.ts` sums this
 // across the estate and fails a PR that spends too much of the allowance.
 
 // The window each rule judges, and the interval it judges it on. Always equal,
@@ -253,26 +257,8 @@ export const routeEndpointPattern = (endpoints: readonly string[]): string =>
     .map((endpoint) => endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')})$`
 
-/**
- * The name and slug fragment for one set of owners.
- *
- * A closed map rather than something derived from the group names, because the
- * slug is the alert's identity in Grafana and in the routing snapshot: deriving
- * it would let a rename of a Slack group silently retire every alert under it
- * and create a new one with no history. `routeAlertGroups` throws on a
- * combination that is not listed, so adding a third product is a deploy-time
- * failure rather than a rule that quietly stops being provisioned.
- */
-const OWNER_NAMING: Record<string, { slug: string; label: string }> = {
-  'serve-bugs': { slug: 'serve', label: 'Serve' },
-  'win-bugs': { slug: 'win', label: 'Win' },
-  'serve-bugs,win-bugs': { slug: 'shared', label: 'Shared' },
-}
-
 export type RouteAlertGroup = {
   slug: string
-  label: string
-  owners: SlackGroup[]
   serverErrorsOnly: boolean
   controllers: ControllerName[]
   endpoints: string[]
@@ -282,12 +268,12 @@ export type RouteAlertGroup = {
  * Every controller that gets a route alert, bucketed into the smallest number
  * of Loki rules that can still say the right thing.
  *
- * WHY GROUPING IS SAFE, which is the question to ask first. Only two things
- * vary between the 75 per-controller rules this replaced: who is notified, and
- * which status filter applies (`SERVER_ERRORS_ONLY`). Both are properties of
- * the rule, not of the series it returns, so controllers that agree on both
- * can share a rule without any of them changing meaning. The endpoint alternation is what
- * keeps them apart.
+ * WHY GROUPING IS SAFE, which is the question to ask first. The only thing
+ * that varies between the 75 per-controller rules this replaced is which
+ * status filter applies (`SERVER_ERRORS_ONLY`). That is a property of the
+ * rule, not of the series it returns, so controllers that agree on it can
+ * share a rule without any of them changing meaning. The endpoint alternation
+ * is what keeps them apart.
  *
  * PAGING STAYS PER-ROUTE. `sum by (request_endpoint)` returns one series per
  * route, Grafana turns each returned series into its own alert instance, and
@@ -304,48 +290,22 @@ export type RouteAlertGroup = {
  * had resolved it, and it went out as resolved, which pages nobody. That
  * is how `POST /v1/domains/purchase` was lost on 2026-09-30.
  *
- * WHAT IS GENUINELY LOST: the Grafana rule name no longer carries
- * `[controller]`, and 75 alert slugs become five. Alert history and any silence
- * keyed to an old slug do not survive that. The routing policy is unaffected —
- * it matches on `environment`, not on slug.
- *
- * A controller with no owner is not in here at all, rather than provisioned
- * paused. `CONTROLLERS_WITHOUT_ROUTE_ALERTS` documents which ones and why.
+ * Every controller is in here unless `CONTROLLERS_WITHOUT_ROUTE_ALERTS` opts it
+ * out, so a new controller is watched by default.
  */
 export const routeAlertGroups = (): RouteAlertGroup[] => {
   const groups = new Map<string, RouteAlertGroup>()
 
   for (const controller of CONTROLLER_NAMES) {
-    // Every group that claims this controller, not the first one found. A
-    // shared surface is owned by both products, and `find` silently told the
-    // second one nothing — the controller was listed under them and they were
-    // never tagged.
-    const owners = (
-      Object.keys(ALERT_OWNERSHIP) as (keyof typeof ALERT_OWNERSHIP)[]
-    ).filter((group) => ALERT_OWNERSHIP[group].includes(controller))
-
-    if (owners.length === 0) continue
+    if (CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(controller)) continue
 
     const routes = ROUTE_MAP[controller]
     if (routes.length === 0) continue
 
     const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)
-
-    const naming = OWNER_NAMING[owners.join(',')]
-    if (!naming) {
-      throw new Error(
-        `No slug is registered for the owner set ${owners.join(', ')}. ` +
-          `Add one to OWNER_NAMING in alerting/route-alerts.ts.`,
-      )
-    }
-
-    const slug = [
-      'route-errors',
-      naming.slug,
-      serverErrorsOnly ? 'server-errors' : null,
-    ]
-      .filter((part) => part !== null)
-      .join('-')
+    const slug = serverErrorsOnly
+      ? 'route-errors-server-errors'
+      : 'route-errors'
 
     const existing = groups.get(slug)
     if (existing) {
@@ -356,8 +316,6 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
 
     groups.set(slug, {
       slug,
-      label: naming.label,
-      owners,
       serverErrorsOnly,
       controllers: [controller],
       endpoints: routes.map(({ endpoint }) => endpoint),
@@ -498,8 +456,27 @@ const NO_ROUTE_MESSAGE = [
 const whenRouteIsNamed = (text: string) =>
   `{{ if $labels.request_endpoint }}${text}{{ else }}${NO_ROUTE_MESSAGE}{{ end }}`
 
+// A 504 from gp-api is a voter query that outran its ceiling, answered with
+// "narrow the audience" (see VOTER_QUERY_TIMEOUTS_NOT_PAGED). It is dropped for
+// those routes inside the existing server-errors rule rather than by a rule of
+// its own, because a third rule is a third Loki read.
+const serverErrorFilterFor = (group: RouteAlertGroup) => {
+  const silenced = group.endpoints.filter((endpoint) =>
+    VOTER_QUERY_TIMEOUTS_NOT_PAGED.some((controller) =>
+      ROUTE_MAP[controller].some((route) => route.endpoint === endpoint),
+    ),
+  )
+  if (silenced.length === 0) return serverErrorFilter
+  return orNoStatus(
+    [
+      '( response_statusCode >= 500 and response_statusCode != 504 )',
+      `( response_statusCode = 504 and ${ROUTE_LABEL} !~ \`${routeEndpointPattern(silenced)}\` )`,
+    ].join(' or '),
+  )
+}
+
 /**
- * The five rules that watch every owned route for errors.
+ * The two rules that watch every route for errors.
  *
  * `noDataState` stays `OK` on these and that is now the correct answer rather
  * than a compromise. A Loki rule that finds no error lines genuinely returns no
@@ -513,7 +490,7 @@ const whenRouteIsNamed = (text: string) =>
 export const routeErrorAlerts = (): Alert[] =>
   routeAlertGroups().map((group) => {
     const statusFilter = group.serverErrorsOnly
-      ? serverErrorFilter
+      ? serverErrorFilterFor(group)
       : anyErrorFilter
 
     const window = MINUTE_WINDOW
@@ -521,7 +498,7 @@ export const routeErrorAlerts = (): Alert[] =>
 
     return {
       slug: group.slug,
-      name: `[${group.label}] Route errors detected${
+      name: `Route errors detected${
         group.serverErrorsOnly ? ' (server errors only)' : ''
       }`,
       type: 'log' as const,
@@ -553,13 +530,12 @@ export const routeErrorAlerts = (): Alert[] =>
       message: whenRouteIsNamed(
         [
           group.serverErrorsOnly
-            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.${group.serverErrorsOnly && VOTER_QUERY_TIMEOUTS_NOT_PAGED.length > 0 ? ' A 504 on the contacts routes is also excluded: it is a voter query that outran its ceiling and told the user to narrow the audience (VOTER_QUERY_TIMEOUTS_NOT_PAGED in alerts.ts).' : ''}`
             : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, ${windowProse} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
           `The rule reads ${window.offsetProse} behind real time so that log lines reaching Loki a few seconds late are still counted, which means this page arrives up to ${window.offsetProse} later than the error would otherwise allow.`,
           `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
           `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
         ].join('\n\n'),
       ),
-      notify: group.owners,
     } satisfies Alert
   })

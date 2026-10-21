@@ -51,6 +51,7 @@ export default function OrdinancesChatDock(): React.JSX.Element {
         pendingFile={pendingFile}
         initialConversationId={conversationId}
         openerKey={openerKey}
+        analyticsSurface="ordinances_dock"
       />
     </>
   )

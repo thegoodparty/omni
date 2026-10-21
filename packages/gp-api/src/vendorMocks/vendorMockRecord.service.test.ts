@@ -78,14 +78,17 @@ describe('VendorMockRecordService', () => {
   })
 
   describe('findByCampaign', () => {
-    it('returns only records for the given campaignId', async () => {
+    it('returns only the given campaign, not others or unscoped rows', async () => {
       await svc.upsert(vendor, kind, 'camp-a-1', state, 10)
       await svc.upsert(vendor, kind, 'camp-a-2', state, 10)
       await svc.upsert(vendor, kind, 'camp-b-1', state, 20)
+      await svc.upsert(vendor, kind, 'global-1', state)
 
       const results = await svc.findByCampaign(10)
-      expect(results).toHaveLength(2)
-      expect(results.every((r) => r.campaignId === 10)).toBe(true)
+      expect(results.map((r) => r.externalId).sort()).toEqual([
+        'camp-a-1',
+        'camp-a-2',
+      ])
     })
   })
 

@@ -97,9 +97,10 @@ export class DoorKnockingStatusService extends createPrismaBase(
     return statusByPersonId
   }
 
-  // ADR 0007. Turf evaluation keeps flagged people out of new routes, but it
-  // cannot reach into a route already frozen — so the flag is read live here,
-  // scoped to the caller's targets rather than the org's whole flagged set.
+  // Do-not-knock. Turf evaluation keeps flagged people out of new routes, but
+  // it cannot reach into a route already frozen — so the flag is read live
+  // here, scoped to the caller's targets rather than the org's whole flagged
+  // set.
   async doNotKnockPersonIds(
     organizationSlug: string,
     personIds: string[],
@@ -117,8 +118,9 @@ export class DoorKnockingStatusService extends createPrismaBase(
     )
   }
 
-  // ADR 0008. Same live read as the do-not-knock flag above and for the same
-  // reason: the route in someone's hand was frozen before this was recorded.
+  // Not-a-voter reason. Same live read as the do-not-knock flag above and for
+  // the same reason: the route in someone's hand was frozen before this was
+  // recorded.
   // `cleared` (and any value a future writer adds) parses out, so only a real
   // reason reaches a caller.
   async notAVoterReasons(

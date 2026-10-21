@@ -381,3 +381,47 @@ describe('getHistoryStatusLabel — a Serve poll', () => {
     )
   })
 })
+
+describe('getHistoryStatusLabel — a priority text follow-up', () => {
+  const followUp = (
+    status: HistoryRow['status'],
+    sampledAt: string | null,
+  ): HistoryRow =>
+    ({
+      id: 9,
+      outreachType: 'text',
+      phoneListId: null,
+      status,
+      roundOneOutreachId: 4,
+      voterFileFilter: { sampleSize: 300, sampledAt },
+    }) as HistoryRow
+
+  it('is a Draft until its recipients are picked, never In review', () => {
+    expect(getHistoryStatusLabel(followUp('pending', null), null, true)).toBe(
+      'Draft',
+    )
+  })
+
+  it('is Scheduled once its recipients are picked', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('pending', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('reads from its own status after that, like any Serve text', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('in_progress', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('In progress')
+    expect(getHistoryStatusLabel(followUp('canceled', null), null, true)).toBe(
+      'Canceled',
+    )
+  })
+})

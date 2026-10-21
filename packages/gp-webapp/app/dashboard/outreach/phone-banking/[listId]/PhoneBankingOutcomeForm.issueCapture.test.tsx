@@ -93,6 +93,7 @@ const formWith = (
     entryId={ENTRY_ID}
     entrySeq={1}
     personId="person-1"
+    personName="Alex Solo"
     interaction={interaction}
     householdHasOthersUnlogged={false}
     isServe={isServe}
@@ -310,10 +311,12 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'phoneBanking',
-      product: 'serve',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'phoneBanking',
+        product: 'serve',
+      }),
+    )
     await waitFor(() => expect(screen.queryByText('Is this right?')).toBeNull())
   })
 
@@ -587,10 +590,12 @@ describe('PhoneBankingOutcomeForm issue capture on a Win call', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'phoneBanking',
-      product: 'win',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'phoneBanking',
+        product: 'win',
+      }),
+    )
   })
 })
 
@@ -696,6 +701,7 @@ describe('PhoneBankingOutcomeForm issue capture with no signal', () => {
         entryId={ENTRY_ID}
         entrySeq={1}
         personId="person-1"
+        personName="Alex Solo"
         interaction={interaction}
         householdHasOthersUnlogged={false}
         isServe
@@ -735,6 +741,7 @@ describe('PhoneBankingOutcomeForm drafts', () => {
         entryId={ENTRY_ID}
         entrySeq={1}
         personId="person-1"
+        personName="Alex Solo"
         interaction={null}
         householdHasOthersUnlogged={false}
         isServe

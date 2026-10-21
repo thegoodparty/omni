@@ -191,7 +191,7 @@ export type CompletionRequestContactGapResult =
  *  - live:        district resolved and cells returned
  *  - empty:       district resolved but upstream had no cells (low/no coverage)
  *  - no_district: person mapped to no L2 district (no map rendered)
- *  - error:       upstream (election-api / people-api) failure
+ *  - error:       the election-db read failed
  */
 export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
 

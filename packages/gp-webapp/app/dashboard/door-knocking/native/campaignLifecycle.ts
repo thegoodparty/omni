@@ -3,7 +3,10 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  outreachEventProps,
+  recalledLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   CAMPAIGN_TURFS_QUERY_KEY,
   campaignTurfsQueryOptions,
@@ -117,6 +120,8 @@ export const useCampaignLifecycle = (
               sendDate: new Date(),
               outreachCampaignId: anchorOutreachId,
               listId: turf.id,
+              launchSource: recalledLaunchSource('doorKnocking', turf.id),
+              priorityId: turf.priorityId ?? undefined,
             }),
             method: 'campaign',
           })

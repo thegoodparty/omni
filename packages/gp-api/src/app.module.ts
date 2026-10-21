@@ -41,6 +41,7 @@ import { PollsModule } from '@/polls/polls.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { PrismaModule } from '@/prisma/prisma.module'
+import { ElectionDbModule } from '@/electionDb/electionDb.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
 import { SharedModule } from '@/shared/shared.module'
@@ -74,6 +75,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
 import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
 import { TestModeModule } from '@/testMode/testMode.module'
 import { DevEnvModule } from '@/devEnv/devEnv.module'
+import { JudgeModule } from '@/judge/judge.module'
 import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 
 @Module({
@@ -94,6 +96,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     ContentModule,
     HealthModule,
     PrismaModule,
+    ElectionDbModule,
     ContentfulModule,
     CampaignsModule,
     ElectionsModule,
@@ -142,6 +145,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     TestFixturesModule,
     TestModeModule,
     DevEnvModule,
+    JudgeModule,
     VendorMocksModule,
   ]
     // Today, the QueueConsumerModule can't really work in the unit test environment,

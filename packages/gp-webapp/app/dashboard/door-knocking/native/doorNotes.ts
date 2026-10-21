@@ -1,16 +1,17 @@
 import { ContactNote, RoutePayloadTargetNotes } from '@goodparty_org/contracts'
 
-// ADR 0011's `{ entries, total }` as the door holds it after a write, with one
-// difference the wire shape cannot express: `total` may be unknown.
+// The route payload's notes `{ entries, total }` as the door holds it after a
+// write, with one difference the wire shape cannot express: `total` may be
+// unknown.
 //
-// The route payload's `notes` block is optional, and the ADR is explicit that
-// absent and empty are different claims — a walk the service worker
-// snapshotted before ADR 0011 shipped carries no `notes` key at all, and that
-// is a fact about the payload rather than about the resident. Collapsing it to
-// `total: 0` would make the card say "nobody has written anything about this
-// person" on a phone that simply has an older copy of the route, which is the
-// exact false negative the optionality exists to prevent. `null` keeps the two
-// apart all the way to the sentence the card prints.
+// The route payload's `notes` block is optional, and absent and empty are
+// different claims — a walk the service worker snapshotted before notes were
+// added to the route payload carries no `notes` key at all, and that is a fact
+// about the payload rather than about the resident. Collapsing it to `total: 0`
+// would make the card say "nobody has written anything about this person" on a
+// phone that simply has an older copy of the route, which is the exact false
+// negative the optionality exists to prevent. `null` keeps the two apart all
+// the way to the sentence the card prints.
 export interface DoorNoteList {
   entries: ContactNote[]
   total: number | null
@@ -27,13 +28,13 @@ export const seedDoorNotes = (
 // newest-first by `createdAt` and theirs is the newest thing there is.
 //
 // It is deliberately NOT trimmed back to ROUTE_TARGET_NOTE_LIMIT. That cap is a
-// payload-cost decision — ADR 0011 measures it in gzipped kilobytes over a
-// 100-stop route — and a note already sitting in this browser costs none of
-// them. Evicting one to imitate a wire limit would hide a note written seconds
-// earlier behind a count, which is a worse thing to do at a doorstep than
-// showing four rows where the next serve will show three. Truncation is read
-// off `total` and never off `entries.length`, so a list that has grown past the
-// cap still describes itself correctly.
+// payload-cost decision — measured in gzipped kilobytes over a 100-stop route —
+// and a note already sitting in this browser costs none of them. Evicting one
+// to imitate a wire limit would hide a note written seconds earlier behind a
+// count, which is a worse thing to do at a doorstep than showing four rows
+// where the next serve will show three. Truncation is read off `total` and
+// never off `entries.length`, so a list that has grown past the cap still
+// describes itself correctly.
 export const withCreatedNote = (
   list: DoorNoteList,
   created: ContactNote,
@@ -42,7 +43,7 @@ export const withCreatedNote = (
   total: list.total === null ? null : list.total + 1,
 })
 
-// Replaced in place rather than re-sorted. ADR 0011 orders this list by
+// Replaced in place rather than re-sorted. The payload orders this list by
 // `created_at` and never by `updated_at` precisely so that fixing a typo in a
 // two-year-old note does not resurface it above a note from this morning; a
 // client that floated the edited row to the top would reintroduce at the door
@@ -93,19 +94,20 @@ export const withDeletedNote = (
 //
 // **`total ?? entries.length` is the one place the wire shape cannot carry what
 // the door knows**, and it is worth being explicit about what that costs.
-// `RoutePayloadTargetNotes.total` is an `int`, so a payload that predates ADR
-// 0011 — no `notes` key, `total: null` here — has no honest count to write back
-// once a canvasser adds a note to it. The alternatives were both worse. Leaving
-// the block absent would drop the note the moment it was written, which is the
-// defect this whole path exists to close. Inventing a count from the served
-// rows would be the inference ADR 0011 rejected outright. So the block
-// materialises describing exactly what the browser has and nothing more, and
-// what is given up is the card's "this walk was saved before notes rode the
-// route" line for that resident, from their first note onward. That line's work
-// is done on an *empty* card, where a blank section otherwise reads as "nobody
-// has ever written about this person"; a card showing a note the canvasser
-// wrote thirty seconds ago is not that false negative. It is also unreachable
-// on any payload a live serve produced, since the server always sends the block.
+// `RoutePayloadTargetNotes.total` is an `int`, so a payload that predates notes
+// on the route payload — no `notes` key, `total: null` here — has no honest
+// count to write back once a canvasser adds a note to it. The alternatives were
+// both worse. Leaving the block absent would drop the note the moment it was
+// written, which is the defect this whole path exists to close. Inventing a
+// count from the served rows would be the inference `total` exists to prevent.
+// So the block materialises describing exactly what the browser has and nothing
+// more, and what is given up is the card's "this walk was saved before notes
+// rode the route" line for that resident, from their first note onward. That
+// line's work is done on an *empty* card, where a blank section otherwise reads
+// as "nobody has ever written about this person"; a card showing a note the
+// canvasser wrote thirty seconds ago is not that false negative. It is also
+// unreachable on any payload a live serve produced, since the server always
+// sends the block.
 export const editServedNotes = (
   served: RoutePayloadTargetNotes | undefined,
   edit: (list: DoorNoteList) => DoorNoteList,

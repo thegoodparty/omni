@@ -48,6 +48,10 @@ const trackEventMock = vi.fn()
 // Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
 // toast is asserted through the call, not the DOM. Hoisted because the barrel
 // factory reads it eagerly, before this module's consts initialize.
+const chatSends = () =>
+  trackEventMock.mock.calls.filter(
+    ([event]) => event === EVENTS.AIChat.MessageSent,
+  )
 const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
 vi.mock('@styleguide', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -788,8 +792,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
   })
 
-  it('reports every visible send through onMessageSent, and no hidden one', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a visible send as AI Chat - Message Sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_m' })
     streamMessageMock.mockReturnValue(
@@ -801,18 +804,23 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
-    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toEqual({
+      agent: 'chief_of_staff',
+      surface: 'contacts_assistant',
+      via: 'assistant_bar',
+      product: 'serve',
+    })
   })
 
   // The funnel event has to mean "delivered", not "attempted": the callback
   // exists to measure open-to-send, so a send that never reached a
   // conversation must not inflate it.
   it('does not report a send whose conversation create failed', async () => {
-    const onMessageSent = vi.fn()
     listConversationsMock.mockResolvedValue([])
     createMock.mockRejectedValue(new Error('network down'))
     listMessagesMock.mockResolvedValue([])
@@ -821,7 +829,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
@@ -833,11 +841,34 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).toBeInTheDocument(),
     )
     expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
-  it('does not report a hidden kickoff through onMessageSent', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a retried assistant bar message as sent from the bar', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue({ conversationId: 'conv_r' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        analyticsSurface="contacts_assistant"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toMatchObject({ via: 'assistant_bar' })
+  })
+
+  it('does not report a hidden kickoff as a message sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_h' })
     streamMessageMock.mockReturnValue(
@@ -852,7 +883,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingKickoff="__kickoff__"
-        onMessageSent={onMessageSent}
+        analyticsSurface="chief_of_staff_page"
       />,
     )
 
@@ -861,7 +892,7 @@ describe('<ChiefOfStaffChatBody>', () => {
         expect.objectContaining({ content: '__kickoff__' }),
       ),
     )
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
@@ -3052,6 +3083,7 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
       id: 'plan-1',
       status: 'active' as const,
       goalMembers: 100,
+      keepFresh: false,
       hoursPerWeek: 2,
       currentWave: 1,
       createdAt: new Date('2026-10-15T00:00:00.000Z'),
@@ -3075,12 +3107,22 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
               markedDone: null,
               reached: null,
               joined: null,
+              steeredToward: null,
+              landlineFirst: null,
             },
           ]
         : [],
     },
     next,
-    progress: { members: 12, goal: 240, answersNeeded: 96, expectedAnswers: 5 },
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
+    balance: null,
   })
 
   const timeQuestion = (answer?: string) => [
@@ -3152,27 +3194,14 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
 
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
-    expect(
-      await screen.findByText(
-        'Call residents to invite them to your civic panel',
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Your panel can give about 5 of the 96 answers you need.',
-      ),
-    ).toBeInTheDocument()
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(await within(card).findByText('Call 30 residents')).toBeVisible()
+    expect(within(card).queryByText(/members so far/)).toBeNull()
     // The button opens the calls themselves (civicPanelWidgets.test.tsx).
     expect(
-      screen.getByRole('button', { name: 'Start the calls' }),
+      within(card).getByRole('button', { name: 'Start the calls' }),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('link', { name: 'Start the calls' }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel',
-    )
+    expect(within(card).queryByRole('link')).toBeNull()
   })
 
   it('offers no button while the plan waits on replies, only the plan', async () => {
@@ -3204,8 +3233,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     ).toBeInTheDocument()
     expect(within(card).getAllByRole('link')).toHaveLength(1)
     expect(
-      within(card).getByRole('link', { name: 'See your plan' }),
+      within(card).getByRole('link', { name: /See your plan/ }),
     ).toBeInTheDocument()
+    expect(within(card).queryByRole('button')).toBeNull()
   })
 
   it('draws nothing for a refused call', async () => {

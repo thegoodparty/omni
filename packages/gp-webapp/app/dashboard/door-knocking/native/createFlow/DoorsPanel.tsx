@@ -27,7 +27,7 @@ const peopleNoun = (people: number, isServe: boolean): string =>
       ? 'voter'
       : 'voters'
 
-// The addresses inside the boundary (ADR 0010), lifted out of the draw step so
+// The addresses inside the boundary, lifted out of the draw step so
 // that step can be read against the canvas without four states of a panel in
 // the middle of it. Capped in height rather than allowed to grow: the step is
 // a shape being reviewed, and a list that eats the viewport takes away the
@@ -94,7 +94,7 @@ export const DoorsPanel = ({
             is that it is a snapshot, since a list saved tomorrow is evaluated
             again.
 
-            The exclusion keeps its ADR 0008 name on both rails: "not a voter"
+            The exclusion keeps the same name on both rails: "not a voter"
             is the flag a canvasser sets and the word they will look for, and a
             Serve-only rewording would name a thing this panel is not
             describing. */}

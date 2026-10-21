@@ -9,6 +9,7 @@ import {
   type GeoShapeLabels,
   shapePartCount,
 } from '@goodparty_org/contracts'
+import { omit } from 'es-toolkit'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -22,6 +23,10 @@ import {
   VoterFileFilter,
 } from '../../generated/prisma'
 import { savedFilterBlockedForElectedOffice } from '@/contacts/utils/voterFileFilter.utils'
+import {
+  isUndrawnSample,
+  UNDRAWN_SAMPLE_WHERE,
+} from '@/priorities/util/roundTwo.util'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { VoterFileFilterSampleService } from './voterFileFilterSample.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
@@ -32,6 +37,10 @@ import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSch
 // the string. Thrown as a ForbiddenException (403) like every other pro gate
 // — see PRO_FILTERING_REQUIRED_MESSAGE in contacts.service.ts.
 export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
+
+// A drawn boundary can freeze tens of thousands of member rows inside the
+// transaction; Prisma's 5s default expired mid-write and surfaced as a 503.
+const FILTER_WRITE_TRANSACTION_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 
 const ACTIVITY_CONDITIONS_INCLUDE = {
   activityConditions: true,
@@ -186,6 +195,11 @@ export class VoterFileFilterService extends createPrismaBase(
     const existing = await this.model.findFirst({
       where: { id, organizationSlug },
     })
+    if (isUndrawnSample(existing ?? null)) {
+      throw new ConflictException(
+        "This list holds your follow-up text and can't be changed or deleted.",
+      )
+    }
     if (existing?.firstUsedForOutreachAt) {
       throw new ConflictException(
         'This list has already been used for outreach and is locked from ' +
@@ -275,7 +289,7 @@ export class VoterFileFilterService extends createPrismaBase(
         await this.sampleMembers.writeMembers(tx, created.id, sampleMemberIds)
       }
       return created
-    })
+    }, FILTER_WRITE_TRANSACTION_OPTIONS)
     if (!rest.proposalKey) return write
     // Two presses of one card can both miss the read above, from two tabs or
     // a reload racing the first press. The loser trips the unique key; the
@@ -314,7 +328,7 @@ export class VoterFileFilterService extends createPrismaBase(
     slug: string,
   ): Promise<VoterFileFilterWithConditions[]> {
     return this.model.findMany({
-      where: { organizationSlug: slug },
+      where: { organizationSlug: slug, NOT: UNDRAWN_SAMPLE_WHERE },
       orderBy: { name: 'asc' },
       include: ACTIVITY_CONDITIONS_INCLUDE,
     })
@@ -341,7 +355,7 @@ export class VoterFileFilterService extends createPrismaBase(
     limit: number,
   ): Promise<VoterFileFilterWithConditions[]> {
     return this.model.findMany({
-      where: { organizationSlug },
+      where: { organizationSlug, NOT: UNDRAWN_SAMPLE_WHERE },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: limit,
       include: ACTIVITY_CONDITIONS_INCLUDE,
@@ -353,7 +367,9 @@ export class VoterFileFilterService extends createPrismaBase(
   // length alone can't tell a genuinely-truncated org apart from one sitting
   // exactly at the fetch limit.
   countByOrganizationSlug(organizationSlug: string): Promise<number> {
-    return this.model.count({ where: { organizationSlug } })
+    return this.model.count({
+      where: { organizationSlug, NOT: UNDRAWN_SAMPLE_WHERE },
+    })
   }
 
   findByIdAndOrganizationSlug(
@@ -363,6 +379,58 @@ export class VoterFileFilterService extends createPrismaBase(
     return this.findFirst({
       where: { id, organizationSlug },
       include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
+  // A copy of `source` to hold a sample of `sampleSize` drawn later: a
+  // `sampleSize` with no `sampledAt` and no members, which resolves to
+  // nobody until the draw writes them. The source list is left alone, so a
+  // list the official saved for other sends never changes under them.
+  async createUndrawnSampleOf(
+    tx: Prisma.TransactionClient,
+    source: VoterFileFilterWithConditions,
+    sampleSize: number,
+    name: string,
+  ): Promise<VoterFileFilter> {
+    const geoMembers = await tx.voterFileFilterGeoMember.findMany({
+      where: { voterFileFilterId: source.id },
+      select: { personId: true },
+    })
+    const columns = omit(source, [
+      'id',
+      'createdAt',
+      'updatedAt',
+      'name',
+      'proposalKey',
+      'firstUsedForOutreachAt',
+      'sampleSize',
+      'sampledAt',
+      'geoPoly',
+      'geoPolyLabels',
+      'recommendedVariant',
+      'recommendedChannel',
+      'recommendedIntent',
+      'recommendedModified',
+      'activityConditions',
+    ])
+    return tx.voterFileFilter.create({
+      data: {
+        ...columns,
+        name,
+        sampleSize,
+        geoPoly: source.geoPoly ?? Prisma.DbNull,
+        geoPolyLabels: source.geoPolyLabels ?? Prisma.DbNull,
+        activityConditions: {
+          create: source.activityConditions.map(
+            ({ outreachType, outreachId, actions }) => ({
+              outreachType,
+              outreachId,
+              actions,
+            }),
+          ),
+        },
+        geoMembers: { createMany: { data: geoMembers } },
+      },
     })
   }
 
@@ -440,7 +508,7 @@ export class VoterFileFilterService extends createPrismaBase(
         },
         include: ACTIVITY_CONDITIONS_INCLUDE,
       })
-    })
+    }, FILTER_WRITE_TRANSACTION_OPTIONS)
   }
 
   async deleteByIdAndOrganizationSlug(

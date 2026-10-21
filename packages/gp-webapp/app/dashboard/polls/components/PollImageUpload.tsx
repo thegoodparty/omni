@@ -57,7 +57,7 @@ export const PollImageUpload: React.FC<{
   }
 
   return (
-    <div className="w-full mt-12">
+    <div className="w-full">
       <div
         className={`flex flex-col items-center justify-center w-full h-40 border-dashed border rounded-2xl p-4 cursor-pointer transition-colors ${
           errorMessage

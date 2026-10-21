@@ -153,7 +153,3 @@ Every path on every domain is blocked from search engines. This is intentional �
 - **`fetchHelper` returns `T | null`, never throws.** New callers should follow the same shape — return null for "not found" / "API hiccup" and let the page decide what to render.
 - **Proxy, don't fetch directly.** Browser → `/api/...` → gp-api. Always two hops for writes; one server-side hop for reads.
 - **`appEnv.ts` is the only place env-derived flags live.** Don't sprinkle `process.env.NEXT_PUBLIC_*` reads through component code — import the named flag from `appEnv`.
-
-## ADRs
-
-`docs/adr/` exists but is empty. Add one when a non-obvious decision lands (e.g., why two entries instead of route groups, why `fetchHelper` returns `null` instead of throwing, why `noindex` everywhere). Use `ai-rules/adr-template.md` as the starting point and number sequentially (`0001-...md`, `0002-...md`).

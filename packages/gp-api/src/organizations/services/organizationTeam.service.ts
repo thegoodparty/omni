@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   forwardRef,
@@ -69,7 +70,7 @@ export class OrganizationTeamService {
         include: { user: true },
       }),
       this.users.findUser({ id: organization.ownerId }),
-      this.clerkInvitations.listPendingTeamInvitations(organization.slug),
+      this.listPendingInvitationsOrEmpty(organization.slug),
     ])
 
     // The owner FK is NOT NULL and cascades from User, so a missing owner
@@ -111,6 +112,23 @@ export class OrganizationTeamService {
     })
 
     return { members, pendingInvites }
+  }
+
+  // Pending invites are secondary on the team list; a Clerk outage must not
+  // fail the members the caller can still see.
+  private async listPendingInvitationsOrEmpty(organizationSlug: string) {
+    try {
+      return await this.clerkInvitations.listPendingTeamInvitations(
+        organizationSlug,
+      )
+    } catch (err) {
+      if (!(err instanceof BadGatewayException)) throw err
+      this.logger.warn(
+        { err, organizationSlug },
+        'Listing team without pending invites: Clerk unavailable',
+      )
+      return []
+    }
   }
 
   async inviteMember(params: {
@@ -343,7 +361,19 @@ export class OrganizationTeamService {
     if (!user.clerkId) {
       return { invite: null }
     }
-    const resolved = await this.resolvePendingInvite(user.clerkId)
+    let resolved
+    try {
+      resolved = await this.resolvePendingInvite(user.clerkId)
+    } catch (err) {
+      if (!(err instanceof BadGatewayException)) {
+        throw err
+      }
+      this.logger.warn(
+        { err },
+        'Clerk unavailable while checking pending invite, treating as none',
+      )
+      return { invite: null }
+    }
     return {
       invite: resolved
         ? {

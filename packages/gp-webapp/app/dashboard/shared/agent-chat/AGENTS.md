@@ -302,18 +302,20 @@ products use this one mechanism: the Campaign Manager's starter cards
 (`CampaignManagerChatProvider`) and the Chief of Staff's next steps
 (`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
 passed by the Serve home's `DashboardContent` under the meet card's intro and
-on a new chat). A card does one of three things: `message` sends a question
-as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
+on a new chat). A card does one of four things: `message` sends a question
+as the user's own turn, `writeIn` opens a box whose text is sent the same
+way (the clarify question's Or write your own, as Something else does), `kickoff` sends a hidden turn (a sentinel or app
 message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
-`onSelect` runs anything else (open a flow or a page, as Draft an ordinance
-does). A card label with a `description` renders as a card, without
+`onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve
 home uses it for What's a civic panel?: with no panel yet the answer ends on
-Build my panel, which sends the same hidden build turn.
+Build my panel, and with members on Grow your civic panel, each sending the
+same hidden build turn, which the Chief of Staff answers with the plan's next
+step card.
 
 ## The civic panel in the Chief of Staff chat
 
@@ -330,9 +332,14 @@ registered on `ChiefOfStaffChatBody`'s registry:
   reloads checked, and prose asking it right above is dropped.
 - **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
   the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
-  holds no state of its own: the Next line, members of the goal, the panel
-  page's button for that step (none while waiting on replies), and See your
-  plan. The button opens the step's own flow through the panel page's
+  holds no state of its own. It is the standard outreach card row
+  (`CompactCardStatic`): the step in the panel page's words ("Call 60
+  residents", then who and how long, from contracts' `civicPanelStepTitle` and
+  `civicPanelOpenStepDetail`) and the page's button for it. No member count
+  and no panel status: before anyone is invited, "Too few members yet" only
+  discourages. With no step to take (waiting on replies) it is a See your
+  plan row (`CompactCardLink`) with the Next line. A step it cannot start
+  (texting not set up) offers See your plan as its button instead. The button opens the step's own flow through the panel page's
   `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
   calls over the chat, doors on the door knocking page, calls or walks
   underway on their caller page or walk. A refused call's null args render
@@ -340,6 +347,22 @@ registered on `ChiefOfStaffChatBody`'s registry:
 
 A `save_panel_weekly_time` result drops the plan query and the home's cards,
 so the card and the People first card follow the new plan at once.
+
+## Analytics — one event per message sent
+
+Every message a user sends to an agent is `AI Chat - Message Sent`, fired
+through `trackChatMessageSent` (`chatAnalytics.ts`) with `agent` (the
+`ChatScope`), `surface`, `via` (`composer`, `clarify`, `assistant_bar`),
+`product`, and `priorityId` / `ordinanceId` where there is one. The Chief of
+Staff body fires it on its visible send path for every host, each of which
+passes `analyticsSurface`; `PriorityWorkspace` and the ordinance `DraftChat`
+fire it themselves. Hidden kickoffs, markers and Get answers turns never fire
+it. A new chat surface adds a `ChatSurface` value rather than a new event.
+
+An outreach card's flow carries `launchSource` on the `Outreach -` events.
+`ProposalFlowsProvider` defaults it from the surface (`campaign_manager` on
+Win, `priorities` with a priority, else `chief_of_staff`); a widget context's
+`launchSource` overrides it (`expand_panel`). It stays out of `ProposalLink`.
 
 ## Reference wrappers — copy the closest
 

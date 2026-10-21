@@ -944,6 +944,16 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 if high else ""
             ),
             "label": f"{event}: labeled {r.get('claimed')}, fires from {', '.join(r.get('areas') or [])}",
+            "relabel": {
+                "now": {"display_name": r.get("display_name") or event, "claimed": r.get("claimed"),
+                        "claimed_kind": r.get("claimed_kind") or "prefix"},
+                "proposed": ({"area": (r.get("areas") or [""])[0], "surface": r.get("proposed_surface"),
+                              "display_name": r.get("proposed_display_name"),
+                              "fires_on": r.get("proposed_fires_on"),
+                              "surface_options": r.get("surface_options") or []}
+                             if r.get("proposed_surface") else None),
+                "options": r.get("area_options") or [],
+            },
             "rank": SURFACE_RANK,
             "count": 1,
             "dismissable": True,
@@ -957,10 +967,6 @@ def build_surface_queue(drift: Mapping) -> list[dict]:
                 "page_path_agreement": (r.get("signal") or {}).get("agreement"),
                 "page_path_users": (r.get("signal") or {}).get("users"),
                 "okr": r.get("okr"),
-                "proposed_surface": r.get("proposed_surface"),
-                "surface_options": ", ".join(r.get("surface_options") or []),
-                "proposed_display_name": r.get("proposed_display_name"),
-                "proposed_fires_on": r.get("proposed_fires_on"),
             }],
         })
     return out

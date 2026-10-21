@@ -52,6 +52,7 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: null,
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,
@@ -139,6 +140,26 @@ describe('phone banking call outcome routes', () => {
       ...orgHeaders(),
       validateStatus: () => true,
     })
+
+  describe('transaction budget', () => {
+    it('gives the outcome transaction more than the 5s default so a brief stall does not 503 the call', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551099',
+      )
+      const spy = vi.spyOn(service.prisma, '$transaction')
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'no_answer',
+      })
+
+      expect(res.status).toBe(201)
+      const options = spy.mock.calls.at(-1)?.[1]
+      expect(options).toMatchObject({ timeout: expect.any(Number) })
+      expect((options as { timeout: number }).timeout).toBeGreaterThan(5_000)
+    })
+  })
 
   describe('answered', () => {
     it('400s an answered call with no personId', async () => {

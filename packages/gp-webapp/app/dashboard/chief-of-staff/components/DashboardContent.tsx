@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -34,7 +33,6 @@ const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
-const ORDINANCE_NEW_HREF = '/dashboard/ordinances/new'
 
 /**
  * Chief of Staff dashboard (Serve home). Renders inside `DashboardLayout`.
@@ -61,12 +59,11 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  const router = useRouter()
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
   // The panel's members pick the civic panel step: build one, or ask it.
   const orgSlug = useOrganization()?.slug
-  const { data: panelSummary } = useQuery({
+  const { data: panelSummary, isLoading: panelSummaryLoading } = useQuery({
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
   })
@@ -129,7 +126,7 @@ export default function DashboardContent(): React.JSX.Element {
       : buildChiefOfStaffNextSteps({
           panelsEnabled: panelsReady && panelsEnabled,
           panelMembers,
-          onDraftOrdinance: () => router.push(ORDINANCE_NEW_HREF),
+          panelLoading: !panelsReady || (panelsEnabled && panelSummaryLoading),
         })
 
   return (
@@ -188,6 +185,7 @@ export default function DashboardContent(): React.JSX.Element {
         showSuggestionsAfterKickoff={explaining}
         hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
+        analyticsSurface="chief_of_staff_page"
       />
     </div>
   )

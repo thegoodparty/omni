@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, toast } from '@styleguide'
+import { Badge, Button, Input, toast } from '@styleguide'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -97,6 +97,11 @@ import {
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  trackChatMessageSent,
+  type ChatSendVia,
+  type ChatSurface,
+} from '../../../shared/agent-chat/chatAnalytics'
 
 interface Props {
   /**
@@ -173,12 +178,12 @@ interface Props {
    */
   pendingFile?: File
   /**
-   * Fires once per VISIBLE message the user sends — the composer, a quick
-   * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
-   * sentinels, which the user never typed. The contacts entry point counts
-   * these for its open-to-send funnel (ENG-10767).
+   * Where this chat is mounted, for `AI Chat - Message Sent`. It fires once
+   * per VISIBLE message the user sends — the composer, a quick prompt, a
+   * clarify answer, a `pendingMessage`, a retry of one. Not for hidden
+   * kickoffs or sentinels, which the user never typed. Omitted, nothing fires.
    */
-  onMessageSent?: () => void
+  analyticsSurface?: ChatSurface
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -340,7 +345,7 @@ function ChiefOfStaffChatThread({
   pendingKickoff,
   pendingMessage,
   pendingFile,
-  onMessageSent,
+  analyticsSurface,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -405,6 +410,8 @@ function ChiefOfStaffChatThread({
   const creatingRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const lastUserContentRef = useRef('')
+  // How that message was sent, so a Retry reports it the same way.
+  const lastUserViaRef = useRef<ChatSendVia>('composer')
   const lastAttachmentIdsRef = useRef<string[]>([])
   // Tracks the pendingKickoff value that has already fired (not a boolean): the
   // parent clears pendingKickoff on close and re-sets the same sentinel on
@@ -1144,7 +1151,7 @@ function ChiefOfStaffChatThread({
   const deliver = useCallback(
     async (
       content: string,
-      opts?: { hidden?: boolean; attachmentIds?: string[] },
+      opts?: { hidden?: boolean; attachmentIds?: string[]; via?: ChatSendVia },
     ): Promise<boolean> => {
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
@@ -1163,6 +1170,7 @@ function ChiefOfStaffChatThread({
         )
       } else {
         lastUserContentRef.current = trimmed
+        lastUserViaRef.current = opts?.via ?? 'composer'
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1177,7 +1185,13 @@ function ChiefOfStaffChatThread({
         // returns null and bails above, and counting that as a sent message
         // would overstate the very open-to-send funnel this callback exists
         // to measure (ENG-10767).
-        onMessageSent?.()
+        if (analyticsSurface) {
+          trackChatMessageSent({
+            agent: scope,
+            surface: analyticsSurface,
+            via: opts?.via ?? 'composer',
+          })
+        }
         setMessages((prev) => [
           ...prev,
           {
@@ -1212,7 +1226,8 @@ function ChiefOfStaffChatThread({
       send,
       setMessages,
       attachments,
-      onMessageSent,
+      analyticsSurface,
+      scope,
     ],
   )
 
@@ -1260,6 +1275,22 @@ function ChiefOfStaffChatThread({
     (content: string) => deliver(content, { hidden: false }),
     [deliver],
   )
+  const answerClarify = useCallback(
+    (content: string) => deliver(content, { hidden: false, via: 'clarify' }),
+    [deliver],
+  )
+
+  // A write-in card answers the intro's question the way "Or write your own"
+  // answers a clarify question, so it is sent as one.
+  const [writingOwn, setWritingOwn] = useState(false)
+  const [ownText, setOwnText] = useState('')
+  const submitOwn = useCallback((): void => {
+    const text = ownText.trim()
+    if (!text || busy) return
+    setOwnText('')
+    setWritingOwn(false)
+    void answerClarify(text)
+  }, [ownText, busy, answerClarify])
 
   const onSend = useCallback((): void => {
     const text = composer.trim()
@@ -1281,7 +1312,11 @@ function ChiefOfStaffChatThread({
       return
     }
     if (content) {
-      void deliver(content, { hidden: false, attachmentIds })
+      void deliver(content, {
+        hidden: false,
+        attachmentIds,
+        via: lastUserViaRef.current,
+      })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.
@@ -1336,7 +1371,7 @@ function ChiefOfStaffChatThread({
       return
     }
     sentPendingRef.current = pendingMessage
-    void deliver(pendingMessage, { hidden: false })
+    void deliver(pendingMessage, { hidden: false, via: 'assistant_bar' })
   }, [
     active,
     pendingMessage,
@@ -1351,6 +1386,10 @@ function ChiefOfStaffChatThread({
   // the chip's own `onSelect`.
   const onSuggestionClick = useCallback(
     (s: ChatSuggestion) => {
+      if (s.writeIn) {
+        setWritingOwn(true)
+        return
+      }
       if (s.kickoff) {
         void deliver(s.kickoff, { hidden: true })
         return
@@ -1596,7 +1635,7 @@ function ChiefOfStaffChatThread({
                 context={{
                   clarifyInteractive: m.id === activeClarifyId && !busy,
                   clarifyAnswer: clarifyAnswerById[m.id],
-                  onClarifyAnswer: sendContent,
+                  onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
                 }}
                 onCitationClick={
@@ -1653,7 +1692,7 @@ function ChiefOfStaffChatThread({
               toolLabel={toolLabel}
               context={{
                 clarifyInteractive: false,
-                onClarifyAnswer: sendContent,
+                onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
               }}
               onCitationClick={
@@ -1712,7 +1751,32 @@ function ChiefOfStaffChatThread({
           }
         >
           {effectiveSuggestions.map((s) =>
-            suggestionsAsCards ? (
+            s.writeIn && writingOwn ? (
+              <div key={s.label} className="flex items-center gap-2">
+                <Input
+                  value={ownText}
+                  onChange={(e) => setOwnText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitOwn()
+                    }
+                  }}
+                  placeholder="Type your answer..."
+                  aria-label={s.label}
+                  disabled={busy}
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  size="small"
+                  onClick={submitOwn}
+                  disabled={busy || ownText.trim().length === 0}
+                >
+                  Send
+                </Button>
+              </div>
+            ) : suggestionsAsCards ? (
               <button
                 key={s.label}
                 type="button"

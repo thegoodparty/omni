@@ -5,8 +5,10 @@ import {
   PRIORITY_GATE_STEPS,
   PRIORITY_LISTEN_GATES,
   PRIORITY_STEP_LABELS,
+  MIN_TEXTS_PER_ROUND,
   ProposalChannelSchema,
   SMS_COMPOSED_MAX_LENGTH,
+  type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import type { ProposalChannel } from '@goodparty_org/contracts'
@@ -27,12 +29,14 @@ const priorityProposalInput = OutreachProposalSchema.omit({
     'main for the most-affected group, contrast for the least-affected one.',
   ),
 })
-// The civic panel parts and the report back, offered only on a priority
-// and only behind serve-citizen-panels.
+// The civic panel ask, the report back, the follow-up size and the unreached
+// area, offered only on a priority and only behind serve-citizen-panels.
 const priorityProposalInputWithoutPanel = priorityProposalInput.omit({
   civicPanelAsk: true,
-  panelSampleSize: true,
   reportBackForOutreachId: true,
+  roundTwoSize: true,
+  areaTarget: true,
+  walkableArea: true,
 })
 // Outside a priority there is no check for a send to put out, and so no
 // earlier sample of one to widen.
@@ -225,21 +229,16 @@ export const checkProposalRefusal = (
         'widensOutreachIds set to the sends that went out.'
 }
 
-// Why a proposal's panel part cannot be shown, or null. One send asks the
-// panel and a fresh sample together, so the panel part only makes sense as
-// part of a text sample, with the join ask on for the fresh residents.
+// Why a proposal's civic panel ask cannot be shown, or null. A send to the
+// panel alone carries the LEAVE line and never the join ask.
 export const checkPanelPart = (input: {
   channel: ProposalChannel
   civicPanelAsk?: boolean
-  panelSampleSize?: number
-  sampleSize?: number
-  widensOutreachIds?: number[]
   audienceFilters?: Record<string, unknown>
 }): string | null => {
   if (input.channel !== 'text' && input.civicPanelAsk) {
     return 'civicPanelAsk is for a text only. Leave it out and present again.'
   }
-  // A send to the panel alone carries the LEAVE line, and never both lines.
   if (
     input.civicPanelAsk &&
     input.audienceFilters !== undefined &&
@@ -250,33 +249,59 @@ export const checkPanelPart = (input: {
       'does not ask them to join. Leave civicPanelAsk out and present again.'
     )
   }
-  if (input.panelSampleSize === undefined) return null
-  if (input.channel !== 'text') {
-    return 'panelSampleSize is for a text only. Leave it out and present again.'
+  return null
+}
+
+// Why a priority's text cannot be shown given its follow-up, or null. Once a
+// follow-up text is paid for the check has had its two texts, so a short read
+// is closed with doors and calls and never a third text. roundTwoSize is the
+// held half of the first text's purchase and only ever comes from
+// size_round_one, so it is checked against the split that tool makes.
+export const checkFollowUpPart = (
+  input: {
+    channel: ProposalChannel
+    sampleSize?: number
+    roundTwoSize?: number
+    widensOutreachIds?: number[]
+  },
+  read: Pick<PriorityReadStatus, 'followUp' | 'followUpSent'> = {},
+): string | null => {
+  if (input.channel === 'text') {
+    if (read.followUp) {
+      return (
+        `The follow-up text to ${read.followUp.texts} people is already ` +
+        `scheduled for ${read.followUp.scheduledLocalDate}. Do not present ` +
+        'another text. If more than that is needed, present doors and calls ' +
+        'aimed at the groups still missing.'
+      )
+    }
+    if (read.followUpSent) {
+      return (
+        'The follow-up text already went out, and a check gets no third ' +
+        'text. Present doors and calls aimed at the groups still missing ' +
+        'instead.'
+      )
+    }
   }
-  // The card would say who it asks without the people it leaves out.
-  if (input.widensOutreachIds?.length) {
+  if (input.roundTwoSize === undefined) return null
+  if (input.channel !== 'text') {
+    return 'roundTwoSize is for a text only. Leave it out and present again.'
+  }
+  if (input.sampleSize === undefined || input.widensOutreachIds?.length) {
     return (
-      'A send to the panel and new residents does not widen an earlier ' +
-      'sample. Use panelSampleSize or widensOutreachIds, not both, and ' +
-      'present again.'
+      'roundTwoSize goes only on the first text of a check, with its ' +
+      'sampleSize and no widensOutreachIds. Leave it out and present again.'
     )
   }
   if (
-    input.sampleSize === undefined ||
-    input.panelSampleSize >= input.sampleSize
+    input.roundTwoSize < MIN_TEXTS_PER_ROUND ||
+    input.roundTwoSize > input.sampleSize ||
+    input.roundTwoSize < input.sampleSize - 1
   ) {
     return (
-      'sampleSize is the whole send: the panel part plus the residents not ' +
-      'on the panel, as size_panel_ask returned it. A send of panel members ' +
-      'alone invites nobody new to join. Set sampleSize that way and ' +
-      'present again.'
-    )
-  }
-  if (input.civicPanelAsk !== true) {
-    return (
-      'A send that asks the panel and new residents together also asks the ' +
-      'new ones to join. Set civicPanelAsk to true and present again.'
+      'roundTwoSize is not the split size_round_one returned beside ' +
+      'sampleSize. Present it again with both exactly as returned, or ' +
+      'leave roundTwoSize out.'
     )
   }
   return null

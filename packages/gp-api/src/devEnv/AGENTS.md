@@ -5,9 +5,10 @@ ever reading a credential. `POST /v1/dev-env/bundle` takes a GitHub user token,
 verifies active membership in the `thegoodparty` org, and returns per-package
 bundles read from the curated `LOCAL_DEV_ENV` Secrets Manager blob.
 
-| Route                     | Guard                  | Purpose                         |
-| ------------------------- | ---------------------- | ------------------------------- |
-| `POST /v1/dev-env/bundle` | `GithubOrgMemberGuard` | Per-package local `.env` values |
+| Route                            | Guard                  | Purpose                                     |
+| -------------------------------- | ---------------------- | ------------------------------------------- |
+| `POST /v1/dev-env/bundle`        | `GithubOrgMemberGuard` | Per-package local `.env` values             |
+| `POST /v1/dev-env/election-seed` | `GithubOrgMemberGuard` | Presigned URL for the local election seed   |
 
 The response carries live dev credentials by contract (`DevEnvBundleResponse`
 in `@goodparty_org/contracts`) — **never log a response object**. Deliberately
@@ -53,6 +54,16 @@ allowlist: there is no filtering code that could leak a non-vendable key.
 `DECLARED_ENV_VARS` in `devEnv.manifest.ts` is the sanity check on top — a
 blob key no package's env contract declares fails the whole fetch rather than
 being vended.
+
+## The election seed
+
+`POST /v1/dev-env/election-seed` presigns a 15-minute GET for
+`election-seed.sql.gz` in `LOCAL_ELECTION_SEED_BUCKET`
+(`gp-local-election-seed-dev`, created by `deploy/index.ts` on the dev deploy
+only, with `s3:GetObject` on the task role). Unset bucket or a missing object
+answers 503. The seed holds BallotReady-derived election data and L2-derived
+aggregates, which is why it is gated here and never committed: this repo is
+public. Building and uploading it is in `src/electionDb/AGENTS.md`.
 
 ## Gotchas
 

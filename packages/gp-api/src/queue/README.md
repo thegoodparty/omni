@@ -8,5 +8,3 @@ Single FIFO SQS queue with producer/consumer split.
 - `queue.config.ts` — SQS client config
 
 The `QueueConsumerModule` is excluded when `NODE_ENV === 'test'`.
-
-ADR: `docs/adr/0003-fifo-sqs-single-queue.md`.

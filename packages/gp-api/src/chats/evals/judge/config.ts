@@ -53,8 +53,9 @@ export interface JudgeGates {
   // C_min. Below this the corpus verdict is CAN'T SAY whatever Δ says,
   // because agents are not deterministic: three Chief of Staff turns on
   // identical seeded state gave 6, 4 and 2 tool steps and replies of 1831,
-  // 1135 and 1137 characters. A handful of cases measures that, not the
-  // branch.
+  // 1135 and 1137 characters. Five cases is fifteen pairs at three attempts
+  // each, and the bootstrap interval resamples cases, so a noisy short list
+  // still reads CAN'T SAY on a wide interval rather than on the floor.
   minCases: number
   // δ, the practical margin. An effect smaller than this is real but not
   // worth acting on, and it reports as CAN'T SAY with that said explicitly.
@@ -72,9 +73,9 @@ export interface JudgeGates {
   // its denominator and gates nothing.
   //
   // 10 is a floor on sample size, not a statistical guarantee. It is chosen to
-  // be reachable at the scale this config designs for — minCases 20 at
-  // attemptsPerCase 3 is 60 pairs, so 12 swapped — while excluding the
-  // handful that a placeholder case list produces.
+  // be reachable at the scale this config designs for — an eight-case chat
+  // list at attemptsPerCase 3 is 24 pairs, so about 5 swapped, and a list
+  // has to grow past that for the floor to bite.
   minSwappedPairs: number
   // Share of judgments allowed to come back cannot_determine.
   cannotDetermineCeiling: number
@@ -87,6 +88,16 @@ export interface JudgeGates {
   // on a genuinely inert change costs a re-read, a false SAME costs a wrong
   // decision. See identicalOutputs.ts.
   failOnAllIdenticalOutputs: boolean
+  // The regression signal beside the quality delta (see
+  // regressionSignals.ts). Not held to `minCases`: that floor is for a noisy
+  // pairwise preference, and this counts discrete events. A probe that cut
+  // the agent's system prompt in half read CAN'T SAY on quality while
+  // handling showed the base meeting its checks far more often.
+  //
+  // The one-sided p-value a within-case permutation test over handled runs
+  // must come in under. One case going from 3 of 3 to 0 of 3 is exactly
+  // 0.05, so a single case never decides the label. See regressionSignals.ts.
+  handling: { alpha: number }
 }
 
 export interface JudgePanelConfig {
@@ -159,12 +170,14 @@ export interface ShapeBudget {
   // waiting outside its own timeout, so the sweep's poll can give up on a run
   // that never started. Twelve leaves the rest of dev most of the room.
   //
-  // PER SWEEP, NOT IN TOTAL. Each PR's sweep has its own concurrency group,
-  // so four PRs judged at once can put 48 runs out, and with anything else on
-  // dev that reaches the cap: runs queue, their polls time out as infra
-  // errors, and the task still launches and bills with nothing waiting for
-  // it. Live sweeps are explicit requests, so this is rare; lower this, or
-  // serialize live sweeps, before it is not.
+  // PER SWEEP, NOT IN TOTAL, and one live sweep at a time is what keeps
+  // those the same number. judge.yml's `sweep` job takes a single group for
+  // the whole repository when the request is live, so a second PR's sweep
+  // queues behind the first instead of running beside it. Before that, four
+  // PRs judged at once could put 48 runs out, and with anything else on dev
+  // that reaches the cap: runs queue, their polls time out as infra errors,
+  // and the task still launches and bills with nothing waiting for it. So
+  // raise this against the shared cap, not against one sweep's appetite.
   maxInFlight: number
 }
 
@@ -187,7 +200,7 @@ export interface JudgeConfig {
   //
   // NOTE WHAT THIS COSTS YOU. At 3 cases x 1 attempt a background comparison
   // is 3 pairs, well under `gates.minCases`, so every background verdict
-  // comes back gated — "below the floor of 20, so the comparison measures the
+  // comes back gated — "below the floor of 5, so the comparison measures the
   // agent's own variance more than the branch". That is the gate working, not
   // a bug: the verdict is directional rather than conclusive. The floor is
   // deliberately NOT lowered to match, because a gate moved to fit the
@@ -218,13 +231,14 @@ export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
     temperature: 0,
   },
   gates: {
-    minCases: 20,
+    minCases: 5,
     practicalMargin: 0.1,
     consistencyFloor: 0.7,
     minSwappedPairs: 10,
     cannotDetermineCeiling: 0.25,
     panelDisagreementCeiling: 0.3,
     failOnAllIdenticalOutputs: true,
+    handling: { alpha: 0.05 },
   },
   orderSwap: {
     enabled: true,

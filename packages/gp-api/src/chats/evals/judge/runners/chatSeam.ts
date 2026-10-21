@@ -380,7 +380,7 @@ export interface LlmCaptureOptions {
 // turn of a sweep. A forgotten `script` field type-checks cleanly, so the paid
 // path is opt-in twice over: the caller has to name it, and the process has to
 // carry the explicit env flag every other paid path in this repo is gated on.
-const assertMaySpend = (options: LlmCaptureOptions): void => {
+export const assertMaySpend = (options: LlmCaptureOptions): void => {
   if (options.script) return
   if (options.realModel !== true) {
     throw new Error(
@@ -810,6 +810,48 @@ export const configDigest = (
   return `sha256:${hash.digest('hex')}`
 }
 
+// THE SAME QUESTION ASKED OF AN ARM THAT CANNOT SEE THE PROMPT, and it is a
+// DIFFERENT FUNCTION of different inputs. It carries its own prefix so no
+// reader can mistake one for the other, and so a cross-runtime pair can
+// never collide into a false "the agent saw no difference".
+//
+// `configDigest` above hashes the rendered system prompt itself. An arm
+// driving a deployed gp-api never has that string: `JudgeTurnTelemetry`
+// stores `sha256(systemPrompt)` and deliberately not the prompt, because the
+// prompt carries an official's priorities and their community's issues (see
+// the column's own comment in prisma/schema/judgeTurnTelemetry.prisma). So
+// the best an HTTP arm can hash is the hash, and sha256 does not let the two
+// be reconciled. `promptHashVersion` is hashed in alongside it so two arms
+// whose deploys computed that hash differently read as different configs
+// rather than silently comparable ones.
+//
+// THE TOOL NAMES ARE NOT THE SAME SET EITHER, and this is the weaker half.
+// In process they are the tools the model was OFFERED
+// (`Object.keys(options.tools)`), which is a property of the build. Over the
+// wire they are the tools the turn CALLED (`judgeToolNames`), which is a
+// property of the answer. So the HTTP digest is noisier — two arms on one
+// build can differ because the model chose differently — and it is blind to
+// a build that registers a tool nothing called. Noisier is the safe
+// direction: a digest that differs when it need not costs a refusal that
+// would have saved nothing by then, and one that matches when it should not
+// costs a real change going unjudged. Making this exact needs the offered
+// set on the telemetry row, which is a gp-api change and not a judge one.
+export const HTTP_CONFIG_DIGEST_PREFIX = 'sha256-prompthash'
+
+export const httpConfigDigest = (
+  promptHash: string,
+  promptHashVersion: string,
+  toolNames: string[],
+): string => {
+  const hash = createHash('sha256')
+  hash.update(promptHashVersion)
+  hash.update('\0')
+  hash.update(promptHash)
+  hash.update('\0')
+  hash.update([...toolNames].sort().join('\0'))
+  return `${HTTP_CONFIG_DIGEST_PREFIX}:${hash.digest('hex')}`
+}
+
 // The SSE frames the chat route writes. Declared as the subset this runner
 // reads rather than reusing ChatStreamChunk: these arrive off the wire, so
 // they are parsed, and a frame carrying a field this build does not know about
@@ -820,6 +862,11 @@ const StreamEventSchema = z.object({
   toolName: z.string().optional(),
   code: z.string().optional(),
   message: z.string().optional(),
+  // Carried on both the `tool_call` and the `tool_result` frame, which is
+  // what lets a call be paired with its result off the wire alone — the only
+  // signal an arm driving a deployed gp-api over HTTP has, since no execute
+  // seam exists there to report the failure.
+  toolCallId: z.string().optional(),
   // Carried on the `done` frame. The only way to name the row THIS turn
   // wrote: a scope that seeds an opener (campaign_assistant) has an earlier
   // assistant row in the same conversation, and folding it into the output
@@ -852,20 +899,54 @@ export const parseStreamEvents = (body: string): StreamEvent[] => {
   return events
 }
 
+// A provider-run tool is executed by the model provider, not by us: it has no
+// execute hook to throw from, so nothing ever reports it as failed and a
+// missing result frame means nothing. Pairing it would read it as permanently
+// broken. Skipping it is parity with `instrumentTools`, which already leaves
+// a non-executable tool unwrapped and so never records an outcome for one.
+//
+// Exactly one tool is provider-run today. `NativeWebSearchSpec`
+// (`kind: 'native_web_search'`, llm/services/llm.service.ts) is the only
+// branch of `LlmTool` with no `execute`, it is the only spec
+// `buildToolSet` puts in `providerToolNames`, and every handler that
+// registers it registers it under the key `web_search`.
+const PROVIDER_RUN_TOOLS: ReadonlySet<string> = new Set(['web_search'])
+
+// An unpaired call says a tool failed but not why: the route writes no error
+// text for it and the HTTP arm has no execute seam to read one from. Empty is
+// not available — TraceStepSchema requires a non-empty error, so an empty one
+// would fail RunRecordSchema.parse and discard a completed, judgeable run
+// over the bookkeeping beside it. This text carries no exception name, error
+// code, status or exit code, so `errorClass` reports it as 'other', which is
+// what an unnamed failure is.
+const UNPAIRED_TOOL_CALL_ERROR = 'tool call produced no result'
+
 // The ordered shape of the turn, from the frames the route actually wrote
 // plus the per-tool outcomes only the execute seam saw. Judged by nobody in
 // v1 — carrying it from the start is what makes turning trace dimensions on
 // later a normalizer change rather than a re-run of every sweep.
-// Outcomes are paired to frames per tool name, in order. The frame is written
-// from onToolCallStart and the outcome pushed after execute resolves, so the
-// two orders agree for the sequential calls a turn actually makes. Two
-// concurrent calls to the SAME tool in one step could attach a failure to the
-// wrong one of them; toolErrors stays right either way. Pairing on the call id
-// would fix it, and needs LlmTool.execute to receive one — a change to
-// llm.service.ts.
+//
+// WHICH CALL FAILED IS READ OFF THE FRAMES, by call id. Both `tool_call` and
+// `tool_result` carry `toolCallId`, and a tool whose execute threw produces
+// the first and never the second — `onToolCallError` writes no frame. So a
+// call with no matching result is a failed call, named precisely even when
+// two concurrent calls to the same tool are in flight. This is the only
+// signal an arm driving a deployed gp-api over HTTP has, where no execute
+// seam runs and `outcomes` is therefore always empty.
+//
+// Outcomes still supply the error TEXT, paired per tool name in order, for
+// the in-process arm that has them. Which call failed comes from the id
+// either way, so a name-paired outcome landing on the wrong one of two
+// concurrent calls no longer drags the error onto it.
+//
+// `complete` IS THE GUARD, and nothing is inferred without it. A stream cut
+// short and a tool that never returned are indistinguishable from the frames
+// alone, so only a turn whose `done` frame arrived may conclude anything from
+// a missing result.
 export const buildTrace = (
   events: StreamEvent[],
   outcomes: ToolOutcome[],
+  complete: boolean,
 ): TraceStep[] => {
   const pending = new Map<string, ToolOutcome[]>()
   for (const outcome of outcomes) {
@@ -873,6 +954,14 @@ export const buildTrace = (
     queue.push(outcome)
     pending.set(outcome.tool, queue)
   }
+
+  const resultIds = new Set(
+    events.flatMap((event) =>
+      event.type === 'tool_result' && event.toolCallId !== undefined
+        ? [event.toolCallId]
+        : [],
+    ),
+  )
 
   const steps: TraceStep[] = []
   let openText = false
@@ -890,11 +979,24 @@ export const buildTrace = (
     if (event.type === 'tool_call' && event.toolName !== undefined) {
       openText = false
       const outcome = pending.get(event.toolName)?.shift()
+      // Undefined wherever the frames cannot settle it: a stream with no
+      // `done`, a frame from a build that carried no id, or a provider-run
+      // tool. The outcome is then the only evidence, as it was before.
+      const callId =
+        complete && !PROVIDER_RUN_TOOLS.has(event.toolName)
+          ? event.toolCallId
+          : undefined
+      const error =
+        callId === undefined
+          ? outcome?.error
+          : resultIds.has(callId)
+            ? undefined
+            : (outcome?.error ?? UNPAIRED_TOOL_CALL_ERROR)
       steps.push({
         index: steps.length,
         kind: 'tool',
         tool: event.toolName,
-        ...(outcome?.error !== undefined && { error: outcome.error }),
+        ...(error !== undefined && { error }),
       })
       continue
     }
@@ -911,8 +1013,8 @@ export const buildTrace = (
   // A provider-run tool (native web search) has no execute hook, so it leaves
   // no outcome; an outcome with no frame is the opposite and would mean a tool
   // ran without the route announcing it. Append those rather than drop them —
-  // a tool error that never reached the trace is the failure isComparable
-  // exists to catch.
+  // a tool error that never reached the trace would go uncounted beside the
+  // verdict.
   for (const queue of pending.values()) {
     for (const outcome of queue) {
       steps.push({

@@ -253,7 +253,7 @@ describe('a promotion code on a Win SMS hold checkout', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       hold - discount,
-      `p2p-sms-capture-${draft.id}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -299,7 +299,7 @@ describe('a promotion code on a Win SMS hold checkout', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       afterFreeTexts - discount,
-      `p2p-sms-capture-${draft.id}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
     expect((await readSatellite(draft.id)).freeTextsApplied).toBe(true)
   })

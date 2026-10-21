@@ -17,8 +17,8 @@ import type {
 export const countDoors = (stops: DoorKnockingRoutePayload['stops']): number =>
   stops.reduce((total, stop) => total + stop.addresses.length, 0)
 
-// People, and the only definition of them: ADR 0007 doors are ones nobody
-// should knock, and ADR 0008 residents are ones who moved away or died, so
+// People, and the only definition of them: do-not-knock doors are ones nobody
+// should knock, and not-a-voter residents are ones who moved away or died, so
 // neither is a conversation anyone can have. Counting them would promise a
 // canvasser an evening they can't have and hold the one who correctly skipped
 // every flagged house below 100%. Every people figure and every

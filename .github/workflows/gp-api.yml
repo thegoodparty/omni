@@ -100,15 +100,27 @@ jobs:
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
 
+      # election-db migrations run fatally at boot (docker-entrypoint.sh), so a
+      # schema that has drifted from its migrations would block every gp-api
+      # deploy rather than just the election routes. Catch it here instead.
+      - name: Check election-db Prisma migrations
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          npx prisma migrate diff \
+            --from-migrations ./prisma-election/schema/migrations \
+            --to-schema-datamodel ./prisma-election/schema \
+            --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
+            --exit-code
+
   test:
     name: Test (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     # Keyed on the shard as well: a group shared across the matrix would have
-    # the two shards cancelling each other on every run.
+    # the shards cancelling each other on every run.
     concurrency:
       group: gp-api-test-${{ matrix.shard }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -127,7 +139,7 @@ jobs:
           route-types: 'true'
 
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate. The main branch ruleset requires a status check
   # named exactly "Validate"; this job preserves that name while the real work

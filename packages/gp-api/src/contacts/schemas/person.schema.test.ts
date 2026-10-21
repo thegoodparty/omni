@@ -30,6 +30,7 @@ const validPerson = {
   registeredVoter: 'Yes',
   estimatedIncomeAmount: 85000,
   voterStatus: 'Likely',
+  earlyVoteStatus: 'Very Likely',
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,

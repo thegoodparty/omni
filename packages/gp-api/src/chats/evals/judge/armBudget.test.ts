@@ -1431,7 +1431,7 @@ describe('the chat agents refused for time', () => {
   const judgeDirOf = (root: string): string =>
     join(root, 'packages/gp-api/src/chats/evals/judge')
 
-  // Every chat agent at today's lists: 8 + 48 minutes fit the 65 the arm
+  // Every chat agent at today's lists: 9 + 54 minutes fit the 65 the arm
   // leaves chat, and the two after are refused by name. Read back through the
   // arm's own loader, so the resolver is tied to what the arm refuses.
   it('refuses what does not fit, and both arms refuse exactly that', () => {
@@ -1441,7 +1441,7 @@ describe('the chat agents refused for time', () => {
     })
     expect(status).toBe(0)
     expect(stderr).toMatch(
-      /refused ordinance_flow: would take about 48 minutes for 24 chat turns/,
+      /refused ordinance_flow: would take about 54 minutes for 27 chat turns/,
     )
     const arm = parseArmEnv(intoArmEnv(PARSE(written)))
     expect([...(arm.backgroundRefused?.keys() ?? [])]).toEqual([
@@ -1455,9 +1455,9 @@ describe('the chat agents refused for time', () => {
       return found
     }
     expect(() => loadCases(agent('ordinance_flow'))).toThrow(
-      /^ordinance_flow was not admitted to this sweep: would take about 48/,
+      /^ordinance_flow was not admitted to this sweep: would take about 54/,
     )
-    expect(loadCases(agent('campaign_assistant')).cases).toHaveLength(8)
+    expect(loadCases(agent('campaign_assistant')).cases).toHaveLength(9)
     expect(
       capturableAgents(
         ALL_CHAT.split(','),
@@ -1513,7 +1513,7 @@ describe('the chat agents refused for time', () => {
   })
 
   // The base arm walks ITS attempts, so a base that walks more is the slower
-  // arm: 8 cases at 30 attempts is 240 turns.
+  // arm: 9 cases at 30 attempts is 270 turns.
   it("costs the base arm's attempts when they are the larger", () => {
     const root = chatTree({ timeouts: {} })
     writeFileSync(
@@ -1528,7 +1528,7 @@ describe('the chat agents refused for time', () => {
       JUDGE_AGENTS: 'chief_of_staff',
     })
     expect(refusedIn(written).get('chief_of_staff')).toMatch(
-      /^would take about 80 minutes for 240 chat turns/,
+      /^would take about 90 minutes for 270 chat turns/,
     )
   })
 

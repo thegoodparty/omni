@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ARM_RUNTIME_ENV,
   EXPLICIT_SELECTION,
   SELECTION_ENV,
   SweepEnvError,
+  TARGET_BASE_URL_ENV,
   backgroundDestinationFrom,
   parseArmEnv,
   parseSweepEnv,
@@ -11,6 +13,7 @@ import {
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from './config'
 import { JUDGE_FIXTURE_ENV_NAMES } from './caseParams'
 import { armEnvFor as armEnv } from './fixtures/sweep'
+import { JudgeSweepIdSchema } from '@/testFixtures/schemas/judgeChatFixture.schema'
 
 describe('parseArmEnv', () => {
   it('reads a complete arm environment', () => {
@@ -92,6 +95,34 @@ describe('parseArmEnv', () => {
     expect(() =>
       parseArmEnv(armEnv({ JUDGE_SWEEP_ID: 'x'.repeat(64) })),
     ).not.toThrow()
+  })
+
+  // The HTTP arm sends this id to POST /v1/test-fixtures/judge-chat-cases,
+  // where it reaches `organization.slug`. That route's schema restates the
+  // alphabet rather than importing it, because `src/chats/evals/**` is not
+  // in the production build — so a value one side takes and the other
+  // refuses would be an arm that captures locally and 400s against a
+  // preview. Asserted from this side, which may import both.
+  it.each([
+    ['judge-19284756312-1', true],
+    ['swp_1', true],
+    ['x'.repeat(64), true],
+    ['has/slash', false],
+    ['has space', false],
+    ['', false],
+    ['x'.repeat(65), false],
+  ])('agrees with the fixture route about %s', (sweepId, accepted) => {
+    const armTakesIt = parseArmEnv.bind(
+      null,
+      armEnv({ JUDGE_SWEEP_ID: sweepId }),
+    )
+
+    expect(JudgeSweepIdSchema.safeParse(sweepId).success).toBe(accepted)
+    if (accepted) {
+      expect(armTakesIt).not.toThrow()
+    } else {
+      expect(armTakesIt).toThrow()
+    }
   })
 
   it('rejects an arm that is neither base nor candidate', () => {
@@ -462,5 +493,148 @@ describe('backgroundDestinationFrom', () => {
   // parse time would stop an arm over variables most of its agents never read.
   it('leaves a chat-only arm env parseable', () => {
     expect(() => parseArmEnv(armEnv())).not.toThrow()
+  })
+})
+
+// An HTTP arm always spends, so every case here that expects a parse to
+// SUCCEED carries the spend switch with it. That pairing is the subject of
+// its own describe below.
+const httpEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
+  armEnv({
+    [ARM_RUNTIME_ENV]: 'http',
+    [TARGET_BASE_URL_ENV]: 'https://pr-2919.dev.goodparty.org',
+    [SPEND_ENV]: SPEND_VALUE,
+    ...over,
+  })
+
+describe(ARM_RUNTIME_ENV, () => {
+  it('defaults to inprocess when unset', () => {
+    expect(parseArmEnv(armEnv()).armRuntime).toBe('inprocess')
+  })
+
+  it.each(['', '   '])('reads %p as unset', (value) => {
+    expect(parseArmEnv(armEnv({ [ARM_RUNTIME_ENV]: value })).armRuntime).toBe(
+      'inprocess',
+    )
+  })
+
+  it('reads an explicit inprocess', () => {
+    expect(
+      parseArmEnv(armEnv({ [ARM_RUNTIME_ENV]: 'inprocess' })).armRuntime,
+    ).toBe('inprocess')
+  })
+
+  it('reads http', () => {
+    expect(parseArmEnv(httpEnv()).armRuntime).toBe('http')
+  })
+
+  it('trims, the way every other value here is trimmed', () => {
+    expect(
+      parseArmEnv(httpEnv({ [ARM_RUNTIME_ENV]: '  http  ' })).armRuntime,
+    ).toBe('http')
+  })
+
+  // The one judge variable where a garbled value is fatal rather than read
+  // as "no": falling back to the default would capture a whole arm in the
+  // wrong process and report it as a verdict.
+  it.each(['in-process', 'HTTP', 'https', 'local', 'true'])(
+    'refuses %p by name, listing what it accepts',
+    (value) => {
+      expect(() => parseArmEnv(armEnv({ [ARM_RUNTIME_ENV]: value }))).toThrow(
+        SweepEnvError,
+      )
+      expect(() => parseArmEnv(armEnv({ [ARM_RUNTIME_ENV]: value }))).toThrow(
+        new RegExp(
+          `${ARM_RUNTIME_ENV} is "${value}".*"inprocess" or "http"`,
+          's',
+        ),
+      )
+    },
+  )
+})
+
+describe(`${TARGET_BASE_URL_ENV}`, () => {
+  it('is required by an http arm, by name', () => {
+    expect(() =>
+      parseArmEnv(httpEnv({ [TARGET_BASE_URL_ENV]: undefined })),
+    ).toThrow(new RegExp(`needs its origin in ${TARGET_BASE_URL_ENV}`))
+  })
+
+  it('is not required by an in-process arm', () => {
+    expect(parseArmEnv(armEnv()).targetBaseUrl).toBeUndefined()
+  })
+
+  it('is ignored by an in-process arm that carries one anyway', () => {
+    const env = parseArmEnv(
+      armEnv({ [TARGET_BASE_URL_ENV]: 'not-a-url-at-all' }),
+    )
+    expect(env.armRuntime).toBe('inprocess')
+    expect(env.targetBaseUrl).toBeUndefined()
+  })
+
+  it.each(['pr-7.dev.goodparty.org', 'ftp://host', ':::'])(
+    'refuses %p',
+    (value) => {
+      expect(() =>
+        parseArmEnv(httpEnv({ [TARGET_BASE_URL_ENV]: value })),
+      ).toThrow(SweepEnvError)
+    },
+  )
+
+  it('strips a trailing slash so no path is joined with two', () => {
+    expect(
+      parseArmEnv(
+        httpEnv({ [TARGET_BASE_URL_ENV]: 'https://pr-7.example.com/' }),
+      ).targetBaseUrl,
+    ).toBe('https://pr-7.example.com')
+  })
+})
+
+describe('an http arm cannot pin a Delta version', () => {
+  // Refused once at startup rather than once per chat case: the runtime
+  // refuses it there too, but the thing to change is one workflow input.
+  it('refuses the pair, naming both and what to change', () => {
+    expect(() => parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: '412' }))).toThrow(
+      SweepEnvError,
+    )
+    expect(() => parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: '412' }))).toThrow(
+      /Leave JUDGE_DATA_VERSION blank for an HTTP sweep/,
+    )
+  })
+
+  it.each(['', '   '])('reads %p as no pin asked for', (value) => {
+    expect(
+      parseArmEnv(httpEnv({ JUDGE_DATA_VERSION: value })).dataVersion,
+    ).toBeUndefined()
+  })
+
+  it('leaves an in-process pin alone', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '412' })).dataVersion).toBe(
+      '412',
+    )
+  })
+})
+
+describe('an http arm cannot be a dry run', () => {
+  it.each([undefined, '', 'false', 'True', '1'])(
+    'refuses http with JUDGE_SPEND=%p, naming both settings',
+    (value) => {
+      const env = httpEnv(value === undefined ? {} : { [SPEND_ENV]: value })
+      if (value === undefined) delete env[SPEND_ENV]
+      expect(() => parseArmEnv(env)).toThrow(SweepEnvError)
+      expect(() => parseArmEnv(env)).toThrow(
+        new RegExp(`${ARM_RUNTIME_ENV}.*${SPEND_ENV}`, 's'),
+      )
+    },
+  )
+
+  it('says why, rather than only that', () => {
+    const env = httpEnv({ [SPEND_ENV]: 'false' })
+    expect(() => parseArmEnv(env)).toThrow(/real, paid one recorded as a dry/)
+  })
+
+  it('leaves a dry run on the in-process path alone', () => {
+    expect(parseArmEnv(armEnv()).spends).toBe(false)
+    expect(parseArmEnv(armEnv()).armRuntime).toBe('inprocess')
   })
 })

@@ -7,7 +7,10 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
-import { PrioritiesToolPort } from './services/prioritiesPort'
+import {
+  PrioritiesToolPort,
+  type PriorityRecord,
+} from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { LlmTool } from '@/llm/services/llm.service'
@@ -27,6 +30,7 @@ import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
+import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -344,6 +348,7 @@ describe('ChiefOfStaffHandler', () => {
 
     it('registers read_community_issues tool when port is provided', async () => {
       const communityPort: CommunityIssueReadPort = {
+        list: vi.fn(),
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(
@@ -678,7 +683,6 @@ describe('ChiefOfStaffHandler', () => {
         {
           getFilterDimensions: vi.fn(() => []),
           countContacts: vi.fn(),
-          getDistrictPopulation: vi.fn(() => Promise.resolve(105_154)),
         } as unknown as ContactsService,
         {
           findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
@@ -705,9 +709,12 @@ describe('ChiefOfStaffHandler', () => {
       )
     }
 
-    const promptFor = async () => {
+    const promptFor = async (
+      override: { priorities?: PriorityRecord[] } = {},
+    ) => {
       const { handler } = buildPanelHandler({ panels: true })
-      return handler.buildSystemPrompt(await handler.loadContext('c1', USER_ID))
+      const ctx = await handler.loadContext('c1', USER_ID)
+      return handler.buildSystemPrompt({ ...ctx, ...override })
     }
 
     const PLAN_TOOLS = [
@@ -741,6 +748,14 @@ describe('ChiefOfStaffHandler', () => {
           `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
       )
       expect(prompt).toContain('- Explain what a civic panel is')
+      expect(prompt).toContain(
+        '"A civic panel is residents from every part of your district who ' +
+          'agreed to tell you what they think before you decide."',
+      )
+      expect(prompt).toContain(
+        'Never say how members are found, picked or invited',
+      )
+      expect(prompt).not.toContain('picking people at random')
       expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
@@ -798,13 +813,49 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).not.toContain('- Explain what a civic panel is')
     })
 
-    it('asks nothing of a panel at its goal', async () => {
+    it('ends on priorities once the first invite is out and none are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor()
+      expect(prompt).toContain(
+        'Their first invite is out and they have no priorities on file.',
+      )
+      expect(prompt).toContain('offer to record what they tell you')
+    })
+
+    it('does not ask for priorities before the first invite is out', async () => {
+      withPanel({ members: 0, inviteSent: false })
+      const prompt = await promptFor()
+      expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain('Do not ask about priorities in this reply')
+    })
+
+    it('ends on the plan, not on priorities, when some are on file', async () => {
+      withPanel({ members: 0, inviteSent: true, hasPlan: true })
+      const prompt = await promptFor({
+        priorities: [
+          {
+            id: 'pri-1',
+            title: 'Rents',
+            description: 'Keep renters near transit.',
+            archivedAt: null,
+            flow: { currentStep: 'evidence', nextAction: null, checks: [] },
+          },
+        ],
+      })
+      expect(prompt).not.toContain('they have no priorities on file.')
+      expect(prompt).toContain(
+        'They already have priorities on file. Never ask them to record priorities',
+      )
+    })
+
+    it('offers to keep a panel at its goal fresh, through the same question', async () => {
       withPanel({ members: 240, inviteSent: true })
       const prompt = await promptFor()
       expect(prompt).toContain(
         'Their civic panel already has 240 people, its goal.',
       )
-      expect(prompt).not.toContain(
+      expect(prompt).toContain('keep it fresh')
+      expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
     })
@@ -848,14 +899,28 @@ describe('ChiefOfStaffHandler', () => {
 
     // Two lines a build reply produced: "not just the people who already
     // reach out" (banned word) and "the panel ends up looking like
-    // Asheville" (a representativeness claim the panel brief forbids).
-    it('bans "just" and any claim that the panel looks like the community', async () => {
+    // Asheville" (a promise the panel brief forbids). The panel page's own
+    // status and group to invite next may be said, nothing past them.
+    it('bans "just" and any promise that the panel will match the community', async () => {
       const prompt = await promptFor()
       const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
       expect(civicPanel).toContain('Never use the word "just".')
       expect(civicPanel).toContain(
-        'Never say or imply the panel will look like, match, mirror or ' +
+        'You may say the status their panel page shows (the panelStatus a ' +
+          'panel tool returns: Too few members yet, Missing some groups or ' +
+          'Every group on your panel) and the group it says to invite next ' +
+          '(inviteMoreNext), in those words.',
+      )
+      expect(civicPanel).toContain(
+        'Never promise or imply the panel will look like, match, mirror or ' +
           'represent the district, the city or the community.',
+      )
+      expect(civicPanel).toContain(
+        'Never mention weights, quotas or targets, and never say or ' +
+          "guess any one person's race.",
+      )
+      expect(civicPanel).not.toContain(
+        'never suggest inviting or leaving out anyone by race',
       )
       expect(civicPanel).not.toContain('looks like the district')
       const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))
@@ -916,6 +981,55 @@ describe('ChiefOfStaffHandler', () => {
         expect(Object.keys(tools)).not.toContain(name)
       }
       expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
+    })
+
+    it('sizes the panel goal from the district once a turn', async () => {
+      const turn = async (answers: number) => {
+        const districtAnswersNeeded = vi.fn(() => Promise.resolve(answers))
+        const readStatuses = vi.fn(() => Promise.resolve(new Map()))
+        context.civicPanelBuildState = vi.fn(() =>
+          Promise.resolve({
+            members: 0,
+            inviteSent: false,
+            hasPlan: false,
+            goalMembers: 240,
+          }),
+        )
+        const handler = new ChiefOfStaffHandler(
+          context,
+          buildBriefings(),
+          port,
+          NO_TABLES,
+          undefined,
+          undefined,
+          undefined,
+          {
+            getFilterDimensions: vi.fn(() => []),
+            countContacts: vi.fn(),
+          } as unknown as ContactsService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
+          undefined,
+          {
+            districtAnswersNeeded,
+            readStatuses,
+          } as unknown as PriorityResultsService,
+        )
+        await handler.loadContext('c1', USER_ID)
+        return { districtAnswersNeeded, readStatuses }
+      }
+
+      const city = await turn(96)
+      expect(city.districtAnswersNeeded).toHaveBeenCalledTimes(1)
+      expect(city.readStatuses).toHaveBeenCalledWith(ORG, [])
+      expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 240)
+
+      await turn(15)
+      expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 38)
     })
   })
 

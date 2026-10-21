@@ -3,7 +3,6 @@ import { addDays, subDays } from 'date-fns'
 import {
   areaAround,
   nextStep,
-  pickWalkableArea,
   sizePanelWave,
   stepStatus,
   waveIsDue,
@@ -20,6 +19,23 @@ describe('sizePanelWave', () => {
         pools: { text: 50_000, phone: 0, door: 0 },
       }),
     ).toEqual([{ channel: 'text', position: 1, targetSize: 3_334 }])
+  })
+
+  it("sizes a panel nobody is short on by the official's hours alone, with no text", () => {
+    expect(sizePanelWave({ gap: null, hoursPerWeek: 1, pools })).toEqual([
+      { channel: 'phone_banking', position: 1, targetSize: 30 },
+      { channel: 'door_knocking', position: 1, targetSize: 40 },
+    ])
+  })
+
+  it('makes no step when nobody can be called or visited and nobody is short', () => {
+    expect(
+      sizePanelWave({
+        gap: null,
+        hoursPerWeek: 5,
+        pools: { text: 50_000, phone: 0, door: 0 },
+      }),
+    ).toEqual([])
   })
 
   it('splits an hour a week between calls and one walkable area', () => {
@@ -63,37 +79,7 @@ describe('sizePanelWave', () => {
   })
 })
 
-describe('pickWalkableArea', () => {
-  const at = (key: string, lat: number, lng: number) => ({
-    id: `${key}-person`,
-    lat,
-    lng,
-    addressKey: key,
-  })
-
-  it('takes the households nearest the densest cluster', () => {
-    const dense = Array.from({ length: 6 }, (_, i) =>
-      at(`dense-${i}`, 40 + i * 0.0002, -75),
-    )
-    const sparse = [at('far-1', 41, -76), at('far-2', 41.5, -76.5)]
-
-    const picked = pickWalkableArea([...sparse, ...dense], 4)
-
-    expect(picked).toHaveLength(4)
-    expect(picked.every((h) => h.lat < 40.01)).toBe(true)
-  })
-
-  it('groups the people of one household into one door', () => {
-    const picked = pickWalkableArea(
-      [
-        { id: 'a', lat: 40, lng: -75, addressKey: 'home' },
-        { id: 'b', lat: 40, lng: -75, addressKey: 'home' },
-      ],
-      5,
-    )
-    expect(picked).toEqual([{ lat: 40, lng: -75, personIds: ['a', 'b'] }])
-  })
-
+describe('areaAround', () => {
   it('draws a closed box around what it picked', () => {
     const area = areaAround([
       { lat: 40, lng: -75 },
@@ -212,5 +198,21 @@ describe('step status and waves', () => {
       line: 'Replies to your civic panel invite should be in by Tuesday, October 20',
       href: null,
     })
+  })
+
+  it('says a door step walks a part of the district not reached yet', () => {
+    const door = {
+      ...base,
+      id: 'doors',
+      position: 1,
+      channel: 'door_knocking' as const,
+      status: 'not_started' as const,
+    }
+    expect(nextStep([door])?.line).toBe(
+      'Knock on doors to invite residents to your civic panel',
+    )
+    expect(
+      nextStep([{ ...door, steeredToward: 'unreachedAreas' as const }])?.line,
+    ).toBe("Knock on doors in a part of your district we haven't reached")
   })
 })

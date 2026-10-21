@@ -1,175 +1,14 @@
 import { ControllerName } from '../../src/generated/route-types'
-import { Alert, SlackGroup } from './alerting/alerts.types'
+import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
- * Which product's users each controller serves, and therefore who hears about
- * it when it breaks.
- *
- * Being in here is what enables a controller's generated route alert at all —
- * `routeAlertGroups` skips a controller with no owner. That has been true
- * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
- * entries and an empty `win-bugs`. It gained exactly one entry in the six months
- * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
- * to be here was not a set of decisions about what needs watching, it was where
- * two teams happened to opt in once. 320 of 382 routes could not report their
- * own failure, which is how GET /v1/public-person-profiles/voter-density served
- * 1,498,324 consecutive 500s over four days without paging anyone.
- *
- * One line per controller, rather than two lists to keep in sync: a fifth of
- * these are owned by both products, and expressing that as membership in two
- * arrays means 22 entries duplicated by hand. ALERT_OWNERSHIP is derived below
- * and keeps its old shape, so nothing downstream changes.
- *
- * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
- * payments and elections are used by both products, and naming one owner means
- * the other finds out second-hand. It is also the safe direction to be wrong in:
- * over-tagging costs someone a glance, under-tagging costs an outage.
- *
- * The assignments come from guards and module docs rather than from names —
- * `@UseCampaign()` for Win, `@UseElectedOffice()` for Serve, an explicit `eo-`
- * organization rejection, or an AGENTS.md that says outright who a feature is
- * for. Three are weaker and worth revisiting if they ever page the wrong team:
- * `content` (mixed content types, no webapp caller), `subscribe` (no caller in
- * the monorepo at all — presumably the marketing site), and the two public
- * controllers, whose callers live in gp-marketing.
- *
- * The group split is itself on the way out — it is one team now, and a single
- * rotation is wanted. That is deliberately NOT done here, because it changes
- * who is paged for everything in one commit. Until then, which key a controller
- * sits under matters less than that it sits under one.
- */
-const SERVE = 'serve-bugs' satisfies SlackGroup
-const WIN = 'win-bugs' satisfies SlackGroup
-const BOTH = [SERVE, WIN] satisfies SlackGroup[]
-
-const CONTROLLER_OWNERS: Partial<
-  Record<ControllerName, readonly SlackGroup[]>
-> = {
-  // Serve — officeholders governing. Almost all of these carry
-  // `@UseElectedOffice()`; the briefing, ordinance and annotation surfaces are
-  // the Chief of Staff product.
-  'elected-office': [SERVE],
-  polls: [SERVE],
-  contacts: [SERVE],
-  'contact-engagement': [SERVE],
-  organizations: [SERVE],
-  'dashboard/cards': [SERVE],
-  'dashboard/onboarding-cards': [SERVE],
-  'organizations/:slug/ordinance-code': [SERVE],
-  'outreach/serve': [SERVE],
-  // The staff results surface. Serve, not Win, despite sitting beside the CAS
-  // SMS console: the sends it takes results for are elected officials' texts
-  // to constituents, and polls joins it later on the same side.
-  'outreach/admin/results': [SERVE],
-  'outreach/admin/polls': [SERVE],
-  priorities: [SERVE],
-  // Send-from-a-chat-card. Serve because the only thing that mints a proposal
-  // key is a priority chat, and a failure here is an elected official pressing
-  // Send and getting nothing.
-  'outreach/by-proposal-key': [SERVE],
-  'admin/briefings': [SERVE],
-  'admin/elected-office': [SERVE],
-  annotations: [SERVE],
-  'meetings/:date/briefing/annotations': [SERVE],
-  'ordinances/:slug/annotations': [SERVE],
-  'meetings/:date/briefing/feedback': [SERVE],
-  'meetings/:date/briefing/items/:itemId/feedback': [SERVE],
-  'meetings/:date/briefing/review-verdict': [SERVE],
-  'community-issues': [SERVE],
-  briefings: [SERVE],
-  meetings: [SERVE],
-  ordinances: [SERVE],
-  'briefing-chats': [SERVE],
-  speech: [SERVE],
-
-  // Win — candidates campaigning. `@UseCampaign()`, a CampaignOwner guard, or a
-  // Prisma model that only relates to `Campaign`.
-  'door-knocking': [WIN],
-  campaigns: [WIN],
-  'campaign-plan-shares': [WIN],
-  'campaigns/mine/story': [WIN],
-  campaignStrategy: [WIN],
-  crm: [WIN],
-  'organizations/team': [WIN],
-  outreach: [WIN],
-  'outreach/admin/sms': [WIN],
-  'campaigns/mine/race-opponent': [WIN],
-  'campaigns/mine/recommended-lists': [WIN],
-  'campaigns/tracker-tasks': [WIN],
-  'campaigns/:id/positions': [WIN],
-  'campaigns/tasks': [WIN],
-  'campaigns/tcr-compliance': [WIN],
-  // Staff-only test organizations; a 5xx here blocks whoever is testing
-  // either product, and the flag keeps real candidates off the route.
-  'test-mode': BOTH,
-  'campaigns/mine/update-history': [WIN],
-  'admin/campaign': [WIN],
-  'admin/campaigns': [WIN],
-  positions: [WIN],
-  p2p: [WIN],
-  domains: [WIN],
-  websites: [WIN],
-  'campaigns/ai/chat': [WIN],
-  'campaigns/ai': [WIN],
-
-  // Shared. Platform surfaces, onboarding steps both flows render, and the two
-  // dual-product profile features.
-  authentication: BOTH,
-  content: BOTH,
-  elections: BOTH,
-  experiment: BOTH,
-  'onboarding/contacts': BOTH,
-  'onboarding/local-news': BOTH,
-  'onboarding/voter-issues': BOTH,
-  payments: BOTH,
-  'payments/purchase': BOTH,
-  'phone-banking': BOTH,
-  subscribe: BOTH,
-  'top-issues': BOTH,
-  users: BOTH,
-  'admin/agent-runs': BOTH,
-  'admin/users': BOTH,
-  eligibility: BOTH,
-  'person-profiles': BOTH,
-  'public-person-profiles': BOTH,
-  'public-campaigns': BOTH,
-  'speech/transcribe': BOTH,
-  // Issue capture: memos, the effort report and the tag list, on both
-  // products, each behind its own rollout flag.
-  'constituent-feedback': BOTH,
-  'voters/voter-file': BOTH,
-  chats: BOTH,
-  'error-logger': BOTH,
-  // One route serving both products' tools, so BOTH is the literal answer
-  // rather than the safe one. The 13 handlers carrying `@McpTool` today are 9
-  // Win surfaces (campaigns, tracker tasks, TCR compliance, websites, domains)
-  // and 4 Serve ones (priorities, community issues, ordinance flow), and a
-  // `tools/call` is an internal proxy of whichever one the agent picked — see
-  // src/mcp/AGENTS.md § Request flow. A failure at the transport is a failure
-  // of every tool behind it, so neither team can be the one told second.
-  mcp: BOTH,
-}
-
-const ownedBy = (group: SlackGroup): ControllerName[] =>
-  (Object.keys(CONTROLLER_OWNERS) as ControllerName[]).filter((controller) =>
-    CONTROLLER_OWNERS[controller]?.includes(group),
-  )
-
-/** Map of slack group to controllers, derived from {@link CONTROLLER_OWNERS}. */
-export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
-  'serve-bugs': ownedBy(SERVE),
-  'win-bugs': ownedBy(WIN),
-}
-
-/**
  * Controllers deliberately left without a route alert.
  *
- * Every other controller is now owned in CONTROLLER_OWNERS above. This list is
- * what is left over, and it is short on purpose — each entry is a claim that
- * failure here is not worth waking anyone for, and the tests make a new
- * controller land in one place or the other rather than defaulting to silence.
+ * Every controller not listed here gets a route alert, including one added
+ * tomorrow, so the default is to be watched. This list is short on purpose —
+ * each entry is a claim that failure here is not worth waking anyone for.
  *
  * `health` is covered better elsewhere. `health-check-probe-failure` watches it
  * with a synthetic probe from outside, which tests reachability rather than just
@@ -201,9 +40,22 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
+  'test-fixtures/judge-chat-cases',
+  'test-fixtures/vendor-mocks',
   'dev-env',
   'version',
   'queue',
+  // 404s outside mock mode (non-prod only); prod traffic is by definition
+  // not ours, same posture as test-fixtures.
+  'vendor-mocks/geoapify',
+  // Same posture: non-prod only, 404 in live mode, 23 stub routes would
+  // push the total route map past the Loki tenant series cap (500).
+  'vendor-mocks/peerly',
+  'vendor-mocks/vercel',
+  'vendor-mocks/route53',
+  // Non-prod only and judge-only: every prod request is a 404 by design, so
+  // a rule here could only ever page on the gate working.
+  'judge',
 ]
 
 /**
@@ -279,7 +131,7 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
  * (CampaignVerifyPinNotIssuedException), precisely so the FE can distinguish
  * the two (ENG-10866). There is no fault to report either way.
  *
- * Spread across ~25 separate 10-minute windows, that was paging win-bugs about
+ * Spread across ~25 separate 10-minute windows, that was paging about
  * twice a week for people typing a wrong number. Two of the four users in the
  * 2026-09-25 firing retried and got a 200 minutes later, which is the whole
  * argument: verify_pin accepts a correct PIN, so the integration is healthy and
@@ -301,6 +153,24 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'contacts',
   'campaigns/tcr-compliance',
 ]
+
+/*
+ * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
+ * place: a Databricks voter query that outran its ceiling, with the message
+ * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On
+ * `contacts` that is a user building an audience too broad to count or list
+ * (POST /v1/contacts/count, GET /v1/contacts), and the response tells them what
+ * to do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
+ * GET /v1/contacts alone, so paging on each one trains people to ignore the
+ * rule that also catches the faults on these routes.
+ *
+ * Only the 504 status is dropped. A warehouse that is down answers 502
+ * (VOTER_DATA_UNREACHABLE), a handler bug answers 500, and a request the
+ * gateway severs has no status at all; all three still page. door-knocking is
+ * deliberately not listed: its pack-scan timeout is a fault there, not a
+ * question the caller can answer by narrowing anything.
+ */
+export const VOTER_QUERY_TIMEOUTS_NOT_PAGED: ControllerName[] = ['contacts']
 
 /*
  * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
@@ -360,8 +230,27 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: '1 - (sum(rate(probe_all_success_sum{job="gp-api-$ENV-health"}[5m])) / sum(rate(probe_all_success_count{job="gp-api-$ENV-health"}[5m])))',
     threshold: 0.3,
     for: '2m',
+    // A query to Grafana Cloud Prometheus timing out (2026-10-21 06:46Z,
+    // ENG-11393) paged as a probe failure with the endpoint never measured.
+    // Keep the last real answer instead; a broken query path is reported by
+    // `alerting-rule-evaluations-failing`.
+    execErrState: 'KeepLast',
     message:
       'Synthetic monitoring probes are failing against the health endpoint — the service may be unreachable externally.',
+  },
+  {
+    slug: 'delegate-swarm-probe-failure',
+    name: '[Ops] Delegate agent swarm unreachable',
+    type: 'metric',
+    // Two probes every 2 minutes, so 10 minutes holds about 8 executions. One
+    // failed round (2/8) stays under 30%; two consecutive rounds page.
+    expr: '1 - (sum(rate(probe_all_success_sum{job="delegate-swarm-health"}[10m])) / sum(rate(probe_all_success_count{job="delegate-swarm-health"}[10m])))',
+    threshold: 0.3,
+    for: '2m',
+    message: [
+      'Synthetic probes to https://delegate-swarm.infra.goodparty.org/health are failing, so Delegate is probably not answering Slack mentions either.',
+      'The usual cause is the swarm host running out of memory: the single-threaded API stalls on disk and logs `[db-client] slow sync statement blocked the event loop` in the `agent-swarm-api-1` stream of CloudWatch Logs `/delegate-swarm/containers` (infrastructure account 394495727159). It normally recovers on its own once the build that caused it is killed. Diagnosis and restart steps are in the ops repo, `agent-swarm/README.md`.',
+    ].join('\n\n'),
   },
   {
     slug: 'shared-synthesis-prompt-fallback',
@@ -390,7 +279,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'A polls (Serve) or issue-feedback (Win and Serve) synthesis run named its cluster themes from the in-repo fallback prompt instead of the hosted Braintrust one, in the 60 seconds ending 30 seconds before this check. The run still produced themes from the older in-repo prompt — nothing in the report looks wrong, so this is the only signal.',
       'Click *View in Grafana* to find the line (search "Synthesis run used the in-repo theme prompt") for the pollId, or the sourceType and sourceId, naming the run. Then compare the hosted Braintrust prompt `cluster-analysis` (project `hierarchical-discovery`) placeholders against the variables `cluster_analyzer.py` (packages/gp-ai/serve/hierarchical_discovery/stages) actually supplies — a placeholder the hosted prompt asks for that those variables do not cover is what raises in strict mode and triggers the fallback.',
     ].join('\n\n'),
-    notify: BOTH,
   },
   // ------ Serve Alerts ------ //
   {
@@ -400,7 +288,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Poll-job failures only. The consumer logs the SQS message in
     // message_Body; match its `type` (pollCreation / pollExpansion /
     // pollAnalysisComplete) so sibling jobs that share the consumer (AI
-    // content, websites) don't page the serve-bugs group.
+    // content, websites) don't page.
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [1m])) or vector(0)',
     threshold: 0,
     for: '0m',
@@ -412,7 +300,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'A Serve-related background SQS job failed in the 60 seconds ending 30 seconds before this check.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',
     ].join('\n\n'),
-    notify: 'serve-bugs',
   },
   {
     slug: 'serve-poll-review-overdue',
@@ -436,7 +323,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'At least one paid Serve poll has been waiting on staff review for more than 2 business days. Nothing sends until it is approved, and the official has already paid.',
       'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
     ].join('\n\n'),
-    notify: 'serve-bugs',
   },
   // ------ Win Warnings ------ //
   {
@@ -467,7 +353,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Peerly API errors were logged in the 60 seconds ending 30 seconds before this check.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'win-outreach-paid-not-scheduled-warning',
@@ -502,7 +387,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'win-robocall-critical',
@@ -535,7 +419,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'win-sms-critical',
@@ -571,7 +454,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and search "CRITICAL win sms" for the log line: it names the outreachId and the exact failure (capture commit lost / captured-but-PI-not-succeeded / succeeded-PI-no-charge / free-texts restore failed / stranded refunding). The refunding and captured cases are the money-sensitive ones — money owed back that no refund recorded, or a charge in an unexpected state.',
       'These are not self-healing beyond the automatic reconcile sweeps; check the OutreachP2pSms settleState and the Stripe hold/charge/refund for the named outreachId before assuming recovery.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'door-knocking-route-planner-spend-ceiling',
@@ -634,7 +516,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Then decide which of two things you are looking at, because the remedy differs. A runaway re-buys: the same turfId appears on more than one spend line, or buys arrive faster than a person can press a button. Legitimate preparation does not: one spend line per turf, ids climbing in creation order, and a finite number of them — one press of Create campaign can make ~100 lists, and routing all of them is ~14,000 credits.',
       'If it is a runaway, pull that org’s flag — there is no cap in the code, so this page is the only thing standing between it and the Geoapify bill. If it is a campaign preparing a real canvass, the spend is legitimate and the question is whether the day’s pool can afford it: check the 24h total against the four geoapify-daily-budget tiers before you touch anybody’s flag, and if this is simply our new normal, raise the threshold or the plan deliberately rather than per page.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   // The budget half of the same question, at 60/80/90/95% of the account's
   // daily allowance over 24h. The ceiling above measures RATE and fires first
@@ -678,7 +559,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
       'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. Every line names a `districtId`: the district resolve and the voter-data eligibility gate both run before the response head, so an organization that was never eligible answers 4xx and cannot reach this alert.',
     ].join('\n\n'),
-    notify: 'win-bugs',
     // The statement timeout is the case this whole registry was built for: the
     // Slack message for it is identical to the message for an unhandled build
     // failure, because the rule counts the event and cannot see the error
@@ -879,20 +759,18 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `userId`, `from`, `to` and `blocker` off the matched lines. `blocker` names the table standing in the way — `profile`, `removal` or `claim`. Resolve the destination by hand (decide which of the two rows survives, move or delete the loser), then let the 04:00 sweep repoint the link, or call the backfill directly. Afterwards `POST /api/revalidate-person` on BOTH ids, or gp-marketing serves the two versions for up to an hour per edge.',
       'If the two ids turn out to describe DIFFERENT PEOPLE, stop and escalate rather than merging: person clusters are built partly from probabilistic matching, and a collision is one of the few places that surfaces. See ENG-11112.',
     ].join('\n\n'),
-    notify: 'win-bugs',
   },
   {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
-    // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
-    // generated per-route alert was therefore provisioned `disabled` — which
-    // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
-    // of the ownership map on the grounds that the generated rule fires on a
-    // single error in the window, so on a route serving ~2 req/s it would fire
-    // continuously and be muted.
+    // Written when `public-campaigns` had no generated per-route alert —
+    // which is why 5k+ daily 500s on a public endpoint paged nobody. It was
+    // left out on the grounds that the generated rule fires on a single error
+    // in the window, so on a route serving ~2 req/s it would fire continuously
+    // and be muted.
     //
-    // It is in the map as of 2026-09, because that stopped being true: in the
+    // It has a generated rule as of 2026-09, because that stopped being true: in the
     // seven days to 09-17 this route produced ZERO errors the generated rule
     // would fire on, and the 5k-a-day era it was reasoning from is over. The
     // two rules now stack rather than substitute — the generated one answers
@@ -1047,7 +925,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
       'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether election-api is still returning districts for them.',
     ].join('\n\n'),
-    notify: 'serve-bugs',
     // BOTH ARE `annotate`, NOT `suppress`, and the distinction is the whole
     // reason this alert is worth listing at all. The two shapes below are
     // genuinely understood, but this rule fires on a SPIKE across five or more
@@ -1115,17 +992,12 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The likely cause is the `gpbot-alert-filter` contact point: the filter Lambda is a single point of failure for everything routed through it, so a Lambda that is erroring or timing out stops notifications rather than merely delaying them. Check `/aws/lambda/alert-filter-prod` in CloudWatch, then Grafana Alerting → Contact points → the delivery error on `gpbot-alert-filter`.',
       'To restore alerting immediately, repoint the affected notification policy back at the plain Slack contact point. Alerts resume unfiltered, which is the state this whole feature started from and is always safe to return to.',
     ].join('\n\n'),
-    // NO `notify`, and that is deliberate rather than an omission. A subteam
-    // mention is added to the message body, and this rule's whole premise is
-    // that the path carrying message bodies is broken — so the mention would
-    // travel exactly as far as the thing it is meant to escape. What makes this
-    // alert work is its ROUTE: the notification policy must send this slug to a
-    // contact point that does not pass through the filter. That cannot be
-    // expressed here, because the policy tree is not provisioned by this repo;
-    // it is the second half of the ops step in gp-ai/alert_filter/README.md.
-    //
-    // A rule that pages nobody looks like a mistake, so: this one is a
-    // deliberate no-mention rule, and if it fires unrouted it still appears in
+    // What makes this alert work is its ROUTE: this rule's whole premise is
+    // that the path carrying notifications is broken, so the notification
+    // policy must send this slug to a contact point that does not pass through
+    // the filter. That cannot be expressed here, because the policy tree is not
+    // provisioned by this repo; it is the second half of the ops step in
+    // gp-ai/alert_filter/README.md. If it fires unrouted it still appears in
     // Grafana's own alert list, which is the last channel left when every other
     // one depends on the thing that broke.
   },
@@ -1136,12 +1008,12 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The rule that was missing on 2026-08-24, when GET /v1/public-person
     // -profiles/voter-density began answering every single request with a 500
     // and continued for four days. 1,498,324 of them. Nothing fired, because
-    // `public-person-profiles` had no owner in CONTROLLER_OWNERS at the time,
-    // and a controller with no owner gets no route rule at all. It ended when
+    // `public-person-profiles` had no generated route rule at the time. It
+    // ended when
     // the table it reads was created, not when anyone responded.
     //
     // Same shape as public-campaigns-lookup-error-ratio above. This controller
-    // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
+    // ALSO has a generated route alert, and
     // the two are not redundant: the generated rule trips on a burst of errors
     // and this one only when a route is substantially broken, so the pair
     // separates "something failed" from "this route is down" without either
@@ -1265,7 +1137,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'A stream is one distinct combination of stream labels, and the label set is deliberately tiny: `service_name` and `deployment_environment_name`. Nothing that varies per request or per task is in it, so the count should be roughly (services x environments) and should not move when a service scales out.',
       'Grafana Cloud promotes a fixed list of OTel **resource** attributes to stream labels and nothing else, so a new label can only arrive by someone adding a resource attribute in `src/otel.ts`. Check there first.',
     ].join('\n\n'),
-    notify: BOTH,
   },
   {
     slug: 'alerting-rule-evaluations-failing',
@@ -1297,7 +1168,6 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
       'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
-    notify: BOTH,
   },
   {
     slug: 'recorded-metric-not-writing',
@@ -1347,6 +1217,5 @@ export const GLOBAL_ALERTS: Alert[] = [
       'This does not mean spend is high. It means we cannot see spend. Read the raw log line directly while this is broken: `sum(sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))` in Explore on `grafanacloud-logs`, against the 50,000-credit pool in `GEOAPIFY_DAILY_CREDIT_POOL`.',
       'Read the rule\'s own health first, then its output. `GET /api/prometheus/grafana/api/v1/rules` carries `health` and `lastError` for the rule named `gp-api door-knocking Geoapify credits per minute`, and on 2026-09-29 that field named the cause outright: `remote write failed: failed to read dataframe / unsupported time series type "timeseries-multi"`. Two different faults produce that message. Either the query returns more than one series — check it in Explore, it has to be one unlabelled series — or it ran as a range query and returned a point per step, which is what happens when `queryType: "instant"` is missing from the model JSON in deploy/components/alerting/provisioned-alerts.ts. A `health: ok` with no output at all is a third state, and the original one: the writer failing silently, which is why this alert watches the metric and not the rule.',
     ].join('\n\n'),
-    notify: WIN,
   },
 ]

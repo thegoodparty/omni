@@ -138,6 +138,18 @@ export const overlapCountSchema = withDistrictInput({
 
 export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
 
+const sampleWeightFactorsSchema = z.record(z.string(), z.number().positive())
+
+export const sampleWeightsSchema = z.object({
+  age: sampleWeightFactorsSchema,
+  gender: sampleWeightFactorsSchema,
+  tract: sampleWeightFactorsSchema,
+  race: sampleWeightFactorsSchema,
+  minWeight: z.number().positive(),
+  maxWeight: z.number().positive(),
+})
+export type SampleWeights = z.infer<typeof sampleWeightsSchema>
+
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
@@ -148,10 +160,15 @@ export const samplePeopleSchema = withDistrictInput({
   idOverrides: IdOverridesSchema.optional(),
   contactsMadeIdOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
-  // Names the draw, so asking again with the same key takes the same slice.
-  // Without one the slice rotates every minute.
+  // Names the draw, so asking again with the same key takes the same people.
+  // Without one the draw rotates every minute.
   seedKey: z.string().min(1).optional(),
   affinityColumn: affinityColumnSchema,
+  // Set by gp-api only (the civic panel's census steering). Each person is
+  // drawn with a weight: the product of their age band, gender and tract
+  // factors, held within [minWeight, maxWeight]. A value with no factor
+  // counts 1.
+  weights: sampleWeightsSchema.optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}

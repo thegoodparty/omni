@@ -184,22 +184,39 @@ different features and their `channel` is not an outreach channel.
 
 The campaign reached voters. One event, every channel.
 
-| Property             | Type                                    | Required                                                                            |
-| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
-| `medium`             | `TaskChannel`                           | always                                                                              |
-| `fanout`             | `'one-to-many' \| 'one-to-one'`         | always                                                                              |
-| `product`            | `'win' \| 'serve'`                      | always                                                                              |
-| `recipientCount`     | number                                  | always **except** `socialMedia`, where it is omitted entirely (never 0, never null) |
-| `voterContacts`      | number                                  | mirrors `recipientCount` exactly, including its omission                            |
-| `sendDate`           | ISO date `YYYY-MM-DD`                   | always                                                                              |
-| `price`              | number (dollars actually paid)          | paid channels only; **omitted** on social, phone banking and door knocking          |
-| `outreachCampaignId` | number                                  | when the client holds the envelope id                                               |
-| `listId`             | number                                  | the parent list — the turf, the call list, or the audience list                     |
-| `trackerTaskId`      | string (cuid)                           | when launched from a tracker task                                                   |
-| `phase`              | `preLaunch \| launch \| active \| gotv` | with `trackerTaskId`, never alone                                                   |
-| `audienceSource`     | `'recommended' \| 'savedList'`          | when the audience step ran                                                          |
-| `campaignName`       | string                                  | the name the candidate gave it; **omitted** where nothing is named                  |
-| `method`             | `'manual' \| 'turf' \| 'campaign'`      | on the paths that need disambiguating                                               |
+| Property               | Type                                                                          | Required                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `medium`               | `TaskChannel`                                                                 | always                                                                              |
+| `fanout`               | `'one-to-many' \| 'one-to-one'`                                               | always                                                                              |
+| `product`              | `'win' \| 'serve'`                                                            | always                                                                              |
+| `recipientCount`       | number                                                                        | always **except** `socialMedia`, where it is omitted entirely (never 0, never null) |
+| `voterContacts`        | number                                                                        | mirrors `recipientCount` exactly, including its omission                            |
+| `sendDate`             | ISO date `YYYY-MM-DD`                                                         | always                                                                              |
+| `price`                | number (dollars actually paid)                                                | paid channels only; **omitted** on social, phone banking and door knocking          |
+| `outreachCampaignId`   | number                                                                        | when the client holds the envelope id                                               |
+| `listId`               | number                                                                        | the parent list — the turf, the call list, or the audience list                     |
+| `trackerTaskId`        | string (cuid)                                                                 | when launched from a tracker task                                                   |
+| `phase`                | `preLaunch \| launch \| active \| gotv`                                       | with `trackerTaskId`, never alone                                                   |
+| `audienceSource`       | `'recommended' \| 'savedList'`                                                | when the audience step ran                                                          |
+| `campaignName`         | string                                                                        | the name the candidate gave it; **omitted** where nothing is named                  |
+| `method`               | `'manual' \| 'turf' \| 'campaign'`                                            | on the paths that need disambiguating                                               |
+| `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | text, phone banking and door knocking, when the flow's purpose picker set one       |
+| `priorityId`           | string (cuid)                                                                 | when a priority's chat card opened the flow                                         |
+| `asksToJoinCivicPanel` | boolean                                                                       | Serve texts only                                                                    |
+| `launchSource`         | agent surface slug, below                                                     | when an agent surface launched it; never on robocall                                |
+
+`launchSource` names the agent surface that launched the outreach:
+`expand_panel` is a priority card that answers the hidden Get answers turn
+(read from the user turn before it, so it survives a reload), `priorities`
+any other priority card, `civic_panel` a plan step opened through
+`useCivicPanelStepFlow`, and `chief_of_staff` / `campaign_manager` a card in
+those chats. It rides on Campaign Created and Completed for text, phone
+banking and door knocking, on `Call List Created`, and on social when a card
+opened it. Analytics only: it is a flow prop (door knocking reads one
+`?launchSource=` param), never part of `ProposalLink` or a server payload.
+Door knocking and phone banking complete on another page, so the source is
+kept per list in `localStorage` (`rememberLaunchSource`); a list finished on
+another browser reports none.
 
 `sendDate` is the scheduled or actual send date, **not** the event timestamp —
 paid sends are scheduled days ahead.
@@ -213,6 +230,14 @@ name for the reason in Naming above, and `outreachProduct(isServe)` is the one
 place it is derived — the one required input on `OutreachEventInput`, so a
 shared surface that forgets it fails the typecheck rather than reporting every
 Serve campaign as Win.
+
+`purpose`, `priorityId` and `asksToJoinCivicPanel` let Serve count civic
+panel invites and a priority's asks without joining on the outreach row.
+`purpose` is the picker's slug on both products; `priorityId` rides the card's
+`proposalLink` (door knocking completes on another page, so its Completed
+reads `priorityId` off the turf response, which carries the anchor's); `asksToJoinCivicPanel` is whether the composed text carries
+the locked JOIN line. Phone banking's `Call List Created` carries `purpose`
+and `priorityId` too.
 
 `campaignName` carries the title the candidate gave the campaign: the flow's
 own name field on text, robocall, social and phone banking, and the turf name

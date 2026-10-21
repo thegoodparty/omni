@@ -48,7 +48,7 @@ export class PeerlyErrorHandlingService {
     const templateMessages = this.templateRejectionMessages(error, context)
 
     // `win-peerly-warnings` counts error-level lines carrying this message, so
-    // the level is what decides whether a firing pages win-bugs. Two shapes of
+    // the level is what decides whether a firing pages. Two shapes of
     // failure reach here having already been answered to the caller as a 4xx
     // they can act on, and neither is an incident:
     //

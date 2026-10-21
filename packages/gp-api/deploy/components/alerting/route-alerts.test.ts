@@ -5,7 +5,6 @@ import {
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
 import {
-  ALERT_OWNERSHIP,
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
   SERVER_ERRORS_ONLY,
@@ -22,7 +21,11 @@ import {
 const GROUPS = routeAlertGroups()
 const ALERTS = routeErrorAlerts()
 
-const OWNED = new Set(Object.values(ALERT_OWNERSHIP).flat())
+const WATCHED = new Set(
+  CONTROLLER_NAMES.filter(
+    (controller) => !CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(controller),
+  ),
+)
 
 /**
  * The one group a controller belongs to.
@@ -64,7 +67,7 @@ const outsideServerErrorsOnly = (): ControllerName => {
   const name = CONTROLLER_NAMES.find(
     (candidate) =>
       !SERVER_ERRORS_ONLY.includes(candidate) &&
-      OWNED.has(candidate) &&
+      WATCHED.has(candidate) &&
       ROUTE_MAP[candidate].length > 0,
   )
   if (!name) {
@@ -83,10 +86,10 @@ const anyErrorAlert = () => alertFor(groupFor(outsideServerErrorsOnly()).slug)
 /** The alert covering a controller that is inside SERVER_ERRORS_ONLY. */
 const serverErrorAlert = () => {
   const name = SERVER_ERRORS_ONLY.find(
-    (candidate) => OWNED.has(candidate) && ROUTE_MAP[candidate].length > 0,
+    (candidate) => WATCHED.has(candidate) && ROUTE_MAP[candidate].length > 0,
   )
   if (!name) {
-    throw new Error('no owned, routed controller is in SERVER_ERRORS_ONLY')
+    throw new Error('no watched, routed controller is in SERVER_ERRORS_ONLY')
   }
   return alertFor(groupFor(name).slug)
 }
@@ -147,11 +150,10 @@ const endpointPattern = (expr: string) => {
   return pattern
 }
 
-// The rules that replaced 75 per-controller ones. Only two things ever vary
-// between those: who is notified, and which status filter applies. Both are
-// properties of the rule rather than of the series it returns, which is why
-// controllers that agree on both can share a rule without either changing
-// meaning.
+// The rules that replaced 75 per-controller ones. The only thing that varies
+// between those is which status filter applies. That is a property of the
+// rule rather than of the series it returns, which is why controllers that
+// agree on it can share a rule without any of them changing meaning.
 describe('route alert groups', () => {
   // THE COUNT IS THE COST, which is the only reason it is pinned rather than
   // derived. A Loki rule's daily read volume is its fetch window divided by
@@ -160,10 +162,10 @@ describe('route alert groups', () => {
   // how many rules there are. 75 of them at that floor was 75x ingest: 2,690
   // GB/day measured on 2026-09-28, then Grafana Cloud 429s, and then, because
   // `exec_err_state` is `Alerting`, all 154 rules firing at once while
-  // production was healthy. Five is five. A change that adds a sixth is a
+  // production was healthy. Two is two. A change that adds a third is a
   // change to the bill, and should have to say so here.
-  it('collapses every owned controller into five rules', () => {
-    expect(GROUPS).toHaveLength(5)
+  it('collapses every watched controller into two rules', () => {
+    expect(GROUPS).toHaveLength(2)
     expect(ALERTS).toHaveLength(GROUPS.length)
   })
 
@@ -179,9 +181,9 @@ describe('route alert groups', () => {
   // The invariant the whole collapse rests on: bucketing is only safe if it
   // partitions. A controller in two groups pages twice for one error; a
   // controller in none is silent, which is the failure mode no alert reports.
-  it('covers every owned, routed controller exactly once', () => {
+  it('covers every watched, routed controller exactly once', () => {
     for (const controller of CONTROLLER_NAMES) {
-      if (!OWNED.has(controller)) continue
+      if (!WATCHED.has(controller)) continue
       if (ROUTE_MAP[controller].length === 0) continue
 
       const covering = GROUPS.filter((group) =>
@@ -191,11 +193,11 @@ describe('route alert groups', () => {
     }
   })
 
-  // A controller with no owner is not in a group at all, rather than
+  // An opted-out controller is not in a group at all, rather than
   // provisioned paused. That makes the opt-out list the only way a routed
   // controller can be unwatched, and this is what keeps the list honest: an
-  // opted-out route appearing in someone else's endpoint alternation would
-  // page a team for a route they deliberately do not watch.
+  // opted-out route appearing in an endpoint alternation would page for a
+  // route nobody meant to watch.
   it('never covers a controller that opted out', () => {
     const optedOut = new Set(CONTROLLERS_WITHOUT_ROUTE_ALERTS)
 
@@ -205,49 +207,6 @@ describe('route alert groups', () => {
           false,
         )
       }
-    }
-  })
-
-  // A fifth of these controllers are shared, and `owners` only became a list so
-  // that could be said out loud. If a later edit collapses them to one group,
-  // the alert still fires and still looks owned — the other team just silently
-  // stops being told, which is the same class of bug as the `find` this
-  // replaced.
-  it('still tags both groups where a controller is shared', () => {
-    const shared = GROUPS.filter((group) => group.owners.length > 1)
-
-    expect(
-      shared.length,
-      'no group notifies more than one team, so either the shared surfaces lost an owner or owners stopped carrying lists',
-    ).toBeGreaterThan(0)
-
-    for (const group of GROUPS) {
-      expect(group.owners.length, `${group.slug} has no owner`).toBeGreaterThan(
-        0,
-      )
-      expect(new Set(group.owners).size, `${group.slug} repeats a team`).toBe(
-        group.owners.length,
-      )
-      expect([alertFor(group.slug).notify ?? []].flat()).toEqual(group.owners)
-    }
-  })
-
-  // `routeAlertGroups` throws on an owner set OWNER_NAMING does not register,
-  // and that is deliberate rather than defensive: the slug is the alert's
-  // identity in Grafana, so deriving one from the team names would let a
-  // rename silently retire every alert under it and create a new one with no
-  // history. Both Slack groups are registered in every combination, so the
-  // throw is unreachable from the real map and has to be provoked. Adding a
-  // third product to ALERT_OWNERSHIP is the edit it exists to catch, and it
-  // has to fail the deploy rather than quietly stop provisioning rules.
-  it('refuses an owner set that has no registered slug', () => {
-    const ownership: Record<string, ControllerName[]> = ALERT_OWNERSHIP
-    ownership['platform-bugs'] = [outsideServerErrorsOnly()]
-
-    try {
-      expect(() => routeAlertGroups()).toThrow(/OWNER_NAMING/)
-    } finally {
-      delete ownership['platform-bugs']
     }
   })
 })
@@ -426,7 +385,6 @@ describe('the grouped route alerts', () => {
 
     expect(expr).toContain('GET /v1/mcp')
     expect(expr).toContain('POST /v1/mcp')
-    expect(group.owners).toEqual(['serve-bugs', 'win-bugs'])
   })
 
   // The rule reads the whole gp-api stream, so the endpoint pattern is the
@@ -632,12 +590,13 @@ describe('the grouped route alerts', () => {
       expect(group.endpoints.length, group.slug).toBeLessThan(MAX_QUERY_SERIES)
     }
 
-    // The fan-out moved with the read. Six rules now cover every owned route
+    // The fan-out moved with the read. Two rules now cover every watched route
     // between them, so the bound that matters is the whole route map rather
-    // than any one controller's slice of it.
-    expect(Object.values(ROUTE_MAP).flat().length).toBeLessThan(
-      MAX_QUERY_SERIES,
-    )
+    // than any one controller's slice of it. Watched routes only: an opted-out
+    // controller is in no group, so its routes return no series and cannot
+    // count against the cap.
+    const watchedEndpoints = new Set(GROUPS.flatMap((group) => group.endpoints))
+    expect(watchedEndpoints.size).toBeLessThan(MAX_QUERY_SERIES)
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the
@@ -725,7 +684,7 @@ describe('the grouped route alerts', () => {
   })
 })
 
-// The status vocabulary. It lives on the five expressions now rather than on
+// The status vocabulary. It lives on the two expressions now rather than on
 // two recording rules, so every assertion about WHICH statuses count reads the
 // filter and the prose that describes it off the same object again.
 describe('which statuses count as an error', () => {
@@ -740,7 +699,7 @@ describe('which statuses count as an error', () => {
   // special-cased somewhere.
   it('pages on 5xx only for every controller in SERVER_ERRORS_ONLY', () => {
     for (const name of SERVER_ERRORS_ONLY) {
-      if (!OWNED.has(name) || ROUTE_MAP[name].length === 0) continue
+      if (!WATCHED.has(name) || ROUTE_MAP[name].length === 0) continue
 
       const group = groupFor(name)
       expect(group.serverErrorsOnly, name).toBe(true)
@@ -749,6 +708,24 @@ describe('which statuses count as an error', () => {
       expect(expr, name).toContain('response_statusCode >= 500')
       expect(expr, name).not.toContain('response_statusCode >= 400')
     }
+  })
+
+  // A 504 is a voter query that outran its ceiling and told the user to narrow
+  // the audience. It must stop paging on the contacts routes only: the same
+  // status on any other server-errors route (door-knocking's pack scan) is
+  // still a fault, and 500, 502 and a null status still page everywhere.
+  it('drops 504 only on the routes in VOTER_QUERY_TIMEOUTS_NOT_PAGED', () => {
+    const { expr } = alertFor('route-errors-server-errors')
+    const contacts = ROUTE_MAP.contacts.map(({ endpoint }) => endpoint)
+    expect(contacts.length).toBeGreaterThan(0)
+
+    expect(expr).toContain(
+      '( response_statusCode >= 500 and response_statusCode != 504 )',
+    )
+    expect(expr).toContain(
+      `( response_statusCode = 504 and request_endpoint !~ \`${routeEndpointPattern([...new Set(contacts)])}\` )`,
+    )
+    expect(expr).toContain('response_statusCode = ""')
   })
 
   // The per-controller filter has to survive the collapse: a controller outside
@@ -864,9 +841,7 @@ describe('which statuses count as an error', () => {
       const { expr } = alertFor(group.slug)
 
       if (group.serverErrorsOnly) {
-        expect(expr, group.slug).toContain(
-          '( response_statusCode >= 500 ) or (',
-        )
+        expect(expr, group.slug).toMatch(/\( response_statusCode >= 500[ )]/)
       } else {
         expect(expr, group.slug).toContain('( response_statusCode >= 400')
       }
@@ -876,42 +851,10 @@ describe('which statuses count as an error', () => {
 })
 
 // The gap these guard is not a wrong alert but an absent one, which is the
-// failure mode no alert can report. A controller nobody lists is simply not in
-// a group, so it is silently opted out. CONTROLLERS_WITHOUT_ROUTE_ALERTS makes
-// that a declaration rather than an oversight, and these are what make the
-// declaration mandatory.
+// failure mode no alert can report. CONTROLLERS_WITHOUT_ROUTE_ALERTS is the
+// only way a controller goes unwatched, so it has to stay honest.
 describe('every controller is accounted for', () => {
-  const unmonitored = new Set(CONTROLLERS_WITHOUT_ROUTE_ALERTS)
-
-  // The one that matters: a controller added tomorrow lands in neither list and
-  // fails here, so the author picks an owner or writes down that they did not
-  // want one. Without this, a new public endpoint inherits silence by default
-  // and nothing says so — which is how public-person-profiles/voter-density
-  // served 1,498,324 consecutive 500s over four days in August 2026 without
-  // paging anyone.
-  it('requires a new controller to choose an owner or opt out', () => {
-    const unaccounted = CONTROLLER_NAMES.filter(
-      (controller) => !OWNED.has(controller) && !unmonitored.has(controller),
-    )
-
-    expect(
-      unaccounted,
-      'these controllers are in neither ALERT_OWNERSHIP nor CONTROLLERS_WITHOUT_ROUTE_ALERTS, so they have no route alerting and nothing records that',
-    ).toEqual([])
-  })
-
-  // Listing a controller in both reads as "owned" here and "deliberately
-  // silent" there, and the code would honour the first while a reviewer
-  // believes the second.
-  it('never claims a controller is both owned and opted out', () => {
-    const both = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter((controller) =>
-      OWNED.has(controller),
-    )
-
-    expect(both).toEqual([])
-  })
-
-  // Keeps the list honest in the other direction: an entry that no longer names
+  // Keeps the list honest: an entry that no longer names
   // a real controller is a claim about nothing, and would quietly absorb a
   // future controller that reused the name. `ControllerName` catches a typo at
   // compile time, but not an entry left behind when a controller is deleted.
@@ -928,8 +871,8 @@ describe('every controller is accounted for', () => {
   //
   // These were opted OUT until 2026-09, on the argument that a threshold-0 rule
   // would fire permanently on their traffic. Measuring said otherwise — 2 hours
-  // out of 168 contained a qualifying error — so they now have both an owner
-  // and a ratio rule, and the pairing below is about keeping the second half.
+  // out of 168 contained a qualifying error — so they now have both a generated
+  // rule and a ratio rule, and the pairing below is about keeping the second half.
   const BESPOKE_COVERAGE: ReadonlyArray<readonly [ControllerName, string]> = [
     ['public-campaigns', 'public-campaigns-lookup-error-ratio'],
     ['public-person-profiles', 'public-person-profiles-error-ratio'],
@@ -946,8 +889,8 @@ describe('every controller is accounted for', () => {
 
     for (const [controller, slug] of BESPOKE_COVERAGE) {
       expect(
-        OWNED.has(controller),
-        `${controller} is public and should have an owner, so it belongs to a route alert group`,
+        WATCHED.has(controller),
+        `${controller} is public and should not be opted out, so it belongs to a route alert group`,
       ).toBe(true)
 
       expect(
@@ -995,7 +938,7 @@ describe('every controller is accounted for', () => {
   })
 })
 
-// The owner's standing rule is that any qualifying error pages. The one route
+// The standing rule is that any qualifying error pages. The one route
 // that was exempt, voter-density, skipped real 502s on 2026-09-30 at 17:11 and
 // 18:17 because its rule needed more than 2 in ten minutes.
 describe('a single error pages', () => {
