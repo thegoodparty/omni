@@ -894,3 +894,47 @@ def test_anchor_block_renders_the_browse_link_when_a_sheet_is_configured(monkeyp
     links = slk.build_anchor_blocks({"queued": 3, "flagged": 1})[-1]["elements"][0]["text"]
     assert "#gid=999" in links
     assert "Browse anchors" in links
+
+
+# --- watchlist removals (DATA-2676) --------------------------------------------
+
+
+def _removal(event):
+    return {"event_type": event, "reason": "retired", "retired_date": "2026-07-13"}
+
+
+def test_should_post_true_on_new_removal_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=["A"])
+    assert slk.should_post(result, NOCHG, set(), None) is True
+
+
+def test_should_post_false_on_standing_removal_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    assert slk.should_post(result, NOCHG, set(), None) is False
+
+
+def test_tiered_thread_lists_new_removals_and_counts_standing():
+    result = _tiered_result(removal_proposals=[_removal("A"), _removal("B")],
+                            new_removal_proposals=["A"])
+    parent, thread = slk.build_digest_blocks(result, NOCHG, {}, set(), gap=None,
+                                             triage=_triage([]))
+    text = _flatten_text(thread)
+    assert "*Watchlist removals*" in text
+    assert "• `A`  retired 2026-07-13" in text
+    assert "`B`" not in text
+    assert "(1 already proposed)" in text
+    assert "1 watchlist removal" in _flatten_text(parent)
+
+
+def test_triage_invocation_renders_for_removals_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    assert slk.build_triage_invocation(result, None) is not None
+
+
+def test_tiered_thread_counts_standing_removals_when_none_are_new():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    _parent, thread = slk.build_digest_blocks(result, NOCHG, {}, set(), gap=None,
+                                              triage=_triage([]))
+    text = _flatten_text(thread)
+    assert "*Watchlist removals*" in text and "1 already proposed" in text
+    assert "`A`" not in text

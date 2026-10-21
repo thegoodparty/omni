@@ -1110,10 +1110,9 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             "",
             "### Watchlist proposals (self-healing)",
             "",
-            f"{len(proposals)} event(s) in a watched family, first seen in the last "
-            f"{PROPOSAL_WINDOW_DAYS}d, not yet on the watchlist. Triage in the runbook "
-            "(add real funnel/activation milestones; skip UI micro-interactions), confirm "
-            "in code, then paste the agreed rows into `monitored_events.yaml`:",
+            f"{len(proposals)} OKR leg(s) in a watched family, first seen in the last "
+            f"{PROPOSAL_WINDOW_DAYS}d, not yet on the watchlist. Triage in the runbook, "
+            "confirm in code, then paste the agreed rows into `monitored_events.yaml`:",
             "",
             "```yaml",
             *[_proposal_yaml_row(p) for p in shown],
@@ -1121,6 +1120,28 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         ]
         if len(proposals) > PROPOSAL_CAP:
             lines.append(f"({len(proposals) - PROPOSAL_CAP} more — see the JSON report.)")
+    unneeded = result.get("unneeded_proposal_count") or 0
+    if unneeded:
+        lines += [
+            "",
+            f"{unneeded} new event(s) in watched families with no question; see the JSON report.",
+        ]
+
+    removals = result.get("removal_proposals") or []
+    if removals:
+        lines += [
+            "",
+            "### Watchlist removals",
+            "",
+            f"{len(removals)} watched event(s) retired in code. Remove each `events:` row in "
+            "triage, or record a `kept:` row to keep watching it:",
+            "",
+            "| event | retired |",
+            "|---|---|",
+            *[f"| {r['event_type']} | {r['retired_date']} |" for r in removals[:PROPOSAL_CAP]],
+        ]
+        if len(removals) > PROPOSAL_CAP:
+            lines.append(f"({len(removals) - PROPOSAL_CAP} more — see the JSON report.)")
     lines.append("")
     return "\n".join(lines)
 
@@ -1261,6 +1282,18 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
         return None
     flagged = data.get("flagged")
     return flagged if isinstance(flagged, dict) else None
+
+
+def load_prior_removals(path: Path | None) -> set[str] | None:
+    """The previous run's removal proposals; None when the file or key is absent."""
+    if path is None or not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    removals = data.get("removal_proposals") if isinstance(data, dict) else None
+    return set(removals) if isinstance(removals, list) else None
 
 
 def load_prior_latches(path: Path | None) -> dict[str, dict]:
@@ -1517,6 +1550,14 @@ def run_monitor(
     result["dismissed_causes"] = dismissed_causes
     result["dismissal_problems"] = dismissal_problems
 
+    # The Slack gate posts on a removal once, the run it first appears, not every run it
+    # stands: re-listing the same rows weekly is the noise DATA-2676 exists to cut.
+    prior_removals = load_prior_removals(state_path)
+    result["new_removal_proposals"] = [
+        r["event_type"] for r in result["removal_proposals"]
+        if prior_removals is None or r["event_type"] not in prior_removals
+    ]
+
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
@@ -1758,6 +1799,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # while an instrument is broken. `test_latch_record_keeps_its_cross_repo_keys`
             # pins them; change the contract on both sides or not at all.
             "latches": result.get("latches") or {},
+            "removal_proposals": sorted(
+                r["event_type"] for r in result.get("removal_proposals") or []),
         }
         # default=_json_default like the --json write: the latch records are authored by
         # okr_latch, and this file is the only place the sticky reference survives, so a

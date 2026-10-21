@@ -2725,3 +2725,65 @@ def test_reconcile_lists_only_okr_leg_proposals():
     assert result["unneeded_proposal_count"] == 1
     status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
     assert status["Other Event"] == "—"
+
+
+# --- removals: digest, state, delta (DATA-2676) --------------------------------
+
+
+def _removal(event, retired="2026-07-13"):
+    return {"event_type": event, "reason": "retired",
+            "retired_date": date.fromisoformat(retired)}
+
+
+def test_digest_renders_watchlist_removals():
+    out = eh.render_digest_section(
+        _render_result(removal_proposals=[_removal("Old Step")]), _NO_CHANGES)
+    assert "### Watchlist removals" in out
+    assert "| Old Step | 2026-07-13 |" in out
+
+
+def test_digest_counts_proposals_no_question_needs():
+    out = eh.render_digest_section(_render_result(unneeded_proposal_count=7), _NO_CHANGES)
+    assert "7 new event(s) in watched families with no question; see the JSON report." in out
+
+
+def test_digest_omits_both_when_empty():
+    out = eh.render_digest_section(_render_result(), _NO_CHANGES)
+    assert "Watchlist removals" not in out and "no question" not in out
+
+
+def test_main_persists_removal_proposals(monkeypatch, tmp_path):
+    def _stub(*_a, **_k):
+        result = {"run_date": "2026-09-21", "current_week_basis": "x", "flagged": [],
+                  "status_counts": {}, "total_events": 0,
+                  "removal_proposals": [_removal("B"), _removal("A")]}
+        return result, {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+    monkeypatch.setattr(eh, "run_monitor", _stub)
+    state = tmp_path / "s.json"
+    assert eh.main(["--log", str(tmp_path / "log.md"), "--today", "2026-09-21",
+                    "--state", str(state)]) == 0
+    assert json.loads(state.read_text())["removal_proposals"] == ["A", "B"]
+
+
+def _retired_row_env(tmp_path, prior_state=None):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n',
+    )
+    if prior_state is not None:
+        state_path.write_text(json.dumps(prior_state))
+    return eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+
+
+def test_run_monitor_first_run_treats_every_removal_as_new(tmp_path):
+    result, _ = _retired_row_env(tmp_path)
+    assert result["new_removal_proposals"] == ["Old Step"]
+
+
+def test_run_monitor_standing_removal_is_not_new(tmp_path):
+    result, _ = _retired_row_env(tmp_path, {"flagged": {}, "removal_proposals": ["Old Step"]})
+    assert result["new_removal_proposals"] == []
