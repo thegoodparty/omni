@@ -5,6 +5,7 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../../generated/prisma'
 import { calcTextAmountInCents } from '../../../shared/util/textPricing.util'
 import { P2pPhoneListUploadService } from './p2pPhoneListUpload.service'
+import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 
@@ -1117,6 +1119,48 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
+    expect(result.status).toBe(202)
+  })
+
+  it('returns 202, not 502, when Peerly answers the status check with a gateway error', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        token: 'gateway-error-token',
+        buildStatus: 'processing',
+      },
+    })
+    // Earlier tests leave checkPhoneListStatus stubbed; this one needs the
+    // real method so the gateway error reaches its catch.
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockRestore()
+    const httpGet = vi.spyOn(service.app.get(PeerlyHttpService), 'get')
+    httpGet.mockRejectedValue(
+      new AxiosError(
+        'Request failed with status code 502',
+        AxiosError.ERR_BAD_RESPONSE,
+        undefined,
+        undefined,
+        {
+          data: { error: 'Bad gateway' },
+          status: 502,
+          statusText: 'Bad Gateway',
+          headers: {},
+          config: { headers: new AxiosHeaders() },
+        },
+      ),
+    )
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    httpGet.mockRestore()
     expect(result.status).toBe(202)
   })
 

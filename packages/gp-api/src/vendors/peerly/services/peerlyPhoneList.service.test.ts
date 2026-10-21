@@ -132,19 +132,34 @@ describe('PeerlyPhoneListService', () => {
     })
 
     it.each([502, 503, 504])(
-      'returns null for transient Peerly gateway %i error',
+      'returns null for a Peerly gateway %i when the caller opts in',
       async (status) => {
         mockHttpService.get.mockRejectedValue(
           createAxiosError({ error: 'Bad gateway' }, status),
         )
 
-        const result = await service.checkPhoneListStatus('test-token')
+        const result = await service.checkPhoneListStatus('test-token', {
+          gatewayErrorIsPending: true,
+        })
 
         expect(result).toBeNull()
         expect(mockLogger.warn).toHaveBeenCalled()
         expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
       },
     )
+
+    it('still throws a Peerly gateway error for a caller that did not opt in', async () => {
+      const error = createAxiosError({ error: 'Bad gateway' }, 502)
+      mockHttpService.get.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Bad gateway'),
+      )
+
+      await expect(service.checkPhoneListStatus('test-token')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
 
     it('delegates non-transient errors to handleApiError', async () => {
       const error = createAxiosError({ error: 'Some other error' }, 500)
