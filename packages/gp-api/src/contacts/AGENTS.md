@@ -244,7 +244,7 @@ AND-compose. `SupportStatusService` resolves the support buckets the same
 way. Both travel to the voter engine as `id: { in | notIn }` on the Voter
 PK — a `::uuid[]` SQL builder in `src/peopleDb`'s filter pipeline
 (`filters.schema.ts` → `transformFilters` → `buildVoterFiltersSql`),
-**capped at 100k ids** (400 beyond; the trigger to revisit the projection
+**capped at 200k ids** (400 beyond; the trigger to revisit the projection
 fallback). A condition naming a specific `outreachId` only accepts
 **completed** outreaches.
 
@@ -383,7 +383,7 @@ through this intersection — it AND-composes at the SQL level instead. Every
 read-path consumer that already calls activity/support resolution also calls
 this (list, count, overlap-count's current selection, `findContactsForFilter`,
 list-detail aggregates, download) — capped at the same
-`MAX_RESOLVED_ID_SET_SIZE` (100k) as activity-condition resolution, thrown
+`MAX_RESOLVED_ID_SET_SIZE` (200k) as activity-condition resolution, thrown
 as a `BadRequestException` rather than silently truncated.
 
 Win-only enforcement mirrors party: `assertNoContactsMadeFilterForElectedOffice`
@@ -1218,7 +1218,7 @@ org-wide opted-out person (`ContactInteractionTextService.findOptedOutPersonIds`
 phone-list build via `findContactsForFilter`'s `excludePersonIds` param, which
 folds into whatever `id` resolution activity conditions/support status already
 produced (`ContactsService.excludePersonIdsFromResolution`). Over the
-people-db 100k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
+people-db 200k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
 skipped and logged loudly rather than blocking the send. The excluded count is
 persisted on `PeerlyPhoneList.excludedOptedOutCount` for a later UI ticket
 (ENG-10808) to surface. The materialization fallback above (re-resolving the
@@ -1420,7 +1420,7 @@ First stop for prod issues: Grafana Loki
 | Empty contacts page on dev                                     | The dev voter mart genuinely lacks person rows for many districts (district-specific, not dev-wide). Stats can exist while rows don't — warned on since ENG-10745. Cheyenne WY 82001 has dev rows                                                                                                                                                                                                                                                                                                                                                                     |
 | `VOTER_DATA_UNAVAILABLE` on an org that clearly has a district | Two different failures share that error code: `resolveDistrictInfoFromOrg` found no district at all, **or** the district resolved but has no `DistrictStats` row (`fetchStatsByDistrictId`, and the sample read on the poll-send path). Deliberate — they're the same user-facing state, and callers gate on the code, not the cause. The code lives in `shared/constants/voterData.consts.ts` rather than here, because `peopleDb/` raises it too and must not depend on contacts. Check `gp_api_district_stats` for the resolved `districtId` to tell the two apart |
 | Typeahead empty / slow                                         | Name search is `lower(col) LIKE` over the mart (`buildSearchSql`), with a 3-character minimum on substring tokens. A slow one is warehouse queue/startup time — check the `people-db voter read` log line's `dbxMs` and `statementIds` against Databricks query history (see `src/peopleDb/CLAUDE.md`)                                                                                                                                                                                                                                                                |
-| Filter 400 "too many ids"                                      | The 100k id-set cap in `src/peopleDb`'s filter pipeline — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                                                                                                                                                                                                                                                                                                                     |
+| Filter 400 "too many ids"                                      | The 200k id-set cap in `src/peopleDb`'s filter pipeline — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                                                                                                                                                                                                                                                                                                                     |
 | Assistant refuses / weird tool behavior                        | Serve: tools register whenever `contacts` + the organization resolve, no flag. Win: the same, except a campaign whose row says `isPro: false` gets counting, the catalog, sample sizing and the text card but not `list_precincts` or `crud_saved_filters` (their services refuse it), and the card's button is its Pro gate. Locked-filter 409 surfaces as an explanation                                                                                                                                                                                            |
 | Feed missing legacy Win outreach rows                          | Legacy `VoterOutreachActivity` rows render only during the sunset and only for Win; new channels need a feed-mapping branch in `ContactEngagementService` + a `ConstituentActivity` variant                                                                                                                                                                                                                                                                                                                                                                           |
 
