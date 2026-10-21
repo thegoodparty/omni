@@ -378,11 +378,6 @@ export const EVENTS = {
     // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
     // the "viewed" steps below were the gap.
     Compliance: {
-      BannerViewed: 'Pro Upgrade - Banner Viewed',
-      BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
-      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
-      TextingSetupBannerStart:
-        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       // The funnel's first step: carries `source`, `channel` and `cta`.
       FlowStarted: 'Pro Upgrade - Flow Started',
@@ -422,6 +417,7 @@ export const EVENTS = {
       BannerClicked: 'Pro Upgrade - Banner Clicked',
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
+      ScheduleBannerClicked: '10DLC - Schedule Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
