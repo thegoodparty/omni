@@ -571,9 +571,10 @@ describe('regression signals', () => {
           signals: {
             qualityLabel: "CAN'T SAY",
             handling: {
-              regressions: 5,
-              improvements: 0,
-              pWorse: 0.03125,
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
               pBetter: 1,
               says: 'WORSE',
             },
@@ -585,8 +586,9 @@ describe('regression signals', () => {
     const heading = lines.indexOf(`### ${score.agentId} \u2014 WORSE`)
     expect(heading).toBeGreaterThan(-1)
     expect(lines[heading + 2]).toBe(
-      '**WORSE on condition handling: 5 regressions, 0 improvements ' +
-        "(p = 0.031).** The quality comparison alone says CAN'T SAY.",
+      '**WORSE on condition handling: the base met its checks in 16 of 24 ' +
+        'runs, the candidate in 9 (p = 0.008).** The quality comparison ' +
+        "alone says CAN'T SAY.",
     )
   })
 
@@ -600,9 +602,10 @@ describe('regression signals', () => {
           signals: {
             qualityLabel: 'WORSE',
             handling: {
-              regressions: 5,
-              improvements: 0,
-              pWorse: 0.03125,
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
               pBetter: 1,
               says: 'WORSE',
             },
