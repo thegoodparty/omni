@@ -23,9 +23,14 @@ const CookiesSnackbar = (): React.JSX.Element | null => {
     setShowBanner(false)
   }
   return (
-    // Above the z-[55] chat dock bar it shares the bottom edge with and every
-    // sheet and overlay layer, but below the z-[2000] confirm dialogs.
-    <div className="fixed bottom-4 z-[1900] flex justify-center w-full pointer-events-none">
+    // Rides above the dashboard's FooterChatBar, which publishes its height as
+    // --chat-dock-height, instead of stacking over it. z-[45] clears the z-30
+    // bar and z-40 page bars but stays under z-50 sheets and dialogs, so it
+    // never covers the controls at the bottom of an open drawer.
+    <div
+      className="fixed z-[45] flex justify-center w-full pointer-events-none"
+      style={{ bottom: 'calc(var(--chat-dock-height, 0px) + 1rem)' }}
+    >
       <div
         className="bg-tertiary-light text-tertiary-dark p-4 flex max-w-[440px] mx-8 rounded-lg pointer-events-auto"
         data-testid="cookie-snackbar"
