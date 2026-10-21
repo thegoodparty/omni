@@ -297,6 +297,13 @@ export function createService({
   // ~600ms, and webapp server renders hit Vercel's function timeout.
   const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
+  // Node sizes its old-space cap from the container but keeps it near half of
+  // it: on dev's 2 GiB task the cap is ~1 GiB, and the release E2E drove the
+  // task into `FATAL ERROR: ... JavaScript heap out of memory` (exit 134) at
+  // ~940 MB heap, which ECS answers with 30-60s of gateway 502/503 while the
+  // replacement boots (ENG-11422). Cap the heap at 75% of the task instead,
+  // leaving the rest for stacks, buffers and native memory.
+  const maxOldSpaceMb = Math.floor(parseInt(memory) * 0.75)
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
     family: `gp-${stage}-fargateCluster-gp-api-${stage}`,
@@ -331,12 +338,16 @@ export function createService({
               protocol: 'tcp',
             },
           ],
-          environment: sortBy(Object.entries(env), [([name]) => name]).map(
-            ([name, value]) => ({
-              name,
-              value,
+          environment: sortBy(
+            Object.entries({
+              NODE_OPTIONS: `--max-old-space-size=${maxOldSpaceMb}`,
+              ...env,
             }),
-          ),
+            [([name]) => name],
+          ).map(([name, value]) => ({
+            name,
+            value,
+          })),
           logConfiguration: {
             logDriver: 'awslogs',
             options: {
