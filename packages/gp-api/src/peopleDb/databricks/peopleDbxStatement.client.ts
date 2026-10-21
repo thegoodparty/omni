@@ -19,7 +19,7 @@ const STATEMENT_TIMEOUT_MS = 60_000
 // The API's hard ceiling on the statement field, measured against it directly:
 // a 20MB statement is rejected with "must not exceed a length of 16777216
 // bytes". Reachable because id sets are inlined rather than bound — the
-// contract permits 100k ids per set, and a request carrying `filters.id` plus
+// contract permits 200k ids per set, and a request carrying `filters.id` plus
 // both id-override pairs can exceed it.
 const MAX_STATEMENT_BYTES = 16_777_216
 

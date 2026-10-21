@@ -700,15 +700,15 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'skips the scrub and still sends when the opt-out set exceeds the ' +
       'people-api id-filter cap',
-    { timeout: 30_000 },
+    { timeout: 60_000 },
     async () => {
       await seedWinCampaign()
-      // A single INSERT ... SELECT is far cheaper than materializing 100k+
+      // A single INSERT ... SELECT is far cheaper than materializing 200k+
       // rows client-side; only person_id needs to vary per row.
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'cap-person-' || gen_series, now(), now()
-        FROM generate_series(1, 100001) AS gen_series
+        FROM generate_series(1, 200001) AS gen_series
       `
 
       const post = stubPeopleApi([personPayload()])
@@ -735,7 +735,7 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'drops the opt-out merge (not the send) when it would combine with an ' +
       'existing notIn resolution past the people-api id-filter cap',
-    { timeout: 45_000 },
+    { timeout: 90_000 },
     async () => {
       await seedWinCampaign()
       // supportStatus: ['unknown'] resolves to a notIn of every known
@@ -749,12 +749,12 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_door_knock (id, organization_slug, person_id, occurred_at, outcome, support_answer)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '10000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), 'answered', 'supporter'
-        FROM generate_series(1, 60000) AS gen_series
+        FROM generate_series(1, 120000) AS gen_series
       `
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '20000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), now()
-        FROM generate_series(1, 50000) AS gen_series
+        FROM generate_series(1, 90000) AS gen_series
       `
 
       const post = stubPeopleApi([personPayload()])
@@ -770,10 +770,10 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       const sentNotIn = (
         post.mock.calls[0]?.[0].filters.filterOperators.id?.values ?? []
       ).map(String)
-      // The support-status notIn resolution rode through unchanged (60k);
+      // The support-status notIn resolution rode through unchanged (120k);
       // the opt-out ids did NOT get unioned in — proof the merge was
       // dropped rather than sent past the cap or blocking the send.
-      expect(sentNotIn).toHaveLength(60_000)
+      expect(sentNotIn).toHaveLength(120_000)
       expect(sentNotIn.some((id) => id.startsWith('20000000-'))).toBe(false)
     },
   )
