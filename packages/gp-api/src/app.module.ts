@@ -27,6 +27,7 @@ import { ErrorLoggerModule } from '@/errorLogger/errorLogger.module'
 import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
+import { StallProfilerService } from '@/observability/stallProfiler/stallProfiler.service'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { OutreachProposalModule } from '@/outreachProposal/outreachProposal.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
@@ -157,6 +158,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     .concat(process.env.NODE_ENV === 'test' ? [] : [QueueConsumerModule]),
   providers: [
     SessionsService,
+    StallProfilerService,
     {
       provide: APP_GUARD,
       useClass: SessionGuard,

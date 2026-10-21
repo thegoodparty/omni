@@ -550,6 +550,13 @@ export = async () => {
       }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      // Temporary: attributes event-loop stalls to code while gp-api takes on
+      // election-api's traffic. Turn off once the stalls are explained.
+      STALL_PROFILER_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'true',
+      }),
       // Clerk instance public key, so tokens verify without fetching Clerk's
       // JWKS on the request path. Public, so it lives here and not in the
       // secret. Previews use the dev Clerk instance.
