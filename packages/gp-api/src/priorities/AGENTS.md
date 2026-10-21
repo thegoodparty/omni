@@ -34,6 +34,7 @@ invisible, so it is not flag-gated.
 - **The model.** `LlmService.jsonCompletion`, 20 replies a call, each sent
   under its position in the batch, never a person id. A failed call or an
   off-vocabulary code leaves those replies uncoded for the next pass.
+- **Where it shows.** On the constituent's record (`contactEngagement/`): each coded text, call or knock in the activity feed names its priority and the answer, and `GET /v1/contact-engagement/:id/priority-answers` lists them all.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the

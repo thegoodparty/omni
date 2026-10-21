@@ -334,7 +334,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     // appears twice.
     expect(
       screen.getAllByText(
-        'No campaigns yet. Pick a channel above to create your first.',
+        'No outreach yet. Pick a channel above to send your first.',
       ),
     ).toHaveLength(2)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

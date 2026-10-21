@@ -8,6 +8,7 @@ import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/tu
 import { TurfSummaryRow } from 'app/dashboard/door-knocking/native/TurfSummaryRow'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
 // One row per turf in the campaign, under an Add turf button that opens the
@@ -62,7 +63,7 @@ export const CampaignTurfList = ({
 
   return (
     <DetailsSection
-      title="Turfs in this campaign"
+      title={getOutreachHistoryCopy(isServe).turfsSection}
       action={
         canAddTurfs && turfs.length > 0 ? (
           <Button asChild size="small" variant="outline">
