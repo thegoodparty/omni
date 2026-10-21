@@ -15,14 +15,13 @@ to back. Freshness is one pipeline run plus the wait for the next, a few
 minutes. Timestamps without time zone (every Prisma `DateTime`) land as
 strings; the typed views cast them back to `TIMESTAMP`.
 
-| Piece                                                              | Where                                                                         | Applied by                  |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------------------- |
-| `rds.logical_replication=1` cluster parameter group                | `deploy/index.ts` (`logicalReplication`)                                      | Pulumi, on merge            |
-| Slot and WAL alerts, both clusters                                 | `deploy/components/alerting/lakeflow-replication-alerts.ts`                   | Pulumi prod stack (Grafana) |
-| Publication, `databricks_lakeflow` role, replica identity, trigger | `prisma/schema/migrations/20261021120000_add_databricks_lakeflow_publication` | `prisma migrate deploy`     |
-| Replication slot                                                   | step 5                                                                        | DB admin                    |
-| Unity Catalog connection                                           | `create-connection.sh`                                                        | Databricks admin            |
-| Schemas, gateway, pipeline, loop job, typed-views job              | this bundle                                                                   | Databricks admin            |
+| Piece                                                              | Where                                                                         | Applied by              |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------- |
+| `rds.logical_replication=1` cluster parameter group                | `deploy/index.ts` (`logicalReplication`)                                      | Pulumi, on merge        |
+| Publication, `databricks_lakeflow` role, replica identity, trigger | `prisma/schema/migrations/20261021120000_add_databricks_lakeflow_publication` | `prisma migrate deploy` |
+| Replication slot                                                   | step 5                                                                        | DB admin                |
+| Unity Catalog connection                                           | `create-connection.sh`                                                        | Databricks admin        |
+| Schemas, gateway, pipeline, loop job, typed-views job              | this bundle                                                                   | Databricks admin        |
 
 The 5432 ingress from the Databricks workspace VPC (172.16.0.0/16, peering
 `pcx-013299c506ffd3395`) already exists on both clusters' security groups
@@ -209,7 +208,9 @@ databricks bundle run -t dev ingestion --restart --full-refresh-all             
 Refresh everything after the slot is lost or recreated, or after 25 days
 without a successful run (staged changes are deleted after 25 to 30 days).
 
-**Lag.** In Postgres:
+**Slot and change-log size.** Nothing alerts on these yet, so check them by
+hand, daily at first. Automated alerting is a follow-up once the Grafana
+CloudWatch data source is fixed. In Postgres:
 
 ```sql
 SELECT slot_name, active, wal_status,
@@ -217,7 +218,13 @@ SELECT slot_name, active, wal_status,
 FROM pg_replication_slots;
 ```
 
-In Databricks, the latest runs of the ingestion pipeline:
+Expect `active = t` and `pending` in megabytes, not gigabytes. In the AWS
+console (CloudWatch, `AWS/RDS`, by `DBClusterIdentifier`), watch
+`OldestReplicationSlotLag`, `ReplicationSlotDiskUsage` and
+`TransactionLogsDiskUsage` on the writer. Steady growth means the slot is not
+being read.
+
+**Lag.** In Databricks, the latest runs of the ingestion pipeline:
 
 ```sql
 SELECT origin.update_id, min(timestamp) AS started, max(timestamp) AS ended,
@@ -232,14 +239,14 @@ Errors: the same tables (`gateway_event_log`, `ingestion_event_log`),
 
 ## Failure modes
 
-| Failure                                                                    | Detected by                                                                                                          | Fix                                                                                                            |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Gateway stopped; Aurora keeps change log for the unread slot without limit | `lakeflow-<env>-slot-lag`, `-slot-disk`, `-wal-disk` alerts in #dev-alerts; gateway failure email; slot `active = f` | `databricks bundle run -t <env> gateway --restart --no-wait`. If retiring the mirror, drop the slot            |
-| Ingestion runs failing                                                     | Job and pipeline failure emails                                                                                      | Read `ingestion_event_log` errors                                                                              |
-| Slot lost (failover per Databricks docs, manual drop, major upgrade)       | "slot not found" in the event logs; slot missing in Postgres                                                         | Recreate the slot (step 5), restart the gateway, full refresh everything                                       |
-| Rename, retype or primary key change                                       | Schema change in `ingestion_event_log`                                                                               | Auto full refresh; by hand if it has not run within the hour                                                   |
-| Table created by a role other than `gpuser`                                | `WARNING ... was not added to publication` when it is created                                                        | `ALTER TABLE ... REPLICA IDENTITY FULL` and `ALTER PUBLICATION databricks_lakeflow ADD TABLE ...` as its owner |
-| TLS or network                                                             | `PKIX path building failed` or timeouts in `gateway_event_log`                                                       | Check the connection's certificate (step 4) and the 172.16.0.0/16 ingress                                      |
+| Failure                                                                    | Detected by                                                                               | Fix                                                                                                            |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Gateway stopped; Aurora keeps change log for the unread slot without limit | Gateway failure email; slot `active = f` or growing size in the manual check (Operations) | `databricks bundle run -t <env> gateway --restart --no-wait`. If retiring the mirror, drop the slot            |
+| Ingestion runs failing                                                     | Job and pipeline failure emails                                                           | Read `ingestion_event_log` errors                                                                              |
+| Slot lost (failover per Databricks docs, manual drop, major upgrade)       | "slot not found" in the event logs; slot missing in Postgres                              | Recreate the slot (step 5), restart the gateway, full refresh everything                                       |
+| Rename, retype or primary key change                                       | Schema change in `ingestion_event_log`                                                    | Auto full refresh; by hand if it has not run within the hour                                                   |
+| Table created by a role other than `gpuser`                                | `WARNING ... was not added to publication` when it is created                             | `ALTER TABLE ... REPLICA IDENTITY FULL` and `ALTER PUBLICATION databricks_lakeflow ADD TABLE ...` as its owner |
+| TLS or network                                                             | `PKIX path building failed` or timeouts in `gateway_event_log`                            | Check the connection's certificate (step 4) and the 172.16.0.0/16 ingress                                      |
 
 A major Postgres upgrade needs every logical slot dropped first, a parameter
 group in the new family (`aurora-postgresql17`) in `deploy/index.ts`, then the

@@ -151,13 +151,10 @@ export type Alert = {
    *   anything gp-api emits. Deliberately a separate datasource from `metric`
    *   so that a rule watching our Loki spend, or watching whether alerting
    *   works at all, does not depend on the thing it is watching.
-   * - `cloudwatch`: A CloudWatch Metrics Insights query (`SELECT MAX(...) FROM
-   *   SCHEMA(...) WHERE ...`) against the production AWS account, for AWS
-   *   metrics nothing else exports, such as the Aurora replication slot ones.
    *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric' | 'usage' | 'cloudwatch'
+  type: 'log' | 'metric' | 'usage'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *
@@ -302,16 +299,6 @@ export type Alert = {
    * `alerting-rule-evaluations-failing` and the rule's own health in Grafana.
    */
   execErrState?: 'Alerting' | 'KeepLast'
-
-  /**
-   * What the rule does when its query returns no data. Defaults to `OK`, which
-   * is right for the Loki rules: a route with no errors produces no series.
-   *
-   * `Alerting` is for a rule whose metric is always published, so an empty
-   * result can only mean the query or the datasource broke and the rule has
-   * stopped looking.
-   */
-  noDataState?: 'OK' | 'Alerting'
 
   /** Whether the alert is disabled. */
   disabled?: boolean

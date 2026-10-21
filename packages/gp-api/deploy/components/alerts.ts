@@ -2,7 +2,6 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
-import { lakeflowReplicationAlerts } from './alerting/lakeflow-replication-alerts'
 
 /**
  * Controllers deliberately left without a route alert.
@@ -1219,7 +1218,4 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Read the rule\'s own health first, then its output. `GET /api/prometheus/grafana/api/v1/rules` carries `health` and `lastError` for the rule named `gp-api door-knocking Geoapify credits per minute`, and on 2026-09-29 that field named the cause outright: `remote write failed: failed to read dataframe / unsupported time series type "timeseries-multi"`. Two different faults produce that message. Either the query returns more than one series — check it in Explore, it has to be one unlabelled series — or it ran as a range query and returned a point per step, which is what happens when `queryType: "instant"` is missing from the model JSON in deploy/components/alerting/provisioned-alerts.ts. A `health: ok` with no output at all is a third state, and the original one: the writer failing silently, which is why this alert watches the metric and not the rule.',
     ].join('\n\n'),
   },
-  // Replication slot and WAL growth on both Aurora clusters while the
-  // Lakeflow Connect mirror reads them (deploy/databricks/lakeflow).
-  ...lakeflowReplicationAlerts,
 ]

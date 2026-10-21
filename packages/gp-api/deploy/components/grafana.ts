@@ -46,7 +46,6 @@ const datasourceConfig = {
   log: { uid: LOKI_DATASOURCE_UID, queryType: 'instant' },
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
   usage: { uid: USAGE_DATASOURCE_UID, queryType: 'instant' },
-  cloudwatch: { uid: CLOUDWATCH_DATASOURCE_UID, queryType: '' },
 } as const
 
 /**
@@ -85,21 +84,8 @@ export const alertTimeRange = (alert: Alert) => {
  * Exported so the tests can assert what Loki is actually asked to run, which
  * is the only place the instant-versus-range decision is visible.
  */
-export const alertQueryModel = (alert: Alert, environment: string) => {
-  if (alert.type === 'cloudwatch') {
-    return JSON.stringify({
-      refId: 'A',
-      queryMode: 'Metrics',
-      region: 'us-west-2',
-      // Metrics Insights written as SQL: metricQueryType 1 is Insights and
-      // metricEditorMode 1 is the code editor, which reads `sqlExpression`.
-      metricQueryType: 1,
-      metricEditorMode: 1,
-      sqlExpression: alert.expr.replace(/\$ENV/g, environment),
-      period: '60',
-    })
-  }
-  return JSON.stringify({
+export const alertQueryModel = (alert: Alert, environment: string) =>
+  JSON.stringify({
     expr: alert.expr.replace(/\$ENV/g, environment),
     refId: 'A',
     // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
@@ -118,7 +104,6 @@ export const alertQueryModel = (alert: Alert, environment: string) => {
       ? { queryType: 'instant', instant: true, range: false }
       : {}),
   })
-}
 
 /**
  * The snapshot, read rather than imported.
@@ -650,7 +635,7 @@ export const createGrafanaResources = async ({
       // that metric's existence directly. That is deliberately one page rather
       // than `NoData -> Alerting` on five rules, which would reproduce the
       // 2026-09-28 flood in miniature.
-      noDataState: alert.noDataState ?? 'OK',
+      noDataState: 'OK',
       execErrState: alert.execErrState ?? 'Alerting',
       annotations: {
         summary: buildAlertSummary(alert, environment),

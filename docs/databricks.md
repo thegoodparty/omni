@@ -46,6 +46,8 @@ Connect CDC, a few minutes behind:
 - **Renaming or retyping a column re-copies that table.** Auto full refresh
   handles it; the table is stale while it reloads.
 - The mirror holds users' personal data, so access is granted per principal.
+- **Nothing alerts on replication slot growth yet.** Check the slot and
+  change-log size by hand (README, Operations).
 
 Setup, runbook, lag checks and teardown:
 `packages/gp-api/deploy/databricks/lakeflow/README.md`.
