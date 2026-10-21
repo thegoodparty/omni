@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+import { PICKED_NEXT_STEPS_LEAD } from '@goodparty_org/contracts'
 
 // The segmentation method is held to non-prod deploys, so the suite drives
 // that gate directly rather than depending on the runner's environment.
@@ -411,6 +412,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Never introduce yourself')
     expect(prompt).not.toContain('introduce yourself as their Chief of Staff')
     expect(prompt).not.toContain('start of your working relationship')
+  })
+
+  it('works through several picked next steps in order, carrying the rest', () => {
+    for (const isFirstConversation of [true, false]) {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ isFirstConversation }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        `starts with "${PICKED_NEXT_STEPS_LEAD}" followed by a numbered list`,
+      )
+      expect(prompt).toContain('in the order listed, one at a time')
+      expect(prompt).toContain('The last item may be in their own words')
+      expect(prompt).toContain('you will come back to the others')
+      expect(prompt).toContain(
+        'start the next one on the list without being asked',
+      )
+    }
   })
 
   it('lists active priorities in the prompt', () => {

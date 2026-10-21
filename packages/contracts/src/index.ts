@@ -1848,3 +1848,8 @@ export {
   EXPLAIN_CIVIC_PANEL_MARKER,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'
+
+export {
+  PICKED_NEXT_STEPS_LEAD,
+  pickedNextStepsMessage,
+} from './chats/ChiefOfStaffNextSteps'
