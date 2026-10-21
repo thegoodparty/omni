@@ -186,9 +186,40 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
   })
 
   it('does not touch Stripe when isPro is being set to true', async () => {
+    findUniqueOrThrow.mockResolvedValue({ id: 42, isPro: false })
+
     await buildService().update(42, { isPro: true })
 
-    expect(findUniqueOrThrow).not.toHaveBeenCalled()
     expect(cancelSubscription).not.toHaveBeenCalled()
+  })
+
+  it('grants the free-texts offer when admin makes a campaign Pro for the first time (ENG-11344)', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 42,
+      isPro: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+
+    await buildService().update(42, { isPro: true })
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: expect.objectContaining({ isPro: true, hasFreeTextsOffer: true }),
+    })
+  })
+
+  it.each([
+    ['already Pro', { isPro: true, freeTextsOfferRedeemedAt: null }],
+    [
+      'offer already redeemed',
+      { isPro: false, freeTextsOfferRedeemedAt: new Date() },
+    ],
+  ])('does not grant the offer when %s', async (_name, existing) => {
+    findUniqueOrThrow.mockResolvedValue({ id: 42, ...existing })
+
+    await buildService().update(42, { isPro: true })
+
+    const data = update.mock.calls[0]?.[0].data
+    expect(data).not.toHaveProperty('hasFreeTextsOffer')
   })
 })
