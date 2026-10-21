@@ -40,6 +40,8 @@ const ORG_CONTACT_LINK_COLUMNS = [
   ['revoked_at', 'timestamp'],
 ] as const
 
+const MERGE_PARAM_CHARS = 900_000
+
 type MirrorColumns = ReadonlyArray<readonly [string, string]>
 type MirrorValue = string | number | null
 
@@ -132,25 +134,40 @@ export class PocMirrorShimService implements OnModuleInit {
     return this.tablesReady
   }
 
+  // Databricks caps a statement's bound parameters at 1,048,576 characters,
+  // so the rows go over in batches under that.
   private async merge(
     table: string,
     columns: MirrorColumns,
     rows: Record<string, MirrorValue>[],
   ) {
-    if (rows.length === 0) return
-    const bag = createBag()
     const rowType = `array<struct<${columns
       .map(([name, type]) => `${name}:${type}`)
       .join(',')}>>`
-    const source = bag.bind(JSON.stringify(rows))
-    await this.client.query({
-      sql:
-        `MERGE INTO ${DEFAULT_MIRROR_SCHEMA}.${table} t` +
-        ` USING (SELECT inline(from_json(${source}, '${rowType}'))) s` +
-        ' ON t.id = s.id' +
-        ' WHEN MATCHED THEN UPDATE SET *' +
-        ' WHEN NOT MATCHED THEN INSERT *',
-      params: bag.params,
-    })
+    const batches: string[][] = [[]]
+    let batchSize = 0
+    for (const row of rows) {
+      const json = JSON.stringify(row)
+      if (batchSize + json.length > MERGE_PARAM_CHARS && batchSize > 0) {
+        batches.push([])
+        batchSize = 0
+      }
+      batches[batches.length - 1]?.push(json)
+      batchSize += json.length + 1
+    }
+    for (const batch of batches) {
+      if (batch.length === 0) continue
+      const bag = createBag()
+      const source = bag.bind(`[${batch.join(',')}]`)
+      await this.client.query({
+        sql:
+          `MERGE INTO ${DEFAULT_MIRROR_SCHEMA}.${table} t` +
+          ` USING (SELECT inline(from_json(${source}, '${rowType}'))) s` +
+          ' ON t.id = s.id' +
+          ' WHEN MATCHED THEN UPDATE SET *' +
+          ' WHEN NOT MATCHED THEN INSERT *',
+        params: bag.params,
+      })
+    }
   }
 }
