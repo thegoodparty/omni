@@ -10,6 +10,7 @@ import {
 import {
   deliverStripeEvent,
   mockRecords,
+  overrideCvValidation,
   peerlyAction,
   runJob,
 } from 'src/helpers/vendor-mocks.helper'
@@ -184,7 +185,12 @@ const payWithTestCard = async (page: Page): Promise<void> => {
   // submit disabled while checked. It is absent on some runner geolocations.
   const saveCheckbox = stripeFrame.locator('#payment-linkOptInInput')
   if (await saveCheckbox.count()) {
-    await saveCheckbox.uncheck()
+    await expect(async () => {
+      if (await saveCheckbox.isChecked()) {
+        await saveCheckbox.click({ timeout: 5_000 })
+      }
+      await expect(saveCheckbox).not.toBeChecked({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
 
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
@@ -231,7 +237,12 @@ const playAgentThroughSubmit = async (
   expect(candidate, 'domain search returned no candidates').toBeDefined()
   const domainName = candidate!.domain
 
-  await client.post('/v1/domains/purchase', { domain: domainName, maxPrice })
+  // The route holds the request open until the order completes (~30s on the
+  // mock), longer than some proxies wait. Purchase is idempotent per campaign,
+  // so a gateway timeout is safe to retry.
+  await withGatewayRetry('POST /v1/domains/purchase', () =>
+    client.post('/v1/domains/purchase', { domain: domainName, maxPrice }),
+  )
 
   // The purchase call returns once the Vercel mock completes the order (30s
   // after it is placed). A `submitted` domain counts as registered, so the
@@ -251,6 +262,9 @@ const playAgentThroughSubmit = async (
   )
   expect(live.verified).toBe(true)
 
+  // The pre-submission gate fetches the filing URL live and asks an LLM, which
+  // a fixture candidate can't pass; stand in for staff's override.
+  await overrideCvValidation(client)
   await client.post('/v1/campaigns/tcr-compliance/submit-to-peerly')
   expect((await getComplianceState(client)).stage).toBe('awaiting_pin')
 

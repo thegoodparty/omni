@@ -12,7 +12,10 @@ import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
 import { useTestService } from '@/test-service'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+const { envNonProd, vendorMode } = vi.hoisted(() => ({
+  envNonProd: { value: true },
+  vendorMode: { value: 'mock' },
+}))
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
@@ -20,6 +23,9 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
     ...actual,
     get IS_NON_PROD_DEPLOY() {
       return envNonProd.value
+    },
+    get VENDOR_MODE() {
+      return vendorMode.value
     },
   }
 })
@@ -710,5 +716,103 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
+  const OVERRIDE_ROUTE = '/v1/test-fixtures/vendor-mocks/cv-validation/override'
+
+  const seedTcr = (campaignId: number) =>
+    service.prisma.tcrCompliance.create({
+      data: {
+        campaignId,
+        ein: '12-3456789',
+        postalAddress: '1 Main St',
+        committeeName: 'Fixture Committee',
+        websiteDomain: 'example.com',
+        filingUrl: 'https://example.com/filing',
+        phone: '5555555555',
+        email: 'fixture@example.com',
+        officeLevel: OfficeLevel.local,
+      },
+    })
+
+  const overriddenAt = async (campaignId: number) =>
+    (
+      await service.prisma.tcrCompliance.findUniqueOrThrow({
+        where: { campaignId },
+      })
+    ).cvValidationOverriddenAt
+
+  beforeEach(async () => {
+    envNonProd.value = true
+    vendorMode.value = 'mock'
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  it("stamps the caller's own TcrCompliance record in mock mode", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(await overriddenAt(campaign.id)).toBeInstanceOf(Date)
+  })
+
+  it("leaves another user's campaign untouched", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+    const otherUser = await service.prisma.user.create({
+      data: { email: `other-${Math.random()}@test.goodparty.org` },
+    })
+    const other = await seedCampaign(otherUser.id)
+    await seedTcr(other.id)
+
+    await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(await overriddenAt(campaign.id)).toBeInstanceOf(Date)
+    expect(await overriddenAt(other.id)).toBeNull()
+  })
+
+  it('404s in live mode and writes nothing', async () => {
+    vendorMode.value = 'live'
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(await overriddenAt(campaign.id)).toBeNull()
+  })
+
+  it('404s on a prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(await overriddenAt(campaign.id)).toBeNull()
   })
 })
