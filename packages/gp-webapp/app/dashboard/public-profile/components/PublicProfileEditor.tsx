@@ -493,11 +493,10 @@ function LoadedEditor({
         <div
           role="status"
           data-testid="draft-notice"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-sm"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info bg-info-background p-4 text-sm"
         >
           <p>
-            Your profile is a draft. Saving does not make it public: your
-            answers and photo will not show on your goodparty.org/people page
+            Saved changes won&apos;t show on your goodparty.org/people page
             until you publish.
           </p>
           <Button

@@ -740,6 +740,11 @@ describe('PublicProfileEditor — mutations', () => {
   })
 
   it('tells a draft owner the profile is not public and publishes from the notice', async () => {
+    mockedRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: profile({ publishedAt: '2026-01-01T00:00:00.000Z' }),
+    } as never)
     render(
       <PublicProfileEditor
         product="win"
@@ -749,7 +754,7 @@ describe('PublicProfileEditor — mutations', () => {
       />,
     )
     expect(screen.getByTestId('draft-notice')).toHaveTextContent(
-      /saving does not make it public/i,
+      /won't show on your goodparty.org\/people page until you publish/i,
     )
     await userEvent.click(
       screen.getByRole('button', { name: /publish profile/i }),
@@ -760,6 +765,7 @@ describe('PublicProfileEditor — mutations', () => {
         {},
       ),
     )
+    await waitFor(() => expect(screen.queryByTestId('draft-notice')).toBeNull())
   })
 
   it('shows no draft notice once published', () => {
