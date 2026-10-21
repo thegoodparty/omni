@@ -301,6 +301,13 @@ which for a whole district is an unbounded materialization, so
 `DatabricksVoterPackService` reads CSV through external links and parses one
 chunk at a time into the encoder.
 
+The encoder still keeps every person (~65 bytes of heap each), so a pack is
+refused with `VoterPackTooLargeError` when the export reports more than
+`MAX_PACK_ROWS` (3M) rows, before any chunk is read. A statewide district on
+`constituents` is ~21.5M rows, and building one exhausted the heap of the
+gp-api task serving it. The door-knocking stream logs that refusal at `warn`,
+outside the paging build-failure event.
+
 ### The resident projection is wide, and that is deliberate
 
 `residents()` returns eleven demographic columns (`Voter_Status`,
