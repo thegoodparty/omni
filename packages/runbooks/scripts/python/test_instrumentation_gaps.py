@@ -1997,3 +1997,162 @@ def test_prior_rulings_are_not_regenerated_for_an_already_closed_entry():
         {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
     ]
     assert ig.build_prior_rulings(state, surfaces, set(), date(2026, 9, 28)) == {}
+
+
+# --- real questions + extend-existing (DATA-2676) -------------------------------
+
+_SEM = """version: 2
+semantic_models:
+  - name: users
+    metrics: []
+metrics:
+  - name: live_metric
+    config:
+      meta:
+        anchored_on:
+          - event: "Live Event"
+  - name: old_metric
+    config:
+      meta:
+        anchored_on:
+          - event: "Old Event"
+            era: historical
+"""
+
+
+def _questions_env(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text(
+        "behaviors:\n"
+        "  - id: live_q\n"
+        "    question: How many export?\n"
+        "    surfaces: []\n"
+        "  - id: old_q\n"
+        "    question: Old question?\n"
+        "    superseded: [{event: X}]\n"
+        "    surfaces: []\n"
+    )
+    sem = tmp_path / "sem"
+    sem.mkdir()
+    (sem / "sem_analytics__users_win.yml").write_text(_SEM)
+    return wl, sem
+
+
+def test_load_real_questions_reads_live_behaviors_and_watched_metrics(tmp_path):
+    wl, sem = _questions_env(tmp_path)
+    qs = ig.load_real_questions(wl, sem)
+    assert [q["id"] for q in qs] == ["live_q", "metric:live_metric"]
+    assert qs[0]["question"] == "How many export?"
+    assert qs[1]["question"] == "OKR metric live_metric, counted from: Live Event"
+
+
+def test_load_real_questions_never_raises_on_missing_sources(tmp_path):
+    assert ig.load_real_questions(tmp_path / "none.yaml", tmp_path / "nosem") == []
+
+
+def test_questions_prompt_section_is_empty_without_questions():
+    assert ig.questions_prompt_section([]) == ""
+    section = ig.questions_prompt_section([{"id": "q1", "question": "Why?"}])
+    assert "q1" in section and "Why?" in section
+
+
+def test_judge_system_prompt_places_questions_before_the_instructions():
+    sp = ig.judge_system_prompt("RUBRIC", "", "Q-SECTION-MARKER")
+    assert sp.index("Q-SECTION-MARKER") < sp.index("Copy each id verbatim")
+    assert "answers_question" in sp
+
+
+def test_judge_verdict_defaults_keep_old_verdicts_valid():
+    old = {"results": [{"id": "a", "is_gap": True, "rubric_rule": "r",
+                        "dashboard_question": "q", "rank": 1, "reason": "x"}]}
+    [v] = ig.JudgeBatch.model_validate(old).model_dump()["results"]
+    assert v["answers_question"] == "" and v["fix"] == "new_event"
+    assert v["extend_event"] == "" and v["extend_property"] == ""
+
+
+def test_judge_verdict_rejects_an_unknown_fix():
+    import pydantic
+    bad = {"results": [{"id": "a", "is_gap": True, "rubric_rule": "r",
+                        "dashboard_question": "q", "rank": 1, "reason": "x", "fix": "other"}]}
+    with pytest.raises(pydantic.ValidationError):
+        ig.JudgeBatch.model_validate(bad)
+
+
+def test_nearby_event_refs_reads_sibling_files_and_caps(tmp_path):
+    d = tmp_path / "packages/gp-webapp/app/x"
+    d.mkdir(parents=True)
+    (d / "C.tsx").write_text("const C = () => <form />\n")
+    (d / "useThing.ts").write_text(
+        "trackEvent(EVENTS.Outreach.CampaignCompleted)\ntrackEvent(EVENTS.Outreach.A)\n")
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx") == [
+        "EVENTS.Outreach.A", "EVENTS.Outreach.CampaignCompleted"]
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx", cap=1) == [
+        "EVENTS.Outreach.A"]
+
+
+def test_build_judge_messages_carries_nearby_events():
+    msgs = ig.build_judge_messages([{"id": "a", "surface_type": "form_submit",
+                                     "location": "a.tsx", "nearby_events": ["EVENTS.X.Y"]}])
+    assert '"nearby_events": [' in msgs[0]["content"]
+
+
+def test_every_judge_prompt_call_site_passes_questions():
+    """Same guard as the gotchas one: a judgment path that drops the questions silently
+    marks every gap low value, which reads as a quiet week rather than a broken one."""
+    import ast
+    import inspect
+
+    watched = {"judge_system_prompt", "judge_all", "judge_candidates", "run_judgment"}
+    offenders = []
+    for node in ast.walk(ast.parse(inspect.getsource(ig))):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", getattr(node.func, "id", None))
+        if name not in watched:
+            continue
+        passes = any(k.arg == "questions" for k in node.keywords) or (
+            name == "judge_system_prompt" and len(node.args) >= 3)
+        if not passes:
+            offenders.append(f"{name}() at line {node.lineno}")
+    assert not offenders, "judge prompt built without the questions:\n  " + "\n  ".join(offenders)
+
+
+def _capture_system(seen):
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    return lambda _k: _Client()
+
+
+def _one_page_repo(tmp_path):
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    return rubric
+
+
+def test_run_seed_threads_the_questions_into_the_prompt(tmp_path):
+    rubric = _one_page_repo(tmp_path)
+    wl, sem = _questions_env(tmp_path)
+    seen = {}
+    ig.run_seed(tmp_path, tmp_path / "none.yaml", tmp_path / "state.json",
+                date(2026, 7, 20), api_key="sk-ant-x", model="m", rubric_path=rubric,
+                client_factory=_capture_system(seen), watchlist_path=wl, sem_dir=sem)
+    assert "How many export?" in seen["system"]
+
+
+def test_run_sweep_threads_the_questions_into_the_prompt(tmp_path):
+    rubric = _one_page_repo(tmp_path)
+    wl, sem = _questions_env(tmp_path)
+    seen = {}
+    ig.run_sweep(tmp_path, tmp_path / "none.yaml", tmp_path / "state.json",
+                 date(2026, 7, 20), api_key="sk-ant-x", model="m", rubric_path=rubric,
+                 client_factory=_capture_system(seen), watchlist_path=wl, sem_dir=sem)
+    assert "OKR metric live_metric" in seen["system"]

@@ -34,12 +34,14 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
 
 import governance_gotchas
 import llm_judge
+import sem_anchors
 import ts_imports
 import ts_scopes
 
@@ -53,6 +55,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]  # python -> scripts -> runbooks -> packages -> omni
 DATA_DIR = HERE / "instrumentation_data"
 CONFIG_PATH = HERE / "instrumentation_gaps_config.yaml"
+WATCHLIST_PATH = HERE / "monitored_events.yaml"
 DEFAULT_STATE = DATA_DIR / "instrumentation_gaps.json"
 DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
 # Run-level counters, deliberately a sibling of DEFAULT_STATE rather than a key inside it:
@@ -117,6 +120,18 @@ class JudgeVerdict(BaseModel):
     )
     rank: int = Field(description="Priority 0-5, lower is higher priority.")
     reason: str = Field(description="One-line justification for the verdict.")
+    answers_question: str = Field(
+        default="",
+        description="The id of the listed real question this event would answer, copied "
+        "verbatim; empty when none does. Never invent one.",
+    )
+    fix: Literal["new_event", "extend"] = Field(
+        default="new_event",
+        description="extend when one property on an event in nearby_events would answer "
+        "the question instead of a new event.",
+    )
+    extend_event: str = Field(default="", description="The existing event to extend.")
+    extend_property: str = Field(default="", description="The property to add to it.")
 
 
 class JudgeBatch(BaseModel):
@@ -540,11 +555,67 @@ _JUDGE_INSTRUCTIONS = (
     "When tracked_in_hook is true, a React hook this file imports does fire events, so the "
     "surface may already be instrumented one hop away and the snippet cannot show it; weigh "
     "that as evidence, not as a verdict. "
+    "Set answers_question to the id of the listed real question this event would answer, "
+    "or leave it empty: never invent a question, and the dashboard_question you write "
+    "yourself does not count as one. When one property on an event in nearby_events would "
+    "answer the question, set fix to extend and name extend_event and extend_property "
+    "rather than proposing a new event. "
     "Copy each id verbatim. Return exactly one verdict per candidate via the tool."
 )
 
 
-def judge_system_prompt(rubric: str, gotchas: str = "") -> str:
+def load_real_questions(
+    watchlist_path: Path = WATCHLIST_PATH, sem_dir: Path = sem_anchors.VENDORED_DIR
+) -> list[dict]:
+    """The questions someone actually asked (DATA-2676): live behaviors, then every OKR
+    metric that still watches a leg. The judge's own dashboard_question is not one of
+    these, which is the point: it justifies every gap for free. Never raises; an
+    unreadable source contributes nothing."""
+    out: list[dict] = []
+    try:
+        doc = yaml.safe_load(Path(watchlist_path).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        doc = {}
+    for behavior in doc.get("behaviors") or []:
+        if behavior.get("id") and behavior.get("question") and not behavior.get("superseded"):
+            out.append({"id": str(behavior["id"]), "question": str(behavior["question"])})
+    try:
+        anchors, _refreshed = sem_anchors.load_vendored_anchors(Path(sem_dir))
+    except (OSError, ValueError, yaml.YAMLError):
+        anchors = {}
+    for metric, legs in sorted(anchors.items()):
+        watched = [leg.key for leg in legs if leg.watched]
+        if watched:
+            out.append({"id": f"metric:{metric}",
+                        "question": f"OKR metric {metric}, counted from: {', '.join(watched)}"})
+    return out
+
+
+def questions_prompt_section(questions: Sequence[Mapping]) -> str:
+    """The real-questions list as a prompt section, or "" so no empty header is sent."""
+    if not questions:
+        return ""
+    rows = "\n".join(f"- {q['id']}: {q['question']}" for q in questions)
+    return ("## Real questions\n\nThe questions people asked. A gap is worth an event "
+            "only if it answers one of these, by id.\n\n" + rows)
+
+
+_EVENT_REF = re.compile(r"\bEVENTS\.[A-Za-z_]\w*\.[A-Za-z_]\w*")
+
+
+def nearby_event_refs(repo_root: Path, location: str, cap: int = 20) -> list[str]:
+    """``EVENTS.<Group>.<Key>`` references in the candidate's directory, so the judge can
+    recommend extending one of them rather than a new event."""
+    directory = (Path(repo_root) / location).parent
+    refs: set[str] = set()
+    if directory.is_dir():
+        for path in directory.iterdir():
+            if path.is_file() and path.suffix in (".ts", ".tsx"):
+                refs.update(_EVENT_REF.findall(path.read_text(errors="replace")))
+    return sorted(refs)[:cap]
+
+
+def judge_system_prompt(rubric: str, gotchas: str = "", questions: str = "") -> str:
     """Rubric text (single-sourced from SKILL.md), the known-gotchas book, then the fixed
     judging instructions.
 
@@ -557,6 +628,8 @@ def judge_system_prompt(rubric: str, gotchas: str = "") -> str:
     section = governance_gotchas.gotchas_prompt_section(gotchas)
     if section:
         parts.append(section)
+    if questions:
+        parts.append(questions)
     parts.append(_JUDGE_INSTRUCTIONS)
     return "\n\n---\n\n".join(parts)
 
@@ -570,6 +643,7 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
             "location": c["location"],
             "snippet": c.get("snippet", ""),
             "tracked_in_hook": c.get("tracked_in_hook", False),
+            "nearby_events": c.get("nearby_events", []),
         }
         for c in candidates
     ]
@@ -609,13 +683,14 @@ make_anthropic_client = llm_judge.make_anthropic_client
 def judge_candidates(
     candidates: Sequence[dict], rubric: str, *, client, model: str,
     gotchas: str = "",
+    questions: str = "",
     max_tokens: int | None = None,
 ) -> dict[str, dict]:
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
     return llm_judge.judge_batch(
-        candidates, system=judge_system_prompt(rubric, gotchas), tool=JUDGE_TOOL,
+        candidates, system=judge_system_prompt(rubric, gotchas, questions), tool=JUDGE_TOOL,
         client=client,
         model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
         results_field="results", noun="candidates", validate=_validated_judge_batch,
@@ -625,6 +700,7 @@ def judge_candidates(
 def judge_all(
     candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25,
     gotchas: str = "",
+    questions: str = "",
 ) -> dict[str, dict]:
     """Judge candidates in bounded chunks, merging verdicts. One call per chunk keeps each
     request within the token/response budget on a whole-repo seed; the weekly run (<=25
@@ -633,7 +709,7 @@ def judge_all(
     for i in range(0, len(candidates), chunk_size):
         chunk = candidates[i : i + chunk_size]
         out.update(judge_candidates(chunk, rubric, client=client, model=model,
-                                    gotchas=gotchas))
+                                    gotchas=gotchas, questions=questions))
     return out
 
 
@@ -644,6 +720,7 @@ def run_judgment(
     model: str,
     rubric_path: Path = DEFAULT_RUBRIC_PATH,
     client_factory=make_anthropic_client,
+    questions: str = "",
 ) -> tuple[dict[str, dict], str]:
     """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
     A missing key, missing rubric, SDK/network error, or bad response all degrade to an
@@ -652,7 +729,7 @@ def run_judgment(
         candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
         message_builder=build_judge_messages,
         system_factory=lambda: judge_system_prompt(
-            load_rubric(rubric_path), governance_gotchas.load_gotchas()
+            load_rubric(rubric_path), governance_gotchas.load_gotchas(), questions
         ),
         unavailable_status="skipped: rubric unavailable",
         client_factory=client_factory,
@@ -1129,6 +1206,8 @@ def run_sweep(
     enable_judge: bool = True,
     run_state_path: Path | None = None,
     prior_rulings_path: Path | None = None,
+    watchlist_path: Path = WATCHLIST_PATH,
+    sem_dir: Path = sem_anchors.VENDORED_DIR,
 ) -> tuple[dict, list[dict], str, int, int, int, int, dict]:
     """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps →
     close entries that stopped being gaps. Returns (new_state, gaps, judgment_status,
@@ -1151,11 +1230,15 @@ def run_sweep(
     gaps = find_gaps(surfaces, tracked)
     gap_ids = {g["id"] for g in gaps}
     candidates = select_candidates(gaps, prior, limit)
+    for c in candidates:
+        c["nearby_events"] = nearby_event_refs(repo_root, c["location"])
     candidates_by_id = {c["id"]: c for c in candidates}
+    questions = load_real_questions(watchlist_path, sem_dir)
     if enable_judge:
         verdicts, status = run_judgment(
             candidates, api_key=api_key, model=model,
             rubric_path=rubric_path, client_factory=client_factory,
+            questions=questions_prompt_section(questions),
         )
     else:
         verdicts, status = {}, NO_JUDGE_STATUS
@@ -1253,6 +1336,8 @@ def run_seed(
     rubric_path: Path = DEFAULT_RUBRIC_PATH,
     client_factory=make_anthropic_client,
     chunk_size: int = 25,
+    watchlist_path: Path = WATCHLIST_PATH,
+    sem_dir: Path = sem_anchors.VENDORED_DIR,
 ) -> tuple[dict, str, int]:
     """Whole-repo one-off audit: scan, judge every untriaged candidate (chunked), merge
     confirmed gaps as `new`. Graceful like run_sweep — never raises on judgment issues."""
@@ -1261,7 +1346,10 @@ def run_seed(
     surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
     candidates = select_candidates(gaps, prior, limit=None)
+    for c in candidates:
+        c["nearby_events"] = nearby_event_refs(repo_root, c["location"])
     candidates_by_id = {c["id"]: c for c in candidates}
+    questions = load_real_questions(watchlist_path, sem_dir)
     if not candidates:
         return merge_judged_state(prior, {}, {}, today), "no-candidates", 0
     if not api_key:
@@ -1274,7 +1362,8 @@ def run_seed(
         client = client_factory(api_key)
         verdicts = judge_all(candidates, rubric, client=client, model=model,
                              chunk_size=chunk_size,
-                             gotchas=governance_gotchas.load_gotchas())
+                             gotchas=governance_gotchas.load_gotchas(),
+                             questions=questions_prompt_section(questions))
     except Exception as exc:  # noqa: BLE001 — judgment must never break the seed run
         return dict(prior), f"failed: {exc}", 0
     new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
