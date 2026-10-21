@@ -68,6 +68,7 @@ export default defineConfig({
       'perf/**/*.test.ts',
       'deploy/**/*.test.ts',
       'seed/**/*.test.ts',
+      'poc-replication/**/*.test.ts',
     ],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,

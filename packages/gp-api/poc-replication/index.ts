@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
+import { createDms } from './dms'
 
 export = () => {
   const config = new pulumi.Config()
@@ -186,6 +187,21 @@ export = () => {
     ),
     alarmTopicArn: alarmTopic.arn,
     alarmNames: alarms.map((alarm) => alarm.name),
+  }
+
+  if (config.getBoolean('enableDms') ?? false) {
+    Object.assign(
+      outputs,
+      createDms({
+        config,
+        name,
+        vpc,
+        subnets,
+        securityGroup,
+        cluster,
+        alarmTopic,
+      }),
+    )
   }
 
   return outputs
