@@ -203,3 +203,7 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
       real Postgres race.
+- [ ] Assert on `cron_run` by `jobName`, never table-wide. `useTestService`
+      boots the whole app with `ScheduleModule`, so every `@Cron` really fires
+      during a suite, and an ungated one claims a row whenever its minute
+      passes mid-test.

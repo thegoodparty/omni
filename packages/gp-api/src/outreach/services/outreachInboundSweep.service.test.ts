@@ -695,7 +695,15 @@ describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
-    expect(await service.prisma.cronRun.count()).toBe(0)
+    // Only this service's jobs: the app's real schedules keep running during
+    // the suite, and any of them firing mid-test claims a cron_run row.
+    expect(
+      await service.prisma.cronRun.count({
+        where: {
+          jobName: { in: ['outreachInboundSweep', 'outreachOptOutReconcile'] },
+        },
+      }),
+    ).toBe(0)
   })
 })
 
