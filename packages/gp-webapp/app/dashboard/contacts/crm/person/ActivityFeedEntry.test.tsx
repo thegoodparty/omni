@@ -3,11 +3,15 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { useUser } from '@shared/hooks/useUser'
 import {
+  DoorKnockActivityRow,
   PhoneBankingActivityRow,
   StatusChangeActivityRow,
+  TextActivityRow,
 } from './ActivityFeedEntry'
 import type {
+  DoorKnockConstituentActivity,
   PhoneBankingConstituentActivity,
+  TextConstituentActivity,
   StatusChangeConstituentActivity,
 } from '../shared/contacts-types'
 
@@ -249,5 +253,115 @@ describe('<PhoneBankingActivityRow>', () => {
     )
 
     expect(screen.queryByText(/^Logged by/)).not.toBeInTheDocument()
+  })
+})
+
+describe('a priority answer in the feed', () => {
+  const priorityAnswer = {
+    priorityId: 'pri_1',
+    priorityTitle: 'Safer streets near schools',
+    answer: 'yes' as const,
+  }
+  const expectAnswerLine = (answer: string) => {
+    expect(
+      screen.getByRole('link', { name: 'Safer streets near schools' }),
+    ).toHaveAttribute('href', '/dashboard/priorities/pri_1')
+    expect(screen.getByText(answer)).toBeInTheDocument()
+    expect(document.body.textContent).toContain(
+      `Answered Safer streets near schools: ${answer}`,
+    )
+  }
+
+  const text = (
+    priority: TextConstituentActivity['data']['priorityAnswer'],
+  ): TextConstituentActivity => ({
+    type: 'TEXT',
+    date: '2026-10-12T15:00:00.000Z',
+    data: {
+      activityId: 'tx_1',
+      respondedAt: '2026-10-12T16:00:00.000Z',
+      optedOutAt: null,
+      note: null,
+      manual: false,
+      outreachId: 4,
+      replies: ['Yes please, the crossing is dangerous.'],
+      priorityAnswer: priority,
+    },
+  })
+
+  it('names the priority a text reply answered, with the coded answer', () => {
+    render(<TextActivityRow activity={text(priorityAnswer)} />)
+
+    expect(
+      screen.getByText(/Yes please, the crossing is dangerous\./),
+    ).toBeInTheDocument()
+    expectAnswerLine('Yes')
+  })
+
+  it('reads a reply that was not an answer as a question asked', () => {
+    render(
+      <TextActivityRow
+        activity={text({ ...priorityAnswer, answer: 'not_an_answer' })}
+      />,
+    )
+
+    expect(document.body.textContent).toContain(
+      'Asked about Safer streets near schools: No clear answer',
+    )
+  })
+
+  it('shows a reply with no coded answer as just the reply', () => {
+    render(<TextActivityRow activity={text(null)} />)
+
+    expect(screen.queryByText(/Answered/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Safer/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('names the priority a call answered', () => {
+    mockedUseUser.mockReturnValue([null as never, vi.fn(), false])
+    const call: PhoneBankingConstituentActivity = {
+      type: 'PHONE_BANKING',
+      date: '2026-10-13T15:00:00.000Z',
+      data: {
+        activityId: 'pb_1',
+        outcome: 'answered',
+        supportAnswer: null,
+        willVote: null,
+        followUp: null,
+        note: null,
+        manual: false,
+        actorName: null,
+        actorUserId: null,
+        priorityAnswer: { ...priorityAnswer, answer: 'no' },
+      },
+    }
+
+    render(<PhoneBankingActivityRow activity={call} />)
+
+    expectAnswerLine('No')
+  })
+
+  it('names the priority a knock answered', () => {
+    const knock: DoorKnockConstituentActivity = {
+      type: 'DOOR_KNOCK',
+      date: '2026-10-14T15:00:00.000Z',
+      data: {
+        activityId: 'dk_1',
+        outcome: 'answered',
+        supportAnswer: null,
+        followUp: null,
+        note: null,
+        manual: false,
+        actorName: null,
+        actorUserId: null,
+        priorityAnswer: { ...priorityAnswer, answer: 'mixed' },
+      },
+    }
+
+    render(<DoorKnockActivityRow activity={knock} />)
+
+    expectAnswerLine('Mixed')
   })
 })

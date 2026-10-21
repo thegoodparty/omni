@@ -113,6 +113,12 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type PriorityAnswerCode,
+  PRIORITY_ANSWER_CODE_VALUES,
+  PriorityAnswerCodeSchema,
+  type PriorityAnswerSource,
+  PRIORITY_ANSWER_SOURCE_VALUES,
+  PriorityAnswerSourceSchema,
   type TrackerTaskSkipReason,
   TRACKER_TASK_SKIP_REASON_VALUES,
   TrackerTaskSkipReasonSchema,
@@ -279,6 +285,12 @@ export {
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
   type GetIndividualActivitiesResponse,
+  ConstituentPriorityAnswerSchema,
+  type ConstituentPriorityAnswer,
+  PersonPriorityAnswerSchema,
+  type PersonPriorityAnswer,
+  GetPersonPriorityAnswersResponseSchema,
+  type GetPersonPriorityAnswersResponse,
 } from './people/ContactActivity.schema'
 
 export {
