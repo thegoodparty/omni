@@ -170,6 +170,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [brPrefill, setBrPrefill] = useState<BrPrefillSnapshot | null>(null)
 
   useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step, loading, switchToCampaign])
+
+  useEffect(() => {
     if (!flagReady) return
     void (async () => {
       try {
