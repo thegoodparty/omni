@@ -48,6 +48,7 @@ import { Intro } from '../social/Intro'
 import {
   IMAGE_ACCEPT,
   IMAGE_MAX_BYTES,
+  inMemoryCopy,
   OPT_OUT_FOOTER,
 } from './smsCompose.util'
 
@@ -305,7 +306,7 @@ export const SmsComposeStep = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per press, not per edit
   }, [continueAttempts])
 
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return
     if (!IMAGE_ACCEPT.split(',').includes(file.type)) {
       onImageError('Use a JPG, PNG, or GIF image.')
@@ -315,8 +316,17 @@ export const SmsComposeStep = ({
       onImageError('Image too large — choose one under 500 KB.')
       return
     }
+    let snapshot: File
+    try {
+      snapshot = await inMemoryCopy(file)
+    } catch {
+      onImageError(
+        "We couldn't open that image. Choose it again or pick another.",
+      )
+      return
+    }
     onImageError(null)
-    onImageChange(file)
+    onImageChange(snapshot)
   }
 
   return (
@@ -416,7 +426,7 @@ export const SmsComposeStep = ({
             accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
-              handleFile(e.target.files?.[0] ?? null)
+              void handleFile(e.target.files?.[0] ?? null)
               e.target.value = ''
             }}
           />
