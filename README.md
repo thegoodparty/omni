@@ -18,7 +18,6 @@ All workspaces (apps and shared libs) live under `packages/`.
 | `packages/election-api`    | NestJS microservice — election data             | 3001 |
 | `packages/gp-admin`        | Next.js internal admin console                  | 3500 |
 | `packages/candidate-sites` | Next.js per-candidate sites                     | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | —    |
 

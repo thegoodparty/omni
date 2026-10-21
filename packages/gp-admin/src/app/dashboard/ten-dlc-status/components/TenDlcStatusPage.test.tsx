@@ -6,7 +6,7 @@ import type {
   TenDlcStatusBucketKey,
   TenDlcStatusEntry,
   TenDlcStatusSnapshot,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { TenDlcStatusPage } from './TenDlcStatusPage'
 
 class ResizeObserverMock {

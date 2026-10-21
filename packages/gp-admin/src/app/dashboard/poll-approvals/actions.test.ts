@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 
 const { hasMock, approveMock, denyMock, editMock } = vi.hoisted(() => ({
   hasMock: vi.fn(),

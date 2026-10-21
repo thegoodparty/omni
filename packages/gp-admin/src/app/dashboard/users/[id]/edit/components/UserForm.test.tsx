@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
 import { UserForm } from './UserForm'
-import { UserRole, type User } from '@goodparty_org/sdk'
+import { UserRole, type User } from '@/shared/gpApi'
 import type { UserFormData } from '../schema'
 
 vi.mock('next-navigation-guard', () => ({

@@ -137,7 +137,7 @@ curl -fsSL https://raw.githubusercontent.com/thegoodparty/omni/main/packages/gp-
 
 ## Contracts Package (`@goodparty_org/contracts`)
 
-A shared Zod schema and TypeScript types package consumed by `gp-api`, `gp-sdk`, and other workspaces to keep API request/response types in sync without duplication.
+A shared Zod schema and TypeScript types package consumed by `gp-api`, `gp-webapp`, `gp-admin`, and other workspaces to keep API request/response types in sync without duplication.
 
 The contracts source lives in `packages/contracts` and is managed as an npm workspace.
 
@@ -150,7 +150,7 @@ npm install
 npm run build -w packages/contracts
 ```
 
-For live rebuilds of contracts source during development (e.g., when editing schemas for `gp-sdk` consumption):
+For live rebuilds of contracts source during development (e.g., when editing schemas a consumer reads):
 
 ```bash
 npm run dev -w packages/contracts
@@ -170,15 +170,6 @@ npm run build -w packages/contracts
 ```
 
 This regenerates the enum definitions in `packages/contracts/src/generated/enums.ts`.
-
-### Testing Against gp-sdk Locally
-
-Build contracts first, then build gp-sdk:
-
-```bash
-npm run build -w packages/contracts
-npm run build -w packages/gp-sdk
-```
 
 ## Agent Job Contracts
 
