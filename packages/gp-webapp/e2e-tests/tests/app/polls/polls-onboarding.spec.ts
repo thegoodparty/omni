@@ -380,6 +380,14 @@ test.describe.serial('poll onboarding @dev-only', () => {
     // Create poll.
     await page.getByRole('button', { name: 'Send SMS poll' }).click()
 
+    // Sending lands on a confirmation that waits 4s before it redirects to the
+    // poll. Wait for each hop, so the poll's title is not racing the create
+    // call, the confirmation and that delay inside a single expect window.
+    await expect(
+      page.getByRole('heading', { name: 'Your first poll has been scheduled' }),
+    ).toBeVisible()
+    await page.waitForURL(/\/dashboard\/polls\/[^/?]+$/)
+
     // Confirm the correct data shows up in the UI
     await expect(page.getByText('Top Community Issues')).toBeVisible()
 
@@ -597,13 +605,14 @@ test.describe.serial('poll onboarding @dev-only', () => {
     await zipInput.fill('82001')
     await page.waitForTimeout(500)
 
-    // Uncheck "Save my information for faster checkout" (Stripe Link) —
-    // when checked, it requires a phone number which blocks canConfirm.
-    const saveCheckbox = stripeFrame.getByLabel(
-      'Save my information for faster checkout',
-    )
-    if (await saveCheckbox.isChecked().catch(() => false)) {
-      await saveCheckbox.uncheck()
+    // Stripe also picks the Link opt-in layout from that IP. A US buyer gets a
+    // pre-checked "Save my information for faster checkout" box that keeps the
+    // purchase disabled until a phone number is given or the box is unchecked.
+    // A Mexico-geolocated runner (link_default_opt_in OPTIONAL, 2026-10-20)
+    // gets an optional signup form with no box, which pays without a phone.
+    const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+    if ((await linkOptIn.count()) > 0 && (await linkOptIn.isChecked())) {
+      await linkOptIn.uncheck()
     }
     await page.waitForTimeout(1_000)
 
@@ -611,21 +620,19 @@ test.describe.serial('poll onboarding @dev-only', () => {
       name: 'Complete Purchase',
     })
 
-    const completeCheckoutResponsePromise = page.waitForResponse(
-      (response) =>
-        response
-          .url()
-          .includes('/payments/purchase/complete-checkout-session') &&
-        response.request().method() === 'POST',
-      { timeout: 45_000 },
-    )
-
     await expect(purchaseButton).toBeEnabled({ timeout: 30_000 })
+    // The optional layout's longer form pushes the button below the fold, and
+    // a click that has to scroll first lands in Stripe's card iframe instead
+    // of on the button: no submit, no Stripe confirm. Scroll it into view so
+    // the click's own stability check runs on the settled page.
+    await purchaseButton.scrollIntoViewIfNeeded()
     await purchaseButton.click()
 
-    const completeCheckoutResponse = await completeCheckoutResponsePromise
-    expect(completeCheckoutResponse.ok()).toBeTruthy()
-
+    // The browser's complete-checkout-session call and Stripe's
+    // checkout.session.completed webhook both fulfill the expansion, and
+    // gp-api refuses whichever lands second with a 400 ("Poll is not
+    // completed"). The page moves on either way, so assert where it lands and
+    // what the poll reports below, not which of the two callers won.
     await page.waitForURL(
       (url) => new URL(url).pathname.includes('/expand-payment-success'),
       {
