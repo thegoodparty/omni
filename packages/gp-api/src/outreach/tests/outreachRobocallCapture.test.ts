@@ -298,9 +298,13 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('parks uncollectable + CRITICAL when the hold lapsed before capture', async () => {
+  it('parks uncollectable with a warn (no CRITICAL) when the hold lapsed before capture', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
     retrieveSpy.mockResolvedValue(piWith('canceled'))
+    const warnSpy = vi.spyOn(
+      (capture as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
     const errorSpy = vi.spyOn(
       (capture as unknown as { logger: PinoLogger }).logger,
       'error',
@@ -308,13 +312,18 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
 
     await capture.captureDraft(outreachId)
 
-    // Delivered run we could not capture: never blind-charge, surface CRITICAL.
+    // Delivered run we could not capture: never blind-charge. Fresh-charge
+    // recovery collects it and alerts CRITICAL itself if that fails.
     expect(captureSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.uncollectable,
     )
-    expect(errorSpy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ outreachId }),
+      expect.stringContaining('fresh-charge recovery'),
+    )
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
       expect.stringContaining('CRITICAL'),
     )
   })

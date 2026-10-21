@@ -16,6 +16,10 @@ With no signal, the phone records the memo instead and sends it later; the
 server transcribes it, extracts, and confirms it automatically (see Offline
 memos).
 
+A Serve resident's text reply to a priority's check is read for issues the
+same way, so it shows on their record beside the door and call memos (see
+Text replies).
+
 ## Key files
 
 | File                                                | Purpose                                              |
@@ -185,6 +189,34 @@ the person record (`GET /?personId=`) and the Chief of Staff's
 `capturedNotes` (`priorityFlowOutreach.service.ts`) all read a memo's
 issues, and an empty list there means none of them can count or show a
 guess nobody checked.
+
+## Text replies
+
+`recordPriorityTextReplies`, called by the priority answer coding pass
+(`priorities/AGENTS.md`) for every respondent on a priority's text send: the
+person's `CONSTITUENT` replies, opt-outs left out, joined oldest first. One
+row per person per send on channel `text`, keyed by `clientKey`
+`priority-text:<outreachId>:<personId>` (`textReplyClientKey`), so a second
+read lands on the first row and unchanged words (a row already `extracted`
+with the same transcript) cost no model call. A `failed` extraction is read
+again on the next pass.
+
+- **Extraction is the memo's**, `ConstituentFeedbackExtractionService` with
+  `voice: 'own_reply'`: the same prompt with one paragraph saying the words
+  are the person's own, and "They were asked" with the check's question.
+- **`occurredAt`** is the person's last reply; **`actorUserId`** is the org's
+  owner, since a reply has no author on the office's side (the record shows
+  no name for it); **`captureMethod`** is `typed`.
+- **`outreachId` is null on purpose.** The send's report already counts its
+  replies as replies (`textRepliesWhere`), and every effort read (the report,
+  the export, synthesis, the Chief of Staff's notes) keys on that column, so
+  a set one would count the same words twice.
+- **Never confirmed.** Its issues are a model's reading nobody checked, so
+  `confirmedAt` stays null and nothing that counts confirmed memos sees it.
+  The abandoned-confirm sweep passes `text` rows by: there is no confirm step
+  to abandon, and confirming would strip the issues it exists to show.
+- **Not a capture route.** `POST /` takes `door_knock` and `phone_bank` only;
+  `text` is written by the coding pass alone.
 
 **The abandoned-confirm sweep.** A live memo that has a transcript, no
 `confirmedAt`, and no write for `ABANDONED_CONFIRM_AFTER_HOURS` (2) had its

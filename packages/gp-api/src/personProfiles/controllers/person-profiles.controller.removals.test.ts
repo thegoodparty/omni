@@ -37,6 +37,8 @@ describe('PersonProfilesController removals', () => {
     listRemovals: ReturnType<typeof vi.fn>
   }
   let revalidation: { revalidatePerson: ReturnType<typeof vi.fn> }
+  let backfill: { resyncLinkedUser: ReturnType<typeof vi.fn> }
+  let users: { findUser: ReturnType<typeof vi.fn> }
   let personLookup: { resolveIdentities: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
@@ -46,13 +48,15 @@ describe('PersonProfilesController removals', () => {
       listRemovals: vi.fn().mockResolvedValue([]),
     }
     revalidation = { revalidatePerson: vi.fn() }
+    backfill = { resyncLinkedUser: vi.fn().mockResolvedValue('unchanged') }
+    users = { findUser: vi.fn().mockResolvedValue(null) }
     personLookup = { resolveIdentities: vi.fn().mockResolvedValue(new Map()) }
     controller = new PersonProfilesController(
       profiles as unknown as PersonProfilesService,
       revalidation as unknown as MarketingRevalidationService,
       {} as unknown as S3Service,
-      {} as unknown as PersonIdBackfillService,
-      {} as unknown as UsersService,
+      backfill as unknown as PersonIdBackfillService,
+      users as unknown as UsersService,
       personLookup as unknown as PersonLookupService,
     )
   })
@@ -122,6 +126,28 @@ describe('PersonProfilesController removals', () => {
       PERSON_ID,
       'system:privacy-backfill',
     )
+  })
+
+  it('clearRemoval resyncs the linked user so a reinstated page uses the current person id', async () => {
+    const owner = { id: 7, personId: PERSON_ID }
+    users.findUser.mockResolvedValue(owner)
+
+    await controller.clearRemoval({ personId: PERSON_ID, clearedBy: OPERATOR })
+
+    expect(users.findUser).toHaveBeenCalledWith({ personId: PERSON_ID })
+    expect(backfill.resyncLinkedUser).toHaveBeenCalledWith(owner)
+  })
+
+  it('clearRemoval still succeeds when the resync throws', async () => {
+    users.findUser.mockRejectedValue(new Error('db down'))
+
+    const result = await controller.clearRemoval({
+      personId: PERSON_ID,
+      clearedBy: OPERATOR,
+    })
+
+    expect(result).toEqual({ personId: PERSON_ID, removed: false })
+    expect(revalidation.revalidatePerson).toHaveBeenCalledWith(PERSON_ID)
   })
 
   it('lists active takedowns by default and cleared ones on request', async () => {

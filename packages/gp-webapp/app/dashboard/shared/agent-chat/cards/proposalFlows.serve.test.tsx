@@ -197,6 +197,8 @@ describe("the Chief of Staff's civic panel invite", () => {
       name: 'Civic panel invite',
       hasCellPhone: true,
       sample: { size: 3334, seedKey: PROPOSAL_KEY },
+      // Kept for the send, out of the lists index.
+      civicPanelInvite: true,
     })
     const props = smsFlow.props
     expect(props?.initialPurpose).toBe('build_citizens_panel')

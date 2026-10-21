@@ -316,6 +316,7 @@ export const ProposalFlowsProvider = ({
                 supportStatus: audience.supportStatus,
                 precincts: audience.precincts,
                 ...(audience.sample && { sample: audience.sample }),
+                ...(audience.civicPanelInvite && { civicPanelInvite: true }),
                 ...(audience.unreachedAreaOfPriorityId && {
                   unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
                 }),
@@ -391,6 +392,7 @@ export const ProposalFlowsProvider = ({
             supportStatus: audience.supportStatus,
             precincts: audience.precincts,
             ...(audience.sample && { sample: audience.sample }),
+            ...(audience.civicPanelInvite && { civicPanelInvite: true }),
             ...(audience.unreachedAreaOfPriorityId && {
               unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
             }),
