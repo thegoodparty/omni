@@ -35,6 +35,17 @@ invisible, so it is not flag-gated.
   under its position in the batch, never a person id. A failed call or an
   off-vocabulary code leaves those replies uncoded for the next pass.
 - **Where it shows.** On the constituent's record (`contactEngagement/`): each coded text, call or knock in the activity feed names its priority and the answer, and `GET /v1/contact-engagement/:id/priority-answers` lists them all.
+- **A text reply's issues too.** On a text send, each pass first hands every
+  respondent's joined words to issue capture
+  (`ConstituentFeedbackService.recordPriorityTextReplies`, resolved lazily
+  through `ModuleRef`), before the coded check, so replies coded earlier get
+  theirs on the next pass. That writes a `ConstituentFeedback` row on channel
+  `text` with the issue, stance and outcome, so the reply shows in the
+  record's "What they told us" beside door and call memos. Idempotent on the
+  row's `clientKey` (`priority-text:<outreachId>:<personId>`): unchanged
+  words cost no model call. Its failure is logged and never stops the coding,
+  which the read depends on. See `constituentFeedback/AGENTS.md`, Text
+  replies.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the

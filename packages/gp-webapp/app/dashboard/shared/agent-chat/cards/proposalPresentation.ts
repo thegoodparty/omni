@@ -1,4 +1,5 @@
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   PROPOSAL_SENT_MARKER,
   MAX_LIST_SAMPLE_SIZE,
   SupportStatusRollupSchema,
@@ -102,6 +103,7 @@ export const proposedAudienceOf = (
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
     | 'areaTarget'
+    | 'purpose'
   >,
   // The priority the card was offered on, which an unreached area belongs to.
   priorityId?: string,
@@ -126,6 +128,9 @@ export const proposedAudienceOf = (
     ...(sample && { sample }),
     ...(proposal.areaTarget === 'unreached' &&
       priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
+    ...(proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE && {
+      civicPanelInvite: true,
+    }),
   }
 }
 
