@@ -940,7 +940,7 @@ counts members (`activeMixOf`, the same census cells and the same groups,
 with race named only when it is for the members) and every major group is
 judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its
 member-based `status` and gains `groupsNeedingFresh`, the groups short of
-active members, with `inviteMore` the largest of those; absent before the
+active members, with `inviteMore` the largest group short of members, else of active members; absent before the
 goal. `create` with members at or over the district's goal makes a plan with
 `keepFresh` true (`CivicPanelBuildPlan.keepFresh`, the past-goal marker) and
 a `goalMembers` of the district's goal: it has no member target and never

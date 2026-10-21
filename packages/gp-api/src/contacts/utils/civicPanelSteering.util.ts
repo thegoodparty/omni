@@ -239,10 +239,9 @@ export const panelBalance = ({
   if (coverage.groupsCovered < coverage.groupsTotal) {
     return {
       status: 'missingGroups',
-      // Whoever is short of members is short of active members too, so the
-      // largest short of active members is never smaller than the largest
-      // short of members.
-      inviteMore: (fresh ?? coverage).missing[0] ?? null,
+      // A group short of members comes before one only short of active
+      // members.
+      inviteMore: coverage.missing[0] ?? null,
       ...freshness,
     }
   }
@@ -321,7 +320,13 @@ export const panelSteering = ({
   const balance = panelBalance({ members, coverage, fresh })
   if (gaps.length === 0) {
     return fresh
-      ? { ...UNSTEERED, coverage, fresh, balance }
+      ? {
+          ...UNSTEERED,
+          coverage,
+          fresh,
+          balance,
+          leansToward: balance.inviteMore,
+        }
       : { ...UNSTEERED, coverage, balance }
   }
   const older = gaps.find(
@@ -332,7 +337,7 @@ export const panelSteering = ({
     coverage,
     fresh,
     weights: steerWeights(gaps, pooled, steerMix.census),
-    leansToward: (fresh ?? coverage).missing[0] ?? null,
+    leansToward: balance.inviteMore,
     doorTract: doorTractFor(steerMix),
     landlineFirst: !older || older.panelShare < older.censusShare,
   }

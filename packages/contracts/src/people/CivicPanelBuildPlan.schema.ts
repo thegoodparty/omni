@@ -165,7 +165,7 @@ export const CIVIC_PANEL_BALANCE_STATUS_LABELS: Record<
 // `groupsNeedingFresh` is set only once the panel is past its goal, where
 // the panel is judged on its active members: the major groups holding fewer
 // than PANEL_MEMBERS_PER_GROUP of them (PANEL_ACTIVE_WINDOW_DAYS), and
-// `inviteMore` is the thinnest of those. Absent before the goal.
+// `inviteMore` is the largest group short of members, else of active members. Absent before the goal.
 export const CivicPanelBalanceSchema = z.object({
   status: CivicPanelBalanceStatusSchema,
   inviteMore: UnderrepresentedGroupSchema.nullable(),

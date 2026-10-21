@@ -311,6 +311,20 @@ describe('panelSteering past the goal', () => {
     expect(steering.weights).toBeNull()
   })
 
+  it('names a group short of members before one only short of active members', () => {
+    // 65 and over has no members; tract B has members but none active.
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: mixOf([cell({ count: 30, tract: A })]),
+    })
+    const memberShort = panelCoverage(members).missing
+    expect(steering.balance?.status).toBe('missingGroups')
+    expect(steering.fresh?.missing).toEqual(expect.arrayContaining(memberShort))
+    expect(steering.balance?.inviteMore).toBe(steering.leansToward)
+    expect(steering.balance?.inviteMore).toBe(memberShort[0])
+  })
+
   it('does not report freshness before the goal', () => {
     expect(
       panelSteering({ members: 100, mix: members }).balance?.groupsNeedingFresh,
