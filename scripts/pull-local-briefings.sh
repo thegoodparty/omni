@@ -15,7 +15,7 @@
 #   scripts/pull-local-briefings.sh --rounds ROUNDS.json --dir /abs/scratch/briefings
 #
 # --rounds reads run_ids from `cases.*.run_id` and the S3 prefix from
-# `experiment_type` (override with --exp). AWS profile gp-admin, region us-west-2.
+# `experiment_type` (override with --exp). AWS profile gp-engineer, region us-west-2.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,7 +57,7 @@ fail=0
 for id in $IDS; do
   [[ -z "$id" ]] && continue
   src="s3://gp-agent-artifacts-dev/$EXP/$id/artifact.json"
-  if aws --profile gp-admin --region us-west-2 s3 cp "$src" "$DIR/$id.json" >/dev/null 2>&1; then
+  if aws --profile gp-engineer --region us-west-2 s3 cp "$src" "$DIR/$id.json" >/dev/null 2>&1; then
     echo "  ok   $id"
     ok=$((ok + 1))
   else
@@ -66,10 +66,10 @@ for id in $IDS; do
   fi
 
   logs_src="s3://gp-agent-artifacts-dev/$EXP/$id/logs"
-  if aws --profile gp-admin --region us-west-2 s3 cp "$logs_src/session.jsonl" "$DIR/$id.session.jsonl" >/dev/null 2>&1; then
+  if aws --profile gp-engineer --region us-west-2 s3 cp "$logs_src/session.jsonl" "$DIR/$id.session.jsonl" >/dev/null 2>&1; then
     echo "       + session.jsonl"
   fi
-  if aws --profile gp-admin --region us-west-2 s3 cp "$logs_src/milestones.jsonl" "$DIR/$id.milestones.jsonl" >/dev/null 2>&1; then
+  if aws --profile gp-engineer --region us-west-2 s3 cp "$logs_src/milestones.jsonl" "$DIR/$id.milestones.jsonl" >/dev/null 2>&1; then
     echo "       + milestones.jsonl"
   fi
 done
