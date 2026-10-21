@@ -1,6 +1,10 @@
 import { BadRequestException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { resolveEnvVar } from '../../../shared/env/env'
+import {
+  vendorBaseUrl,
+  VENDOR_MODE,
+} from '../../../shared/util/appEnvironment.util'
 
 const {
   PEERLY_HTTP_TIMEOUT = '60000', // 60 seconds default
@@ -19,11 +23,28 @@ type PeerlyConfig = {
   accountNumber: string
 }
 
+// In mock mode the client talks to our own mock, which accepts any credentials
+// on /token-auth. Placeholders keep the client configured on an environment
+// whose secrets carry no Peerly keys; real values still win when present.
+export const PEERLY_MOCK_EMAIL = 'mock-peerly-email'
+export const PEERLY_MOCK_PASSWORD = 'mock-peerly-password'
+export const PEERLY_MOCK_ACCOUNT_NUMBER = 'mock-peerly'
+
 const resolvePeerlyConfig = (): PeerlyConfig | null => {
   const baseUrl = resolveEnvVar('PEERLY_API_BASE_URL')
   const email = resolveEnvVar('PEERLY_MD5_EMAIL')
   const password = resolveEnvVar('PEERLY_MD5_PASSWORD')
   const accountNumber = resolveEnvVar('PEERLY_ACCOUNT_NUMBER')
+  if (VENDOR_MODE === 'mock') {
+    return {
+      baseUrl: vendorBaseUrl('peerly', baseUrl.configured ? baseUrl.value : ''),
+      email: email.configured ? email.value : PEERLY_MOCK_EMAIL,
+      password: password.configured ? password.value : PEERLY_MOCK_PASSWORD,
+      accountNumber: accountNumber.configured
+        ? accountNumber.value
+        : PEERLY_MOCK_ACCOUNT_NUMBER,
+    }
+  }
   if (
     !baseUrl.configured ||
     !email.configured ||
@@ -33,7 +54,7 @@ const resolvePeerlyConfig = (): PeerlyConfig | null => {
     return null
   }
   return {
-    baseUrl: baseUrl.value,
+    baseUrl: vendorBaseUrl('peerly', baseUrl.value),
     email: email.value,
     password: password.value,
     accountNumber: accountNumber.value,
