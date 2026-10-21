@@ -445,6 +445,9 @@ export interface DistrictCells {
   // Null when the mart has no row for the district.
   district: AcsCounts | null
   cells: DistrictCell[]
+  // Adults per tract from the block groups; empty when that read failed, so
+  // the frame keeps the voter file's tracts.
+  tractAdults: Map<string, number>
 }
 
 export interface WeightingInputs {

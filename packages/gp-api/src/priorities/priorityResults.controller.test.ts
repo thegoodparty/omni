@@ -32,7 +32,10 @@ import {
   ACS_COUNT_KEYS,
   type AcsCounts,
 } from '@/peopleDb/databricks/districtCensusSql.util'
-import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
+import type {
+  DistrictCell,
+  PersonAnswer,
+} from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
@@ -695,6 +698,70 @@ describe('GET /v1/priorities/:id/read-status', () => {
     const res = await readStatus()
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
+  const zero = Object.fromEntries(
+    ACS_COUNT_KEYS.map((key) => [key, 0]),
+  ) as AcsCounts
+  // The census says 60% of adults are 35 to 44 and 40% are 65 and over.
+  const CENSUS: AcsCounts = {
+    ...zero,
+    populationMale35To44: 300,
+    populationFemale35To44: 300,
+    populationMale65Plus: 200,
+    populationFemale65Plus: 200,
+    populationMale18Plus: 500,
+    populationFemale18Plus: 500,
+  }
+  const voterCell = (
+    ageBand: DistrictCell['ageBand'],
+    count: number,
+  ): DistrictCell => ({
+    ageBand,
+    gender: null,
+    tract: null,
+    race: null,
+    count,
+  })
+
+  const stubWarehouse = (voterFile: DistrictCell[]) => {
+    mrpInputs.mockRestore()
+    const stats = service.app.get(StatsService)
+    vi.spyOn(stats, 'findDistrictCells').mockResolvedValue({
+      district: CENSUS,
+      cells: voterFile,
+      tractAdults: new Map(),
+    })
+    vi.spyOn(stats, 'findAnswerCells').mockImplementation(
+      async (_districtId, _dataset, answers) => [
+        {
+          ageBand: '35to44',
+          gender: null,
+          tract: null,
+          race: null,
+          yes: answers.length,
+          count: answers.length,
+        },
+      ],
+    )
+  }
+
+  it('names a group the census holds as major though the voter file is thin on it', async () => {
+    // 2% of the voter file is 65 and over: under the 3% rule on its own.
+    stubWarehouse([voterCell('35to44', 980), voterCell('65plus', 20)])
+    await createCodedSend(8, 0)
+
+    const res = await readStatus()
+
+    expect(res.data).toMatchObject({
+      groupsTotal: 2,
+      groupsHeard: 1,
+      good: false,
+      status: 'tooEarly',
+    })
+    expect(res.data.underrepresented).toContain('age65plus')
   })
 })
 
