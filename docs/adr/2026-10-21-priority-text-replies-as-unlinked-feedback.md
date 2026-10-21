@@ -3,7 +3,7 @@ title: A priority text reply's issues are a text-channel ConstituentFeedback row
 status: active
 decided_by: [agent]
 date: 2026-10-21
-code: ['#PR']
+code: ['#3080']
 scope:
   - packages/gp-api/src/constituentFeedback/services/constituentFeedback.service.ts
   - packages/gp-api/src/constituentFeedback/services/pendingTranscription.service.ts

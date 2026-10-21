@@ -3,7 +3,7 @@ title: Civic panel invite audiences are saved lists marked civicPanelInvite and 
 status: active
 decided_by: [agent]
 date: 2026-10-21
-code: ['#PR']
+code: ['#3080']
 scope:
   - packages/gp-api/prisma/schema/voterFileFilter.prisma
   - packages/gp-api/src/contacts/services/civicPanelBuildPlan.service.ts
