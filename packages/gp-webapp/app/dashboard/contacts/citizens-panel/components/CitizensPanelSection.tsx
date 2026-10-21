@@ -37,6 +37,8 @@ export const CitizensPanelSection = () => {
 
   // The same seats the panel page draws, from the same plan read.
   const composition = plan.data?.composition ?? null
+  // Like the panel page, no seats before anyone joins.
+  const hasMembers = (query.data?.members ?? 0) > 0
 
   const body =
     query.status === 'pending' ? (
@@ -69,7 +71,7 @@ export const CitizensPanelSection = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{COPY.caption}</p>
       </div>
-      {composition && composition.places.length > 0 ? (
+      {hasMembers && composition && composition.places.length > 0 ? (
         <CivicPanelSeats
           placeKind={composition.placeKind}
           places={composition.places}

@@ -346,12 +346,14 @@ export const sectorPath = (
   a1: number,
 ): string => {
   const large = a1 - a0 > Math.PI ? 1 : 0
+  const outer = roundCoord(r1)
+  const inner = roundCoord(r0)
   return [
     `M ${point(cx, cy, r0, a0)}`,
     `L ${point(cx, cy, r1, a0)}`,
-    `A ${r1} ${r1} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
+    `A ${outer} ${outer} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
     `L ${point(cx, cy, r0, a1)}`,
-    `A ${r0} ${r0} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
+    `A ${inner} ${inner} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
     'Z',
   ].join(' ')
 }

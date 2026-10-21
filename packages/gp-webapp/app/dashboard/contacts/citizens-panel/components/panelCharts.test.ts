@@ -98,7 +98,7 @@ describe('rounded coordinates', () => {
   })
 
   it('draws petals with rounded points', () => {
-    const numbers = sectorPath(300, 220, 46, 150, -1.9, -1.1)
+    const numbers = sectorPath(300, 220, 46.123456, 60.18181818, -1.9, -1.1)
       .split(/[^0-9.-]+/)
       .filter(Boolean)
       .map(Number)

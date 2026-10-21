@@ -324,8 +324,11 @@ describe('chart coordinates', () => {
         (value): value is string => value !== null,
       ),
     )
+    const paths = [...container.querySelectorAll('svg path')].flatMap(
+      (node) => (node.getAttribute('d') ?? '').match(/-?[\d.]+/g) ?? [],
+    )
     expect(values.length).toBeGreaterThan(0)
-    for (const value of values) {
+    for (const value of [...values, ...paths]) {
       expect(value).toMatch(/^-?\d+(\.\d{1,2})?$/)
     }
   }

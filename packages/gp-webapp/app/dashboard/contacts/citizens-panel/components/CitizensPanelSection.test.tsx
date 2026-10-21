@@ -168,6 +168,48 @@ describe('CitizensPanelSection', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('draws no seats before anyone joins, even with the census read', async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: {
+        members: 0,
+        reachedRecently: 0,
+        askableNow: 0,
+        lastOutreachAt: null,
+      },
+    })
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: {
+        plan: null,
+        next: null,
+        progress: {
+          members: 0,
+          goal: 240,
+          answersNeeded: 96,
+          expectedAnswers: 0,
+          groupsCovered: 0,
+          groupsTotal: 12,
+        },
+        balance: null,
+        composition: {
+          placeKind: 'tract',
+          places: [
+            { key: '37021000100', name: '1', districtShare: 0.6, members: 0 },
+          ],
+          groups: [],
+        },
+      },
+    })
+
+    render(<CitizensPanelSection />)
+
+    expect(
+      await screen.findByText('Nobody has joined your civic panel yet.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-seats')).toBeNull()
+  })
+
   it('says what to do when the numbers cannot be read', async () => {
     api.mock('GET /v1/contacts/civic-panel', { status: 500, data: {} })
 
