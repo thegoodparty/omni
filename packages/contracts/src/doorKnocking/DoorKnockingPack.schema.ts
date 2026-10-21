@@ -47,9 +47,9 @@ export const KNOCKABLE_DIM_KEY = 'knockable'
 export const KNOCKABLE_VALUES = ['No', 'Yes'] as const
 
 // The most suppressed people gp-api will describe on the wire. Same number as
-// PACK_CONTACTS_MADE_MAX and for the same reason: it is
-// MAX_RESOLVED_ID_SET_SIZE, the point at which resolving an id set for a real
-// query gives up. These sets are far smaller in practice — a do-not-knock row
+// PACK_CONTACTS_MADE_MAX and for the same reason: it is no larger than
+// MAX_RESOLVED_ID_SET_SIZE (200,000), the point at which resolving an id set
+// for a real query gives up. These sets are far smaller in practice — a do-not-knock row
 // needs a canvasser at a door pressing a button — so the cap is a ceiling
 // rather than a working limit.
 export const PACK_EXCLUDED_PEOPLE_MAX = 100_000
