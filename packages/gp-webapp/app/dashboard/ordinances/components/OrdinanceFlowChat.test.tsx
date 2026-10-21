@@ -683,6 +683,95 @@ describe('OrdinanceFlowChat cut-off turn', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('waits for a reply still being written and shows it when it lands', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.listMessages
+        .mockResolvedValueOnce([userTurn('u1', CURRENT_LAW_OPENER)])
+        .mockResolvedValue([
+          userTurn('u1', CURRENT_LAW_OPENER),
+          assistantTurn('m1', [{ kind: 'text', text: 'Here is the chapter.' }]),
+        ])
+      render(
+        <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+      )
+      await vi.waitFor(() =>
+        expect(screen.getByText('Thinking...')).toBeVisible(),
+      )
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(3000)
+      await vi.waitFor(() =>
+        expect(screen.getByText('Here is the chapter.')).toBeVisible(),
+      )
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('offers Try again when no reply arrives within the window', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.listMessages.mockResolvedValue([userTurn('u1', CURRENT_LAW_OPENER)])
+      render(
+        <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+      )
+      await vi.waitFor(() =>
+        expect(screen.getByText('Thinking...')).toBeVisible(),
+      )
+      await vi.advanceTimersByTimeAsync(3000 * 61)
+      await vi.waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible(),
+      )
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+      screen.getByRole('button', { name: 'Try again' }).click()
+      await vi.waitFor(() =>
+        expect(mocks.streamMessage).toHaveBeenCalledTimes(1),
+      )
+      expect(sentContent(0)).toBe(CURRENT_LAW_OPENER)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not poll when the step reopens on a finished reply', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.listMessages.mockResolvedValue([
+        userTurn('u1', CURRENT_LAW_OPENER),
+        assistantTurn('m1', [{ kind: 'text', text: 'Here is the chapter.' }]),
+      ])
+      render(
+        <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+      )
+      await vi.waitFor(() =>
+        expect(screen.getByText('Here is the chapter.')).toBeVisible(),
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(mocks.listMessages).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows a turn resent without a marker only once', async () => {
+    mocks.listMessages.mockResolvedValue([
+      userTurn('u1', CURRENT_LAW_OPENER),
+      assistantTurn('m1', [{ kind: 'text', text: 'Here is the chapter.' }]),
+      userTurn('u2', 'What about fines?'),
+      userTurn('u3', 'What about fines?'),
+      assistantTurn('m3', [{ kind: 'text', text: 'Fines are capped.' }]),
+    ])
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
+    )
+    expect(await screen.findByText('Fines are capped.')).toBeVisible()
+    expect(screen.getAllByText('What about fines?')).toHaveLength(1)
+  })
+
   it('drops a cut-off marker that a later turn superseded', async () => {
     mocks.listMessages.mockResolvedValue([
       userTurn('u1', CURRENT_LAW_OPENER),
