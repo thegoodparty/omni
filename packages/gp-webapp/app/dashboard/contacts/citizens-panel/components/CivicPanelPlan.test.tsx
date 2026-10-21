@@ -143,10 +143,6 @@ const withPlan = (
   balance: null,
 })
 
-// How far the bar is filled, in percent.
-const filledShare = (top: HTMLElement) =>
-  top.querySelector('[data-slot="progress"]')?.getAttribute('data-filled')
-
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
@@ -162,13 +158,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
-  render(
-    <CitizensPanelView
-      summary={SUMMARY}
-      representation={{ representation: null }}
-      plan={plan}
-    />,
-  )
+  render(<CitizensPanelView summary={SUMMARY} plan={plan} />)
 
 const rowOf = (title: string) => {
   const row = screen.getByText(title).closest('li')
@@ -470,6 +460,7 @@ describe('the plan', () => {
     ).toHaveAttribute('href', '/dashboard/outreach/phone-banking/12')
     const titles = screen
       .getAllByRole('listitem')
+      .filter((item) => !item.closest('[data-testid="civic-panel-milestones"]'))
       .map((item) => item.querySelector('p, h3')?.textContent)
     expect(titles).toEqual([
       'Call 30 residents',
@@ -536,31 +527,38 @@ describe('the plan', () => {
     ).toBeDisabled()
   })
 
-  it('shows the groups covered at the top, above the plan', () => {
+  it("shows the panel's milestones at the top, above the plan", () => {
     renderPage(withPlan([TEXT, CALLS]))
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('60 members, in 3 of 12 groups')
+    const top = screen.getByTestId('civic-panel-milestones')
     expect(
-      within(top).getByText(
-        'Invite people from the groups still missing so every part of your district has a voice.',
-      ),
+      within(top).getByRole('heading', { name: 'Your panel is growing' }),
     ).toBeInTheDocument()
-    expect(top).not.toHaveTextContent(/answers/)
-    expect(filledShare(top)).toBe('25')
+    expect(within(top).getByText('60 residents have said yes.')).toBeVisible()
+    expect(
+      within(top)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'First yes, Done',
+      '30 members, Done',
+      'Halfway, Next',
+      'Full panel, Not yet',
+    ])
     expect(
       top.compareDocumentPosition(screen.getByText('Your plan')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+    expect(screen.queryByTestId('civic-panel-progress')).toBeNull()
     expect(screen.queryByText(/representative/i)).toBeNull()
   })
 
-  it('shows an empty bar above the hours question before a plan', () => {
+  it('starts the milestones above the hours question before anyone joins', () => {
     renderPage(NO_PLAN)
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('0 members, in 0 of 12 groups')
-    expect(filledShare(top)).toBe('0')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(top).toHaveTextContent('Your panel starts here')
+    expect(top).toHaveTextContent('Every resident who says yes takes a seat.')
     expect(
       top.compareDocumentPosition(
         screen.getByRole('heading', {
@@ -571,7 +569,7 @@ describe('the plan', () => {
     expect(screen.queryByTestId('civic-panel-rail')).toBeNull()
   })
 
-  it('fills the bar once every group is covered', () => {
+  it('shows the full panel once it reaches its goal, with a way to ask it', () => {
     renderPage({
       ...withPlan([TEXT]),
       progress: {
@@ -584,12 +582,15 @@ describe('the plan', () => {
       },
     })
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('250 members, in 12 of 12 groups')
-    expect(top).toHaveTextContent(
-      'Every part of your district has a voice on your panel.',
-    )
-    expect(filledShare(top)).toBe('100')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(
+      within(top).getByRole('heading', { name: 'Every seat is filled' }),
+    ).toBeInTheDocument()
+    expect(top).toHaveTextContent('250 residents said yes.')
+    expect(top).toHaveTextContent('12 of 12 groups')
+    expect(
+      within(top).getByRole('link', { name: 'Ask your panel a question' }),
+    ).toHaveAttribute('href', '/dashboard/priorities')
   })
 
   it('highlights the step a Next link opened', () => {

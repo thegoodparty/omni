@@ -41,6 +41,7 @@ import {
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
+  buildPrecinctMembersSql,
   MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
@@ -373,6 +374,25 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // The given people counted per (County, Precinct). A NULL precinct is ''
+  // as in findPrecincts.
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<Array<{ county: string; precinct: string; people: number }>> {
+    if (personIds.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(
+      buildPrecinctMembersSql({ district, personIds }),
+    )
+    return rows.map((row) => ({
+      county: row[0] ?? '',
+      precinct: row[1] ?? '',
+      people: Number(row[2] ?? 0),
+    }))
   }
 
   // A recommended-list variant's own count, scoped to a resolved district.
