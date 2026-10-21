@@ -314,4 +314,25 @@ describe('CivicPanelNextStepCard', () => {
       screen.queryByRole('button', { name: 'Start the text' }),
     ).not.toBeInTheDocument()
   })
+
+  // Right after the plan is made, a dead-end card would leave the official
+  // nowhere to go.
+  it('leads to the plan when the text cannot be started', async () => {
+    smsFlag.enabled = false
+    const text = step({ id: 's-text', channel: 'text', targetSize: 3_150 })
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: planWith(text, 'Invite residents by text'),
+    })
+    render(<CivicPanelNextStepCard />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(
+      await within(card).findByRole('link', { name: 'See your plan' }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
+    )
+    expect(within(card).getByText('Text 3,150 residents')).toBeInTheDocument()
+  })
 })

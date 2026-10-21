@@ -149,7 +149,22 @@ export const CivicPanelNextStepCard = () => {
           subtitle={
             textingOff ? PANEL_COPY.textingOff : civicPanelOpenStepDetail(step)
           }
-          action={action}
+          action={
+            // With nothing to start here (texting not set up), the panel
+            // page is still the way forward.
+            action ?? (
+              <Button
+                asChild
+                size="small"
+                variant="outline"
+                className="shrink-0"
+              >
+                <Link href={civicPanelHref('chief_of_staff_chat')}>
+                  {CIVIC_PANEL_CHAT_COPY.seePlan}
+                </Link>
+              </Button>
+            )
+          }
           wrapSubtitle
         />
       ) : (
