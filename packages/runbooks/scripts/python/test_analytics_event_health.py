@@ -707,7 +707,7 @@ def test_reconcile_stamps_watchlist_status():
     result = eh.reconcile(
         catalog, weekly_rows=[], code={}, today=today,
         watchlist_events=["Sign Up Clicked"], watched_families=["win_onboarding"],
-        dismissed_events=["Noise Event"],
+        dismissed_events=["Noise Event"], okr_by_event={"Fresh Live Event": "win_activated_users"},
     )
     status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
     assert status["Sign Up Clicked"] == "tracked"
@@ -2705,3 +2705,23 @@ def test_run_monitor_respects_kept_rows(tmp_path):
         _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
         watchlist_path=wl_path, state_path=state_path, anchors={})
     assert result["removal_proposals"] == []
+
+
+def test_reconcile_lists_only_okr_leg_proposals():
+    # DATA-2676: a behavior's instrument enrolls itself, so the family proposer only ever
+    # names an OKR leg that is not yet watched; the rest is a count, not a list.
+    today = date(2026, 8, 3)
+    catalog = [
+        {"event_type": "Leg Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-25"},
+        {"event_type": "Other Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-25"},
+    ]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=today, watched_families=["win_onboarding"],
+        okr_by_event={"Leg Event": "win_activated_users"},
+    )
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
+    assert result["unneeded_proposal_count"] == 1
+    status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
+    assert status["Other Event"] == "—"

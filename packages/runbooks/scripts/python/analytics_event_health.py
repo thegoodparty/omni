@@ -800,10 +800,13 @@ def reconcile(
         "other_missing_count": sum(1 for r in scored if not r["has_description"] and not r["elevated"]),
     }
 
-    proposals = propose_watchlist_additions(
+    eligible = propose_watchlist_additions(
         catalog, code, watched_families, watchlist_events, today,
         dismissed_events=dismissed_events,
     )
+    # DATA-2676: watches come from questions and OKR legs. A behavior's instrument already
+    # enrolls itself, so only an unwatched OKR leg is worth a row; the rest is counted.
+    proposals = [p for p in eligible if p["event_type"] in okr_by_event]
 
     # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
     # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
@@ -832,6 +835,7 @@ def reconcile(
         "status_counts": dict(status_counts),
         "metadata_coverage": metadata_coverage,
         "proposals": proposals,
+        "unneeded_proposal_count": len(eligible) - len(proposals),
         "removal_proposals": removals,
         "flagged": flagged,
         "records": records,
