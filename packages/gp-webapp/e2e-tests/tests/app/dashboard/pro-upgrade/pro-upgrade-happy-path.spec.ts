@@ -14,13 +14,18 @@ import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
 // funnel through an embedded Stripe subscription to Pro, then lands on the
 // post-payment dashboard PIN state (ENG-10475).
 //
-// The @dev-only tag was removed (M3-5): the Stripe `checkout.session.completed`
-// event is now delivered in-process via deliverStripeEvent, which calls
-// POST /v1/test-fixtures/vendor-mocks/stripe/events and fires
-// paymentEventsService synchronously — no inbound webhook from Stripe is
-// needed, so PR previews can run this test. The session ID is extracted from
-// the checkout-session response's `clientSecret` field (Pro subscription
-// returns only clientSecret, not a session id), using Stripe's format:
+// @dev-only: the filing-details step requires a Google Places address
+// suggestion (.pac-item). Google Places does not load on *.vercel.app PR
+// previews — the Maps JS SDK is domain-restricted to goodparty.org and
+// dev.goodparty.org — so the .pac-item dropdown never appears and the step
+// cannot proceed. The Stripe deliverStripeEvent change (M3-5) is kept.
+//
+// The Stripe `checkout.session.completed` event is delivered in-process via
+// deliverStripeEvent, which calls POST /v1/test-fixtures/vendor-mocks/stripe/events
+// and fires paymentEventsService synchronously — no inbound webhook from Stripe
+// is needed. The session ID is extracted from the checkout-session response's
+// `clientSecret` field (Pro subscription returns only clientSecret, not a
+// session id), using Stripe's format:
 // `cs_<test|live>_<id>_secret_<random>` → `split('_secret_')[0]`.
 //
 // Side effects (no automated teardown for either):
@@ -50,7 +55,7 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate upgrades to Pro and reaches the post-payment PIN state', async ({
+test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
   page,
 }) => {
   // deliverStripeEvent delivers the webhook in-process, so the isPro flip is

@@ -129,7 +129,15 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     // ── 2. Keep the SMS window open: the Win campaign's real election date for
     // Cheyenne drifts toward the 19-day cutoff; move it 60 days out so this
     // spec does not break as the calendar approaches that date.
+    //
+    // openSmsWindow calls PUT /v1/campaigns/mine, which routes to the campaign
+    // org. After setupElectedOfficeUser the client carries the eo- org slug,
+    // and that org has no campaign — the request 404s. Drop the slug before
+    // the call (the campaign org header is unset/default) and restore after.
+    const eoSlug = client.defaults.headers['x-organization-slug'] as string
+    delete client.defaults.headers['x-organization-slug']
     await openSmsWindow(client)
+    client.defaults.headers['x-organization-slug'] = eoSlug
 
     // ── 3. Relay S3 image uploads before any navigation ──────────────────────
     await relayS3ImageUploads(page)
