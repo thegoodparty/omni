@@ -290,10 +290,12 @@ export function createService({
     ],
   })
 
-  // Preview gets a full vCPU because its boot is on the critical path of every
-  // PR: migrations and Nest startup are CPU-bound, and at half a vCPU
-  // Nest alone took ~45s to come up. Dev stays at half.
-  const cpu = select({ preview: '1024', dev: '512', prod: '1024' })
+  // A full vCPU everywhere. Preview's boot is on the critical path of every
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev's single task
+  // takes the release train's E2E (16 Playwright workers): at half a vCPU it
+  // ran at its CPU quota for the whole run, gp-api medians went from ~5ms to
+  // ~600ms, and webapp server renders hit Vercel's function timeout.
+  const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {
