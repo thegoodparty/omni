@@ -1,4 +1,3 @@
-import { BadGatewayException } from '@nestjs/common'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EmailService } from '@/email/email.service'

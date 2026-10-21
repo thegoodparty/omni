@@ -589,6 +589,25 @@ export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
 const PROFILE_PHOTO_MAX_EDGE = 1024
 const PROFILE_PHOTO_QUALITIES = [0.85, 0.7, 0.5]
 
+// A photo from Android's photo picker is a handle Chrome re-reads only when
+// the review step uploads it, and that late read can fail: the create then
+// dies in the browser and nothing reaches gp-api. Copying the bytes at pick
+// time uploads from memory, and an unreadable photo fails while the
+// candidate can still choose it again. Rejects when the file can't be read.
+export const inMemoryCopy = (file: File): Promise<File> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new File([reader.result], file.name, { type: file.type }))
+      } else {
+        reject(new Error('Image read returned no bytes'))
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(file)
+  })
+
 // The profile photo the SMS image starts from. Avatars are stored at up to
 // 5 MB, ten times what an MMS attachment allows, so anything over the cap or
 // in another format is redrawn as a JPEG. Null on any failure: the dropzone
