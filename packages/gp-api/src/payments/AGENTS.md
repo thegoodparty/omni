@@ -252,7 +252,8 @@ class** from an orphaned subscription, and needs no Stripe key to find:
 alone. That matters because `GP_API_PROD` — which holds both the live Stripe
 key and the prod DB password — is NOT readable by the default `EngineerAccess`
 SSO role (`secretsmanager:GetSecretValue` is denied), so anything requiring it
-is an access request rather than a self-serve step. The sharpest signal is
+needs temporary admin from `/breakglass` in Slack, approved in
+`#sensitive-access-requests`, rather than being a self-serve step. The sharpest signal is
 `details.subscriptionCanceledAt` later than `details.isProUpdatedAt` while
 `is_pro` is still true: the row contradicts itself, because
 `customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
