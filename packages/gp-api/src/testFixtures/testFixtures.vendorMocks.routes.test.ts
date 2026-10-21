@@ -114,6 +114,24 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     expect(res.data.records).toEqual([])
   })
 
+  it.each([
+    'peerly.cv.approve',
+    'peerly.cv.reject',
+    'peerly.cv.setPin',
+    'peerly.usecase.activate',
+    'vercel.order.fail',
+  ])('returns 501 for the not-yet-implemented action %s', async (action) => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/actions',
+      { campaignId: campaign.id, action },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_IMPLEMENTED)
+  })
+
   it('returns 403 when the campaign belongs to a different user', async () => {
     const otherUser = await service.prisma.user.create({
       data: {

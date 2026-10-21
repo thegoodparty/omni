@@ -86,6 +86,16 @@ export const peerlyAction = (
 ) => mockAction(client, campaignId, action)
 
 /**
+ * Fires a Vercel-specific vendor-mock action for a campaign.
+ * Thin wrapper over mockAction scoped to the Vercel action space.
+ */
+export const vercelAction = (
+  client: AxiosInstance,
+  campaignId: number,
+  action: MockAction['action'],
+) => mockAction(client, campaignId, action)
+
+/**
  * Delivers a signed Stripe checkout.session.completed event to the payments
  * handler in-process, using a real test-mode Stripe session.
  */

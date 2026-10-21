@@ -38,6 +38,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  NotImplementedException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { randomUUID } from 'crypto'
@@ -321,6 +322,14 @@ export class TestFixturesService {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
+    } else if (
+      action === 'peerly.cv.approve' ||
+      action === 'peerly.cv.reject' ||
+      action === 'peerly.cv.setPin' ||
+      action === 'peerly.usecase.activate' ||
+      action === 'vercel.order.fail'
+    ) {
+      throw new NotImplementedException(`Not implemented: ${action}`)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
