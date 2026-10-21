@@ -333,7 +333,18 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     // ── 14. Upload results CSV via admin action ────────────────────────────────
     // Two INBOUND rows make two replies; OUTBOUND rows are the sent messages
     // and are excluded from the Responses section.
-    await adminAction(client, outreachId!, 'results.upload', RESULTS_CSV)
+    // Retry on 409: the queue consumer writes OutreachTextRecipient rows in a
+    // step after transitioning status to in_progress, so there is a short
+    // window where status = in_progress but no recipients exist yet.
+    await eventually(
+      {
+        that: 'results.upload accepted (recipients written by queue consumer)',
+        minTimeout: 1_000,
+        maxTimeout: 10_000,
+        retries: 10,
+      },
+      () => adminAction(client, outreachId!, 'results.upload', RESULTS_CSV),
+    )
 
     await eventually(
       {

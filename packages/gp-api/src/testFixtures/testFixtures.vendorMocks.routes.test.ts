@@ -440,112 +440,102 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
   })
 })
 
-describe(
-  'POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions',
-  () => {
-    beforeEach(async () => {
-      envNonProd.value = true
-      await service.prisma.user.update({
-        where: { id: service.user.id },
-        data: {
-          email:
-            'qa-00000000-0000-0000-0000-000000000000@goodparty.org',
-        },
-      })
+describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () => {
+  beforeEach(async () => {
+    envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: {
+        email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org',
+      },
+    })
+  })
+
+  const seedServeOrg = async (userId: number) => {
+    const slug = `eo-test-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: userId },
+    })
+    return slug
+  }
+
+  it('returns 403 when the serve outreach belongs to another org owner', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const slug = await seedServeOrg(otherUser.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
     })
 
-    const seedServeOrg = async (userId: number) => {
-      const slug = `eo-test-${Math.random().toString(36).slice(2)}`
-      await service.prisma.organization.create({
-        data: { slug, ownerId: userId },
-      })
-      return slug
-    }
-
-    it(
-      'returns 403 when the serve outreach belongs to another org owner',
-      async () => {
-        const otherUser = await service.prisma.user.create({
-          data: {
-            email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
-            name: 'Other',
-            firstName: 'Other',
-            lastName: 'User',
-          },
-        })
-        const slug = await seedServeOrg(otherUser.id)
-        const outreach = await service.prisma.outreach.create({
-          data: {
-            outreachType: OutreachType.text,
-            organizationSlug: slug,
-            date: new Date(),
-          },
-        })
-
-        const res = await service.client.post(
-          `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
-          { action: 'results.upload' },
-          { validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(HttpStatus.FORBIDDEN)
-      },
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
     )
 
-    it('returns 404 for a non-existent outreach', async () => {
-      const res = await service.client.post(
-        '/v1/test-fixtures/vendor-mocks/outreach/999999/admin-actions',
-        { action: 'results.upload' },
-        { validateStatus: () => true },
-      )
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
 
-      expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    })
-
-    it(
-      'passes ownership check for a serve outreach owned by the caller',
-      async () => {
-        const slug = await seedServeOrg(service.user.id)
-        const outreach = await service.prisma.outreach.create({
-          data: {
-            outreachType: OutreachType.text,
-            organizationSlug: slug,
-            date: new Date(),
-          },
-        })
-
-        // results.upload requires a CSV string payload; passing a
-        // non-string exercises the ownership guard (which must pass)
-        // and then surfaces a 400 from the action itself, proving the
-        // 404-on-serve-outreach bug is fixed.
-        const res = await service.client.post(
-          `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
-          { action: 'results.upload' },
-          { validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-      },
+  it('returns 404 for a non-existent outreach', async () => {
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/outreach/999999/admin-actions',
+      { action: 'results.upload' },
+      { validateStatus: () => true },
     )
 
-    it('returns 404 outside a non-prod deploy', async () => {
-      envNonProd.value = false
-      const slug = await seedServeOrg(service.user.id)
-      const outreach = await service.prisma.outreach.create({
-        data: {
-          outreachType: OutreachType.text,
-          organizationSlug: slug,
-          date: new Date(),
-        },
-      })
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
 
-      const res = await service.client.post(
-        `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
-        { action: 'results.upload' },
-        { validateStatus: () => true },
-      )
-
-      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  it('passes ownership check for a serve outreach owned by the caller', async () => {
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
     })
-  },
-)
+
+    // results.upload requires a CSV string payload; passing a
+    // non-string exercises the ownership guard (which must pass)
+    // and then surfaces a 400 from the action itself, proving the
+    // 404-on-serve-outreach bug is fixed.
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('returns 404 outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
