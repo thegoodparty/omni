@@ -8,9 +8,12 @@ import {
 import {
   doorTractFor,
   panelBalance,
+  panelComposition,
   panelCoverage,
   panelGaps,
   panelSteering,
+  precinctPlaces,
+  tractNumber,
   type PanelMix,
 } from './civicPanelSteering.util'
 
@@ -74,6 +77,91 @@ const raceMixOf = (cells: RespondentCell[]): PanelMix => ({
 const mixOf = (cells: RespondentCell[]): PanelMix => ({
   cells,
   census: { district: DISTRICT, tractAdults: TRACTS },
+})
+
+describe('panelComposition', () => {
+  it('reads every tract with its members and each major group beside the district', () => {
+    const composition = panelComposition(
+      mixOf([
+        cell({ count: 6, gender: 'female' }),
+        cell({ count: 4, ageBand: '65plus', tract: B, gender: 'male' }),
+      ]),
+    )
+
+    expect(composition.placeKind).toBe('tract')
+    expect(composition.places).toEqual([
+      { key: A, name: '9501', districtShare: 0.5, members: 6 },
+      { key: B, name: '9502', districtShare: 0.4, members: 4 },
+      { key: C, name: '9503', districtShare: 0.1, members: 0 },
+    ])
+    expect(composition.groups.map((group) => group.group)).toEqual([
+      'age18to24',
+      'age25to34',
+      'age35to44',
+      'age45to54',
+      'age55to64',
+      'age65plus',
+    ])
+    expect(
+      composition.groups.find((group) => group.group === 'age35to44'),
+    ).toEqual({ group: 'age35to44', districtShare: 0.16, memberShare: 0.6 })
+  })
+
+  it('names race groups only when race may be named, never other', () => {
+    const named = panelComposition(
+      raceMixOf([
+        cell({ count: 8, race: 'white' }),
+        cell({ count: 4, race: 'black' }),
+      ]),
+    )
+    expect(named.groups.map((group) => group.group)).toEqual(
+      expect.arrayContaining(['white', 'black', 'hispanic']),
+    )
+    expect(named.groups.find((group) => group.group === 'white')).toEqual({
+      group: 'white',
+      districtShare: 0.5,
+      memberShare: 8 / 12,
+    })
+
+    const unnamed = panelComposition(raceMixOf([cell({ count: 12 })]))
+    expect(unnamed.groups.some((group) => group.group === 'white')).toBe(false)
+  })
+})
+
+describe('tractNumber', () => {
+  it('names a tract the way the census does', () => {
+    expect(tractNumber('37021000100')).toBe('1')
+    expect(tractNumber('53017950102')).toBe('9501.02')
+  })
+})
+
+describe('precinctPlaces', () => {
+  it('shares the district by precinct, leaving the unknown precinct out', () => {
+    expect(
+      precinctPlaces(
+        [
+          { county: 'BUNCOMBE', precinct: '01.1', people: 300 },
+          { county: 'BUNCOMBE', precinct: '02.1', people: 100 },
+          { county: 'BUNCOMBE', precinct: '', people: 50 },
+        ],
+        [{ county: 'BUNCOMBE', precinct: '02.1', people: 7 }],
+      ),
+    ).toEqual([
+      {
+        key: 'BUNCOMBE|01.1',
+        name: '01.1',
+        districtShare: 0.75,
+        members: 0,
+      },
+      {
+        key: 'BUNCOMBE|02.1',
+        name: '02.1',
+        districtShare: 0.25,
+        members: 7,
+      },
+    ])
+    expect(precinctPlaces([], [])).toEqual([])
+  })
 })
 
 describe('panelGaps', () => {
@@ -169,11 +257,42 @@ describe('panelCoverage', () => {
   })
 })
 
+describe('panelCoverage members short', () => {
+  it('is the most a dimension still needs, since a member sits in one value of each', () => {
+    // Everyone 35 to 44 in tract A: the five other age bands (8 each) need
+    // 40, the two other tracts 16.
+    const { membersShort } = panelCoverage(
+      mixOf([cell({ count: 100, tract: A })]),
+    )
+    expect(membersShort).toBe(40)
+  })
+
+  it('is 0 once every group has its members', () => {
+    const bands = [
+      '18to24',
+      '25to34',
+      '35to44',
+      '45to54',
+      '55to64',
+      '65plus',
+    ] as const
+    const { membersShort } = panelCoverage(
+      mixOf(
+        bands.flatMap((ageBand) =>
+          [A, B, C].map((tract) => cell({ count: 8, ageBand, tract })),
+        ),
+      ),
+    )
+    expect(membersShort).toBe(0)
+  })
+})
+
 describe('panelBalance', () => {
   const coverage = (groupsCovered: number) => ({
     groupsCovered,
     groupsTotal: 12,
     missing: ['age65plus' as const],
+    membersShort: 0,
   })
 
   it('has too few members under 30', () => {
@@ -200,6 +319,33 @@ describe('panelBalance', () => {
       inviteMore: null,
     })
   })
+
+  it('counts the groups short of active members past the goal, and names the largest', () => {
+    const fresh = {
+      groupsCovered: 9,
+      groupsTotal: 12,
+      missing: ['black' as const, 'age65plus' as const],
+      membersShort: 20,
+    }
+    expect(
+      panelBalance({ members: 250, coverage: coverage(12), fresh }),
+    ).toEqual({
+      status: 'everyGroup',
+      inviteMore: 'black',
+      groupsNeedingFresh: 3,
+    })
+  })
+
+  it('has no group to invite once every group has active members', () => {
+    const fresh = { ...coverage(12), missing: [] }
+    expect(
+      panelBalance({ members: 250, coverage: coverage(12), fresh }),
+    ).toEqual({
+      status: 'everyGroup',
+      inviteMore: null,
+      groupsNeedingFresh: 0,
+    })
+  })
 })
 
 describe('doorTractFor', () => {
@@ -219,6 +365,58 @@ describe('doorTractFor', () => {
       cell({ count: 10, tract: C }),
     ])
     expect(doorTractFor(mix)).toBeNull()
+  })
+})
+
+describe('panelSteering past the goal', () => {
+  const members = mixOf([
+    cell({ count: 85, tract: A }),
+    cell({ count: 15, tract: B }),
+  ])
+
+  it('judges and leans by the active members, not the members', () => {
+    // Every member covers A and B, but only A's 30 answered lately.
+    const active = mixOf([cell({ count: 30, tract: A })])
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: active,
+    })
+    expect(steering.coverage?.groupsCovered).toBe(3)
+    expect(steering.fresh?.groupsCovered).toBe(2)
+    expect(steering.balance?.groupsNeedingFresh).toBe(7)
+    expect(steering.weights?.tract[B]).toBe(2)
+  })
+
+  it('still names groups to freshen with nobody active', () => {
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: { cells: [], census: members.census },
+    })
+    expect(steering.balance?.groupsNeedingFresh).toBe(9)
+    expect(steering.balance?.inviteMore).not.toBeNull()
+    expect(steering.weights).toBeNull()
+  })
+
+  it('names a group short of members before one only short of active members', () => {
+    // 65 and over has no members; tract B has members but none active.
+    const steering = panelSteering({
+      members: 100,
+      mix: members,
+      activeMix: mixOf([cell({ count: 30, tract: A })]),
+    })
+    const memberShort = panelCoverage(members).missing
+    expect(steering.balance?.status).toBe('missingGroups')
+    expect(steering.fresh?.missing).toEqual(expect.arrayContaining(memberShort))
+    expect(steering.balance?.inviteMore).toBe(steering.leansToward)
+    expect(steering.balance?.inviteMore).toBe(memberShort[0])
+  })
+
+  it('does not report freshness before the goal', () => {
+    expect(
+      panelSteering({ members: 100, mix: members }).balance?.groupsNeedingFresh,
+    ).toBeUndefined()
   })
 })
 

@@ -140,7 +140,7 @@ export const CivicPanelNextStepCard = () => {
     )
   })()
 
-  const progress = civicPanelStandingLine(data.progress)
+  const progress = civicPanelStandingLine(data.progress, data.balance)
   return (
     <div
       className={cn(OPTION_CARD_CLASS, 'flex w-full max-w-md flex-col gap-3')}

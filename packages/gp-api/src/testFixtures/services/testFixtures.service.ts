@@ -1,3 +1,5 @@
+import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
+import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
@@ -27,6 +29,7 @@ import {
   type TimeTravel,
   type TimeTravelResponse,
   DeleteTestFixtureUsersResponse,
+  PeerlyCvVerificationStatus,
   TestFixtureSessionResponse,
   TestFixtureUserResponse,
 } from '@goodparty_org/contracts'
@@ -77,6 +80,8 @@ export class TestFixturesService {
     private readonly activitySeed: ActivitySeedService,
     private readonly elections: ElectionsService,
     private readonly vendorMockRecord: VendorMockRecordService,
+    private readonly cvStatusPoll: CvStatusPollService,
+    private readonly tcrCompliance: CampaignTcrComplianceService,
     private readonly robocallStaging: OutreachRobocallStagingService,
     private readonly robocallSend: OutreachRobocallSendService,
     private readonly robocallCompletion: OutreachRobocallCompletionService,
@@ -321,6 +326,31 @@ export class TestFixturesService {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
+    } else if (action === 'peerly.cv.approve') {
+      await this.vendorMockRecord.setPeerlyCvStatus(campaignId, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+      })
+    } else if (action === 'peerly.cv.reject') {
+      const reason = body.params?.['reason']
+      if (reason !== undefined && (typeof reason !== 'string' || !reason)) {
+        throw new BadRequestException(
+          'params.reason must be a non-empty string',
+        )
+      }
+      await this.vendorMockRecord.setPeerlyCvStatus(campaignId, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        rejectionReason: reason ?? 'Rejected by mock control action',
+      })
+    } else if (action === 'peerly.cv.setPin') {
+      const pin = body.params?.['pin']
+      if (typeof pin !== 'string' || !/^\d{6}$/.test(pin)) {
+        throw new BadRequestException('params.pin must be a 6-digit string')
+      }
+      await this.vendorMockRecord.setPeerlyCvStatus(campaignId, { pin })
+    } else if (action === 'peerly.usecase.activate') {
+      await this.vendorMockRecord.activatePeerlyUsecase(campaignId)
+    } else if (action === 'vercel.order.fail') {
+      await this.vendorMockRecord.failVercelOrders(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
@@ -391,7 +421,17 @@ export class TestFixturesService {
     }
   }
 
-  async runJob(name: string): Promise<RunJobResponse> {
+  // `userId` is the calling test user. Campaign-scoped jobs (the 10DLC ones)
+  // need it so they never touch other users' records on a shared preview DB.
+  async runJob(name: string, userId?: number): Promise<RunJobResponse> {
+    const callerCampaign = async () => {
+      if (userId === undefined) {
+        throw new BadRequestException(`Job ${name} needs a calling test user`)
+      }
+      const campaign = await this.campaigns.findFirst({ where: { userId } })
+      if (!campaign) throw new NotFoundException('No campaign for caller')
+      return campaign
+    }
     const jobs: Record<string, () => Promise<void>> = {
       'robocall.staging': () => this.robocallStaging.runStaging(),
       'robocall.send': () => this.robocallSend.runSend(),
@@ -400,6 +440,26 @@ export class TestFixturesService {
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),
+      'cvStatusPoll.scanFresh': async () => {
+        const campaign = await callerCampaign()
+        await this.cvStatusPoll.runFreshScan(`fixture-${randomUUID()}`, {
+          campaignId: campaign.id,
+          spacingMs: 0,
+        })
+      },
+      // Skips the hourly CronLockService claim on purpose; only this fixture
+      // path may (the @Cron wrapper keeps the lock).
+      'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
+      'tcr.complianceSweep': async () => {
+        const campaign = await callerCampaign()
+        const record = await this.tcrCompliance.model.findFirst({
+          where: { campaignId: campaign.id, status: 'pending' },
+        })
+        if (!record) {
+          throw new NotFoundException('No pending TCR compliance record')
+        }
+        await this.tcrCompliance.checkUsecaseActivation(record)
+      },
     }
     const job = jobs[name]
     if (!job) throw new NotFoundException(`Unknown job: ${name}`)

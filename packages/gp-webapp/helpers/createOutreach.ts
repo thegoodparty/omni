@@ -15,11 +15,15 @@ export type { CreateOutreachPayload } from 'gpApi/outreach.api'
 export async function createOutreach(
   payload: CreateOutreachPayload,
   image: File | null = null,
+  // Told why the server refused, so a caller can say more than "it failed".
+  onRejected?: (message: string | null) => void,
 ): Promise<CreateOutreachResponse | null> {
   try {
     const resp = await createOutreachApi(payload, image)
     if (!resp.ok) {
       console.error('Error creating outreach:', resp.statusText)
+      const message = (resp.data as { message?: unknown } | null)?.message
+      onRejected?.(typeof message === 'string' ? message : null)
       return null
     }
     const data = resp.data

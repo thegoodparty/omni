@@ -1,6 +1,6 @@
 ---
 name: bulk-community-issues-cohort
-description: Use when manually dispatching a cohort of community-issue agent jobs (top_community_issues + trending_issues) against prod via the AdminOrM2MGuard-protected endpoint POST /v1/community-issues/dispatch, monitoring them to completion, and producing the outcome/cost/runtime analysis and CSV export. Lower spend than briefings (~$1-2 per org pair of runs); requires gp-admin AWS access and this repo's packages/gp-api.
+description: Use when manually dispatching a cohort of community-issue agent jobs (top_community_issues + trending_issues) against prod via the AdminOrM2MGuard-protected endpoint POST /v1/community-issues/dispatch, monitoring them to completion, and producing the outcome/cost/runtime analysis and CSV export. Lower spend than briefings (~$1-2 per org pair of runs); requires break-glass AWS admin (`/breakglass` in Slack) and this repo's packages/gp-api.
 ---
 
 # Runbook: dispatch a cohort of community-issue jobs in prod and analyze them
@@ -34,7 +34,8 @@ an explicit go before the real dispatch.
 
 ## Prerequisites
 
-- AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
+- AWS admin via SSO profile `gp-admin` (`AdministratorAccess`), needed to read `GP_API_PROD`. Nobody holds it standing: the human runs `/breakglass` in Slack and waits for approval in `#sensitive-access-requests`. A grant lasts 1 to 4 hours, so ask for enough to cover dispatch and monitoring. Then confirm with `aws --profile gp-admin sts get-caller-identity`; if it fails, the human runs `aws sso login --profile gp-admin`. Each session lasts one hour, so expect to sign in again during a long run.
+- Only the `GP_API_PROD` reads need admin. Pull those values first, while the grant is live. S3 artifact reads work under `gp-engineer`.
 - PR #246 merged and deployed to prod. Verify the route is live (no creds needed): `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issues/dispatch -H "authorization: Bearer __bad__"` returns 401/403 (route exists), not 404 (not deployed).
 - This repo's `packages/gp-api` on `main` (the analysis tsx scripts will run here).
 - The daily cron dispatches (`dispatchWeeklyTrendingIssues`, `dispatchMonthlyTopIssues`) are guarded by `MEETINGS_AUTOMATION_ENABLED=true`. Confirm no concurrent cron is running; a time window cleanly identifies your cohort.

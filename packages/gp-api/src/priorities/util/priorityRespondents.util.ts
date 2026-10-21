@@ -25,15 +25,17 @@ export const PRIORITY_UNSENT_STATUSES: OutreachStatus[] = [
 // reply that was more than STOP, an answered call or an answered door.
 // Someone heard by text and at the door is one person. People who have
 // opted out of the office's texts are left out, since this is who the
-// priority's report back goes to.
+// priority's report back goes to. A null `priorityId` is any priority of the
+// office; `since` keeps only answers given on or after it.
 export const answeredPersonIds = async (
   client: RespondentsClient,
   organizationSlug: string,
-  priorityId: string,
+  priorityId: string | null,
+  since?: Date,
 ): Promise<string[]> => {
   const sends = await client.outreach.findMany({
     where: {
-      priorityId,
+      priorityId: priorityId ?? { not: null },
       organizationSlug,
       campaignId: null,
       status: { notIn: PRIORITY_UNSENT_STATUSES },
@@ -61,6 +63,7 @@ export const answeredPersonIds = async (
         outreachId: { in: idsOf(OutreachType.text) },
         sender: PollIndividualMessageSender.CONSTITUENT,
         NOT: { isOptOut: true },
+        ...(since && { sentAt: { gte: since } }),
       },
       select: { personId: true },
       distinct: ['personId'],
@@ -69,6 +72,7 @@ export const answeredPersonIds = async (
       where: {
         phoneBankingListId: { in: phoneBankingListIds },
         outcome: 'answered',
+        ...(since && { occurredAt: { gte: since } }),
       },
       select: { personId: true },
       distinct: ['personId'],
@@ -78,6 +82,7 @@ export const answeredPersonIds = async (
         organizationSlug,
         outreachId: { in: idsOf(OutreachType.nativeDoorKnocking) },
         outcome: 'answered',
+        ...(since && { occurredAt: { gte: since } }),
       },
       select: { personId: true },
       distinct: ['personId'],

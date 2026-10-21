@@ -144,6 +144,7 @@ gating is per-action inside the services (see Access control).
 | `GET/POST/PATCH /v1/contacts/civic-panel/plan` · `POST …/plan/steps/:id/prepare` · `POST …/plan/steps/:id/skip` · `POST …/plan/steps/:id/mark` | Serve's plan to build the panel across texts, calls and doors (`CivicPanelBuildPlanService`). 404 with the flag off, 400 for a non-`eo-` org. See "Building the panel across channels"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /v1/contacts/:personId/interactions`                                                                                                     | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /v1/contact-engagement/:id/activities`                                                                                                    | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET /v1/contact-engagement/:id/priority-answers`                                                                                              | Serve only (Win and a missing office read empty): every `PriorityAnswer` for the person with its priority's title, newest first, from `ContactPriorityAnswersService`. The activity feed reads the same rows onto its text (by send), call and door (by interaction id) entries as `data.priorityAnswer`, Serve only, so a Win feed is unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`                                                              | Saved-filter CRUD; PUT/DELETE 409 once locked. Create is not Pro-gated (outreach-pro-gating-v2, a free candidate can save a list before upgrading); PUT/DELETE still call `filterAccessCheck`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `POST /v1/outreach`                                                                                                                            | Outreach create (draft-first); launch triggers materialization                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -888,8 +889,8 @@ when `raceNameable` holds for the district) to be expected to answer 3
 times. 100 where that group is 3% of the district, 15 where it is 20%.
 `CensusCompositionSource.districtAnswersNeeded` reads it from the
 district's cells (`smallestMajorShare` in
-`utils/civicPanelAllocation.util.ts`, over the same cells the priority model
-reads, cached 15 minutes per district); without them (no district row, no
+`utils/civicPanelAllocation.util.ts`, over the same census-reweighted frame
+the priority model reads, cached 15 minutes per district); without them (no district row, no
 district, or a failed read) it is `answersNeeded()`, 100, the most any
 district needs. The panel's own math is in
 `contracts/src/people/PanelAnswers.ts`: `panelGoalMembers(answers)` is
@@ -930,18 +931,32 @@ answer rate) members. The census is read for any panel with a member, and
 both are 0 when it cannot be. Without an active plan `goal` is the
 district's, so an office whose old plan completed at 100 can make a new one.
 
-**Keep your panel fresh.** A panel past its goal is not done. `create` with
-members at or over the district's goal makes a plan with `keepFresh` true
-(`CivicPanelBuildPlan.keepFresh`) and a `goalMembers` of members plus
-`PANEL_KEEP_FRESH_MEMBERS` (50), sized from the same weekly hours question.
-Its goal stays where it was set (it does not follow the district's), the
-read's `progress.goal` stays the district's so the bar still reads "every
-group", and the plan completes once those members join, after which a new one
-can be made. Waves, steps and steering are the ordinary plan's, and steering
-already leans toward the thinnest groups. The panel page shows the hours form
-under "Keep your panel fresh" in place of the plan start, and the Chief of
-Staff's build turn asks the same question, so Grow your civic panel leads
-into it.
+**Keep your panel fresh.** A panel past its goal is not done: it is kept
+fresh by active coverage. An active member is a panel member who answered a
+priority's text, call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90)
+days (`answeredPersonIds` with no priority and a `since`, read live from the
+interaction rows, never stored; opted-out people do not count). Past the
+goal (`members >= panelGoalMembers`) every read also counts them the way it
+counts members (`activeMixOf`, the same census cells and the same groups,
+with race named only when it is for the members) and every major group is
+judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its
+member-based `status` and gains `groupsNeedingFresh`, the groups short of
+active members, with `inviteMore` the largest group short of members, else of active members; absent before the
+goal. `create` with members at or over the district's goal makes a plan with
+`keepFresh` true (`CivicPanelBuildPlan.keepFresh`, the past-goal marker) and
+a `goalMembers` of the district's goal: it has no member target and never
+closes on its members, only `exhausted` once a wave can reach nobody. Its
+waves run on the weekly hours and steer by the active mix
+(`PanelSteering.fresh`): while groups are short the gap is the fewest more
+members that would fill them (`PanelCoverage.membersShort`), so texts, calls
+and doors are sized as for any plan; once none is short the gap is null and a
+wave is the official's calls and doors at their hours, no text, a light
+trickle. The panel page shows the hours form under "Keep your panel fresh"
+in place of the plan start, and the Chief of Staff's build turn asks the
+same question, so Grow your civic panel leads into it. The Chief of Staff
+card and `civicPanelStandingLine` follow `groupsNeedingFresh` ("250 members.
+3 groups need fresh voices."). See
+`docs/adr/2026-10-20-civic-panel-active-members-read-live.md`.
 
 **Sizing** (`sizePanelWave`, constants in contracts). One question: the
 official's own hours each week, `hoursPerWeek`, `PANEL_MIN_HOURS_PER_WEEK`
@@ -1035,7 +1050,19 @@ largest missing group, set whenever groups are missing, even once the goal
 is met; a text step's `steeredToward` is that same group (draw weights still
 follow the share gaps). Past the member goal the panel page's
 form is Keep your panel fresh (see below), and the balance section's line
-names the next group. The official never sees a share, weight or target.
+names the next group. The official never sees a share, weight or target
+as a number. The response's `composition` (null with no members, or when
+nothing can be read) feeds the panel page's seats and petals: `places` is
+every census tract from `weightingTargets`' tract shares with the members
+living there (`panelComposition`, `placeKind: 'tract'`, `name` the tract
+number), or, when the census has no tract for the district, every
+(County, Precinct) by its share of the people on file with the members
+filed there (`precinctPlaces` over `VoterQueryService.findPrecincts` and
+`findPrecinctMembers`, `placeKind: 'precinct'`, the unknown precinct left
+out). `groups` is each major group by age, gender and nameable race with
+its district share and the members' share among those with a known value,
+from the same mix the balance reads. The page draws seats and petal
+lengths from them and shows only seats and "X% of its share".
 
 **Round 1 sizing** (`sizeRoundOne` in `utils/civicPanelAllocation.util.ts`,
 Samuel, 2026-10-19, `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`).

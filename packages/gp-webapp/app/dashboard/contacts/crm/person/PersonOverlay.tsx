@@ -39,6 +39,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
+import { PriorityAnswersSection } from './PriorityAnswersSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
@@ -190,7 +191,9 @@ const TopIssuesContent: React.FC = () => {
           height={100}
           className="h-15 w-auto"
         />
-        <p className="text-sm text-muted-foreground">Data not available.</p>
+        <p className="text-sm text-muted-foreground">
+          No issues from your polls yet.
+        </p>
       </div>
     )
   }
@@ -446,6 +449,8 @@ export const PersonRecord: React.FC<{
         {issueCaptureEnabled && (
           <ConstituentFeedbackSection personId={person.id} isServe={isServe} />
         )}
+
+        <PriorityAnswersSection personId={person.id} isServe={isServe} />
 
         {showActivitiesAndIssues && topIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>

@@ -15,7 +15,7 @@ candidate or ballot, and no "campaign" in the run-for-office sense (an
 outreach campaign is fine). Add a Serve-framed string by giving the component
 a mode-keyed copy object, never by renaming the Win one: Win copy must not
 change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
-`v2/phone-banking/PhoneBankingFlow.tsx` is the shape. Full rule, the banned
+`v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
 ## The outreach hub

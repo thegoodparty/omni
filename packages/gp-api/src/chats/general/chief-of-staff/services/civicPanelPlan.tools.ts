@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common'
 import { z } from 'zod'
 import {
   CIVIC_PANEL_PAGE_HREF,
+  civicPanelFreshnessText,
   civicPanelStandingLine,
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_MIN_HOURS_PER_WEEK,
@@ -46,7 +47,7 @@ const standing = (panel: CivicPanelBuildPlanResponse) => ({
   members: panel.progress.members,
   groupsCovered: panel.progress.groupsCovered,
   groupsTotal: panel.progress.groupsTotal,
-  standing: civicPanelStandingLine(panel.progress),
+  standing: civicPanelStandingLine(panel.progress, panel.balance),
   hoursPerWeek: panel.plan?.hoursPerWeek ?? null,
   next: panel.next?.line ?? null,
   // The panel page's status label and the group it says to invite next,
@@ -54,6 +55,12 @@ const standing = (panel: CivicPanelBuildPlanResponse) => ({
   panelStatus: panel.balance
     ? CIVIC_PANEL_BALANCE_STATUS_LABELS[panel.balance.status]
     : null,
+  // Past its goal: how many groups have no active members, in the panel
+  // page's words. Null before the goal.
+  freshVoices:
+    panel.balance?.groupsNeedingFresh != null
+      ? civicPanelFreshnessText(panel.balance.groupsNeedingFresh)
+      : null,
   inviteMoreNext: panel.balance?.inviteMore
     ? UNDERREPRESENTED_GROUP_NAMES[panel.balance.inviteMore]
     : null,

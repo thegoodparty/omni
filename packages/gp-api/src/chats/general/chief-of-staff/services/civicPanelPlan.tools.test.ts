@@ -96,6 +96,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
       panelStatus: 'Missing some groups',
+      freshVoices: null,
       inviteMoreNext: 'people 65 and over',
     })
     // Answered once, it is never asked again in the same turn.
@@ -200,6 +201,31 @@ describe('the civic panel plan tools', () => {
     expect(inputSchema.safeParse({ hoursPerWeek: 20 }).success).toBe(true)
   })
 
+  it('says how many groups need fresh voices once the panel is past its goal', async () => {
+    const plans = buildPlans({
+      read: vi.fn(() =>
+        Promise.resolve({
+          ...withPlan(2),
+          progress: { ...withPlan(2).progress, members: 250 },
+          balance: {
+            status: 'everyGroup' as const,
+            inviteMore: 'age65plus' as const,
+            groupsNeedingFresh: 3,
+          },
+        }),
+      ),
+    })
+
+    expect(
+      await toolsFor(plans, true).present_panel_next_step.execute({}),
+    ).toMatchObject({
+      standing: '250 members. 3 groups need fresh voices.',
+      freshVoices: '3 groups need fresh voices',
+      panelStatus: 'Every group on your panel',
+      inviteMoreNext: 'people 65 and over',
+    })
+  })
+
   it("shows the plan's next step, and refuses before there is a plan", async () => {
     expect(
       await toolsFor(buildPlans(), false).present_panel_next_step.execute({}),
@@ -219,6 +245,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
       panelStatus: 'Missing some groups',
+      freshVoices: null,
       inviteMoreNext: 'people 65 and over',
     })
   })

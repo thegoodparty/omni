@@ -308,7 +308,7 @@ const civicPanelBuildBlock = (
         ]
       : atGoal
         ? [
-            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps adding new members, leaning toward the groups with the fewest.`,
+            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps inviting residents, leaning toward the groups with the fewest members who answered lately.`,
             ...askTime,
           ]
         : panel.members > 0
