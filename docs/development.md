@@ -91,12 +91,29 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
   members, from door and call yeses plus JOIN replies to a panel invite
   text, and a build plan at 2 hours a week whose first text step reads done.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
-  a text ask to panel members and other residents and a few more replies
-  than the district's good read needs (about 100), so its results page
-  (`/dashboard/priorities/<id>/results`) opens with themes.
+  a text ask to panel members and other residents. Every resident asked
+  replies and gets a coded answer, so the priority reads as every group
+  heard and its results page (`/dashboard/priorities/<id>/results`) opens
+  with themes.
 
-The good read needs the default sample of 250 residents. Run it again and it
-adds another round of outreach and a second priority; the plan is reused.
+Set how the priority reads with `--answers <n>` (how many residents answer,
+each with a coded answer) and `--split even` (answers split half yes, half
+no, instead of nine in ten yes), on `--org` or `--fixture`:
+
+```bash
+npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear from some groups
+npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
+npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
+```
+
+With no flags every resident asked answers, and the priority reads as Every
+group heard. Which counts land on which state depends on how many groups
+the district has: the counts above are what a district of about 20 groups
+(six age bands, two genders and a dozen neighborhoods) gives, and a district
+with fewer groups needs fewer answers. Run it again and it adds another round
+of outreach and a second priority; the plan is reused.
+
+The default sample is 250 residents.
 
 If you'd rather set up by hand: `nvm use`, `npm install` (runs a `postinstall`
 that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, run
@@ -147,6 +164,12 @@ npm run generate:prisma:gp-api     # one service
 
 gp-api migrations run from inside its workspace (`npm run migrate:dev -w gp-api`).
 See `packages/gp-api/prisma/AGENTS.md`.
+
+## Dev environment: simulated vendors
+
+Dev uses mock vendors — no traffic reaches Peerly, CallHub, Geoapify, Vercel,
+or Route53. Timings, the rollback lever (`VENDOR_MODE=live`), and a note on
+campaigns created before the cutover: `docs/vendor-mock-dev.md`.
 
 ## Per-app detail
 

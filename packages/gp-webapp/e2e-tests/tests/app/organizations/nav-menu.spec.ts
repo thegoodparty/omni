@@ -63,7 +63,8 @@ test.describe('Navigation Menu by Org Type', () => {
     ).toBeVisible({
       timeout: 10000,
     })
-    await expect(sidebar.getByText('Polls')).toBeVisible()
+    await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible()
+    await expect(sidebar.getByText('Polls', { exact: true })).not.toBeVisible()
 
     await expect(sidebar.getByText('Campaign Manager')).not.toBeVisible()
     await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()

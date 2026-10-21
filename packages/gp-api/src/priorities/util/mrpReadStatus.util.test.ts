@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { MrpGroupEstimate } from './mrp.util'
-import { mrpReadStatus, type MrpRead } from './mrpReadStatus.util'
+import {
+  holdingBackTracts,
+  mrpReadStatus,
+  type MrpRead,
+} from './mrpReadStatus.util'
 
 const group = (
   dimension: string,
@@ -28,6 +32,23 @@ const AGES = (younger: number, older: number, width = 0.1) => [
   group('age', '65plus', 0.2, older, width),
 ]
 
+describe('holdingBackTracts', () => {
+  it('names the tracts short of voices or still unsure, never a small one', () => {
+    expect(
+      holdingBackTracts(
+        read([
+          group('tract', 'short', 0.4, 2),
+          group('tract', 'unsure', 0.3, 20, 0.4),
+          group('tract', 'fine', 0.2, 20),
+          group('tract', 'small', 0.02, 0),
+          group('age', '65plus', 0.2, 0),
+        ]),
+      ),
+    ).toEqual(['short', 'unsure'])
+    expect(holdingBackTracts(null)).toEqual([])
+  })
+})
+
 describe('mrpReadStatus', () => {
   it('is too early while a major group has no answer, and names it', () => {
     const status = mrpReadStatus({
@@ -37,6 +58,8 @@ describe('mrpReadStatus', () => {
     expect(status).toEqual({
       answers: 12,
       needed: 15,
+      groupsHeard: 1,
+      groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
@@ -67,6 +90,8 @@ describe('mrpReadStatus', () => {
     expect(status).toEqual({
       answers: 40,
       needed: 40,
+      groupsHeard: 2,
+      groupsTotal: 2,
       good: false,
       status: 'gettingClose',
       underrepresented: ['age65plus'],
@@ -81,6 +106,8 @@ describe('mrpReadStatus', () => {
     expect(status).toEqual({
       answers: 60,
       needed: 60,
+      groupsHeard: 2,
+      groupsTotal: 2,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -156,6 +183,8 @@ describe('mrpReadStatus', () => {
     expect(mrpReadStatus({ answers: 100, read: null })).toEqual({
       answers: 100,
       needed: 100,
+      groupsHeard: 0,
+      groupsTotal: 0,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],

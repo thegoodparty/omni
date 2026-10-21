@@ -52,6 +52,20 @@ export class VoterQueryService {
     })
   }
 
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ) {
+    return this.readLog.measure({
+      op: 'precinct-members',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.findPrecinctMembers(districtId, dataset, personIds),
+    })
+  }
+
   async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
     return this.readLog.measure({
       op: 'list',

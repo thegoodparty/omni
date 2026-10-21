@@ -33,10 +33,9 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
 | `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
 | `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
-| `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
+| `packages/gp-admin`        | Internal staff admin console                                      | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client                           | TypeScript        | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types                    | TypeScript        | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments                   | Markdown + Python | —    |
 

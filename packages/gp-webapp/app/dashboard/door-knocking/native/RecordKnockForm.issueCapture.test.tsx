@@ -284,11 +284,69 @@ describe('RecordKnockForm issue capture', () => {
     expect(store.has('21')).toBe(false)
   })
 
-  it('advances on skip, leaving the memo unconfirmed', async () => {
+  // Skip still saves: the note is confirmed with no issues, so its words go
+  // into the summary, and `skipped` tells gp-api to keep the model's proposal.
+  it('saves the note with no issues on skip, and advances', async () => {
+    let confirmed: unknown = null
+    api.mock('PATCH /v1/constituent-feedback/:id/confirm', ({ body }) => {
+      confirmed = body
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          occurredAt: new Date('2026-09-25T00:00:00.000Z'),
+          channel: 'door_knock',
+          transcript: MEMO,
+          issues: [],
+          extractionStatus: 'extracted',
+          confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
+          outreachId: 7,
+          actorName: 'Kamal Al Sawafi',
+          tags: [],
+        },
+      }
+    })
     const onRecorded = renderForm()
     await walkAndSave()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
+    )
+    expect(confirmed).toEqual({ issues: [], skipped: true })
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+      channel: 'doorKnocking',
+      product: 'serve',
+    })
+  })
+
+  // Two drawers swapped for each other closed the second as it opened: the
+  // first handed focus back to the sheet behind as it unmounted, vaul read
+  // that as focus outside the second, and the dismiss skipped the memo.
+  it('opens the confirm step in the frame the questions were answered in', async () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    const frame = screen.getByRole('dialog')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+    dictate(MEMO)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Is this right?' })).toBe(
+      frame,
+    )
+  })
+
+  it('treats closing the confirm step as a skip', async () => {
+    const onRecorded = renderForm()
+    await walkAndSave()
+
+    const confirmStep = await screen.findByRole('dialog', {
+      name: 'Is this right?',
+    })
+    fireEvent.click(within(confirmStep).getByRole('button', { name: 'Close' }))
 
     await waitFor(() =>
       expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
@@ -929,9 +987,11 @@ describe('RecordKnockForm issue capture on a Win door', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
-      channel: 'doorKnocking',
-      product: 'win',
-    })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.MemoSkipped, {
+        channel: 'doorKnocking',
+        product: 'win',
+      }),
+    )
   })
 })

@@ -40,7 +40,10 @@ changes. If you're on the team with a personal email as well as your GoodParty
 one, log in as the **GoodParty** account — a Member-role session silently hides
 the menu item and it reads like the feature doesn't exist.
 
-The API path needs no dashboard login, just the prod Vercel token:
+The API path needs no dashboard login, just the prod Vercel token. It lives in
+`GP_API_PROD`, which only `AdministratorAccess` can read, and nobody holds that
+standing: run `/breakglass` in Slack and wait for approval in
+`#sensitive-access-requests` before the login below.
 
 ```bash
 aws sso login --profile gp-admin

@@ -53,7 +53,7 @@ The consumer file is large (~1100 lines). A future refactor will split per-`Queu
 - `gp-api` -> `election-api`: HTTP, internal
 - `gp-api` -> `gp-ai`: HTTP
 
-Shared types between `gp-api` and `gp-webapp`/`gp-sdk` flow through `@goodparty_org/contracts` (see `docs/contracts.md`).
+Shared types between `gp-api` and `gp-webapp`/`gp-admin` flow through `@goodparty_org/contracts` (see `docs/contracts.md`).
 
 ## Bootstrap
 

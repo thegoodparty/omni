@@ -48,10 +48,12 @@ const RowContent = ({
   title,
   subtitle,
   trailing,
+  wrapSubtitle = false,
 }: {
   title: string
   subtitle?: string
   trailing?: ReactNode
+  wrapSubtitle?: boolean
 }) => (
   <>
     <span className="flex min-w-0 flex-1 flex-col">
@@ -59,7 +61,12 @@ const RowContent = ({
         {title}
       </span>
       {subtitle ? (
-        <span className="text-muted-foreground truncate text-sm leading-6">
+        <span
+          className={cn(
+            'text-muted-foreground text-sm leading-6',
+            !wrapSubtitle && 'truncate',
+          )}
+        >
           {subtitle}
         </span>
       ) : null}
@@ -122,13 +129,21 @@ export const CompactCardStatic = ({
   title,
   subtitle,
   action,
+  wrapSubtitle,
 }: {
   title: string
   subtitle?: string
   action?: ReactNode
+  // For a line that must be read whole, such as how long a step takes.
+  wrapSubtitle?: boolean
 }) => (
   <div className={ROW_CLASS}>
-    <RowContent title={title} subtitle={subtitle} trailing={action} />
+    <RowContent
+      title={title}
+      subtitle={subtitle}
+      trailing={action}
+      wrapSubtitle={wrapSubtitle}
+    />
   </div>
 )
 

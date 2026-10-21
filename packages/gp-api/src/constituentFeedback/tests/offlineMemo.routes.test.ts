@@ -11,6 +11,7 @@ import {
 } from 'vitest'
 import {
   ConstituentFeedbackCaptureMethod,
+  ConstituentFeedbackConfirmation,
   ConstituentFeedbackExtractionStatus,
   OrganizationRole,
 } from '@/generated/prisma'
@@ -19,16 +20,18 @@ import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
-import { PendingTranscriptionService } from '../services/pendingTranscription.service'
-import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
 import {
-  call,
+  ABANDONED_CONFIRM_AFTER_HOURS,
+  MAX_TRANSCRIPTION_ATTEMPTS,
+  PendingTranscriptionService,
+  START_RETRY_AFTER_MINUTES,
+} from '../services/pendingTranscription.service'
+import { ConstituentFeedbackService } from '../services/constituentFeedback.service'
+import { ConstituentFeedbackExtractionService } from '../services/constituentFeedbackExtraction.service'
+import {
   createWinOrg,
   knock,
   ownerHeaders,
-  seedCallMemo,
-  seedKnockMemo,
-  seedPhoneEffort,
   seedTurfEffort,
   type StopTarget,
 } from './issueCaptureFixtures'
@@ -74,6 +77,7 @@ const assign = (slug: string, outreachId: number, assigneeUserId: number) =>
 // per-minute firing never holds the claim a test pass needs.
 const FIRST_SLOT = new Date('2026-01-01T00:00:00.000Z')
 const NEXT_SLOT = new Date('2026-01-01T00:01:00.000Z')
+const THIRD_SLOT = new Date('2026-01-01T00:02:00.000Z')
 
 describe('offline memo capture', () => {
   let slug: string
@@ -285,17 +289,33 @@ describe('offline memo capture', () => {
   })
 
   describe('the pending transcription cron', () => {
-    it('fills the transcript when the job finishes, then extracts it', async () => {
+    const cron = () => service.app.get(PendingTranscriptionService)
+
+    const proposal = (feedbackId: string) =>
+      service.prisma.constituentFeedbackUnreviewedIssue.findMany({
+        where: { feedbackId },
+        orderBy: { position: 'asc' },
+      })
+
+    const failEveryJob = () => {
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({ status: 'failed', reason: 'unsupported media' })
+      onTestFinished(() => poll.mockRestore())
+    }
+
+    // Nobody who was at the door will see it again, so the memo is confirmed
+    // with its words and no issues; the model's proposal is kept apart.
+    it('transcribes, extracts and confirms the memo automatically', async () => {
       const { res } = await recordOffline()
-      const cron = service.app.get(PendingTranscriptionService)
 
       // Under three seconds in: the mock job is still running.
-      await cron.pass(FIRST_SLOT)
+      await cron().pass(FIRST_SLOT)
       expect((await row(res.data.id)).transcript).toBeNull()
 
       vi.useFakeTimers({ toFake: ['Date'] })
       vi.setSystemTime(Date.now() + 4_000)
-      await cron.pass(NEXT_SLOT)
+      await cron().pass(NEXT_SLOT)
 
       const saved = await row(res.data.id)
       expect(SEED_MEMOS.map((memo) => memo.transcript)).toContain(
@@ -304,47 +324,163 @@ describe('offline memo capture', () => {
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.extracted,
       )
-      expect(saved.issues).toEqual([
+      expect(saved.effortQuestion).toBe('What should the town fix first?')
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.confirmation).toBe(ConstituentFeedbackConfirmation.automatic)
+      expect(saved.issues).toEqual([])
+      expect(await proposal(res.data.id)).toEqual([
         expect.objectContaining({
           position: 0,
           issueLabel: 'Street flooding',
           stance: 'opposes',
-          proposedIssueLabel: 'Street flooding',
+          desiredOutcome: 'Clear the storm drain',
         }),
       ])
-      expect(saved.effortQuestion).toBe('What should the town fix first?')
-      // Extracted is not confirmed: only the review list sets this.
-      expect(saved.confirmedAt).toBeNull()
     })
 
-    it('marks a memo failed when its job fails', async () => {
+    // Themes need only the words, so a failed extraction confirms too.
+    it('confirms the memo when extraction fails', async () => {
+      const extract = vi
+        .spyOn(service.app.get(ConstituentFeedbackExtractionService), 'extract')
+        .mockResolvedValue(null)
+      onTestFinished(() => extract.mockRestore())
       const { res } = await recordOffline()
       const poll = vi
         .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
-        .mockResolvedValue({ status: 'failed', reason: 'unsupported media' })
+        .mockResolvedValue({
+          status: 'completed',
+          transcript: 'She wants the storm drain cleared.',
+        })
       onTestFinished(() => poll.mockRestore())
 
-      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+      await cron().pass(FIRST_SLOT)
+
+      const saved = await row(res.data.id)
+      expect(saved.transcript).toBe('She wants the storm drain cleared.')
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.confirmation).toBe(ConstituentFeedbackConfirmation.automatic)
+      expect(saved.issues).toEqual([])
+      expect(await proposal(res.data.id)).toEqual([])
+    })
+
+    it('starts a new job after a failed one, and gives up after three', async () => {
+      const { res } = await recordOffline()
+      failEveryJob()
+      const jobNames = [(await row(res.data.id)).transcriptionJobName]
+
+      await cron().pass(FIRST_SLOT)
+      jobNames.push((await row(res.data.id)).transcriptionJobName)
+      await cron().pass(NEXT_SLOT)
+      jobNames.push((await row(res.data.id)).transcriptionJobName)
+
+      const retried = await row(res.data.id)
+      expect(new Set(jobNames).size).toBe(MAX_TRANSCRIPTION_ATTEMPTS)
+      expect(retried.transcriptionAttempts).toBe(MAX_TRANSCRIPTION_ATTEMPTS)
+      expect(retried.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.pending,
+      )
+
+      await cron().pass(THIRD_SLOT)
+
+      const unreadable = await row(res.data.id)
+      expect(unreadable.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+      expect(unreadable.transcript).toBeNull()
+      expect(unreadable.confirmedAt).toBeNull()
+    })
+
+    const minutesOn = (minutes: number) =>
+      new Date(Date.now() + minutes * 60_000)
+
+    it('counts a job that fails to start as an attempt', async () => {
+      const start = vi
+        .spyOn(service.app.get(TranscribeFileService), 'transcribeFile')
+        .mockRejectedValue(new Error('Transcribe unavailable'))
+      onTestFinished(() => start.mockRestore())
+      const { res } = await recordOffline()
+      expect((await row(res.data.id)).transcriptionAttempts).toBe(1)
+
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+      await cron().pass(minutesOn(2 * START_RETRY_AFTER_MINUTES + 2))
+      expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
+      await cron().pass(minutesOn(3 * START_RETRY_AFTER_MINUTES + 3))
+
+      const saved = await row(res.data.id)
+      expect(start).toHaveBeenCalledTimes(MAX_TRANSCRIPTION_ATTEMPTS)
+      expect(saved.transcriptionJobName).toBeNull()
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+    })
+
+    // A start that failed in an outage is not tried again inside it.
+    it('waits before starting again after a failed start', async () => {
+      const start = vi
+        .spyOn(service.app.get(TranscribeFileService), 'transcribeFile')
+        .mockRejectedValueOnce(new Error('Transcribe unavailable'))
+      onTestFinished(() => start.mockRestore())
+      const { res } = await recordOffline()
+
+      await cron().pass(minutesOn(1))
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES - 1))
+
+      expect(start).toHaveBeenCalledOnce()
+      expect((await row(res.data.id)).transcriptionJobName).toBeNull()
+
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
+
+      expect(start).toHaveBeenCalledTimes(2)
+      const saved = await row(res.data.id)
+      expect(saved.transcriptionJobName).not.toBeNull()
+      expect(saved.transcriptionAttempts).toBe(2)
+    })
+
+    // Silence transcribes to nothing, and another job would hear the same.
+    it('fails a silent recording at once', async () => {
+      const { res } = await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({ status: 'completed', transcript: '  ' })
+      onTestFinished(() => poll.mockRestore())
+
+      await cron().pass(FIRST_SLOT)
 
       const saved = await row(res.data.id)
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.failed,
       )
-      expect(saved.transcript).toBeNull()
+      expect(saved.transcriptionAttempts).toBe(1)
+      expect(saved.confirmedAt).toBeNull()
     })
 
-    // An hour with no word, and the memo goes to "Notes to review" with
-    // "Try again" rather than holding a slot in every batch.
-    it('gives up on a job still running an hour on', async () => {
+    // An hour with no word counts as a failed job: another starts while
+    // attempts remain, and the memo is marked failed once they are spent.
+    it('treats a job still running an hour on as failed', async () => {
       const { res } = await recordOffline()
       const poll = vi
         .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
         .mockResolvedValue({ status: 'in_progress' })
       onTestFinished(() => poll.mockRestore())
+      const { transcriptionJobName: first } = await row(res.data.id)
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(new Date(Date.now() + 61 * 60_000))
+      await cron().pass(new Date(Date.now() + 61 * 60_000))
+
+      const restarted = await row(res.data.id)
+      expect(restarted.transcriptionJobName).not.toBe(first)
+      expect(restarted.transcriptionAttempts).toBe(2)
+      expect(restarted.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.pending,
+      )
+
+      await service.prisma.constituentFeedback.update({
+        where: { id: res.data.id },
+        data: { transcriptionAttempts: MAX_TRANSCRIPTION_ATTEMPTS },
+      })
+      await cron().pass(new Date(Date.now() + 122 * 60_000))
 
       expect((await row(res.data.id)).extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.failed,
@@ -363,9 +499,7 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await service.app
-        .get(PendingTranscriptionService)
-        .pass(new Date(Date.now() + 61 * 60_000))
+      await cron().pass(new Date(Date.now() + 61 * 60_000))
 
       const saved = await row(res.data.id)
       expect(saved.transcript).toBe('She wants the storm drain cleared.')
@@ -374,10 +508,9 @@ describe('offline memo capture', () => {
       )
     })
 
-    // Confirmed from "Notes to review" while its job ran: the person who was
-    // there has spoken, and a late model guess must not replace their word.
-    // The cron read the row before the confirm landed, so its completion
-    // still arrives.
+    // Confirmed while its job ran: the person who was there has spoken, and
+    // a late model guess must not replace their word. The cron read the row
+    // before the confirm landed, so its completion still arrives.
     const confirmMidJob = async () => {
       const { res } = await recordOffline()
       const confirmed = await service.client.patch(
@@ -409,6 +542,7 @@ describe('offline memo capture', () => {
 
       const saved = await row(id)
       expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.confirmation).toBe(ConstituentFeedbackConfirmation.reviewed)
       expect(saved.issues).toEqual([
         expect.objectContaining({
           position: 0,
@@ -421,11 +555,12 @@ describe('offline memo capture', () => {
     })
 
     // The failure twin: the cron read the row, the confirm landed while it
-    // polled, then the job failed. The confirmed memo is not sent back to
-    // "Notes to review" as failed.
+    // polled, then the job failed. The confirmed memo gets no new job and is
+    // not marked failed.
     it('leaves a memo confirmed mid-job as it was when the job fails', async () => {
       const { res } = await recordOffline()
       const id = res.data.id as string
+      const { transcriptionJobName } = await row(id)
       const poll = vi
         .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
         .mockImplementation(async () => {
@@ -447,17 +582,47 @@ describe('offline memo capture', () => {
         })
       onTestFinished(() => poll.mockRestore())
 
-      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+      await cron().pass(FIRST_SLOT)
 
       expect(poll).toHaveBeenCalledOnce()
       const saved = await row(id)
       expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.transcriptionJobName).toBe(transcriptionJobName)
       expect(saved.extractionStatus).toBe(
         ConstituentFeedbackExtractionStatus.pending,
       )
       expect(saved.issues).toEqual([
         expect.objectContaining({ issueLabel: 'Compost pickup' }),
       ])
+    })
+
+    // Giving up keeps the job's name on the row, so a job that answers after
+    // that must not confirm a memo the report already shows as unreadable.
+    it('leaves a memo marked unreadable alone when its job answers late', async () => {
+      const { res } = await recordOffline()
+      const id = res.data.id as string
+      const { transcriptionJobName } = await row(id)
+      const feedback = service.app.get(ConstituentFeedbackService)
+      await feedback.failTranscription({
+        id,
+        jobName: transcriptionJobName,
+        reason: 'timeout',
+      })
+
+      await feedback.completeTranscription({
+        id,
+        jobName: transcriptionJobName!,
+        transcript: 'She wants the storm drain cleared.',
+      })
+
+      const saved = await row(id)
+      expect(saved.extractionStatus).toBe(
+        ConstituentFeedbackExtractionStatus.failed,
+      )
+      expect(saved.transcript).toBeNull()
+      expect(saved.confirmedAt).toBeNull()
+      expect(saved.confirmation).toBeNull()
+      expect(await proposal(id)).toEqual([])
     })
 
     it('stops polling a memo once it is confirmed', async () => {
@@ -468,7 +633,7 @@ describe('offline memo capture', () => {
       )
       onTestFinished(() => poll.mockRestore())
 
-      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+      await cron().pass(FIRST_SLOT)
 
       expect(poll).not.toHaveBeenCalled()
     })
@@ -480,223 +645,132 @@ describe('offline memo capture', () => {
         data: { transcriptionJobName: null },
       })
 
-      await service.app.get(PendingTranscriptionService).pass(FIRST_SLOT)
+      await cron().pass(minutesOn(START_RETRY_AFTER_MINUTES + 1))
 
       expect((await row(res.data.id)).transcriptionJobName).not.toBeNull()
     })
   })
 
-  describe('GET pending', () => {
-    const pending = (config = ownerHeaders(slug)) =>
-      service.client.get('/v1/constituent-feedback/pending', {
-        ...config,
-        params: { outreachId },
-      })
-
-    it('shows a volunteer their own notes and a manager everyone’s', async () => {
-      const volunteer = await createVolunteer(slug)
-      await assign(slug, outreachId, volunteer.user.id)
-      const { res: theirs } = await recordOffline(volunteer.config)
-      const { memo: ownersPending } = await seedKnockMemo(service, {
+  // A live memo whose confirm step never finished, because the app closed on
+  // the card, is confirmed the way a skip is once it has sat untouched.
+  describe('the abandoned confirm sweep', () => {
+    const recordLive = async () => {
+      const target = targets[0]!
+      const knocked = await knock(service, {
         slug,
         outreachId,
-        personId: targets[1]!.personId,
-        confirmed: false,
+        personId: target.personId,
       })
-      // Confirmed already, so it is nobody's to review.
-      await seedKnockMemo(service, {
-        slug,
-        outreachId,
-        personId: targets[2]!.personId,
-      })
-
-      const asVolunteer = await pending(volunteer.config)
-      const asOwner = await pending()
-
-      expect(asVolunteer.status).toBe(200)
-      expect(
-        asVolunteer.data.feedback.map((memo: { id: string }) => memo.id),
-      ).toEqual([theirs.data.id])
-      expect(asOwner.status).toBe(200)
-      expect(
-        asOwner.data.feedback.map((memo: { id: string }) => memo.id).sort(),
-      ).toEqual([theirs.data.id, ownersPending.id].sort())
-    })
-  })
-
-  // "Type it instead" re-records the memo as typed text, so it needs what a
-  // capture posts: the memo's own clientKey and its knock or call.
-  describe('re-recording a pending memo as typed text', () => {
-    const pending = () =>
-      service.client.get('/v1/constituent-feedback/pending', {
-        ...ownerHeaders(slug),
-        params: { outreachId },
-      })
-
-    it('hands back a door memo’s reference, and the typed re-record replaces it', async () => {
-      const { res: recorded } = await recordOffline()
-      await service.prisma.constituentFeedback.update({
-        where: { id: recorded.data.id },
-        data: { extractionStatus: ConstituentFeedbackExtractionStatus.failed },
-      })
-      const knocked =
-        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
-          where: { organizationSlug: slug },
-        })
-
-      const listed = await pending()
-      const memo = listed.data.feedback[0]
-      expect(memo.clientKey).toBe(knocked.sourceId)
-      expect(memo.reference).toEqual({
-        channel: 'door_knock',
-        knockClientKey: knocked.sourceId,
-        stopTargetId: targets[0]!.id,
-      })
-
-      const typed = await service.client.post(
+      const res = await service.client.post(
         '/v1/constituent-feedback',
         {
-          ...memo.reference,
-          clientKey: memo.clientKey,
+          channel: 'door_knock',
+          knockClientKey: knocked.sourceId,
+          stopTargetId: target.id,
+          clientKey: knocked.sourceId,
           transcript: 'The storm drain on her corner floods every spring.',
-          captureMethod: 'typed',
+          captureMethod: 'dictation',
         },
         ownerHeaders(slug),
       )
-
-      expect(typed.status).toBe(201)
-      expect(typed.data.id).toBe(recorded.data.id)
-      expect(typed.data.extraction).toEqual({
-        issues: [
-          {
-            id: expect.any(String),
-            position: 0,
-            issueLabel: 'Street flooding',
-            stance: 'opposes',
-            desiredOutcome: 'Clear the storm drain',
-          },
-        ],
-      })
-      const saved = await row(recorded.data.id)
-      expect(saved.transcript).toBe(
-        'The storm drain on her corner floods every spring.',
-      )
-      expect(saved.captureMethod).toBe(ConstituentFeedbackCaptureMethod.typed)
-      expect(saved.audioKey).toBeNull()
-      expect(saved.extractionStatus).toBe(
-        ConstituentFeedbackExtractionStatus.extracted,
-      )
-      expect(saved.confirmedAt).toBeNull()
-    })
-
-    it('hands back a call memo’s reference', async () => {
-      const phone = await seedPhoneEffort(service, slug, { people: 2 })
-      const entry = phone.entries[1]!
-      const called = await call(service, {
-        slug,
-        listId: phone.listId,
-        personId: entry.personId,
-      })
-      const memo = await seedCallMemo(service, {
-        slug,
-        outreachId: phone.outreachId,
-        phoneBankingInteractionId: called.id,
-        personId: entry.personId,
-      })
-      await service.prisma.constituentFeedback.update({
-        where: { id: memo.id },
-        data: { confirmedAt: null },
-      })
-
-      const listed = await service.client.get(
-        '/v1/constituent-feedback/pending',
-        { ...ownerHeaders(slug), params: { outreachId: phone.outreachId } },
-      )
-
-      expect(listed.data.feedback).toHaveLength(1)
-      expect(listed.data.feedback[0].clientKey).toBe(memo.clientKey)
-      expect(listed.data.feedback[0].reference).toEqual({
-        channel: 'phone_bank',
-        entryId: entry.id,
-        personId: entry.personId,
-      })
-    })
-  })
-
-  describe('POST :id/retry', () => {
-    it('re-runs a failed extraction', async () => {
-      const { memo } = await seedKnockMemo(service, {
-        slug,
-        outreachId,
-        personId: targets[0]!.personId,
-        confirmed: false,
-      })
-      await service.prisma.constituentFeedback.update({
-        where: { id: memo.id },
-        data: {
-          extractionStatus: ConstituentFeedbackExtractionStatus.failed,
-          issues: { deleteMany: {} },
-        },
-      })
-
-      const res = await service.client.post(
-        `/v1/constituent-feedback/${memo.id}/retry`,
-        {},
-        ownerHeaders(slug),
-      )
-
       expect(res.status).toBe(201)
-      expect(res.data.extractionStatus).toBe('extracted')
-      expect(res.data.issues).toEqual([
-        {
-          id: expect.any(String),
+      return res.data.id as string
+    }
+
+    const hoursOn = (hours: number) =>
+      new Date(Date.now() + hours * 60 * 60_000)
+
+    it('confirms a memo left unconfirmed past the cutoff', async () => {
+      const id = await recordLive()
+
+      await service.app
+        .get(PendingTranscriptionService)
+        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
+
+      const saved = await row(id)
+      expect(saved.confirmedAt).not.toBeNull()
+      expect(saved.confirmation).toBe(ConstituentFeedbackConfirmation.automatic)
+      expect(saved.issues).toEqual([])
+      expect(
+        await service.prisma.constituentFeedbackUnreviewedIssue.findMany({
+          where: { feedbackId: id },
+        }),
+      ).toEqual([
+        expect.objectContaining({
           position: 0,
           issueLabel: 'Street flooding',
           stance: 'opposes',
-          desiredOutcome: 'Clear the storm drain',
-        },
+        }),
       ])
-      expect(res.data.confirmedAt).toBeNull()
     })
 
-    it('re-runs a failed transcription', async () => {
-      const { res: recorded } = await recordOffline()
-      await service.prisma.constituentFeedback.update({
-        where: { id: recorded.data.id },
-        data: {
-          extractionStatus: ConstituentFeedbackExtractionStatus.failed,
-          transcriptionJobName: null,
-        },
-      })
+    it('leaves a memo still inside the cutoff alone', async () => {
+      const id = await recordLive()
 
-      const res = await service.client.post(
-        `/v1/constituent-feedback/${recorded.data.id}/retry`,
-        {},
+      await service.app
+        .get(PendingTranscriptionService)
+        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS - 1))
+
+      const saved = await row(id)
+      expect(saved.confirmedAt).toBeNull()
+      expect(saved.issues).toHaveLength(1)
+    })
+
+    // The sweep read the memo, then the canvasser confirmed it before the
+    // sweep wrote: their confirmation stands.
+    it('leaves a memo confirmed after the sweep read it', async () => {
+      const id = await recordLive()
+      const { updatedAt, issues } = await row(id)
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${id}/confirm`,
+        {
+          issues: [
+            {
+              issueLabel: 'Storm drains',
+              stance: 'opposes',
+              desiredOutcome: 'Clear them',
+              fromIssueId: issues[0]!.id,
+            },
+          ],
+        },
         ownerHeaders(slug),
       )
+      expect(confirmed.status).toBe(200)
 
-      expect(res.status).toBe(201)
-      expect(res.data.extractionStatus).toBe('pending')
-      expect((await row(recorded.data.id)).transcriptionJobName).not.toBeNull()
+      await service.app
+        .get(ConstituentFeedbackService)
+        .confirmAbandoned({ id, updatedAt })
+
+      const saved = await row(id)
+      expect(saved.confirmation).toBe(ConstituentFeedbackConfirmation.reviewed)
+      expect(saved.issues).toEqual([
+        expect.objectContaining({
+          issueLabel: 'Storm drains',
+          proposedIssueLabel: 'Street flooding',
+        }),
+      ])
+      expect(
+        await service.prisma.constituentFeedbackUnreviewedIssue.count({
+          where: { feedbackId: id },
+        }),
+      ).toBe(0)
     })
+  })
 
-    it('refuses a volunteer someone else’s note', async () => {
-      const volunteer = await createVolunteer(slug)
-      await assign(slug, outreachId, volunteer.user.id)
-      const { memo } = await seedKnockMemo(service, {
-        slug,
-        outreachId,
-        personId: targets[0]!.personId,
-        confirmed: false,
-      })
+  it('has no review list and no retry route', async () => {
+    const { res } = await recordOffline()
 
-      const res = await service.client.post(
-        `/v1/constituent-feedback/${memo.id}/retry`,
-        {},
-        volunteer.config,
-      )
+    const pending = await service.client.get(
+      '/v1/constituent-feedback/pending',
+      { ...ownerHeaders(slug), params: { outreachId } },
+    )
+    const retry = await service.client.post(
+      `/v1/constituent-feedback/${res.data.id}/retry`,
+      {},
+      ownerHeaders(slug),
+    )
 
-      expect(res.status).toBe(404)
-    })
+    expect(pending.status).toBe(404)
+    expect(retry.status).toBe(404)
   })
 })

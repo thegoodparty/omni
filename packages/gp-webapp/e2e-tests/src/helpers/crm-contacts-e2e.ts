@@ -217,7 +217,16 @@ export const openPersonViaTypeahead = async (
 ): Promise<Locator> => {
   const input = typeaheadInput(page)
   await expect(input).toBeVisible({ timeout: 20_000 })
-  await input.fill(fullPersonName(person))
+  // gp-api's buildSearchSql splits on whitespace and ANDs each token against
+  // FirstName/LastName only — NameSuffix is not a column it reads. Filling
+  // the full display name adds a 'Jr'/'Sr'/'III' token that can match nobody
+  // and leaves the typeahead empty. The result row is still disambiguated by
+  // the person.id match on the CommandItem below.
+  const searchName = [person.firstName, person.lastName]
+    .filter(Boolean)
+    .map((part) => part!.trim())
+    .join(' ')
+  await input.fill(searchName)
   const option = page.locator(
     `[data-slot="command-item"][data-value="${person.id}"]`,
   )

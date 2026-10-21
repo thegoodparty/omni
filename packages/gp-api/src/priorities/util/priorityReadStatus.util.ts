@@ -22,8 +22,6 @@ export const underrepresentedGroupOf = (
     'age:45to54': 'age45to54',
     'age:55to64': 'age55to64',
     'age:65plus': 'age65plus',
-    'tenure:owner': 'owners',
-    'tenure:renter': 'renters',
     'gender:male': 'men',
     'gender:female': 'women',
     // 'other' is a mix of groups no one would recognize as one, so it

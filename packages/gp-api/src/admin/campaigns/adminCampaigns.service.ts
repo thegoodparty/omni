@@ -35,6 +35,17 @@ export class AdminCampaignsService {
     if (typeof isPro !== 'undefined') {
       attributes.isPro = isPro
     }
+    // ENG-11344: an admin comp to Pro must grant the 5,000 free-texts offer the
+    // same way a paid upgrade does (CampaignsService.setIsPro). Writing isPro
+    // directly skipped the grant, so the campaign's first 5K text was full price.
+    if (isPro === true) {
+      const existing = await this.campaigns.findUniqueOrThrow({
+        where: { id },
+      })
+      if (!existing.isPro && !existing.freeTextsOfferRedeemedAt) {
+        attributes.hasFreeTextsOffer = true
+      }
+    }
     if (typeof didWin !== 'undefined') {
       attributes.didWin = didWin
     }

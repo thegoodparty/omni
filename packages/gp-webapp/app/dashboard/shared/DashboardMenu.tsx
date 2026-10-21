@@ -9,7 +9,6 @@ import {
   MdMenuBook,
   MdMessage,
   MdPeople,
-  MdPoll,
 } from 'react-icons/md'
 import {
   Circle,
@@ -17,7 +16,6 @@ import {
   ClipboardList,
   ExternalLink,
   LogOut,
-  Send,
   Settings,
   Sparkles,
   UserRound,
@@ -178,16 +176,6 @@ const WIN_CONTACTS_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContacts),
 }
 
-const POLLS_MENU_ITEM: MenuItem = {
-  id: 'polls-dashboard',
-  label: 'Polls',
-  link: '/dashboard/polls',
-  icon: <MdPoll />,
-  v2Icon: Send,
-  v2Category: 'elected-office',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
-}
-
 const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
   id: 'constituent-outreach-dashboard',
   label: NAV_LABELS.constituentOutreach,
@@ -321,8 +309,7 @@ export const getDashboardMenuItems = (
     menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
-    menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
-    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
+    menuItems.splice(voterDataIndex, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)

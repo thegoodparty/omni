@@ -8,7 +8,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import { PriorityStatusService } from 'src/priorities/services/priorityStatus.service'
 import { isUndrawnSample } from 'src/priorities/util/roundTwo.util'
-import { REPORT_BACK_UNSENT_STATUSES } from './outreachReportBack.service'
+import { OutreachReportBackService } from './outreachReportBack.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
@@ -76,6 +76,7 @@ export class OutreachServeSmsPurchaseHandlerService
     private readonly stripe: StripeService,
     private readonly slack: SlackService,
     private readonly analytics: AnalyticsService,
+    private readonly reportBack: OutreachReportBackService,
   ) {
     super()
   }
@@ -211,6 +212,7 @@ export class OutreachServeSmsPurchaseHandlerService
     const claimed = row.reportBackForOutreachId
       ? await this.claimReportBack(
           outreachId,
+          organizationSlug,
           row.reportBackForOutreachId,
           claimWhere,
           claimData,
@@ -584,22 +586,27 @@ export class OutreachServeSmsPurchaseHandlerService
   // checkout session so staff can refund it from the console's Canceled tab.
   private async claimReportBack(
     outreachId: number,
+    organizationSlug: string,
     reportBackForOutreachId: number,
     where: Prisma.OutreachWhereInput,
     data: Prisma.OutreachUpdateManyMutationInput,
     sessionId: string,
   ): Promise<{ count: number }> {
+    const priorityId = await this.reportBack.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
     const outcome = await this.client.$transaction(async (tx) => {
-      const lockKey = `report_back:${reportBackForOutreachId}`
+      // One report back goes out per priority, so the lock is the priority's.
+      const lockKey = `report_back:${priorityId ?? reportBackForOutreachId}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      const sibling = await tx.outreach.findFirst({
-        where: {
-          reportBackForOutreachId,
-          id: { not: outreachId },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const sibling = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            outreachId,
+          )
+        : null
       if (!sibling) {
         return {
           claimed: await tx.outreach.updateMany({ where, data }),
@@ -615,7 +622,7 @@ export class OutreachServeSmsPurchaseHandlerService
           canceledBy: 'report_back_already_sent',
         },
       })
-      return { claimed: null, duplicateOf: sibling.id }
+      return { claimed: null, duplicateOf: sibling.outreachId }
     })
     if (outcome.claimed) return outcome.claimed
     this.logger.error(
@@ -746,14 +753,17 @@ export class OutreachServeSmsPurchaseHandlerService
     // Two drafts of one report back can both reach checkout (two tabs, or
     // Back and forward again); only the first paid may go out.
     if (draft.reportBackForOutreachId) {
-      const paid = await this.model.findFirst({
-        where: {
-          reportBackForOutreachId: draft.reportBackForOutreachId,
-          id: { not: draft.id },
-          status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-        },
-        select: { id: true },
-      })
+      const priorityId = await this.reportBack.priorityOf(
+        organizationSlug,
+        draft.reportBackForOutreachId,
+      )
+      const paid = priorityId
+        ? await this.reportBack.sentReportBack(
+            organizationSlug,
+            priorityId,
+            draft.id,
+          )
+        : null
       if (paid) {
         throw new BadRequestException(
           `A report back on outreach ${draft.reportBackForOutreachId} already went out`,

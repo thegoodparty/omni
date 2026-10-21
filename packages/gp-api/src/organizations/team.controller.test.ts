@@ -1,3 +1,4 @@
+import { BadGatewayException } from '@nestjs/common'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EmailService } from '@/email/email.service'
@@ -7,7 +8,6 @@ import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
-import { BadGatewayException } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
@@ -1920,6 +1920,22 @@ describe('GET /v1/organizations/team/invites/mine', () => {
 
     const result = await service.client.get(MINE_PATH, {
       headers: authHeaderFor('user_mine_3'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({ invite: null })
+  })
+
+  it('returns null instead of a 502 when Clerk is unavailable', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-clerk-down@x.com', clerkId: 'user_mine_4' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockRejectedValue(
+      new BadGatewayException('Failed to fetch Clerk user'),
+    )
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_4'),
     })
 
     expect(result.status).toBe(200)

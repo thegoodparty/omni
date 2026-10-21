@@ -1,4 +1,4 @@
-import type { PaginationMeta } from '@goodparty_org/sdk'
+import type { PaginationMeta } from '@/shared/gpApi'
 
 export interface User {
   id: number

@@ -214,7 +214,6 @@ export const EVENTS = {
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
-      ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
@@ -824,7 +823,9 @@ export const EVENTS = {
     // results_page }. Typed messages are AI Chat - Message Sent.
     GetAnswersClicked: 'Priorities - Get Answers Clicked',
     // `heldBack` is true while the priority has no good read yet;
-    // `weightingStatus` is the read's status against the census.
+    // `readStatus` is the read's status, `answersFloor` the fewest answers
+    // that could give every major group its three, and `groupsHeard` of
+    // `groupsTotal` the major groups that have them.
     ResultsViewed: 'Priorities - Results Viewed',
   },
   CivicPanel: {
@@ -912,13 +913,10 @@ export const EVENTS = {
     // name: what a person said is not an analytics payload.
     ReportViewed: 'Issue Capture - Report Viewed',
     SynthesisRequested: 'Issue Capture - Synthesis Requested',
-    TagAccepted: 'Issue Capture - Tag Accepted',
-    TagDismissed: 'Issue Capture - Tag Dismissed',
-    // The offline path: a memo recorded with no signal, the moment it
-    // reaches the server, and its confirmation later from "Notes to review".
+    // The offline path: a memo recorded with no signal, and the moment it
+    // reaches the server.
     MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
     MemoUploaded: 'Issue Capture - Memo Uploaded',
-    PendingMemoConfirmed: 'Issue Capture - Pending Memo Confirmed',
   },
 } as const
 

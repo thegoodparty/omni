@@ -7,9 +7,12 @@ import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
 const READ: PriorityReadStatus = {
   answers: 12,
   needed: 40,
+  groupsHeard: 9,
+  groupsTotal: 12,
   good: false,
   status: 'notYetRepresentative',
   underrepresented: ['age65plus'],
+  checkOut: true,
 }
 
 const renderBlock = (readStatus: PriorityReadStatus) =>
@@ -28,9 +31,7 @@ describe('ReadStatusRailBlock', () => {
       followUp: { scheduledLocalDate: '2026-11-03', texts: 300 },
     })
     expect(
-      screen.getByText(
-        "Follow-up text to 300 people on Nov 3, to the groups you've heard from least",
-      ),
+      screen.getByText('Follow-up text to 300 people on Nov 3'),
     ).toBeInTheDocument()
   })
 
@@ -50,6 +51,56 @@ describe('ReadStatusRailBlock', () => {
   it('says nothing about a follow-up when there is none', () => {
     renderBlock(READ)
     expect(screen.queryByText(/Follow-up text/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Get answers', () => {
+  const rail = (readStatus: PriorityReadStatus) => renderBlock(readStatus)
+  const button = () => screen.queryByRole('button', { name: 'Get answers' })
+
+  it('shows once a check is out and the read is short', () => {
+    rail(READ)
+    expect(button()).toBeInTheDocument()
+  })
+
+  it('says no one asked yet, with no button, before a check is out', () => {
+    rail({ ...READ, checkOut: undefined, groupsHeard: 0 })
+    expect(screen.getByText('No one asked yet')).toBeInTheDocument()
+    expect(button()).not.toBeInTheDocument()
+    expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+  })
+
+  it('gives way to the follow-up text while it is scheduled', () => {
+    rail({
+      ...READ,
+      followUp: { scheduledLocalDate: '2026-11-03', texts: 300 },
+    })
+    expect(button()).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Follow-up text to 300 people on Nov 3'),
+    ).toBeInTheDocument()
+  })
+
+  it('does not show once the follow-up text has gone out', () => {
+    rail({ ...READ, followUpSent: true })
+    expect(button()).not.toBeInTheDocument()
+  })
+
+  it('does not show on a good read', () => {
+    rail({ ...READ, good: true, status: 'representative' })
+    expect(button()).not.toBeInTheDocument()
+  })
+
+  it('says it on the phone strip too', () => {
+    render(
+      <ReadStatusStrip
+        priorityId="pri-1"
+        readStatus={{ ...READ, checkOut: undefined }}
+        onGetAnswers={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('No one asked yet')).toBeInTheDocument()
+    expect(button()).not.toBeInTheDocument()
   })
 })
 

@@ -4,6 +4,7 @@ import {
   panelExpectedAnswers,
   panelGoalMembers,
   panelSeedSampleSize,
+  PANEL_MEMBERS_PER_GROUP,
   PANEL_SEED_SAMPLE_SIZE,
 } from './PanelAnswers'
 import { PANEL_SEED_ASSUMED_JOIN_RATE } from '../outreach/CivicPanelJoin'
@@ -36,5 +37,11 @@ describe('panelSeedSampleSize', () => {
 
   it('stays under the sampler ceiling', () => {
     expect(panelSeedSampleSize(1_000)).toBe(MAX_LIST_SAMPLE_SIZE)
+  })
+})
+
+describe('PANEL_MEMBERS_PER_GROUP', () => {
+  it('is the members a group needs to expect three answers', () => {
+    expect(PANEL_MEMBERS_PER_GROUP).toBe(8)
   })
 })

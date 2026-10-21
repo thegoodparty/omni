@@ -12,8 +12,13 @@ permissions:
 # Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
 # and while cancel was off the new run also queued behind it — so a series of
 # pushes cost a full ~20m cycle each, back to back. Never cancels on main.
+#
+# On main the group is the run id, so pushes never share a group. A shared
+# group still dropped runs with cancel-in-progress off: GitHub keeps one
+# pending run per group, so a third quick merge cancelled the queued one,
+# and release.yml then failed that commit as "cancelled".
 concurrency:
-  group: gp-webapp-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: gp-webapp-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -442,11 +447,14 @@ jobs:
       # set and a complete merged report.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
     env:
+      # The Clerk throttle splits its budget across every worker of the run
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       # main pushes test through the stable alias, not the raw deploy URL:
       # the deploy job aliased this exact deployment to dev.goodparty.org
       # before E2E starts (and the workflow's concurrency group queues any
@@ -504,7 +512,7 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: >-
           npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/4 --reporter=blob
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
           ${{ github.event_name == 'pull_request' && '--grep-invert @dev-only' || '' }}
         env:
           TEST_RUN_NAME: 'E2E Tests - PR Preview'

@@ -25,6 +25,7 @@ import {
   createWinOrg,
 } from '@/constituentFeedback/tests/issueCaptureFixtures'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { LlmService } from '@/llm/services/llm.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { useTestService } from '@/test-service'
@@ -60,10 +61,14 @@ const PEOPLE = Array.from({ length: 40 }, (_, index) => person(index))
 // Enough residents for the priority ask to reach a good read.
 const DISTRICT_SAMPLE = Array.from({ length: 160 }, (_, index) => person(index))
 
-const seed = (slug: string, people: Person[] = PEOPLE) =>
+const seed = (
+  slug: string,
+  people: Person[] = PEOPLE,
+  options: { answers?: number; split?: 'lean' | 'even' } = {},
+) =>
   service.client.post(
     `/v1/test-fixtures/organizations/${slug}/activity`,
-    { people: people.length },
+    { people: people.length, ...options },
     { validateStatus: () => true },
   )
 
@@ -89,6 +94,10 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const sample = vi
       .spyOn(contacts, 'sampleContacts')
       .mockResolvedValue(PEOPLE)
+    // A completed run asks the model to match its issues to themes.
+    const llm = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockRejectedValue(new Error('No model in this suite'))
     // What the panel plan sizes its first wave from.
     const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
     const stats = service.app.get(StatsService)
@@ -98,6 +107,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     onTestFinished(() => {
       engine.mockRestore()
       sample.mockRestore()
+      llm.mockRestore()
       pools.mockRestore()
       weighting.mockRestore()
     })
@@ -288,7 +298,12 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       distinct: ['personId'],
       select: { personId: true },
     })
-    expect(repliers).toHaveLength(needed + 4)
+    expect(repliers).toHaveLength(ask.interactions)
+    expect(
+      await service.prisma.priorityAnswer.count({
+        where: { outreachId: ask.outreachId },
+      }),
+    ).toBe(ask.interactions)
     expect(
       await service.prisma.contactCurrentStatus.count({
         where: {
@@ -309,6 +324,42 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     })
     expect(pooled.status).toBe(SynthesisRunStatus.completed)
     expect(pooled._count.themes).toBeGreaterThan(0)
+  })
+
+  it('codes only as many priority answers as it is asked to', async () => {
+    vi.mocked(
+      service.app.get(ContactsService).sampleContacts,
+    ).mockResolvedValue(DISTRICT_SAMPLE)
+    const slug = await createServeOrg(service)
+
+    const res = await seed(slug, DISTRICT_SAMPLE, {
+      answers: 15,
+      split: 'even',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const ask = res.data.efforts[5]!
+    const coded = await service.prisma.priorityAnswer.findMany({
+      where: { outreachId: ask.outreachId },
+      select: { code: true },
+    })
+    expect(coded).toHaveLength(15)
+    expect(new Set(coded.map((row) => row.code))).toEqual(
+      new Set(['yes', 'no']),
+    )
+  })
+
+  it('codes no priority answers when asked for none', async () => {
+    const slug = await createServeOrg(service)
+
+    const res = await seed(slug, PEOPLE, { answers: 0 })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      await service.prisma.priorityAnswer.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(0)
   })
 
   it('turns away a caller who is neither staff nor a machine', async () => {

@@ -6,9 +6,11 @@ import {
   fromMercator,
   toMercator,
   residentsPerDot,
+  SAMPLE_PER_CELL,
   TARGET_DOTS,
-  VIEW_HEIGHT,
+  SQUARE_VIEW_HEIGHT,
   VIEW_WIDTH,
+  WIDE_VIEW_HEIGHT,
 } from './districtDots'
 
 const grid = (count: number) =>
@@ -19,7 +21,7 @@ const grid = (count: number) =>
 
 describe('buildDistrictDots', () => {
   it('cuts a large district down to the target number of dots', () => {
-    const model = buildDistrictDots(grid(10_000))!
+    const model = buildDistrictDots(grid(10_000), SQUARE_VIEW_HEIGHT)!
     expect(model.dots).toHaveLength(TARGET_DOTS)
     expect(model.abstract).toBe(false)
     expect(model.outline).toBeNull()
@@ -27,20 +29,29 @@ describe('buildDistrictDots', () => {
       expect(dot.x).toBeGreaterThanOrEqual(0)
       expect(dot.x).toBeLessThanOrEqual(VIEW_WIDTH)
       expect(dot.y).toBeGreaterThanOrEqual(0)
-      expect(dot.y).toBeLessThanOrEqual(VIEW_HEIGHT)
+      expect(dot.y).toBeLessThanOrEqual(SQUARE_VIEW_HEIGHT)
+    }
+  })
+
+  it('fits the dots inside the wide phone frame too', () => {
+    const model = buildDistrictDots(grid(10_000), WIDE_VIEW_HEIGHT)!
+    expect(model.viewHeight).toBe(WIDE_VIEW_HEIGHT)
+    for (const dot of model.dots) {
+      expect(dot.y).toBeGreaterThanOrEqual(0)
+      expect(dot.y).toBeLessThanOrEqual(WIDE_VIEW_HEIGHT)
     }
   })
 
   it('places each dot where its location falls on the basemap', () => {
     const points = grid(2_000)
-    const model = buildDistrictDots(points)!
+    const model = buildDistrictDots(points, SQUARE_VIEW_HEIGHT)!
     const camera = model.camera!
     const middle = toMercator(camera.center)
     const onView = (point: { lat: number; lng: number }) => {
       const m = toMercator(point)
       return {
         x: VIEW_WIDTH / 2 + (m.x - middle.x) * camera.worldUnits,
-        y: VIEW_HEIGHT / 2 + (m.y - middle.y) * camera.worldUnits,
+        y: SQUARE_VIEW_HEIGHT / 2 + (m.y - middle.y) * camera.worldUnits,
       }
     }
     const expected = points.map(onView)
@@ -58,7 +69,7 @@ describe('buildDistrictDots', () => {
   })
 
   it('zooms the basemap so the view spans the same ground at any width', () => {
-    const camera = buildDistrictDots(grid(2_000))!.camera!
+    const camera = buildDistrictDots(grid(2_000), SQUARE_VIEW_HEIGHT)!.camera!
     const zoom = basemapZoom(camera, 400)
     expect(512 * 2 ** zoom * (VIEW_WIDTH / 400)).toBeCloseTo(camera.worldUnits)
     expect(basemapZoom(camera, 800)).toBeCloseTo(zoom + 1)
@@ -71,40 +82,55 @@ describe('buildDistrictDots', () => {
   })
 
   it('picks the same dots every time', () => {
-    expect(buildDistrictDots(grid(2_000))).toEqual(
-      buildDistrictDots(grid(2_000)),
+    expect(buildDistrictDots(grid(2_000), SQUARE_VIEW_HEIGHT)).toEqual(
+      buildDistrictDots(grid(2_000), SQUARE_VIEW_HEIGHT),
     )
   })
 
-  it('picks a sample of the asked size, 12 loud dots and 38 that join', () => {
-    const { dots } = buildDistrictDots(grid(2_000), 92)!
-    expect(dots.filter((dot) => dot.sample)).toHaveLength(92)
+  it('picks a few sample dots per part, 12 loud dots and half of the sample that join', () => {
+    const { dots } = buildDistrictDots(grid(2_000), SQUARE_VIEW_HEIGHT)!
+    const sample = dots.filter((dot) => dot.sample)
+    expect(sample.length).toBeGreaterThan(0)
+    expect(sample.length).toBeLessThanOrEqual(16 * SAMPLE_PER_CELL)
     expect(dots.filter((dot) => dot.loud)).toHaveLength(12)
     const joined = dots.filter((dot) => dot.joinedOrder >= 0)
-    expect(joined).toHaveLength(38)
+    expect(joined).toHaveLength(Math.ceil(sample.length / 2))
     expect(joined.every((dot) => dot.sample)).toBe(true)
   })
 
   it('keeps a stray geocode from shrinking the district into a corner', () => {
-    const model = buildDistrictDots([...grid(1_000), { lat: 10, lng: 10 }])!
+    const model = buildDistrictDots(
+      [...grid(1_000), { lat: 10, lng: 10 }],
+      SQUARE_VIEW_HEIGHT,
+    )!
     const ys = model.dots.map((dot) => dot.y)
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(50)
   })
 
   it('draws nothing from too few locations', () => {
-    expect(buildDistrictDots(grid(50))).toBeNull()
-    expect(buildDistrictDots([])).toBeNull()
+    expect(buildDistrictDots(grid(50), SQUARE_VIEW_HEIGHT)).toBeNull()
+    expect(buildDistrictDots([], SQUARE_VIEW_HEIGHT)).toBeNull()
   })
 })
 
 describe('buildAbstractDots', () => {
   it('draws a stand-in district with the same picks', () => {
-    const model = buildAbstractDots()
+    const model = buildAbstractDots(SQUARE_VIEW_HEIGHT)
     expect(model.abstract).toBe(true)
     expect(model.camera).toBeNull()
     expect(model.outline).toMatch(/^M/)
     expect(model.dots).toHaveLength(TARGET_DOTS)
-    expect(model.dots.filter((dot) => dot.sample)).toHaveLength(100)
+    expect(model.dots.filter((dot) => dot.sample).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the stand-in inside the wide phone frame', () => {
+    const model = buildAbstractDots(WIDE_VIEW_HEIGHT)
+    for (const dot of model.dots) {
+      expect(dot.x).toBeGreaterThanOrEqual(0)
+      expect(dot.x).toBeLessThanOrEqual(VIEW_WIDTH)
+      expect(dot.y).toBeGreaterThanOrEqual(0)
+      expect(dot.y).toBeLessThanOrEqual(WIDE_VIEW_HEIGHT)
+    }
   })
 })
 

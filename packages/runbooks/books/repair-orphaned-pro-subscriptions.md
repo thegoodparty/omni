@@ -39,14 +39,16 @@ Companion documents:
 > **`GP_API_PROD` is not readable by the default `EngineerAccess` SSO role.**
 > `aws secretsmanager get-secret-value --secret-id GP_API_PROD` returns
 > `AccessDeniedException: not authorized to perform: secretsmanager:GetSecretValue`.
-> Getting the live Stripe key or the prod DB password is an access request, not
-> a self-serve step. Budget for it before planning a session.
+> Getting the live Stripe key or the prod DB password needs temporary admin:
+> run `/breakglass` in Slack and wait for approval in
+> `#sensitive-access-requests`. Nobody holds admin standing. Budget for it
+> before planning a session.
 >
 > This is why `pro-without-subscription-drift.ts` exists: the two classes it
 > reports need `DATABASE_URL` and nothing else.
 >
-> The repair script needs both, so budget the access request before planning a
-> repair session. Its `--normalize-canceled-at` pass is the one exception: it
+> The repair script needs both, so budget the `/breakglass` request before
+> planning a repair session. Its `--normalize-canceled-at` pass is the one exception: it
 > touches no Stripe object and runs on `DATABASE_URL` alone.
 
 ---

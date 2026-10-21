@@ -17,6 +17,7 @@ import {
 } from '../types/ballotReady.types'
 import type { RaceMilestones } from '@goodparty_org/contracts'
 import { collapseMilestones, getMonthBounds } from '../util/ballotReady.util'
+import { candidateRunsInPrimary } from '../util/primaryBallot.util'
 import { PinoLogger } from 'nestjs-pino'
 
 const API_BASE = 'https://bpi.civicengine.com/graphql'
@@ -325,7 +326,13 @@ export class BallotReadyService {
             String(b.election.electionDay),
           ),
         )[0]
-      if (primary) {
+      if (
+        primary &&
+        candidateRunsInPrimary(
+          target.position.state,
+          target.position.partisanType,
+        )
+      ) {
         target.election.primaryElectionDate = String(
           primary.election.electionDay,
         )

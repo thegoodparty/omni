@@ -23,6 +23,8 @@ const results = (
   readStatus: {
     answers: 25,
     needed: 20,
+    groupsHeard: 12,
+    groupsTotal: 12,
     good: true,
     status: 'representative',
     underrepresented: [],
@@ -86,24 +88,23 @@ describe('PriorityResultsView', () => {
         readStatus: {
           answers: 25,
           needed: 96,
+          groupsHeard: 9,
+          groupsTotal: 12,
           good: false,
           status: 'tooEarly',
           underrepresented: [],
+          checkOut: true,
         },
       })
 
-    it('shows who answered and how many answers a good read still needs', () => {
+    it('shows who answered and how many groups have been heard', () => {
       renderView(early())
 
       expect(screen.getByText('People who answered')).toBeInTheDocument()
       expect(screen.getByText('25 by text')).toBeInTheDocument()
+      expect(screen.getByText('9 of 12 groups heard')).toBeInTheDocument()
       expect(
-        screen.getByText('71 more answers for a good read'),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('progressbar', {
-          name: '25 of 96 answers for a good read',
-        }),
+        screen.getByRole('progressbar', { name: '9 of 12 groups heard' }),
       ).toBeInTheDocument()
     })
 
@@ -111,7 +112,9 @@ describe('PriorityResultsView', () => {
       renderView(early())
 
       expect(
-        screen.getByText("It's too early to tell what your community thinks."),
+        screen.getByText(
+          "Some groups haven't answered yet. We'll show what we heard once every group has.",
+        ),
       ).toBeInTheDocument()
       expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
       expect(
@@ -133,31 +136,41 @@ describe('PriorityResultsView', () => {
     })
   })
 
-  it('names the groups to hear more from when answers do not look like the district', () => {
+  it('names the groups to hear more from while the model is unsure of some', () => {
     renderView(
       results({
         readStatus: {
           answers: 140,
           needed: 96,
+          groupsHeard: 12,
+          groupsTotal: 12,
           good: false,
           status: 'gettingClose',
           underrepresented: ['unreachedAreas'],
+          checkOut: true,
         },
       }),
     )
 
     expect(
-      screen.getByRole('heading', { name: 'Getting close' }),
+      screen.getByRole('heading', {
+        name: 'Still unsure what some groups think',
+      }),
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "We're hearing less from some groups than live in your district. We'll show what we heard once answers look like your district.",
+        "We'll show what we heard once we're sure what every group thinks.",
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText("people in parts of your district we haven't reached"),
+      screen.getByText('people in a few neighborhoods'),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    // Every group heard but the model not sure yet: a full bar in the
+    // warning tone, never the success one.
+    const bar = screen.getByRole('progressbar', {
+      name: '12 of 12 groups heard',
+    })
+    expect(bar.className).toContain('bg-warning')
     expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
   })
 
@@ -231,15 +244,17 @@ describe('PriorityResultsView', () => {
     expect(screen.queryByText('More than their share')).not.toBeInTheDocument()
   })
 
-  it('records the view with the read status against the census', () => {
+  it('records the view with the read status', () => {
     renderView(results())
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.ResultsViewed, {
       priorityId: 'p1',
       heldBack: false,
-      weightingStatus: 'representative',
+      readStatus: 'every_group_heard',
       answers: 25,
-      answersNeeded: 20,
+      answersFloor: 20,
+      groupsHeard: 12,
+      groupsTotal: 12,
       respondentCount: 25,
       joinedCivicPanel: 6,
       representationShown: true,

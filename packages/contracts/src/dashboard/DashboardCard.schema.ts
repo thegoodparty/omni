@@ -75,8 +75,11 @@ export const isCivicPanelStepCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
 
-// Where the build card's Build my panel goes: the panel page, which asks the
-// hours question or shows the plan already made.
+// The build card's button, with or without a plan: the home opens the chat
+// build flow for the build card (isCivicPanelBuildCard), never off this label.
+// Where the card's link goes without the chat is the panel page, which asks
+// the hours question or shows the plan already made.
+export const CIVIC_PANEL_BUILD_CARD_CTA = 'Build your panel'
 export const CIVIC_PANEL_BUILD_CARD_HREF = CIVIC_PANEL_PAGE_HREF
 
 export const DashboardCardsResponseSchema = z.object({
