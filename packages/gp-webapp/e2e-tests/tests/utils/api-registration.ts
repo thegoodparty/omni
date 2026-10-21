@@ -113,6 +113,13 @@ const bootstrapTestUser = async (
   options?: TestUserOptions,
 ): Promise<BootstrappedUser> => {
   if (!options?.isolated && cachedUser) {
+    // The user is cached per worker, but every test gets a fresh browser
+    // context with no Clerk session. Without signing this page in, the
+    // middleware's Clerk handshake bounces the first dashboard navigation to
+    // /login, so only the first cached-user test on each worker was ever
+    // authenticated. The user is already provisioned, so the ordering
+    // contract below still holds.
+    await signInUser(page, cachedUser.user.email)
     return cachedUser
   }
 

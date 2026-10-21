@@ -17,11 +17,24 @@ const ORG_SWITCHER_HEADER = '[data-sidebar="header"]'
 // each attempt — so a dialog open now or opening late is cleared before the
 // click lands. All org-switcher entry points go through this so the guard lives
 // in one place.
+//
+// Each attempt checks for the open menu first. Radix opens it on pointerdown, so
+// a click that times out after pressing can still have opened it, and once open
+// the menu aria-hides the header: a role-based trigger locator stops resolving
+// and every retry would click nothing until the loop gives up. A menu still
+// animating out after Escape is visible but data-state="closed", so key on the
+// open state rather than visibility.
 export const openOrgSwitcher = async (page: Page) => {
-  const trigger = page.locator(ORG_SWITCHER_HEADER).getByRole('button').first()
+  const trigger = page
+    .locator(ORG_SWITCHER_HEADER)
+    .locator('[aria-haspopup="menu"]')
+    .first()
+  const menu = page.locator('[role="menu"][data-state="open"]')
   await expect(async () => {
+    if (await menu.isVisible()) return
     await closeStrayDialog(page)
-    await trigger.click({ timeout: 2_000 })
+    await trigger.click({ timeout: 5_000 })
+    await expect(menu).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 30_000 })
 }
 
