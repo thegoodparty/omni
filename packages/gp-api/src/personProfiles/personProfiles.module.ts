@@ -3,6 +3,7 @@ import { HttpModule } from '@nestjs/axios'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { PersonsModule } from '@/electionDb/persons/persons.module'
+import { PersonMergesModule } from '@/electionDb/personMerges/personMerges.module'
 import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectionsModule } from '@/elections/elections.module'
@@ -45,7 +46,8 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
 // provides the HubSpot client for the claim-request counter; SegmentModule
 // provides the track() that carries a claim request to the CRM as an event;
 // PersonsModule provides the election-db PersonsService that VoterDensityProxy
-// and PersonLookup read the civics spine through (ElectionDbModule is global,
+// and PersonLookup read the civics spine through, and PersonMergesModule the
+// merge records the drift sweep falls back on (ElectionDbModule is global,
 // but feature modules are not). UsersService is global, so no explicit
 // UsersModule import is needed for the User write.
 @Module({
@@ -57,6 +59,7 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     CrmModule,
     ElectionsModule,
     PersonsModule,
+    PersonMergesModule,
     SegmentModule,
   ],
   controllers: [PublicPersonProfilesController, PersonProfilesController],
