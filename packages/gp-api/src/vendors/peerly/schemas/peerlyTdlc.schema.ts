@@ -90,7 +90,7 @@ export enum CampaignVerificationStatus {
 export const peerlyVerifyCVPinResponseSchema = z.object({
   message: z.string(),
   verification_id: z.string(),
-  cv_verification_status: z.enum(CampaignVerificationStatus),
+  cv_verification_status: z.nativeEnum(CampaignVerificationStatus),
 })
 
 // POST /v2/tdlc/:id/create_cv_token
