@@ -33,10 +33,9 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 | **election-api**    | NestJS/Fastify, Prisma, PG              | 3001       | `election-api.goodparty.org`                                        | Docker → ECR → Pulumi → ECS Fargate |
 | **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/prod)                              | Vercel (CLI)                        |
 | **candidate-sites** | Next.js, React, Tailwind                | 4001       | Vercel                                                              | Vercel (CLI)                        |
-| **gp-sdk**          | TypeScript (`@goodparty_org/sdk`)       | —          | typed API client — in-tree, not published                           | —                                   |
 | **contracts**       | TypeScript (`@goodparty_org/contracts`) | —          | Zod schemas/types for cross-service shapes — in-tree, not published | —                                   |
 
-> `gp-sdk` and `contracts` carry scoped npm names but are **in-tree workspace packages**, consumed via `"*"` workspace deps + node_modules symlinks. A change is live the moment it builds — no version bump or publish. npm publishing is intentionally disabled in omni. Change a cross-boundary shape in the **same PR** as its producer and consumer.
+> `contracts` carries a scoped npm name but is an **in-tree workspace package**, consumed via `"*"` workspace deps + node_modules symlinks. A change is live the moment it builds — no version bump or publish. npm publishing is intentionally disabled in omni. Change a cross-boundary shape in the **same PR** as its producer and consumer.
 
 ### External repos (separate, not in omni)
 
@@ -58,7 +57,7 @@ Users → goodparty.org (Vercel: gp-webapp — product app for candidates & elec
          ├── election data reaches the app via gp-api (proxied; no direct election-api calls)
          └── candidate-sites (Vercel) for candidate pages → calls gp-api
 
-Staff → gp-admin (Vercel, single deploy) → gp-api via @goodparty_org/sdk + Clerk M2M
+Staff → gp-admin (Vercel, single deploy) → gp-api via gp-admin's client (src/shared/gpApi) + Clerk M2M
          (active Clerk org selects dev/prod; per-env M2M secret, no cookie flow)
 
 gp-api (53 controllers, 20+ Prisma models)
@@ -92,7 +91,7 @@ gp-api (53 controllers, 20+ Prisma models)
 
 @goodparty_org/contracts (packages/contracts)
   └── Zod schemas/types for every cross-service shape (S2S payloads, SQS bodies,
-      webhook bodies, shared API responses). gp-sdk is built on it; gp-admin consumes the SDK.
+      webhook bodies, shared API responses). gp-api, gp-webapp and gp-admin consume it.
 
 gp-ai-projects (external — uv workspace monorepo)
   ├── Campaign Plan API          (FastAPI, Gemini, Tavily web search)
@@ -112,7 +111,7 @@ gp-data-platform (external — dbt + Databricks)
 | ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Browser → gp-webapp           | —                   | Cookie                                                                                                                                                                                                                                        | `token` HTTP-only cookie (120-day expiry), `user` readable cookie |
 | gp-webapp middleware → gp-api | JWT Bearer          | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie                                                                                                                                                                 |
-| gp-admin → gp-api             | SDK + Clerk M2M     | `@goodparty_org/sdk`, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                                                                                                                                                 |
+| gp-admin → gp-api             | Clerk M2M           | `src/shared/gpApi` client, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                                                                                                                                                 |
 | gp-api → Databricks           | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*` service-principal creds; Statement Execution API against `mart_gp_api`                                                                                                                                                  |
 | gp-api → election-api         | Clerk M2M (JWT)     | Mints JWT-format M2M token with `GP_API_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                                                  |
 | gp-marketing → election-api   | Clerk M2M (JWT)     | Server-only; mints JWT-format M2M token with `GP_MARKETING_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                               |
@@ -258,7 +257,7 @@ Route groups under `gp-webapp/app/`: `dashboard`, `onboarding`, `login`/`logout`
 
 **Next.js 16 App Router** at `packages/gp-admin` (`src/app`, `components`, `lib`, `shared`, `middleware.ts`). Local port 3500.
 
-- Talks to gp-api exclusively via `@goodparty_org/sdk`, authenticated with a per-environment **Clerk M2M secret** (no user cookie flow).
+- Talks to gp-api exclusively via its own client in `src/shared/gpApi/`, authenticated with a per-environment **Clerk M2M secret** (no user cookie flow).
 - A **single Vercel deploy** fronts dev/prod — the active Clerk org selects which environment it targets.
 - Replaces the legacy admin tooling that used to live inside gp-webapp.
 

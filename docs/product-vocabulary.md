@@ -168,7 +168,7 @@ copy.
   component a `SERVE_*` copy object (see that file's `SERVE_FOLLOW_UP_COPY`)
   and rule 2 covers it. Do NOT reach for a cleverer parser that follows the
   render graph: the fix is to write the copy where the check can see it.
-- `packages/gp-api` prompts and `packages/gp-sdk`. The gate is gp-webapp only.
+- `packages/gp-api` prompts. The gate is gp-webapp only.
   `SERVE_SOCIAL_VOICE` is the pattern to copy there, by hand.
 - Serve words leaking into **Win** ("constituent" on a candidate's screen).
   Rarer, and the same table above is the rule.
