@@ -113,6 +113,12 @@ export class VercelService {
     }
   }
 
+  // The project candidate domains attach to; the Vercel mock records it on each
+  // project_domain, which is what mock-mode verify-live matches against.
+  getProjectId(): string {
+    return this.requireClient().projectId
+  }
+
   isVercelNotFoundError(e: unknown): e is NotFound {
     return (
       e instanceof NotFound ||
