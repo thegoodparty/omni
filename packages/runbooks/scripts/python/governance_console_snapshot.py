@@ -76,6 +76,12 @@ PROPOSAL_VERBS = {
     "defer": "Defer",
 }
 
+REMOVAL_VERBS = {"remove": "Remove from watchlist", "keep": "Keep watching", "defer": "Defer"}
+
+# Causes whose silence a human may rule expected, and then take off the watchlist
+# (DATA-2676). Never proposed automatically: going quiet is what the list exists to catch.
+UNWATCHABLE_CAUSES = frozenset({"dormant", "dormant_elevated"})
+
 ALIGNMENT_VERBS = {
     "fix_omni": "Fix in omni",
     "draft_upstream": "Draft upstream",
@@ -100,6 +106,10 @@ DRIFT = PY / "instrumentation_data" / "surface_drift.json"
 # permanence is the property that decides how carefully a row is worth reading.
 VERB_EFFECTS = {
     "flags": {
+        "unwatch": (
+            "Take the watched events under this cause off the watchlist, because their "
+            "silence is expected. They stop being treated as high priority."
+        ),
         "govern": (
             "Write this to Amplitude Govern. A retirement here tells every consumer "
             "the events are dead."
@@ -150,6 +160,14 @@ VERB_EFFECTS = {
             "proposed."
         ),
         "defer": "Leave it for a later run. It comes back next time.",
+        "remove": (
+            "Take the event off the watchlist. Its code is gone, so there is nothing "
+            "left to watch."
+        ),
+        "keep": (
+            "Keep watching it despite the retirement. Permanent: it stops being "
+            "proposed for removal."
+        ),
     },
     "alignment": {
         "fix_omni": (
@@ -263,6 +281,8 @@ def recommend_gap(gap: Mapping) -> tuple[str, str]:
             + (f": {prior['reason']}" if prior.get("reason") else "")
             + ". Usually the same call.",
         )
+    if gap.get("value") == "low":
+        return ("defer", "No question anyone asked needs this event yet.")
     return ("accept", gap.get("judge_reason") or "The judge called this a real gap.")
 
 
@@ -472,12 +492,14 @@ QUEUE_CAVEATS = {
         "has_tracking_call, tracked_in_hook (DATA-2560)",
     ),
     "proposals": _caveat(
-        "We compare every event in the catalog against the watchlist, and list "
-        "anything belonging to a family we already watch that is not itself watched.",
-        "We watch this family of events, and this one is not being watched.",
+        "We compare the watchlist against the metrics the company steers by and against "
+        "the code. We list a metric's event that is not yet watched, and a watched event "
+        "whose code has been removed.",
+        "Either a metric counts this event and nobody is watching it, or the watchlist "
+        "is watching an event that can no longer fire.",
         None,
         None,
-        "monitored_events.yaml",
+        "monitored_events.yaml, sem anchored_on, provenance retired_date",
     ),
     "alignment": _caveat(
         "We compare the events omni associates with each governed metric against the "
@@ -779,10 +801,15 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
         evidence = _sorted_evidence(
             [_flag_evidence(record, code, run_date) for record in by_cause.get(cause, [])]
         )
+        verbs = _verbs(FLAG_VERBS, dismissable)
+        if cause.partition("@")[0] in UNWATCHABLE_CAUSES and any(
+            r.get("on_watchlist") and not r.get("okr") for r in by_cause.get(cause, [])
+        ):
+            verbs = {**verbs, "unwatch": "Stop watching"}
         items.append({
             "id": cause,
             "queue": "flags",
-            "verbs": _verbs(FLAG_VERBS, dismissable),
+            "verbs": verbs,
             "caveat": caveat_for_cause(cause),
             "recommended": verdict,
             "recommendation_reason": why,
@@ -896,7 +923,23 @@ def build_proposal_queue(report: Mapping) -> list[dict]:
             "family": p.get("family"),
             "first_seen_date": p.get("first_seen_date"),
         }],
-    } for p in (report.get("proposals") or [])]
+    } for p in (report.get("proposals") or [])] + [{
+        "id": f"remove:{r['event_type']}",
+        "queue": "proposals",
+        "verbs": REMOVAL_VERBS,
+        "caveat": QUEUE_CAVEATS["proposals"],
+        "recommended": "remove",
+        "recommendation_reason": (
+            "Retired in code, so the watchlist row watches nothing. Keep it only if the "
+            "retirement date is wrong."
+        ),
+        "label": f"Remove from watchlist: {r['event_type']}",
+        "rank": PROPOSAL_RANK,
+        "count": 1,
+        "dismissable": False,
+        "dismissed": None,
+        "evidence": [{"retired_date": r.get("retired_date")}],
+    } for r in (report.get("removal_proposals") or [])]
 
 
 def build_alignment_queue(report: Mapping) -> list[dict]:
