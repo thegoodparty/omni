@@ -219,21 +219,20 @@ describe("DashboardContent: What's a civic panel? ends on its next step", () => 
     expect(completedACard()).toBe(false)
   })
 
-  it('offers to ask the panel when it already has members', async () => {
+  it('offers Grow your civic panel once the panel has members, sending the same build turn', async () => {
     panelSummary.members = 12
     const user = await explain()
 
     expect(screen.queryByRole('button', { name: 'Build my panel' })).toBeNull()
     await user.click(
-      await screen.findByRole('button', {
-        name: 'Ask your panel about a priority',
-      }),
+      await screen.findByRole('button', { name: 'Grow your civic panel' }),
     )
+
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
           conversationId: 'conv-panel',
-          content: NEXT_STEP_MESSAGES.askPanel,
+          content: BUILD_CITIZENS_PANEL_MESSAGE,
         }),
       ),
     )
@@ -265,24 +264,22 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       expect(screen.getByText(line)).toBeInTheDocument()
     }
     for (const label of [
-      'Get ready for your next meeting',
-      'See what residents are raising',
-      'Move a priority forward',
+      'See what matters in your community',
       'Build your civic panel',
-      'Draft an ordinance',
-      'Reach your constituents',
+      'Get ready for your next meeting',
     ]) {
       expect(
         screen.getByRole('button', { name: new RegExp(label) }),
       ).toBeInTheDocument()
     }
+    expect(
+      screen.queryByRole('button', { name: /Draft an ordinance/ }),
+    ).toBeNull()
   })
 
   it.each([
+    ['See what matters in your community', NEXT_STEP_MESSAGES.priorities],
     ['Get ready for your next meeting', NEXT_STEP_MESSAGES.meeting],
-    ['See what residents are raising', NEXT_STEP_MESSAGES.issues],
-    ['Move a priority forward', NEXT_STEP_MESSAGES.priority],
-    ['Reach your constituents', NEXT_STEP_MESSAGES.outreach],
   ])(
     '%s sends its question as the official’s own message',
     async (label, sent) => {
@@ -320,22 +317,26 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     expect(completedACard()).toBe(false)
   })
 
-  it('asks the panel instead once it has members', async () => {
+  it('grows the panel instead once it has members, in the same chat', async () => {
     panelSummary.members = 5
     const user = await meet()
 
-    const ask = await screen.findByRole('button', {
-      name: /Ask your civic panel/,
+    const grow = await screen.findByRole('button', {
+      name: /Grow your civic panel/,
     })
     expect(
       screen.queryByRole('button', { name: /Build your civic panel/ }),
     ).toBeNull()
-    await user.click(ask)
+    expect(
+      screen.queryByRole('button', { name: /Ask your civic panel/ }),
+    ).toBeNull()
+    await user.click(grow)
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: NEXT_STEP_MESSAGES.askPanel }),
+        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
       ),
     )
+    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
   })
 
   it('leaves the civic panel out with serve-citizen-panels off', async () => {
@@ -346,13 +347,21 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     expect(clientRequestMock).not.toHaveBeenCalled()
   })
 
-  it('Draft an ordinance opens the ordinance flow', async () => {
-    vi.mocked(router.push!).mockReset()
+  it('offers outreach in the panel slot with serve-citizen-panels off', async () => {
+    panelsFlag.enabled = false
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', NEXT_STEP_MESSAGES.outreach),
+      message('a1', 'assistant', REPLY),
+    ])
     const user = await meet()
-    await user.click(screen.getByRole('button', { name: /Draft an ordinance/ }))
+    await user.click(
+      screen.getByRole('button', { name: /Hear from your constituents/ }),
+    )
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances/new')
-    expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(completedACard()).toBe(false)
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: NEXT_STEP_MESSAGES.outreach }),
+      ),
+    )
   })
 })

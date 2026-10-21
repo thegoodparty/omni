@@ -78,9 +78,11 @@ Reference implementations, all clean examples of the shape below:
   allowlist: one update against the deploy's own database, no vendor call
 - `constituentFeedback/services/pendingTranscription.service.ts`
   (`feedbackPendingTranscription`, every minute): minute slot, claimed only
-  when an offline memo is waiting on its transcript; starts or polls its
-  batch Transcribe job and extracts the result. No deploy allowlist: it calls
-  Transcribe only for memos recorded on the deploy's own database
+  when an offline memo is waiting on its transcript or a live memo's
+  confirm step was abandoned two hours ago; starts, polls or restarts the
+  batch Transcribe job, extracts and confirms the result, and confirms the
+  abandoned memos. No deploy allowlist: it calls Transcribe only for memos
+  recorded on the deploy's own database
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.

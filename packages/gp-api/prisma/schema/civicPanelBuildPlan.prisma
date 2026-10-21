@@ -25,6 +25,9 @@ model CivicPanelBuildPlan {
   goalMembers      Int                       @map("goal_members")
   /// The official's own time each week; every wave is sized from it.
   hoursPerWeek     Int                       @map("hours_per_week")
+  /// Made after the panel met its goal: it keeps adding members, so its
+  /// goal stays where it was set instead of following the district's.
+  keepFresh        Boolean                   @default(false) @map("keep_fresh")
   status           CivicPanelBuildPlanStatus @default(active)
   completedAt      DateTime?                 @map("completed_at")
   steps            CivicPanelBuildStep[]

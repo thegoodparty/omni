@@ -2195,8 +2195,9 @@ export class ContactsService {
   // match members and non-members alike, so saved whole it would hold
   // neither part at the size proposed.
   //
-  // A report back's sample is never null: it is the people one send reached,
-  // minus anyone who opted out since, frozen, which no live filter can say.
+  // A report back's sample is never null: it is everyone who answered the
+  // priority on any channel, minus anyone who opted out since, frozen, which
+  // no live filter can say.
   async drawListSample(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -2224,7 +2225,7 @@ export class ContactsService {
         )
       }
       const reached =
-        await this.voterFileFilterSampleService.personIdsReachedBy(
+        await this.voterFileFilterSampleService.personIdsAnsweredFor(
           organization.slug,
           sample.recipientsOfOutreachId,
         )

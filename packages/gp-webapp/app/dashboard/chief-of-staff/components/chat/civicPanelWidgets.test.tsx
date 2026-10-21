@@ -92,6 +92,7 @@ const planWith = (
       id: 'plan-1',
       status: 'active',
       goalMembers: 240,
+      keepFresh: false,
       hoursPerWeek: 2,
       currentWave: 1,
       createdAt: new Date('2026-10-15T12:00:00Z'),

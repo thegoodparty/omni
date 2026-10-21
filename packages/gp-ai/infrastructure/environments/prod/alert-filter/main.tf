@@ -40,10 +40,9 @@ provider "aws" {
 # is where a public endpoint with an uptime expectation belongs, and dev alerts
 # are simply a second caller of it.
 
-# THE DEFAULT IS THE PROD VALUE, deliberately, for the reason written at length
-# in ../clickup-bot/main.tf: that module's real value once lived only in a
-# gitignored tfvars, and an apply from a checkout without it silently disabled
-# the bot for 12 days. The same shape of mistake here would silently flip the
+# THE DEFAULT IS THE PROD VALUE, deliberately: a sibling root's real value once
+# lived only in a gitignored tfvars, and an apply from a checkout without it
+# silently disabled that bot for 12 days. The same shape of mistake here would silently flip the
 # filter between shadow and enforce — one direction makes it useless, the other
 # starts hiding alerts nobody reviewed.
 variable "mode" {

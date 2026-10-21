@@ -93,6 +93,7 @@ describe('PriorityResultsView', () => {
           good: false,
           status: 'tooEarly',
           underrepresented: [],
+          checkOut: true,
         },
       })
 
@@ -146,6 +147,7 @@ describe('PriorityResultsView', () => {
           good: false,
           status: 'gettingClose',
           underrepresented: ['unreachedAreas'],
+          checkOut: true,
         },
       }),
     )

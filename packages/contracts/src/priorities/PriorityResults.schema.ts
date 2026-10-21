@@ -190,6 +190,13 @@ export const PriorityReadStatusSchema = z.object({
       texts: z.number().int().positive(),
     })
     .optional(),
+  // A check is out: something sent to residents on any channel, counted
+  // from checkout. Absent means nobody has been asked yet, so there is
+  // nothing to get answers on.
+  checkOut: z.boolean().optional(),
+  // The follow-up text has gone out. With it, a short read is closed with
+  // doors and calls, never a third text.
+  followUpSent: z.boolean().optional(),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
 

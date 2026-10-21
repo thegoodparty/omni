@@ -265,6 +265,7 @@ describe('GET /v1/priorities/:id/results', () => {
     // Nobody's answer is coded yet: no group has been heard.
     expect(res.data.readStatus).toEqual({
       answers: 12,
+      checkOut: true,
       needed: 18,
       groupsHeard: 0,
       groupsTotal: 2,
@@ -281,6 +282,7 @@ describe('GET /v1/priorities/:id/results', () => {
 
     expect(res.data.readStatus).toMatchObject({
       answers: 12,
+      checkOut: true,
       needed: 12,
       good: false,
       status: 'gettingClose',
@@ -457,6 +459,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data).toEqual({
       answers: 8,
+      checkOut: true,
       needed: 11,
       groupsHeard: 1,
       groupsTotal: 2,
@@ -474,6 +477,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 10,
+      checkOut: true,
       needed: 11,
       groupsHeard: 1,
       groupsTotal: 2,
@@ -503,6 +507,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 160,
+      checkOut: true,
       needed: 160,
       groupsHeard: 2,
       groupsTotal: 2,
@@ -588,6 +593,34 @@ describe('GET /v1/priorities/:id/read-status', () => {
       data: { status: OutreachStatus.in_progress },
     })
     expect((await readStatus()).data.followUp).toBeUndefined()
+    expect((await readStatus()).data.followUpSent).toBe(true)
+  })
+
+  it('treats a denied or failed follow-up as closed, never a third text', async () => {
+    const { outreach } = await createTextSend(3, 0)
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.failed,
+        priorityId,
+        roundOneOutreachId: outreach.id,
+        scheduledLocalDate: '2026-11-03',
+        textCount: 250,
+      },
+    })
+
+    const read = (await readStatus()).data
+    expect(read.followUp).toBeUndefined()
+    expect(read.followUpSent).toBe(true)
+  })
+
+  it('says no check is out until something has gone to residents', async () => {
+    expect((await readStatus()).data.checkOut).toBeUndefined()
+
+    await createTextSend(3, 0)
+
+    expect((await readStatus()).data.checkOut).toBe(true)
   })
 
   it('says enough answers, not representative, when the district cannot be read', async () => {
@@ -598,6 +631,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 100,
+      checkOut: true,
       needed: 100,
       groupsHeard: 0,
       groupsTotal: 0,
@@ -615,6 +649,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
     expect(res.data).toEqual({
       answers: 12,
+      checkOut: true,
       needed: 100,
       groupsHeard: 0,
       groupsTotal: 0,

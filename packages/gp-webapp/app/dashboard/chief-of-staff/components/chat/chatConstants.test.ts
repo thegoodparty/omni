@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { toolDisplayName, toolStatusLabel } from './chatConstants'
+import {
+  buildChiefOfStaffNextSteps,
+  toolDisplayName,
+  toolStatusLabel,
+} from './chatConstants'
 
 describe('toolStatusLabel', () => {
   it('labels crud_priorities by its action', () => {
@@ -53,5 +57,33 @@ describe('toolStatusLabel', () => {
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
     }
+  })
+})
+
+describe('buildChiefOfStaffNextSteps', () => {
+  const labels = (args: Parameters<typeof buildChiefOfStaffNextSteps>[0]) =>
+    buildChiefOfStaffNextSteps(args).map((s) => s.label)
+
+  it('leaves the middle card out while the panel is loading', () => {
+    expect(labels({ panelsEnabled: true, panelLoading: true })).toEqual([
+      'See what matters in your community',
+      'Get ready for your next meeting',
+    ])
+    expect(labels({ panelsEnabled: false, panelLoading: true })).toEqual([
+      'See what matters in your community',
+      'Get ready for your next meeting',
+    ])
+  })
+
+  it('picks the middle card once the panel has loaded', () => {
+    expect(labels({ panelsEnabled: false })[1]).toBe(
+      'Hear from your constituents',
+    )
+    expect(labels({ panelsEnabled: true, panelMembers: 0 })[1]).toBe(
+      'Build your civic panel',
+    )
+    expect(labels({ panelsEnabled: true, panelMembers: 5 })[1]).toBe(
+      'Grow your civic panel',
+    )
   })
 })

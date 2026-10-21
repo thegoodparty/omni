@@ -20,8 +20,11 @@ const messageOf = (error: FetchError): string | null => {
 // The one question the plan needs: the official's own time each week, an
 // hour at least, which is where it starts.
 export const CivicPanelPlanStart = ({
+  keepFresh = false,
   onPlan,
 }: {
+  // The panel is past its goal: the plan keeps adding members.
+  keepFresh?: boolean
   onPlan: (plan: CivicPanelBuildPlanResponse) => void
 }) => {
   const [value, setValue] = useState(weeklyTimeOf(1))
@@ -77,9 +80,13 @@ export const CivicPanelPlanStart = ({
       <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold text-foreground">
-            {COPY.weeklyQuestion}
+            {keepFresh ? COPY.keepFreshTitle : COPY.weeklyQuestion}
           </h2>
-          <p className="text-sm text-muted-foreground">{COPY.weeklyCaption}</p>
+          <p className="text-sm text-muted-foreground">
+            {keepFresh
+              ? `${COPY.keepFreshCaption} ${COPY.weeklyQuestion}`
+              : COPY.weeklyCaption}
+          </p>
         </div>
         <WeeklyTimeField
           idPrefix={FIELD_ID}

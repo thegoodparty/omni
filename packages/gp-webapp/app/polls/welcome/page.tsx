@@ -22,7 +22,7 @@ export default async function Page(): Promise<ReactNode> {
 
   // If the user has polls, disallow onboarding and redirect to the dashboard polls page
   if (hasPollsResponse?.hasPolls) {
-    return redirect('/dashboard/polls')
+    return redirect('/dashboard/constituent-outreach')
   }
 
   return <PollWelcomePage />

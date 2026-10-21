@@ -124,6 +124,7 @@ const withPlan = (
     id: 'plan-1',
     status: 'active',
     goalMembers: 240,
+    keepFresh: false,
     hoursPerWeek,
     currentWave: Math.max(...steps.map((s) => s.wave)),
     createdAt: new Date('2026-10-15T12:00:00Z'),
@@ -206,6 +207,30 @@ describe('the weekly time question', () => {
     expect(await screen.findByText('Text 3,150 residents')).toBeInTheDocument()
     expect(sent).toEqual({ hoursPerWeek: 1 })
     expect(screen.getByText('1 hour a week')).toBeInTheDocument()
+  })
+
+  it('offers to keep a panel past its goal fresh with the same question', async () => {
+    const user = userEvent.setup()
+    let sent: unknown
+    api.mock('POST /v1/contacts/civic-panel/plan', ({ body }) => {
+      sent = body
+      return { status: 200, data: withPlan([TEXT]) }
+    })
+    renderPage({
+      ...NO_PLAN,
+      progress: { ...NO_PLAN.progress, members: 250 },
+    })
+
+    expect(
+      screen.getByRole('heading', { name: 'Keep your panel fresh' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/How much time can you give each week\?/),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Make my plan' }))
+
+    expect(await screen.findByText('Text 3,150 residents')).toBeInTheDocument()
+    expect(sent).toEqual({ hoursPerWeek: 1 })
   })
 
   it('takes more time typed in, and says what to fix in an odd answer', async () => {

@@ -40,6 +40,9 @@ export const PANEL_DOOR_SHARE_OF_HOURS = 0.5
 export const PANEL_DOORS_PER_AREA = 100
 export const PANEL_MAX_DOOR_AREAS = 2
 
+// The members a plan made past the panel's goal sets out to add.
+export const PANEL_KEEP_FRESH_MEMBERS = 50
+
 // Replies to a text arrive in batches, about three business days after it
 // goes out (the same window the results upload works to).
 export const PANEL_TEXT_REPLY_BUSINESS_DAYS = 3
@@ -215,6 +218,7 @@ export const CivicPanelBuildPlanSchema = z.object({
   id: z.string(),
   status: CivicPanelBuildPlanStatusSchema,
   goalMembers: z.number().int(),
+  keepFresh: z.boolean().default(false),
   hoursPerWeek: z.number().int(),
   currentWave: z.number().int(),
   createdAt: zDate(),

@@ -118,9 +118,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4, 5, 6]
     # Keyed on the shard as well: a group shared across the matrix would have
-    # the two shards cancelling each other on every run.
+    # the shards cancelling each other on every run.
     concurrency:
       group: gp-api-test-${{ matrix.shard }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -139,7 +139,7 @@ jobs:
           route-types: 'true'
 
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate. The main branch ruleset requires a status check
   # named exactly "Validate"; this job preserves that name while the real work
