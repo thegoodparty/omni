@@ -1,0 +1,122 @@
+resources:
+  schemas:
+    lakeflow:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: gp-api replication POC, path B (Lakeflow Connect mirror of the POC cluster's public schema). Drop after the POC.
+      grants:
+        - principal: ${var.reader_group}
+          privileges:
+            - USE_SCHEMA
+            - SELECT
+    lakeflow_read:
+      catalog_name: ${var.catalog}
+      name: ${var.read_schema}
+      comment: gp-api replication POC, path B. Views over gp_api_mirror_lakeflow with uuid and timestamp columns typed back. Drop after the POC.
+      grants:
+        - principal: ${var.reader_group}
+          privileges:
+            - USE_SCHEMA
+            - SELECT
+
+  pipelines:
+    lakeflow_gateway:
+      name: gp-api-mirror-lakeflow-gateway
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.lakeflow.name}
+      channel: CURRENT
+      continuous: true
+      serverless: false
+      gateway_definition:
+        connection_name: ${var.connection_name}
+        gateway_storage_catalog: ${var.catalog}
+        gateway_storage_schema: ${resources.schemas.lakeflow.name}
+        gateway_storage_name: lakeflow_gateway_staging
+      clusters:
+        - label: default
+          driver_node_type_id: ${var.gateway_driver_node_type}
+          node_type_id: ${var.gateway_worker_node_type}
+          num_workers: 1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.lakeflow.name}
+        name: gateway_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}
+
+    lakeflow_ingestion:
+      name: gp-api-mirror-lakeflow-ingestion
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.lakeflow.name}
+      channel: CURRENT
+      # Continuous variant: Databricks says the PostgreSQL ingestion pipeline
+      # cannot run continuously (postgresql-faq) and documents continuous mode
+      # for SQL Server, MySQL and Oracle only. If that changes, uncomment
+      # `continuous: true`, set the job below to PAUSED and redeploy. Leave the
+      # run mode at its default (scale-optimized, up to 500 tables): SPEED
+      # caps a pipeline at 50 tables and this one mirrors about 125.
+      # continuous: true
+      # configuration:
+      #   pipelines.managedIngestion.continuous.runMode: SPEED
+      ingestion_definition:
+        ingestion_gateway_id: ${resources.pipelines.lakeflow_gateway.id}
+        source_type: POSTGRESQL
+        objects:
+          - schema:
+              source_catalog: ${var.source_database}
+              source_schema: public
+              destination_catalog: ${var.catalog}
+              destination_schema: ${resources.schemas.lakeflow.name}
+        source_configurations:
+          - catalog:
+              source_catalog: ${var.source_database}
+              postgres:
+                slot_config:
+                  slot_name: ${var.slot_name}
+                  publication_name: ${var.publication_name}
+        table_configuration:
+          scd_type: SCD_TYPE_1
+          auto_full_refresh_policy:
+            enabled: true
+            min_interval_hours: 1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.lakeflow.name}
+        name: ingestion_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}
+
+  jobs:
+    lakeflow_ingestion_schedule:
+      name: gp-api-mirror-lakeflow-ingestion-schedule
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: ${var.ingestion_cron}
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+      tasks:
+        - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakeflow_ingestion.id}
+      permissions:
+        - level: CAN_VIEW
+          group_name: ${var.reader_group}

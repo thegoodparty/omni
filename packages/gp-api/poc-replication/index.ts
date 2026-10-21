@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
+import { lakeflow } from './lakeflow'
 
 export = () => {
   const config = new pulumi.Config()
@@ -186,6 +187,22 @@ export = () => {
     ),
     alarmTopicArn: alarmTopic.arn,
     alarmNames: alarms.map((alarm) => alarm.name),
+  }
+
+  if (config.getBoolean('enableLakeflow') ?? false) {
+    Object.assign(
+      outputs,
+      lakeflow({
+        name,
+        config,
+        cluster,
+        writer,
+        securityGroup,
+        alarmTopic,
+        slotLagAlarmBytes,
+        walDiskAlarmBytes,
+      }),
+    )
   }
 
   return outputs

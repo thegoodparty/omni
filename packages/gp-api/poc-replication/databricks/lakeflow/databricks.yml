@@ -1,0 +1,47 @@
+# Path B: Lakeflow Connect PostgreSQL CDC from the POC Aurora cluster's public
+# schema into goodparty_data_catalog.gp_api_mirror_lakeflow. Deployed by a
+# Databricks workspace admin (README B.6). Bundles cannot create Unity Catalog
+# connections, so the connection named by var.connection_name is created with
+# the CLI first (README B.5).
+bundle:
+  name: gp-api-mirror-lakeflow
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    default: goodparty_data_catalog
+  schema:
+    description: Mirror tables, the gateway staging volume and both event logs.
+    default: gp_api_mirror_lakeflow
+  read_schema:
+    description: Views over the mirror with uuid and timestamp columns typed back (sql/lakeflow/002_read_views.sql).
+    default: gp_api_mirror_lakeflow_read
+  connection_name:
+    default: gp_api_poc_lakeflow
+  source_database:
+    default: gp_api_poc
+  slot_name:
+    default: lakeflow_gp_api_poc
+  publication_name:
+    default: lakeflow_gp_api_poc
+  reader_group:
+    description: Gets USE SCHEMA and SELECT on both schemas (the bench reads with a personal token).
+    default: dbt-users
+  gateway_driver_node_type:
+    description: Databricks asks for 8+ cores on the gateway driver.
+    default: m5.2xlarge
+  gateway_worker_node_type:
+    default: m5.large
+  ingestion_cron:
+    description: Quartz cron for the ingestion pipeline job. Every 5 minutes is the shortest interval Databricks recommends.
+    default: 0 0/5 * * * ?
+  alert_email:
+    default: swain@goodparty.org
+
+targets:
+  poc:
+    default: true
+    workspace:
+      host: https://dbc-3d8ca484-79f3.cloud.databricks.com
