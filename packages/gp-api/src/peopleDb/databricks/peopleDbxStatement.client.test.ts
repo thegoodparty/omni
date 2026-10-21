@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  PeopleDbxClientAbortedError,
   PeopleDbxStatementClient,
+  requestAbortSignal,
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
@@ -180,6 +182,32 @@ describe('PeopleDbxStatementClient', () => {
       vi.spyOn(Date, 'now').mockImplementation(() => start + 61_000)
 
       await expect(pending).rejects.toThrow(PeopleDbxTimeoutError)
+    })
+
+    it('cancels the statement and stops polling once the request aborts', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ statement_id: 's1', status: { state: 'RUNNING' } }),
+      )
+      const aborter = new AbortController()
+
+      const pending = requestAbortSignal.run(aborter.signal, () =>
+        client.query(stmt('SELECT 1')),
+      )
+      aborter.abort()
+
+      await expect(pending).rejects.toThrow(PeopleDbxClientAbortedError)
+      expect(callsMatching('/cancel')).toHaveLength(1)
+    })
+
+    it('does not poll a statement that already finished when the request aborts', async () => {
+      const aborter = new AbortController()
+      aborter.abort()
+
+      const result = await requestAbortSignal.run(aborter.signal, () =>
+        client.query(stmt('SELECT 1')),
+      )
+
+      expect(result.rows).toEqual([['1']])
     })
 
     // Reachable because id sets are inlined rather than bound: the contract
