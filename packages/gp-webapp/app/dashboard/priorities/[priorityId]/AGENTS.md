@@ -122,7 +122,8 @@ runbook), counts the group without saving it, writes the one question, and offer
 work already done through `present_outreach_proposal` on whichever channel
 those people answer on, door knocking included. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
-inverted, same gates), each on its own card.
+inverted, same gates), each on its own card. Behind `serve-citizen-panels`
+every card is side `main`: the round goes to residents across the district.
 
 Behind `serve-citizen-panels` the default is round one instead
 (`buildRoundOneBlock`, "ROUND ONE"; `docs/decisions/2026-10-19-civic-panel-two-rounds-coverage-sizing.md`):
@@ -139,26 +140,21 @@ give at least 3 answers. The text carries `civicPanelAsk`; calls and doors
 close on the panel's join question as every Serve call and walk does. The
 calls and the text are ordinary proposal cards with `sampleSize`. The text
 is one purchase in two rounds: `roundTwoSize` is the half held for a
-follow-up two weeks later, drawn toward the groups heard from least. Its
-card reads "Text 2,000 of 58,520: 1,000 now, 1,000 two weeks later"
-(`proposalSampleLine`), `SmsFlow` forwards it on the create, the review
-step quotes both as one count with a Follow-up row (`SmsReviewStep`), and
-once paid the read status's `followUp` puts "Follow-up text to N people on
-Nov 3, to the groups you've heard from least" under the strip and in the
-rail block until it sends. The door card carries the area as `walkableArea` (a box,
+follow-up two weeks later, drawn toward the groups heard from least, and
+checked by gp-api against the split `size_round_one` made
+(`checkFollowUpPart`). Its card reads "Text 2,000 of 58,520: 1,000 now, 1,000
+two weeks later" (`proposalSampleLine`), `SmsFlow` forwards it on the create,
+the review step quotes both as one count with a Follow-up row
+(`SmsReviewStep`), and once paid the read status's `followUp` puts "Follow-up
+text to N people on Nov 3" in place of Get answers until it sends. The door card carries the area as `walkableArea` (a box,
 contracts' `WalkableAreaBoxSchema`). Starting it saves the list with that
 box as its drawn boundary (`geoPoly`, so its members are who the box holds)
 and opens door knocking with it on `?area=`, the first turf, as a panel
 plan's door step does (`proposalFlows.tsx`, `walkableAreaPolygon`). The
 handler only presents a `walkableArea` that `size_round_one` returned that
-turn, on a door card, with no `sampleSize` or `areaTarget`. The targeted
-groups wait for the round's read (`read_outreach_feedback`): only a thin or
-one-sided read brings the most or least affected group, as its own card
-with `widensOutreachIds` set to every send the check has had; a thin read
-is never widened to more of the same audience, and a side never offered is
-never recorded declined. A side not yet sent may name the other side's
-sends there (`PriorityFlowHandler.proposalRefusal`), which is how the least
-affected group leaves out everyone the first round asked. The handler reads the panel
+turn, on a door card, with no `sampleSize` or `areaTarget`. There is no most or least
+affected follow-up: more answers come from Get answers (below), aimed at the
+groups the read is missing. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
 panel" line, only with the flag on.
 
@@ -233,8 +229,11 @@ separately.
 
 Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
 `OutreachReportBackService`: the results upload has landed and no summary of
-them is still running), the Chief of Staff home shows a report back card
-("Show people their voice counted on" the priority), linking here with
+them is still running) and someone has answered, the Chief of Staff home shows
+one report back card for the priority ("Show people their voice counted on"
+the priority), to everyone who answered on any channel, each counted once. A
+new card shows each time the priority's read status changes, and its summary
+says where the read stands and what to do. It links here with
 `?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
 `REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
 of the kickoff, otherwise queued behind any turn in flight, never twice for a
@@ -312,18 +311,26 @@ a model**: only the status, the groups and actions.
   18 to 64 and women", "Still unsure what people 65 and over think"), a thin
   bar of groups ("9 of 12 groups heard") and Get answers; or a check, "You've
   heard from every group" (or "Enough people have answered") and See what we
-  heard. The text links to the results page; the button is the one action.
+  heard. Before a check is out with residents (`readStatus.checkOut`) the row
+  reads "No one asked yet" with no bar and no button, and while a follow-up
+  text is scheduled "Follow-up text to N people on Nov 3" stands in for the
+  button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
   with the status label and dot, the status line naming the groups, "9 of 12
   groups heard" with a bar, Get answers, a quiet "What we heard" link, then "Where this stands".
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
-  transcript like the other app turns. The agent proposes more answers as a
-  card (`buildGoodReadBlock` in `priorityFlow.prompt.ts`); nothing sends
-  from the button. The results page's Get answers links back with
-  `?getAnswers=1`, which `page.tsx` reads and the workspace turns into the
-  same turn once, then drops from the address.
+  transcript like the other app turns. It is a detour that returns: the agent
+  proposes the outreach aimed at the groups still missing, a text, calls and
+  doors together when more than a text is needed, as cards
+  (`GET_ANSWERS_BLOCK` in `priorityFlow.prompt.ts`), never starts the civic
+  panel, offers no text while the follow-up is scheduled or after it went
+  out, and ends on one line back to the step it was on without changing any
+  step. Nothing sends from the button. The results page's Get answers shows on
+  the same terms and links back with `?getAnswers=1`, which `page.tsx` reads
+  and the workspace turns into the same turn once, then drops from the
+  address.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,

@@ -26,7 +26,6 @@ import {
   FeedbackThemeDetailSchema,
   IssueTagListResponseSchema,
   IssueTagSchema,
-  PendingFeedbackResponseSchema,
   RecordConstituentFeedbackResponseSchema,
   RecordConstituentFeedbackSchema,
   SeedFeedbackRequestSchema,
@@ -66,10 +65,6 @@ import {
   ListIssueTagsQuerySchema,
   type ListIssueTagsQuery,
 } from './schemas/listIssueTags.schema'
-import {
-  ListPendingFeedbackQuerySchema,
-  type ListPendingFeedbackQuery,
-} from './schemas/listPendingFeedback.schema'
 import { ISSUE_CAPTURE_FLAG } from './util/issueCaptureFlag.util'
 
 // Every route is gated, unlike the Serve SMS controller which gates only its
@@ -84,9 +79,7 @@ import { ISSUE_CAPTURE_FLAG } from './util/issueCaptureFlag.util'
 // routes they follow: the person who had the conversation is who records and
 // confirms it, and on Win that is usually a volunteer. Like those routes, a
 // volunteer reaches only an effort they are assigned to (the service checks).
-// So do the offline path's routes (the upload URL, the mock sink, the review
-// list and its retry), where a volunteer also sees and retries only the
-// memos they recorded.
+// So do the offline path's routes, the upload URL and the mock sink.
 // The read stays at the default, owner or campaign manager, because it is the
 // CRM's record of a person. So do the report, synthesis and tag routes: what
 // people said across an effort, and the org's vocabulary for it, are the
@@ -168,49 +161,6 @@ export class ConstituentFeedbackController {
 
     this.feedback.acceptMockUpload()
     if (!file) throw new BadRequestException('No recording found')
-  }
-
-  // The "Notes to review" list: an effort's unconfirmed memos.
-  @Get('pending')
-  @AllowVolunteer()
-  @ResponseSchema(PendingFeedbackResponseSchema)
-  async pending(
-    @ReqUser() user: User,
-    @ReqOrganization() organization: Organization,
-    @ReqOrganizationRole() role: OrganizationRole,
-    @Query(new ZodValidationPipe(ListPendingFeedbackQuerySchema))
-    query: ListPendingFeedbackQuery,
-  ) {
-    await this.assertFeatureEnabled(user)
-
-    return {
-      feedback: await this.feedback.listPending({
-        organizationSlug: organization.slug,
-        outreachId: query.outreachId,
-        actorUserId: user.id,
-        role,
-      }),
-    }
-  }
-
-  // Transcribe or extract a pending memo again.
-  @Post(':id/retry')
-  @AllowVolunteer()
-  @ResponseSchema(ConstituentFeedbackSchema)
-  async retry(
-    @ReqUser() user: User,
-    @ReqOrganization() organization: Organization,
-    @ReqOrganizationRole() role: OrganizationRole,
-    @Param('id') id: string,
-  ) {
-    await this.assertFeatureEnabled(user)
-
-    return this.feedback.retry({
-      organizationSlug: organization.slug,
-      id,
-      actorUserId: user.id,
-      role,
-    })
   }
 
   @Patch(':id/confirm')

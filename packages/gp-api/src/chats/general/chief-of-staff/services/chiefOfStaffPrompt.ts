@@ -283,6 +283,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
 const civicPanelBuildBlock = (
   panel: CivicPanelBuildState,
   toolNames: string[],
+  hasPriorities: boolean,
 ): string => {
   const canPlan = [
     ASK_PANEL_WEEKLY_TIME_TOOL,
@@ -307,7 +308,8 @@ const civicPanelBuildBlock = (
         ]
       : atGoal
         ? [
-            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line and offer to help them ask it about a priority. Do not ask the weekly time question.`,
+            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps adding new members, leaning toward the groups with the fewest.`,
+            ...askTime,
           ]
         : panel.members > 0
           ? [
@@ -329,11 +331,22 @@ const civicPanelBuildBlock = (
         '- Never propose a text, a list or any other outreach to build the panel: every invite comes from the plan.',
       ]
     : []
+  const priorities =
+    panel.inviteSent && !hasPriorities
+      ? [
+          '- Their first invite is out and they have no priorities on file. Finish the reply with one line asking which priorities they want to work on, and offer to record what they tell you. Say it once, after the card, and never hold the plan back for it.',
+        ]
+      : [
+          hasPriorities
+            ? "- They already have priorities on file. Never ask them to record priorities in this reply: end on the plan's next step, and you may add one line tying the panel to their first priority by name."
+            : "- Do not ask about priorities in this reply, even though none are on file: no invite has gone out yet. End on the plan's next step.",
+        ]
   return [
     `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
     `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,
     ...state,
     ...planning,
+    ...priorities,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
     CIVIC_PANEL_CLAIM_RULE,
     ...civicPanelExplainLines(panel),
@@ -354,7 +367,7 @@ const CIVIC_PANEL_CLAIM_RULE =
 const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
   const offer =
     panel.members > 0
-      ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel, and offer to help them ask it about a priority. The app shows a button for that under your reply, so never name it.`
+      ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Offer nothing more.`
       : panel.inviteSent
         ? '- End by saying their panel invite already went out and people join as they reply JOIN. Offer nothing more.'
         : '- End with one short question: do they want to build theirs? Nothing more. The app shows a Build my panel button under your reply that starts it here, so never name a button or say how to start. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
@@ -760,7 +773,13 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       ? [outreachSamplingBlock(toolNames)]
       : []),
     ...(ctx.civicPanel
-      ? [civicPanelBuildBlock(ctx.civicPanel, toolNames)]
+      ? [
+          civicPanelBuildBlock(
+            ctx.civicPanel,
+            toolNames,
+            ctx.priorities.length > 0,
+          ),
+        ]
       : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.

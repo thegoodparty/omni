@@ -4,7 +4,7 @@ import { POLL_MIN_RESPONSES } from '@goodparty_org/contracts'
 // vocabulary check reads it as a Serve region (docs/product-vocabulary.md).
 
 export const SERVE_POLL_RESULTS_COPY = {
-  back: 'Polls',
+  back: 'Outreach',
   untitled: 'Your poll',
   loading: 'Loading your poll',
   loadFailed: "We couldn't load this poll. Try again.",

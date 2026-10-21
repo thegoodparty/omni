@@ -363,7 +363,7 @@ export default function ServeOfficePicker({
                       ) : null}
                       {row.electionDate ? (
                         <span className="block break-words text-xs text-muted-foreground">
-                          Last election: {dateUsHelper(row.electionDate)}
+                          Last elected: {dateUsHelper(row.electionDate)}
                         </span>
                       ) : null}
                     </span>

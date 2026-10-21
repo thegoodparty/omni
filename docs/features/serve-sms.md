@@ -381,9 +381,8 @@ choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
-entirely and run only post-merge on the release train
-(`gpbot-dev-test-triage.yml`: "These never run on PRs, so nothing saw them
-before the merge"; prior incident ENG-11106). The poll e2e is `@dev-only`, so
+entirely and run only post-merge on the release train, so nothing sees them
+before the merge (prior incident ENG-11106). The poll e2e is `@dev-only`, so
 removing the line fails nothing until the train runs.
 
 **Pre-work, shipped to main on its own before this line is removed: PR #2024.**

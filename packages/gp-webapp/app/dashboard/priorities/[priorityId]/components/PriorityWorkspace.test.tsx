@@ -1053,6 +1053,7 @@ describe('PriorityWorkspace', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
+      checkOut: true,
     }
     const skewed: PriorityReadStatus = {
       answers: 103,
@@ -1062,6 +1063,7 @@ describe('PriorityWorkspace', () => {
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['women', 'age65plus'],
+      checkOut: true,
     }
     const good: PriorityReadStatus = {
       answers: 103,
