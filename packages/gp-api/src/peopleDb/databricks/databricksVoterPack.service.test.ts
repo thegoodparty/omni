@@ -1,7 +1,11 @@
 import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DoorKnockingPackManifestSchema } from '@goodparty_org/contracts'
-import { DatabricksVoterPackService } from './databricksVoterPack.service'
+import {
+  DatabricksVoterPackService,
+  MAX_PACK_ROWS,
+  VoterPackTooLargeError,
+} from './databricksVoterPack.service'
 import {
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
@@ -155,6 +159,27 @@ describe('DatabricksVoterPackService', () => {
     )
     expect(client.fetchCsvChunk).not.toHaveBeenCalled()
     expect(manifestOf(pack).counts.people).toBe(0)
+  })
+
+  it('refuses a district over the pack limit before reading a chunk', async () => {
+    client.startCsvExport.mockResolvedValue({
+      totalRows: MAX_PACK_ROWS + 1,
+      firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n'), 'next'),
+    })
+    await expect(service.build(request as never, 'voters')).rejects.toThrow(
+      VoterPackTooLargeError,
+    )
+    expect(fetch).not.toHaveBeenCalled()
+    expect(client.fetchCsvChunk).not.toHaveBeenCalled()
+  })
+
+  it('builds a district at the pack limit', async () => {
+    client.startCsvExport.mockResolvedValue({
+      totalRows: MAX_PACK_ROWS,
+      firstChunk: chunk('c0', [HEADER, csvRow('a')].join('\n')),
+    })
+    const pack = await service.build(request as never, 'voters')
+    expect(manifestOf(pack).counts.people).toBe(1)
   })
 
   it('surfaces a warehouse timeout as a 504, not a partial pack', async () => {
