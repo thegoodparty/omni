@@ -83,7 +83,8 @@ export const peerlyAction = (
   client: AxiosInstance,
   campaignId: number,
   action: MockAction['action'],
-) => mockAction(client, campaignId, action)
+  params?: Record<string, unknown>,
+) => mockAction(client, campaignId, action, params)
 
 /**
  * Fires a Vercel-specific vendor-mock action for a campaign.
@@ -127,3 +128,11 @@ export const adminAction = async (
   )
   return data
 }
+
+/**
+ * Stamps cvValidationOverriddenAt on the caller's own TcrCompliance record, the
+ * fixture stand-in for staff's override of the CV pre-submission gate (which
+ * fetches the filing URL live and asks an LLM). Mock mode only; 404 elsewhere.
+ */
+export const overrideCvValidation = (client: AxiosInstance) =>
+  client.post<void>('/v1/test-fixtures/vendor-mocks/cv-validation/override')
