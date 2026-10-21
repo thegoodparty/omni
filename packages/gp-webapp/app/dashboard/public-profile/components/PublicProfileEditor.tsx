@@ -487,9 +487,11 @@ function LoadedEditor({
         <p className="text-sm text-gray-500">
           Everything here is visible on your goodparty.org/people page.
         </p>
-      ) : (
+      ) : profile.deletedAt ? null : (
         // Saving never publishes, and a draft is invisible on the public page.
         // Without this the editor reads as if saved answers and photos are live.
+        // A deleted profile is skipped: publish does not clear deletedAt, so
+        // the button could never make it live.
         <div
           role="status"
           data-testid="draft-notice"

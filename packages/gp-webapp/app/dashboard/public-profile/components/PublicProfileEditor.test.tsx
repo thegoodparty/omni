@@ -780,6 +780,18 @@ describe('PublicProfileEditor — mutations', () => {
     expect(screen.queryByTestId('draft-notice')).toBeNull()
   })
 
+  it('offers no publish notice for a deleted profile', () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ deletedAt: '2026-01-01T00:00:00.000Z' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+    expect(screen.queryByTestId('draft-notice')).toBeNull()
+  })
+
   it('unpublishes a published profile via the header toggle', async () => {
     render(
       <PublicProfileEditor
