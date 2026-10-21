@@ -38,6 +38,12 @@ routes on, so the page and its routes roll out together. The
 redirects to `/dashboard` before anything renders. No nav
 entry: the page is reached from the effort.
 
+The flag is the org's, not the person's: gp-api resolves `issue-capture`
+for the org's owner whoever is signed in, on its routes and in the variants
+every page reads (`docs/feature-flags.md`, Org-scoped flags). So a
+volunteer's walk and call forms show the capture step exactly when their
+candidate's do.
+
 ## The four states
 
 `WhatWeHeardPage` renders them in this order of precedence:

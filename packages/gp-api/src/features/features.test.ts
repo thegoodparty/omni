@@ -11,7 +11,7 @@ import { FeaturesController } from './features.controller'
 import { FeaturesService } from './services/features.service'
 import { UsersService } from '../users/services/users.service'
 import { PinoLogger } from 'nestjs-pino'
-import { User } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 
 const makeService = (): FeaturesService =>
   new FeaturesService(
@@ -25,17 +25,22 @@ const makeService = (): FeaturesService =>
 
 const asUser = (u: Partial<User>): User => u as Partial<User> as User
 
+const asOrganization = (o: Partial<Organization>): Organization =>
+  o as Partial<Organization> as Organization
+
 // The module captures the key at import time, and .env.test carries the
 // placeholder — which short-circuits before any network call. Re-import
 // under a real key to exercise the fetch paths.
-const loadRealKeyService = async (): Promise<FeaturesService> => {
+const loadRealKeyService = async (
+  users: Partial<UsersService> = {},
+): Promise<FeaturesService> => {
   vi.stubEnv('AMPLITUDE_PROJECT_API_KEY', 'real-prod-key')
   vi.resetModules()
   const { FeaturesService: FS } = await import('./services/features.service.js')
   vi.unstubAllEnvs()
   vi.resetModules()
   return new FS(
-    {} as Partial<UsersService> as UsersService,
+    users as UsersService,
     {
       setContext: vi.fn(),
       info: vi.fn(),
@@ -53,8 +58,23 @@ describe('FeaturesController', () => {
     const controller = new FeaturesController(features)
     const user = asUser({ id: 42 })
 
-    await expect(controller.getVariants(user)).resolves.toEqual({ variants })
-    expect(features.getAllVariants).toHaveBeenCalledWith(user)
+    await expect(controller.getVariants(user, undefined)).resolves.toEqual({
+      variants,
+    })
+    expect(features.getAllVariants).toHaveBeenCalledWith(user, undefined)
+  })
+
+  it('passes on the organization the request acts in', async () => {
+    const features = {
+      getAllVariants: vi.fn().mockResolvedValue({}),
+    } as Partial<FeaturesService> as FeaturesService
+    const controller = new FeaturesController(features)
+    const user = asUser({ id: 42 })
+    const organization = asOrganization({ slug: 'campaign-x', ownerId: 7 })
+
+    await controller.getVariants(user, organization)
+
+    expect(features.getAllVariants).toHaveBeenCalledWith(user, organization)
   })
 
   it('rejects a caller with no user (e.g. M2M token) instead of NPE-ing', async () => {
@@ -63,7 +83,7 @@ describe('FeaturesController', () => {
     } as Partial<FeaturesService> as FeaturesService
     const controller = new FeaturesController(features)
 
-    await expect(controller.getVariants(undefined)).rejects.toThrow(
+    await expect(controller.getVariants(undefined, undefined)).rejects.toThrow(
       UnauthorizedException,
     )
     expect(features.getAllVariants).not.toHaveBeenCalled()
@@ -160,6 +180,66 @@ describe('FeaturesService.getAllVariants', () => {
 
     expect(result).toEqual({})
     expect(mockFetchV2).not.toHaveBeenCalled()
+  })
+
+  // issue-capture rolls out by org: whoever asks inside one gets what its
+  // owner gets, so a volunteer and their candidate land on the same side.
+  describe('in an organization', () => {
+    const owner = asUser({ id: 10, email: 'owner@b.com' })
+    const volunteer = asUser({ id: 20, email: 'volunteer@b.com' })
+    const organization = asOrganization({ slug: 'campaign-x', ownerId: 10 })
+    const findOwner = vi.fn()
+
+    const ownerVariants = {
+      'issue-capture': { key: 'on', value: 'on' },
+      'campaign-story': { key: 'off', value: 'off' },
+    }
+    const volunteerVariants = {
+      'issue-capture': { key: 'off', value: 'off' },
+      'campaign-story': { key: 'on', value: 'on' },
+    }
+
+    beforeEach(() => {
+      findOwner.mockReset().mockResolvedValue(owner)
+    })
+
+    it('reads issue-capture from the owner and every other flag from the user', async () => {
+      mockFetchV2.mockImplementation(async (experimentUser) =>
+        experimentUser.user_id === '10' ? ownerVariants : volunteerVariants,
+      )
+
+      const svc = await loadRealKeyService({ findUniqueOrThrow: findOwner })
+      const result = await svc.getAllVariants(volunteer, organization)
+
+      expect(result).toEqual({
+        'issue-capture': { key: 'on', value: 'on' },
+        'campaign-story': { key: 'on', value: 'on' },
+      })
+      expect(findOwner).toHaveBeenCalledWith({ where: { id: 10 } })
+    })
+
+    it("leaves issue-capture off when the owner's evaluation fails", async () => {
+      mockFetchV2.mockImplementation(async (experimentUser) => {
+        if (experimentUser.user_id === '10') throw new Error('status=503')
+        return { 'issue-capture': { key: 'on', value: 'on' } }
+      })
+
+      const svc = await loadRealKeyService({ findUniqueOrThrow: findOwner })
+      const result = await svc.getAllVariants(volunteer, organization)
+
+      expect(result).toEqual({})
+    })
+
+    it('evaluates the owner once when the owner is the one asking', async () => {
+      mockFetchV2.mockResolvedValue(ownerVariants)
+
+      const svc = await loadRealKeyService({ findUniqueOrThrow: findOwner })
+      const result = await svc.getAllVariants(owner, organization)
+
+      expect(result['issue-capture']).toEqual({ key: 'on', value: 'on' })
+      expect(mockFetchV2).toHaveBeenCalledTimes(1)
+      expect(findOwner).not.toHaveBeenCalled()
+    })
   })
 })
 

@@ -164,6 +164,15 @@ has not been rolled out to does not advertise itself. One flag,
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+**The flag is the org's.** Every route asks it of the org's owner
+(`organization.ownerId`), whoever is asking, and so does the variants
+endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
+`src/features/README.md`). On Win, volunteers do most of the door knocking,
+and Amplitude buckets by user id: asked per person, a percentage rollout
+would leave a flagged campaign's volunteers mostly without capture and give
+it to some volunteers of an unflagged one. A volunteer of an org whose owner
+is off gets the same 404 as anyone else.
+
 ## Confirmation
 
 `confirmedAt` set means the memo is confirmed and counts: its words go to
