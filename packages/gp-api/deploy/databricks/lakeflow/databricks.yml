@@ -1,0 +1,66 @@
+# Lakeflow Connect mirror of gp-api's Aurora Postgres (schema public) into
+# goodparty_data_catalog. One workspace serves both targets. Deployed by a
+# Databricks workspace admin, never by CI; runbook in README.md. Bundles cannot
+# create Unity Catalog connections, so create-connection.sh makes the one
+# named by var.connection_name first.
+bundle:
+  name: gp-api-lakeflow-mirror
+
+include:
+  - resources/*.yml
+
+variables:
+  env:
+    description: dev or prod, used in resource names.
+  catalog:
+    default: goodparty_data_catalog
+  mirror_schema:
+    description: Mirror tables, the gateway staging volume and both event logs.
+  connection_name:
+    description: Unity Catalog connection made by create-connection.sh.
+  source_database:
+    default: gpdb
+  slot_name:
+    description: Created by the DB admin right before the gateway starts.
+    default: databricks_lakeflow
+  publication_name:
+    description: Created by gp-api's 20261021120000 Prisma migration.
+    default: databricks_lakeflow
+  gateway_driver_node_type:
+    description: 8 vCPUs, the gateway minimum Databricks documents.
+    default: m5.2xlarge
+  gateway_worker_node_type:
+    description: Databricks recommends the smallest worker; it does no work.
+    default: m5.large
+  ingestion_job_pause_status:
+    description: PAUSED for the first deploy only (README step 5).
+    default: UNPAUSED
+  alert_email:
+    default: swain@goodparty.org
+  deploy_root:
+    description: >-
+      One copy per target, whoever deploys. A user folder rather than
+      /Workspace/Shared, which every workspace user can write.
+    default: /Workspace/Users/swain@goodparty.org/.bundle/gp-api-lakeflow-mirror
+
+targets:
+  dev:
+    default: true
+    mode: production
+    workspace:
+      host: https://dbc-3d8ca484-79f3.cloud.databricks.com
+      root_path: ${var.deploy_root}/${bundle.target}
+    variables:
+      env: dev
+      mirror_schema: gp_api_mirror_dev
+      connection_name: gp_api_dev_lakeflow
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-3d8ca484-79f3.cloud.databricks.com
+      root_path: ${var.deploy_root}/${bundle.target}
+    variables:
+      env: prod
+      mirror_schema: gp_api_mirror
+      connection_name: gp_api_prod_lakeflow

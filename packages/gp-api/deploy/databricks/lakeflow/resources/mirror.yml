@@ -1,0 +1,100 @@
+resources:
+  schemas:
+    mirror:
+      catalog_name: ${var.catalog}
+      name: ${var.mirror_schema}
+      comment: >-
+        Lakeflow Connect mirror of gp-api Postgres (${var.env}), schema public.
+        Holds user personal data; grant SELECT deliberately. Timestamps without
+        time zone are strings here.
+
+  pipelines:
+    gateway:
+      name: gp-api-mirror-${var.env}-gateway
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.mirror.name}
+      channel: CURRENT
+      # Must run continuously: a stopped gateway leaves the slot unread and
+      # Aurora keeps every change log segment until it is read.
+      continuous: true
+      serverless: false
+      gateway_definition:
+        connection_name: ${var.connection_name}
+        gateway_storage_catalog: ${var.catalog}
+        gateway_storage_schema: ${resources.schemas.mirror.name}
+        gateway_storage_name: gateway_staging
+      clusters:
+        - label: default
+          driver_node_type_id: ${var.gateway_driver_node_type}
+          node_type_id: ${var.gateway_worker_node_type}
+          num_workers: 1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.mirror.name}
+        name: gateway_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-failure
+            - on-update-fatal-failure
+            - on-flow-failure
+
+    ingestion:
+      name: gp-api-mirror-${var.env}-ingestion
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.mirror.name}
+      channel: CURRENT
+      ingestion_definition:
+        ingestion_gateway_id: ${resources.pipelines.gateway.id}
+        source_type: POSTGRESQL
+        objects:
+          - schema:
+              source_catalog: ${var.source_database}
+              source_schema: public
+              destination_catalog: ${var.catalog}
+              destination_schema: ${resources.schemas.mirror.name}
+        source_configurations:
+          - catalog:
+              source_catalog: ${var.source_database}
+              postgres:
+                slot_config:
+                  slot_name: ${var.slot_name}
+                  publication_name: ${var.publication_name}
+        table_configuration:
+          scd_type: SCD_TYPE_1
+          # Renames, type changes and primary key changes re-copy the table
+          # instead of stopping it.
+          auto_full_refresh_policy:
+            enabled: true
+            min_interval_hours: 1
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${resources.schemas.mirror.name}
+        name: ingestion_event_log
+      notifications:
+        - email_recipients:
+            - ${var.alert_email}
+          alerts:
+            - on-update-fatal-failure
+            - on-flow-failure
+
+  jobs:
+    ingestion_loop:
+      name: gp-api-mirror-${var.env}-ingestion-loop
+      max_concurrent_runs: 1
+      # The PostgreSQL ingestion pipeline cannot run in continuous mode, so
+      # this job runs it back to back instead. Databricks recommends at least
+      # 5 minutes between runs and documents no limit. To fall back to every
+      # 5 minutes, replace `continuous` with:
+      # schedule: { quartz_cron_expression: "0 0/5 * * * ?", timezone_id: UTC }
+      continuous:
+        pause_status: ${var.ingestion_job_pause_status}
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+        no_alert_for_skipped_runs: true
+      tasks:
+        - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.ingestion.id}

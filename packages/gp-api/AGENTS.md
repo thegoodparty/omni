@@ -186,6 +186,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
 | Speech: dictation, text to speech, recordings            | `src/speech/AGENTS.md`                               |
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
+| The Databricks mirror of this database (Lakeflow)        | `deploy/databricks/lakeflow/README.md`               |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |

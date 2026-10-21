@@ -22,6 +22,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
+| `databricks/lakeflow/`                      | Databricks bundle mirroring gp-api Postgres into Databricks (Lakeflow Connect); deployed by a Databricks admin, not CI |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
 
 ## Patterns
@@ -60,6 +61,8 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
 
 ## Gotchas
+
+- **Both gp-api clusters run a custom parameter group** (`rdsClusterParameterGroup`, family `aurora-postgresql16`) with `rds.logical_replication` switched per env by `logicalReplication`, for the Lakeflow mirror. The parameter is static: a change takes effect at the writer's next reboot, not on deploy. A major engine upgrade needs a group in the new family and the mirror's replication slot dropped first (`databricks/lakeflow/README.md`).
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.
 - **The assets CDN keys its cache on `Origin`.** `components/assets-router.ts` uses its own cache policy (dev and prod alike) that puts `Origin` and the two `Access-Control-Request-*` headers in the cache key, plus all query strings. CloudFront ignores S3's `Vary: Origin`, so without it an `<img>` load cached a copy with no `Access-Control-Allow-Origin` and every later `fetch()` of that object from the app was blocked. Allowed origins live in the bucket CORS rules in `components/assets-bucket.ts`; an origin missing there gets no CORS headers however the CDN caches.

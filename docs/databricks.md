@@ -25,7 +25,29 @@ The pipeline that fills this catalog lives in a **separate repo,
 `gp-data-platform`** (not in omni): Airbyte ingests 9+ sources, dbt transforms them
 with 460+ models, and the results land here and get written back to the Postgres
 databases. If you need to change what a table contains or add one, that work happens
-in `gp-data-platform`, not here. This repo only _reads_ Databricks.
+in `gp-data-platform`, not here. The one pipeline omni owns is the gp-api
+mirror below.
+
+### gp-api mirror (Lakeflow Connect)
+
+Every table in gp-api's Postgres (`public` schema) is mirrored by Lakeflow
+Connect CDC, a few minutes behind:
+
+| Env  | Mirror (as landed)                         |
+| ---- | ------------------------------------------ |
+| dev  | `goodparty_data_catalog.gp_api_mirror_dev` |
+| prod | `goodparty_data_catalog.gp_api_mirror`     |
+
+- **Timestamps are strings.** Lakeflow lands `timestamp without time zone`
+  (every Prisma `DateTime`) as `STRING`.
+- **New tables replicate automatically.** A migration's `CREATE TABLE` is
+  picked up by an event trigger; it appears within a few hours.
+- **Renaming or retyping a column re-copies that table.** Auto full refresh
+  handles it; the table is stale while it reloads.
+- The mirror holds users' personal data, so access is granted per principal.
+
+Setup, runbook, lag checks and teardown:
+`packages/gp-api/deploy/databricks/lakeflow/README.md`.
 
 ## Access — use the CLI
 
