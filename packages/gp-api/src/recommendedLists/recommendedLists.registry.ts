@@ -133,7 +133,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Encourage independent-leaning voters to vote early',
       criteriaSummary:
-        'Moderate to high propensity voters who lean independent.',
+        'Voters who lean independent and tend to vote early, in person or ' +
+        'by mail.',
     },
   },
   earlyVoteIdeology: {
@@ -143,8 +144,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Encourage voters who may lean {bucket} to vote early',
       criteriaSummary:
-        'Moderate to high propensity voters whose behavior suggests a ' +
-        '{bucket} lean — a hypothesis worth testing with your message.',
+        'Voters who tend to vote early and whose behavior suggests a ' +
+        '{bucket} lean, a hypothesis worth testing with your message.',
     },
   },
   electionDaySupporters: {

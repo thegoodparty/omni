@@ -707,6 +707,7 @@ describe('SmsFlow win send path (unchanged)', () => {
     expect(createOutreach).toHaveBeenCalledWith(
       expect.objectContaining({ campaignId: 9, scheduledLocalTime: '10:00' }),
       expect.anything(),
+      expect.any(Function),
     )
     expect(createCheckoutSession).toHaveBeenCalledWith(
       'TEXT',

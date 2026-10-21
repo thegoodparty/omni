@@ -40,8 +40,7 @@ const tenureTargets = (district: AcsCounts): Record<string, number> | null => {
 }
 
 // The census publishes race and Hispanic origin over everyone, not adults,
-// so these shares include children; see the decision record
-// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md. Native
+// so these shares include children. Native
 // American joins 'other' because the voter file has no such group, and a
 // group under the share the comparison bars hide folds into 'other' too,
 // so no handful of people is weighted up to stand for it.

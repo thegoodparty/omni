@@ -319,9 +319,9 @@ const handlingLines = (score: AgentScore): string[] => {
       "pair(s). Judged per run against each case's handledWhen; partly, " +
       'and a value that changes with the order, count as not handled. A ' +
       'regression or improvement needs the arm that fell short to do so in ' +
-      'every order it was read. Regressions against improvements decide ' +
-      'the label on their own once a sign test over them is significant; ' +
-      'the line under the heading says when they did.',
+      'every order it was read. Handled runs, compared within each case, ' +
+      'decide the label on their own once a permutation test over them is ' +
+      'significant; the line under the heading says when they did.',
     ...(notGraded === 0
       ? []
       : [
@@ -354,9 +354,10 @@ const signalHeadline = (score: AgentScore): string | null => {
   }
   const p = handling.says === 'WORSE' ? handling.pWorse : handling.pBetter
   return (
-    `**${score.label} on condition handling: ${handling.regressions} ` +
-    `regressions, ${handling.improvements} improvements ` +
-    `(p = ${p.toFixed(3)}).** The quality comparison alone says ` +
+    `**${score.label} on condition handling: the base met its checks in ` +
+    `${handling.baseHandled} of ${handling.runs} runs, the candidate in ` +
+    `${handling.candidateHandled} (p = ${p.toFixed(3)}).** The quality ` +
+    `comparison alone says ` +
     `${signals.qualityLabel}.`
   )
 }

@@ -126,9 +126,12 @@ test.describe('Win — turf route via Geoapify mock', () => {
     await page.getByRole('radio', { name: 'Yes' }).first().click()
     await page.getByRole('radio', { name: 'Yes' }).last().click()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
+    // Save reads "Saving…" while the knock is in flight, and only when it lands
+    // does the walk advance, which reopens PersonSheet on the next door. Wait
+    // for both labels to go, or a close below races that reopen.
     await expect(
-      page.getByRole('button', { name: 'Save', exact: true }),
-    ).toBeHidden()
+      page.getByRole('button', { name: /^(Save|Saving…)$/ }),
+    ).toHaveCount(0)
 
     // 10. Close PersonSheet if still open (auto-closes when no residents remain;
     //     stays open to advance to the next resident in the same stop).
@@ -311,9 +314,11 @@ test.describe('Serve — turf route via Geoapify mock', () => {
     // Serve shows "Do they need follow-up?" instead of support/will-vote.
     await page.getByRole('radio', { name: 'Yes' }).click()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
+    // Wait for the knock to land, not just for the Save label to change: the
+    // walk advances and reopens PersonSheet on the next door only then.
     await expect(
-      page.getByRole('button', { name: 'Save', exact: true }),
-    ).toBeHidden()
+      page.getByRole('button', { name: /^(Save|Saving…)$/ }),
+    ).toHaveCount(0)
 
     // Close PersonSheet if still open before marking the route done.
     // Use .first() to disambiguate the overlay backdrop from the icon button.

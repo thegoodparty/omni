@@ -355,8 +355,7 @@ const civicPanelBuildBlock = (
 
 // Every civic panel reply, build or explain. "just" is banned product copy.
 // The panel page's status and its one group to invite next may be repeated
-// in its words (Bryan, 2026-10-18), a race group included (see
-// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md); a promise
+// in its words (Bryan, 2026-10-18), a race group included; a promise
 // that the panel will match the community, any weight, quota or target, and
 // any one person's race may not.
 const CIVIC_PANEL_CLAIM_RULE =

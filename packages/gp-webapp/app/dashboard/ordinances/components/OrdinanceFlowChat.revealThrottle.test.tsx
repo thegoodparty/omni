@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchOrdinanceBySlug: vi.fn(),
+  updateOrdinance: vi.fn(),
 }))
 
 vi.mock('../data/chat-api', () => ({
@@ -70,6 +71,7 @@ vi.mock('../data/chat-api', () => ({
 
 vi.mock('../data/ordinances-api', () => ({
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  updateOrdinance: mocks.updateOrdinance,
 }))
 
 const realSetInterval = globalThis.setInterval
@@ -104,6 +106,7 @@ const streamRecapThenOffer = async function* (): AsyncGenerator<
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance)
+  mocks.updateOrdinance.mockResolvedValue(ordinance)
   mocks.createConversation.mockResolvedValue({ conversationId: 'conv-1' })
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamRecapThenOffer)

@@ -25,7 +25,7 @@ import {
   FORM_MODE,
   type InputType,
 } from '../constants'
-import type { User } from '@goodparty_org/sdk'
+import type { User } from '@/shared/gpApi'
 
 type FieldPath = Path<UserFormData>
 

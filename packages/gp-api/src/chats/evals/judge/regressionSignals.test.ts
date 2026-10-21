@@ -1,32 +1,76 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_JUDGE_CONFIG } from './config'
-import type { CaseHandling, ConditionHandling, HandlingClass } from './handling'
+import type { CaseHandling, ConditionHandling } from './handling'
+import type { HandledValue } from './judge'
 import {
   combineVerdict,
   handlingSignal,
-  signTestTail,
   withRegressionSignals,
 } from './regressionSignals'
 import type { AgentScore } from './score'
 
+// One case's attempts, `base` and `candidate` of them handled.
+const runsOf = (
+  caseId: string,
+  base: number,
+  candidate: number,
+  attempts = 3,
+): CaseHandling[] =>
+  Array.from({ length: attempts }, (_, i): CaseHandling => {
+    const b: HandledValue = i < base ? 'yes' : 'no'
+    const c: HandledValue = i < candidate ? 'yes' : 'no'
+    return {
+      caseId,
+      attempt: i + 1,
+      base: { primary: b, swapped: b },
+      candidate: { primary: c, swapped: c },
+      class: 'bothHandled',
+      ordersJudged: 2,
+    }
+  })
+
 const handlingOf = (
-  counts: Partial<Record<HandlingClass, number>>,
+  counts: readonly (readonly [number, number])[],
 ): ConditionHandling => ({
-  cases: Object.entries(counts).flatMap(([cls, n]) =>
-    Array.from(
-      { length: n },
-      (_, i): CaseHandling => ({
-        caseId: `${cls}-${i}`,
-        attempt: 1,
-        base: { primary: 'yes' },
-        candidate: { primary: 'no' },
-        class: cls as HandlingClass,
-        ordersJudged: 1,
-      }),
-    ),
-  ),
+  cases: counts.flatMap(([b, c], i) => runsOf(`case-${i}`, b, c)),
   notGraded: 0,
 })
+
+// Per-case handled runs, base and candidate, read off live sweeps.
+const AUTH_PROBE = [
+  [3, 3],
+  [3, 3],
+  [2, 0],
+  [3, 0],
+  [0, 0],
+  [2, 2],
+  [0, 0],
+  [3, 1],
+] as const
+const HALF_PROMPT_PROBE = [
+  [3, 3],
+  [3, 3],
+  [2, 2],
+  [3, 1],
+  [2, 0],
+  [3, 0],
+  [3, 3],
+  [3, 3],
+  [2, 2],
+  [2, 0],
+  [0, 3],
+  [2, 2],
+] as const
+const NO_CHANGE = [
+  [3, 2],
+  [3, 3],
+  [2, 2],
+  [3, 3],
+  [0, 0],
+  [3, 2],
+  [0, 0],
+  [2, 0],
+] as const
 
 const SCORE: AgentScore = {
   agentId: 'priority_flow',
@@ -77,119 +121,114 @@ const SCORE: AgentScore = {
   controls: [],
 }
 
-describe('signTestTail', () => {
-  it('is exact for 5 of 5', () => {
-    expect(signTestTail(5, 5)).toBe(0.03125)
-  })
-
-  it('is exact for 6 of 8', () => {
-    expect(signTestTail(6, 8)).toBeCloseTo(37 / 256, 12)
-  })
-
-  it('is 1 for zero successes and 0 past n', () => {
-    expect(signTestTail(0, 4)).toBe(1)
-    expect(signTestTail(0, 0)).toBe(1)
-    expect(signTestTail(5, 4)).toBe(0)
-  })
-})
-
-const attemptsOf = (
-  caseId: string,
-  classes: readonly HandlingClass[],
-): CaseHandling[] =>
-  classes.map((cls, i) => ({
-    caseId,
-    attempt: i + 1,
-    base: { primary: 'yes' },
-    candidate: { primary: 'no' },
-    class: cls,
-    ordersJudged: 1,
-  }))
-
 describe('handlingSignal', () => {
-  it('counts each case once, however many attempts regressed', () => {
-    const signal = handlingSignal(
-      {
-        cases: [
-          ...attemptsOf('a', ['regression', 'regression', 'regression']),
-          ...attemptsOf('b', ['regression', 'regression', 'regression']),
-        ],
-        notGraded: 0,
-      },
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal).toMatchObject({ regressions: 2, improvements: 0 })
-    expect(signal.says).toBeNull()
-  })
-
-  it('lets a case vote by its net change across attempts', () => {
-    const signal = handlingSignal(
-      {
-        cases: [
-          ...attemptsOf('a', ['regression', 'improvement', 'bothHandled']),
-          ...attemptsOf('b', ['regression', 'regression', 'improvement']),
-          ...attemptsOf('c', ['improvement', 'unsettled', 'bothHandled']),
-        ],
-        notGraded: 0,
-      },
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal).toMatchObject({ regressions: 1, improvements: 1 })
-  })
-
-  it('says WORSE on the half-prompt probe: 5 regressions, 0 improvements', () => {
-    const signal = handlingSignal(
-      handlingOf({
-        bothHandled: 18,
-        sharedFailure: 13,
-        regression: 5,
-        unsettled: 6,
-      }),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal).toEqual({
-      regressions: 5,
-      improvements: 0,
-      pWorse: 0.03125,
-      pBetter: 1,
+  it('says WORSE on the probe where every tool failed auth', () => {
+    const signal = handlingSignal(handlingOf(AUTH_PROBE), DEFAULT_JUDGE_CONFIG)
+    expect(signal).toMatchObject({
+      baseHandled: 16,
+      candidateHandled: 9,
+      runs: 24,
       says: 'WORSE',
     })
+    expect(signal.pWorse).toBeCloseTo(0.0076, 4)
   })
 
-  it('says nothing on 3 to 0, below the minimum number of changes', () => {
-    const signal = handlingSignal(
-      handlingOf({ regression: 3 }),
-      DEFAULT_JUDGE_CONFIG,
-    )
-    expect(signal.pWorse).toBe(0.125)
+  it('says nothing on a no-change sweep that leaned toward the base', () => {
+    const signal = handlingSignal(handlingOf(NO_CHANGE), DEFAULT_JUDGE_CONFIG)
+    expect(signal.pWorse).toBeCloseTo(0.09, 2)
     expect(signal.says).toBeNull()
   })
 
-  it('says nothing on 6 to 2, which is not significant', () => {
+  it('says nothing on the half-prompt probe, whose damage stayed near noise', () => {
     const signal = handlingSignal(
-      handlingOf({ regression: 6, improvement: 2 }),
+      handlingOf(HALF_PROMPT_PROBE),
       DEFAULT_JUDGE_CONFIG,
     )
-    expect(signal.pWorse).toBeCloseTo(0.1445, 4)
+    expect(signal.pWorse).toBeCloseTo(0.082, 3)
     expect(signal.says).toBeNull()
+  })
+
+  // 3 of 3 to 0 of 3 alone is p = 1/20, exactly alpha: one case is not enough.
+  it('needs more than one case flipping all of its runs', () => {
+    const one = handlingSignal(handlingOf([[3, 0]]), DEFAULT_JUDGE_CONFIG)
+    expect(one.pWorse).toBeCloseTo(0.05, 10)
+    expect(one.says).toBeNull()
+    const two = handlingSignal(
+      handlingOf([
+        [3, 0],
+        [3, 0],
+      ]),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(two.says).toBe('WORSE')
+  })
+
+  it('weighs a case that collapsed more than one that slipped', () => {
+    const collapsed = handlingSignal(
+      handlingOf([
+        [3, 0],
+        [3, 3],
+      ]),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    const slipped = handlingSignal(
+      handlingOf([
+        [3, 2],
+        [3, 3],
+      ]),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(collapsed.pWorse).toBeLessThan(slipped.pWorse)
+  })
+
+  it('learns nothing from cases both arms always pass or always fail', () => {
+    const signal = handlingSignal(
+      handlingOf([
+        [3, 3],
+        [0, 0],
+        [3, 3],
+      ]),
+      DEFAULT_JUDGE_CONFIG,
+    )
+    expect(signal).toMatchObject({ pWorse: 1, pBetter: 1, says: null })
   })
 
   it('says BETTER on the mirror image', () => {
-    const signal = handlingSignal(
-      handlingOf({ improvement: 5, sharedFailure: 4 }),
-      DEFAULT_JUDGE_CONFIG,
-    )
+    const mirrored = AUTH_PROBE.map(([b, c]) => [c, b] as const)
+    const signal = handlingSignal(handlingOf(mirrored), DEFAULT_JUDGE_CONFIG)
     expect(signal.says).toBe('BETTER')
-    expect(signal.pBetter).toBe(0.03125)
   })
 
-  it('counts neither unsettled nor shared outcomes', () => {
+  it('counts an order that disagreed as not handled, and skips ungraded pairs', () => {
     const signal = handlingSignal(
-      handlingOf({ unsettled: 10, sharedFailure: 10, bothHandled: 10 }),
+      {
+        cases: [
+          {
+            caseId: 'a',
+            attempt: 1,
+            base: { primary: 'yes', swapped: 'yes' },
+            candidate: { primary: 'yes', swapped: 'partly' },
+            class: 'unsettled',
+            ordersJudged: 2,
+          },
+          {
+            caseId: 'a',
+            attempt: 2,
+            base: {},
+            candidate: { primary: 'no' },
+            class: 'sharedFailure',
+            ordersJudged: 1,
+          },
+        ],
+        notGraded: 0,
+      },
       DEFAULT_JUDGE_CONFIG,
     )
-    expect(signal).toMatchObject({ regressions: 0, improvements: 0 })
-    expect(signal.says).toBeNull()
+    expect(signal).toMatchObject({
+      baseHandled: 1,
+      candidateHandled: 0,
+      runs: 1,
+    })
   })
 })
 
@@ -218,7 +257,7 @@ describe('withRegressionSignals', () => {
       {
         ...SCORE,
         overall: { ...SCORE.overall, cases: 3 },
-        handling: handlingOf({ regression: 5 }),
+        handling: handlingOf(AUTH_PROBE),
       },
       DEFAULT_JUDGE_CONFIG,
     )
@@ -232,11 +271,7 @@ describe('withRegressionSignals', () => {
       {
         ...SCORE,
         label: 'SAME',
-        handling: handlingOf({
-          bothHandled: 20,
-          regression: 1,
-          improvement: 1,
-        }),
+        handling: handlingOf(NO_CHANGE),
       },
       DEFAULT_JUDGE_CONFIG,
     )
