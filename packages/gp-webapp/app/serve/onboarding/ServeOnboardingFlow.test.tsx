@@ -641,13 +641,16 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       return { status: 200, data: { starterIssueCount: 1 } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
       const user = userEvent.setup()
@@ -971,6 +974,21 @@ describe('ServeOnboardingFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('selects a choice card with one click on its text', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText("I'm an elected official"))
+
+    expect(
+      screen.getByRole('radio', { name: "I'm an elected official" }),
+    ).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
     // Genuine prefill (BR term dates present) + party answered, but the office
     // is still missing. Prompt-first gating routes the user to fill the office
@@ -1133,6 +1151,29 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('Take our pledge to get your chief of staff'),
     ).toBeInTheDocument()
+  })
+
+  it('opens the pledge scrolled to the top', async () => {
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const scrollTo = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => undefined)
+
+    const user = await reachTermDatesStep()
+    scrollTo.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    scrollTo.mockRestore()
   })
 
   it('still advances to the pledge when the term-dates save fails', async () => {
@@ -1355,13 +1396,16 @@ describe('ServeOnboardingFlow', () => {
     // react-query entry is pre-seeded; seed the result for the ZIP we type so
     // the picker shows the office synchronously.
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
       const user = userEvent.setup()

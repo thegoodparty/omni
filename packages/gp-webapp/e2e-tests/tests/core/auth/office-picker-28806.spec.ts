@@ -73,8 +73,8 @@ test('office picker filters by role pill and highlights one row for zip 28806', 
   // Regression 1 — selecting a duplicate row highlights exactly that row, not
   // its twin. 28806 returns two "Asheville City Mayor" rows (same office + date,
   // different race id); before the fix they shared a radio value and lit up
-  // together. Match on the accessible name — RadioCardItem exposes the office
-  // title via aria-labelledby, so the radio's DOM textContent is empty.
+  // together. Match on the accessible name, which RadioCardItem takes from the
+  // office title via aria-labelledby.
   const mayorRows = officeGroup.getByRole('radio', {
     name: /Asheville City Mayor/i,
   })
