@@ -348,6 +348,7 @@ describe('ChiefOfStaffHandler', () => {
 
     it('registers read_community_issues tool when port is provided', async () => {
       const communityPort: CommunityIssueReadPort = {
+        list: vi.fn(),
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(
