@@ -25,6 +25,11 @@ const personMeta = (person: Person, isWinContext: boolean) =>
     // Party is Win-only copy: Serve hides it everywhere, same as
     // hidePoliticalParty in PersonOverlay.
     isWinContext ? person.politicalParty : null,
+    person.contactId
+      ? person.contactVerified
+        ? 'Imported, verified'
+        : 'Imported, unverified'
+      : null,
   ]
     .filter(Boolean)
     .join(' · ')

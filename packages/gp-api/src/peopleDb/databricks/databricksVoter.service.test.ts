@@ -14,6 +14,7 @@ import {
 } from '../schemas/people.schema'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { universalContactsViewStorage } from './universalContactsView.poc'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
   PeopleDbxStatementClient,
@@ -85,6 +86,31 @@ describe('DatabricksVoterService', () => {
       // Nothing is interpolated on this path, so there is no column to check --
       // and the district itself no longer costs a warehouse query either.
       expect(query).not.toHaveBeenCalled()
+    })
+
+    it('swaps in the universal contacts view only with the POC flag on', async () => {
+      stubDistrict('City', 'HOUGHTON CITY')
+      const inStore = () =>
+        universalContactsViewStorage.run({ orgSlug: 'eo-poc' }, () =>
+          service.resolveDistrict(DISTRICT_ID, 'voters'),
+        )
+      try {
+        vi.stubEnv('POC_IMPORT_CONTACTS_ENABLED', 'false')
+        expect((await inStore()).table).toBe(
+          'goodparty_data_catalog.mart_gp_api.gp_api_voters',
+        )
+
+        vi.stubEnv('POC_IMPORT_CONTACTS_ENABLED', 'true')
+        const view = await inStore()
+        const outside = await service.resolveDistrict(DISTRICT_ID, 'voters')
+        expect(view.table).toContain('FULL OUTER JOIN')
+        expect(view.table).toContain("oc.organization_slug = 'eo-poc'")
+        expect(outside.table).toBe(
+          'goodparty_data_catalog.mart_gp_api.gp_api_voters',
+        )
+      } finally {
+        vi.unstubAllEnvs()
+      }
     })
 
     it('keeps the district predicate for a State district named otherwise', async () => {

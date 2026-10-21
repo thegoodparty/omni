@@ -78,6 +78,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   NEXT_PUBLIC_SUPPORT_CHAT: { tier: 'optional' },
   NEXT_PUBLIC_DICTATION_DEMO_ENABLED: { tier: 'optional' },
+  // POC (import contacts, do not merge): shows the import flow when true.
+  NEXT_PUBLIC_POC_IMPORT_CONTACTS_ENABLED: { tier: 'optional' },
 
   // Dev-only local briefing/issue galleries (app/dev/*); both hard-404 when
   // NODE_ENV !== 'development'.

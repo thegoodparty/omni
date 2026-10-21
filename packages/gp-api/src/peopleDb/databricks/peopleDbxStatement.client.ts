@@ -43,7 +43,9 @@ const statementResponseSchema = z.object({
       total_row_count: z.number().optional(),
       total_chunk_count: z.number().optional(),
       schema: z
-        .object({ columns: z.array(z.object({ name: z.string() })) })
+        .object({
+          columns: z.array(z.object({ name: z.string() })).optional(),
+        })
         .optional(),
     })
     .optional(),
@@ -208,7 +210,7 @@ export class PeopleDbxStatementClient {
       this.markStatementId(span, first.statement_id)
       const settled = await this.awaitCompletion(config, first, startedAt)
       const columns =
-        settled.manifest?.schema?.columns.map((column) => column.name) ?? []
+        settled.manifest?.schema?.columns?.map((column) => column.name) ?? []
       const rows = [...(settled.result?.data_array ?? [])]
       let next = settled.result?.next_chunk_internal_link ?? null
       let chunks = 0

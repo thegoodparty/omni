@@ -191,5 +191,12 @@ export function transformToPersonOutput(
     householdId: person.householdId ?? null,
     householdSize:
       person.householdSize == null ? null : Number(person.householdSize),
+    ...(person.contact_verified === undefined
+      ? {}
+      : {
+          contactId: person.contact_id ?? null,
+          contactVerified: person.contact_verified === 'true',
+          contactEmail: person.contact_email ?? null,
+        }),
   }
 }

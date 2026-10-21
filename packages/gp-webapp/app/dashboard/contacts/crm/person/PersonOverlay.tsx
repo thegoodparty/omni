@@ -495,6 +495,15 @@ export const PersonRecord: React.FC<{
           )}
           <Field label="Cell Phone Number" value={person.cellPhone} />
           <Field label="Landline" value={person.landline} />
+          {person.contactEmail && (
+            <Field label="Email" value={person.contactEmail} />
+          )}
+          {person.contactId && (
+            <Field
+              label="Imported contact"
+              value={person.contactVerified ? 'Verified' : 'Unverified'}
+            />
+          )}
         </InfoSection>
         {/* Win's voter-file card. Serve renders nothing here at all: the
             three rows it used to carry were a support status Serve can never

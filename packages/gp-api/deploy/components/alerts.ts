@@ -56,6 +56,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',
+  // POC (import contacts, do not merge): 404 unless
+  // POC_IMPORT_CONTACTS_ENABLED=true.
+  'poc/contacts',
 ]
 
 /**

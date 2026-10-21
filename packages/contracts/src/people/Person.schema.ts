@@ -184,6 +184,12 @@ export const PersonSchema = z.object({
   // null on the ungrouped (one-row-per-voter) path.
   householdId: z.string().nullable().optional(),
   householdSize: z.number().int().nullable().optional(),
+  // POC (import contacts): set only when the universal contacts view served
+  // the read. contactId is the uploaded contact, null for vendor-only people;
+  // contactVerified is whether an in-district vendor person backs the row.
+  contactId: z.string().nullable().optional(),
+  contactVerified: z.boolean().optional(),
+  contactEmail: z.string().nullable().optional(),
   // Derived, never stored (SupportStatusService). Only gp-api's person-detail
   // response (`GET /v1/contacts/:id`) attaches this — list/typeahead rows
   // don't carry it in the locked design (ENG-10696).

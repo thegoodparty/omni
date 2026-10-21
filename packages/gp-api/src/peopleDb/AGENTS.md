@@ -36,7 +36,9 @@ caller cannot compile without choosing. `DatabricksVoterService`'s
 and every SQL builder reads `district.table`; there is no module-level voter
 table to fall back on. The district cache holds only the district's identity and the
 table is attached per call, so one org's choice never leaks to another org in
-the same district. The census marts (`gp_api_district_census_stats`,
+the same district. With the import-contacts POC flag on, `resolveDistrict` returns the
+universal contacts view as the table instead (`src/pocImportContacts/AGENTS.md`).
+The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
 
