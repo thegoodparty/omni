@@ -309,9 +309,9 @@ record.
   places, page to page.
 - **Where:** two generic headers (`dashboard/shared/DashboardNavHeader.tsx`,
   `dashboard/shared/DashboardPageHeader.tsx`) plus feature headers
-  (`briefings/components/detail/DetailHeader.tsx`,
-  `polls/[id]/components/PollHeader.tsx`,
-  `profile/texting-compliance/shared/TextingComplianceHeader.tsx`). About a
+  (`dashboard/briefings/components/detail/DetailHeader.tsx`,
+  `dashboard/polls/[id]/components/PollHeader.tsx`,
+  `dashboard/profile/texting-compliance/shared/TextingComplianceHeader.tsx`). About a
   third of dashboard routes use the shared header; the rest render their own
   title: 24 distinct `<h1>` styles plus 32 uses of the legacy
   `shared/typography/H1.tsx`. The DS `PageHeader` is unused.
@@ -326,7 +326,7 @@ record.
 - **What the user sees:** "Voter Data" in the bar, then "Your Voter
   Universe" below it; "Campaign Plan", then a hero headline.
 - **Where:** `dashboard/contacts/crm/CrmContactsPage.tsx`,
-  `dashboard/campaign-plan/` (`CampaignTrackerHero.tsx`).
+  `dashboard/campaign-plan/` (`dashboard/campaign-plan/components/CampaignTrackerHero.tsx`).
 - **Proposal:** one title per page; anything below it is a section heading.
 - **Status:** open · ClickUp: —
 
@@ -443,7 +443,7 @@ record.
 - **Rule:** none yet (planned §6)
 - **What the user sees:** empty screens that look different from each other.
 - **Where:** DS `EmptyState` is used on about 10 screens; others hand-roll
-  one (`dashboard/door-knocking/DoorNotesCard.tsx`,
+  one (`dashboard/door-knocking/native/DoorNotesCard.tsx`,
   `dashboard/community-issues/components/IssueFeedList.tsx`,
   `dashboard/website/components/WebsiteInbox.tsx`).
 - **Proposal:** always DS `EmptyState`. A-02.
@@ -476,8 +476,8 @@ record.
 - **What the user sees:** "$1234.50" on the SMS review step and "$1,234.50"
   on the audience step of the same flow.
 - **Where:** four local `money()` helpers (`dashboard/outreach/v2/sms/SmsReviewStep.tsx`,
-  `GatherMoreFlow.tsx`, `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
-  `OutreachAudienceStep.tsx`) and raw `toFixed(2)` in about 17 places; the
+  `dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx`, `dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
+  `dashboard/outreach/v2/audience/OutreachAudienceStep.tsx`) and raw `toFixed(2)` in about 17 places; the
   shared `formatCurrency` (`helpers/numberHelper.ts`) is barely used. Unit
   prices show three decimals in some places
   (`dashboard/outreach/v2/robocall/RobocallReviewStep.tsx`,
@@ -544,7 +544,7 @@ record.
     contrasts".
   - Content is editable in outreach compose, read-only elsewhere.
 - **Where:** outreach compose steps (`dashboard/outreach/v2/sms/SmsComposeStep.tsx`,
-  `robocall/RobocallComposeStep.tsx`), campaign plan, briefings
+  `dashboard/outreach/v2/robocall/RobocallComposeStep.tsx`), campaign plan, briefings
   (`dashboard/briefings/components/detail/FeedbackRow.tsx`), chat
   (`dashboard/shared/agent-chat/MessageActionBar.tsx`), race opponent
   (`dashboard/race-opponent/components/RegenerateContrasts.tsx`), community
@@ -659,7 +659,7 @@ record.
 - **Solves:** G-26
 - **Job:** a table on desktop that becomes a list of cards below 1024px,
   from one column definition.
-- **Replaces today:** the hand-built switch in `OutreachHistoryTable.tsx`
+- **Replaces today:** the hand-built switch in `dashboard/outreach/v2/OutreachHistoryTable.tsx`
   and horizontally scrolling tables.
 - **Exists in DS?** Partly: `DataTable` and `Table` exist, without a mobile
   layout.
