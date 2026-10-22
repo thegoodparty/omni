@@ -4021,11 +4021,13 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not advance status in non-prod (no real usecase submission)', async () => {
-    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
-    // must not be promoted to pending for a usecase that was never submitted.
-    await withEnv('dev', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
+  it('does not advance status for internal-testing rows (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined for internal-testing
+    // rows; the record must not be promoted to pending for a usecase that was
+    // never submitted.
+    await submitUsecaseIfVerified(service, {
+      ...stuckRecord,
+      internalTestingAt: new Date('2026-10-01T00:00:00Z'),
     })
 
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
