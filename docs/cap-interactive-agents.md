@@ -189,14 +189,27 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   by either name returns the legacy rows and the native walks and call lists,
   because the model asks for `doorKnocking` and a walk is stored as
   `nativeDoorKnocking`. The card picks its detail route, results route and
-  outreach hub from the surface's mode.
+  outreach hub from the surface's mode. Each row carries `name` (the walk,
+  call list or send's own name, `Outreach.name`) apart from `audience` (the
+  list it was cut from), so the model can match an effort the person names.
+  `replies` counts text replies only; a walk or list always shows none, and
+  the descriptions send the model to `read_outreach_feedback` for those.
 - **`read_outreach_feedback`** — what came back in people's own words: text
   replies, door and call notes with their issues, and each send's themes
   (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
   the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
   Manager reads the campaign's door knocking and phone banking by
   `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
-  text's replies come back as timestamps, never words.
+  text's replies come back as timestamps, never words. With no `outreachId`
+  or priority it reads the five most recent sends together, so the
+  description tells the model to find a named walk or list with
+  `read_past_outreach` and pass its id.
+- **Archived sends** (`Outreach.archivedAt`, the history drawer's archive)
+  are left out of the office and campaign reads of both tools, so an old
+  walk does not fill the recent window and get read as current. Two reads
+  keep them: an explicit `outreachId`, and a priority's own sends
+  (`forPriority`, `feedbackFor` with a priority), which are all evidence for
+  its check and whose people must not be asked again.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered

@@ -2034,6 +2034,7 @@ describe('PriorityFlowHandler', () => {
     it('keeps what people said out of read_outreach_feedback until a good read', async () => {
       const send = {
         outreachId: 7,
+        name: 'Crossings check',
         audience: 'Residents across the district',
         channel: 'text',
         sentOn: '2026-10-01',
@@ -2066,6 +2067,7 @@ describe('PriorityFlowHandler', () => {
         sends: [
           {
             outreachId: 7,
+            name: 'Crossings check',
             audience: 'Residents across the district',
             channel: 'text',
             sentOn: '2026-10-01',

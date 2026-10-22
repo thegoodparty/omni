@@ -188,48 +188,53 @@ describe('CampaignManagerHandler door notes (integration)', () => {
     const filter = await service.prisma.voterFileFilter.create({
       data: { organizationSlug: slug, name: 'Oak Street' },
     })
-    const turf = await service.prisma.doorKnockingTurf.create({
-      data: {
-        voterFileFilterId: filter.id,
-        name: 'Turf A',
-        color: '#ff0000',
-        geoPoly: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [-87.66, 41.89],
-              [-87.64, 41.89],
-              [-87.65, 41.91],
-              [-87.66, 41.89],
+    const walkWithNote = async (transcript: string) => {
+      const turf = await service.prisma.doorKnockingTurf.create({
+        data: {
+          voterFileFilterId: filter.id,
+          name: 'Turf A',
+          color: '#ff0000',
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [-87.66, 41.89],
+                [-87.64, 41.89],
+                [-87.65, 41.91],
+                [-87.66, 41.89],
+              ],
             ],
-          ],
+          },
         },
-      },
-    })
-    const walk = await service.prisma.outreach.create({
-      data: {
-        campaignId: campaign.id,
-        organizationSlug: slug,
-        outreachType: OutreachType.nativeDoorKnocking,
-        status: OutreachStatus.in_progress,
-        name: 'Oak Street walk',
-        doorKnockingTurfId: turf.id,
-      },
-    })
-    await service.prisma.constituentFeedback.create({
-      data: {
-        organizationSlug: slug,
-        personId: uuidv7(),
-        occurredAt: new Date(),
-        actorUserId: userId,
-        channel: ConstituentFeedbackChannel.door_knock,
-        transcript: 'Wants the crosswalk on Oak fixed.',
-        captureMethod: ConstituentFeedbackCaptureMethod.dictation,
-        clientKey: uuidv7(),
-        outreachId: walk.id,
-        confirmedAt: new Date(),
-      },
-    })
+      })
+      const walk = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: slug,
+          outreachType: OutreachType.nativeDoorKnocking,
+          status: OutreachStatus.in_progress,
+          name: 'Oak Street walk',
+          voterFileFilterId: filter.id,
+          doorKnockingTurfId: turf.id,
+        },
+      })
+      await service.prisma.constituentFeedback.create({
+        data: {
+          organizationSlug: slug,
+          personId: uuidv7(),
+          occurredAt: new Date(),
+          actorUserId: userId,
+          channel: ConstituentFeedbackChannel.door_knock,
+          transcript,
+          captureMethod: ConstituentFeedbackCaptureMethod.dictation,
+          clientKey: uuidv7(),
+          outreachId: walk.id,
+          confirmedAt: new Date(),
+        },
+      })
+      return walk
+    }
+    const walk = await walkWithNote('Wants the crosswalk on Oak fixed.')
     const conversation = await service.prisma.chatConversation.create({
       data: {
         ownerUserId: userId,
@@ -237,7 +242,7 @@ describe('CampaignManagerHandler door notes (integration)', () => {
         scope: ChatScope.campaign_assistant,
       },
     })
-    return { walk, conversationId: conversation.id, userId }
+    return { walk, walkWithNote, conversationId: conversation.id, userId }
   }
 
   it('finds the walk by door knocking and reads what voters said', async () => {
@@ -266,6 +271,43 @@ describe('CampaignManagerHandler door notes (integration)', () => {
             confirmed: true,
           },
         ],
+      },
+    ])
+  })
+
+  it('reads an archived walk only when asked for it by id', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { walk, walkWithNote, conversationId, userId } =
+      await campaignWithWalk()
+    const older = await walkWithNote('Asked about the park lights.')
+    await service.prisma.outreach.update({
+      where: { id: older.id },
+      data: { archivedAt: new Date() },
+    })
+
+    const tools = handler.buildTools(
+      await handler.loadContext(conversationId, userId),
+    )
+
+    const past = (await runTool(tools.read_past_outreach, {})) as {
+      sends: PastOutreachRow[]
+    }
+    expect(past.sends).toMatchObject([
+      { outreachId: walk.id, name: 'Oak Street walk', audience: 'Oak Street' },
+    ])
+    const recent = (await runTool(tools.read_outreach_feedback, {})) as {
+      sends: OutreachFeedback[]
+    }
+    expect(recent.sends).toMatchObject([
+      { outreachId: walk.id, name: 'Oak Street walk' },
+    ])
+    const asked = (await runTool(tools.read_outreach_feedback, {
+      outreachId: older.id,
+    })) as { sends: OutreachFeedback[] }
+    expect(asked.sends).toMatchObject([
+      {
+        outreachId: older.id,
+        verbatims: [{ said: 'Asked about the park lights.' }],
       },
     ])
   })
