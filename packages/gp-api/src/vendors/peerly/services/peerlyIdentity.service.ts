@@ -194,7 +194,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     }
   }
 
-  async getIdentities(campaign: Campaign): Promise<PeerlyIdentity[]> {
+  async getIdentities(campaign?: Campaign): Promise<PeerlyIdentity[]> {
     this.logger.debug('Fetching list of identities from Peerly')
     let result: PeerlyIdentity[] = []
     try {
@@ -220,7 +220,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     return result
   }
 
-  async getIdentityUseCases(peerlyIdentityId: string, campaign: Campaign) {
+  async getIdentityUseCases(peerlyIdentityId: string, campaign?: Campaign) {
     try {
       const response =
         await this.peerlyHttpService.get<PeerlyIdentityUseCaseResponseBody>(

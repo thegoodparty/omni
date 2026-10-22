@@ -51,14 +51,27 @@ describe('parseVendorResponse', () => {
     expect(logged).not.toContain('42')
   })
 
-  it('enforce: throws on the same malformed body', () => {
+  it('enforce: counts and logs paths only, then throws on the same malformed body', () => {
     expect(() =>
       parseVendorResponse(
         schema,
         { status: 42, ein: 'x' },
         { ...options, mode: 'enforce' },
       ),
-    ).toThrow()
+    ).toThrow(z.ZodError)
+    expect(recordVendorSchemaMismatch).toHaveBeenCalledTimes(1)
+    expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
+      'peerly',
+      '/v2/tdlc/:id/retrieve_cv',
+    )
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('enforce: returns the parsed body for a valid response without counting', () => {
+    const body = { status: 'ok', ein: '12-3456789' }
+    expect(
+      parseVendorResponse(schema, body, { ...options, mode: 'enforce' }),
+    ).toEqual(body)
     expect(recordVendorSchemaMismatch).not.toHaveBeenCalled()
   })
 })

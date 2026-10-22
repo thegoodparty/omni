@@ -14,6 +14,7 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
+import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
@@ -126,6 +127,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     ConstituentFeedbackModule,
     RecommendedListsModule,
     DoorKnockingModule,
+    VendorDriftProbeModule,
     PhoneBankingModule,
     PollsModule,
     PrioritiesModule,

@@ -92,4 +92,13 @@ export class CallhubNumbersService {
       })
     }
   }
+
+  // The raw page body, for the nightly drift probe to parse in enforce mode.
+  // listRentedNumbers parses inside its own try, which turns a drifted body
+  // into a 502 and hides the issue paths from the probe.
+  async fetchRentedNumbersBodyForProbe(): Promise<unknown> {
+    return this.http.get(RENTED_LIST_PATH, {
+      params: { page_size: RENTED_LIST_PAGE_SIZE },
+    })
+  }
 }
