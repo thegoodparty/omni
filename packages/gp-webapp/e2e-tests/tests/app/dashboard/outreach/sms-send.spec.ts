@@ -151,8 +151,15 @@ test.describe('Win SMS send', () => {
     ).toBeVisible({
       timeout: 30_000,
     })
-    await page.locator('input[type="file"]').setInputFiles(HEADSHOT_FIXTURE)
-    await expect(page.getByAltText('Attachment preview')).toBeVisible({
+    // Scoped to the compose dialog: the dashboard chat footer has its own
+    // hidden file input.
+    const composeDialog = page.getByRole('dialog', {
+      name: 'What do you want to say?',
+    })
+    await composeDialog
+      .locator('input[type="file"]')
+      .setInputFiles(HEADSHOT_FIXTURE)
+    await expect(composeDialog.getByAltText('Attachment preview')).toBeVisible({
       timeout: 15_000,
     })
     await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
