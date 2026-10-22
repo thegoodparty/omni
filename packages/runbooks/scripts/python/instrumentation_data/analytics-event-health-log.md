@@ -22,6 +22,86 @@ Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firi
 drop, active elevated · 3 anomaly drop, active/system · 4 intent divergence · 5 dormant
 elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a tail line).
 
+## 2026-10-22
+
+Basis: complete weeks before 2026-10-19. 735 events — active 345, retired 150, deprecating 79, instrumented_never_observed 59, system 39, code_unknown 34, dormant 29. 45 flagged (22 priority in 2 cause(s), 23 dormant tail).
+
+### Flagged (by cause)
+
+- **dormant, elevated** — 6 event(s) · elevated: Community Issues - Ask AI Started, Poll - Results Synthesis Complete, Serve Onboarding - SMS Poll Creation Failed, Serve Onboarding - SMS Poll Sent, Serve Onboarding - Success Page Viewed, Voter Data - Activity List Created
+  Community Issues - Ask AI Started · Poll - Results Synthesis Complete · Serve Onboarding - SMS Poll Creation Failed · Serve Onboarding - SMS Poll Sent · Serve Onboarding - Success Page Viewed · Voter Data - Activity List Created
+- **instrumented, never observed** — 16 event(s) · elevated: Serve Onboarding - Build And Grow Your List Completed, Serve Onboarding - Build And Grow Your List Viewed, Serve Onboarding - Hear From The Loudest Voices Completed, Serve Onboarding - Hear From The Loudest Voices Viewed, Serve Onboarding - Priorities Completed, Serve Onboarding - Priorities Viewed, Serve Onboarding - Where Your Community Stands Completed, Serve Onboarding - Where Your Community Stands Viewed, Serve Onboarding - You Represent Completed, Serve Onboarding - You Represent Viewed
+  Community Issues - Dispatch Skipped · Constituent Data - Activity List Created · Constituent Data - Follow Up List Created · Ordinances - Draft Details Deleted · Serve Onboarding - Build And Grow Your List Completed · Serve Onboarding - Build And Grow Your List Viewed · Serve Onboarding - Hear From The Loudest Voices Completed · Serve Onboarding - Hear From The Loudest Voices Viewed · Serve Onboarding - Priorities Completed · Serve Onboarding - Priorities Viewed · Serve Onboarding - Where Your Community Stands Completed · Serve Onboarding - Where Your Community Stands Viewed · Serve Onboarding - You Represent Completed · Serve Onboarding - You Represent Viewed · Win - Opponent Activity Viewed · Win - Self Research Completed
+
+<details><summary>Per-event detail (22)</summary>
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Creation Failed | dormant | yes | 30d=0; last_seen 2026-06-17; PR https://github.com/thegoodparty/gp-webapp/pull/1374 |  |
+| 6 dormant (elevated) | Serve Onboarding - Success Page Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1098 |  |
+| 6 dormant (elevated) | Poll - Results Synthesis Complete | dormant | yes | 30d=0; last_seen 2026-09-11; PR https://github.com/thegoodparty/gp-api/pull/636 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Sent | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/gp-webapp/pull/1022 |  |
+| 6 dormant (elevated) | Community Issues - Ask AI Started | dormant | yes | 30d=0; last_seen 2026-08-05; PR https://github.com/thegoodparty/omni/pull/246 |  |
+| 6 dormant (elevated) | Voter Data - Activity List Created | dormant | yes | 30d=0; last_seen 2026-08-25; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Community Issues - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Constituent Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - Follow Up List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/1990 |  |
+| 7 instrumented, never observed | Ordinances - Draft Details Deleted | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/1039 |  |
+| 7 instrumented, never observed | Serve Onboarding - Build And Grow Your List Completed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Build And Grow Your List Viewed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Hear From The Loudest Voices Completed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Hear From The Loudest Voices Viewed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Priorities Completed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Priorities Viewed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Where Your Community Stands Completed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - Where Your Community Stands Viewed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - You Represent Completed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Serve Onboarding - You Represent Viewed | instrumented_never_observed | yes | 30d=0; PR https://github.com/thegoodparty/omni/pull/2921 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+</details>
+
+**Dormant tail (23)** — code present, 0 fires/30d, not elevated: Account - Pro Subscription Confirmed · Payment - Completed · Content Builder: Generation Completed · Polls - Expand Poll Recommendations Completed · Profile - Running Against: Click Add New · Profile - Running Against: Submit Edit · Polls - Expand Poll Recommendations Viewed · Profile - Running Against: Submit Add New · Polls - Expand Poll Review Viewed · question_complete · Candidate Website - Purchased domain · Payment - Review and Pay Screen Viewed · Profile - Running Against: Click Edit · Profile - Running Against: Click Save · Content Builder: Generation Started · AI Assistant - Response Completed · Dashboard - Campaign Plan: Plan Shared · Ordinances - Draft Details Status Updated · Campaign - Follow-On Blocked · AI Assistant - Response Failed · Briefing Assistant - Agenda Submission Failed · Constituent Data - Note Added · Briefing Assistant - Attachment Clicked
+
+**Too new to judge (43)**: instrumented in the last 30 days and not fired yet, so not flagged: Civic Panel - Goal Reached · Civic Panel - Membership Changed · Civic Panel - Panel Viewed · Civic Panel - Plan Created · Civic Panel - Plan Updated · Civic Panel - Step Completed · Civic Panel - Step Opened · Civic Panel - Step Skipped · Civic Panel - Step Started · Constituent Feedback - Issue Captured · Constituent Feedback - Issue Confirmed · Constituent Feedback - Issue Skipped · Issue Capture - Memo Confirmed · Issue Capture - Memo Queued Offline · Issue Capture - Memo Recorded · Issue Capture - Memo Skipped · Issue Capture - Memo Uploaded · Issue Capture - Report Viewed · Issue Capture - Synthesis Completed · Issue Capture - Synthesis Requested · Ordinances - Bug Report Errored · Ordinances - Bug Report Submitted · Ordinances - Draft Chat Opened · Ordinances - New Ordinance Errored · Outreach - Door Knocking Do Not Knock Cleared · Outreach - Door Knocking List Deleted · Outreach - Door Knocking List Edited · Outreach - Door Knocking Not A Voter Reason Cleared · Outreach - Door Knocking Not A Voter Reason Set · Outreach - SMS Cutoff Notice Completed · Outreach - SMS Cutoff Notice Viewed · Polls - Gather More Started · Priorities - Check State Changed · Priorities - Get Answers Clicked · Priorities - Plan Completed · Priorities - Priority Archived · Priorities - Results Viewed · Questions - Fun Fact Completed · Questions - Fun Fact Viewed · Questions - Occupation Completed · Questions - Occupation Viewed · Questions - Past Experience Completed · Questions - Past Experience Viewed
+
+### Changes since last run
+
+- new: none
+- escalated: none
+- resolved: 17 (see flagged table)
+- still open: 45 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 518/637 (81%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): 10DLC - Compliance Submission Blocked · Door Knocking - List Created · Onboarding V2 - Manual Office Viewed · Onboarding V2 - Signup Goal Completed · Onboarding V2 - Signup Goal Viewed · Outreach - Campaign Completed · Outreach - Door Knocking Door Logged · Outreach - Phone Banking Call Logged · Pro Upgrade - Filing Details Submit Error · Robocall - Hold Failed · Robocall - Hold Placed · Robocall - Receipt · Robocall - Scheduled · Voter Data - Contact Searched · Voter Outreach - 10DLC Compliance Candidate Profile Submitted · Voter Outreach - 10DLC Compliance PIN Sent · Voter Outreach - 10DLC Compliance Rejected · Voter Outreach - Phone Banking Call List Created · Voter Outreach - Phone Banking Call Sheet Downloaded
+- Other non-system events missing a description: 100 (not listed).
+
+20 new event(s) in watched families with no question; see the JSON report.
+
+### Watchlist removals
+
+14 watched event(s) retired in code. Remove each `events:` row in triage, or record a `kept:` row to keep watching it:
+
+| event | retired |
+|---|---|
+| onboarding_complete | 2026-05-05 |
+| Onboarding - Ballot Status Completed | 2026-07-13 |
+| Onboarding - Candidate Affiliation Completed | 2026-07-13 |
+| Onboarding - Candidate Pledge Completed | 2026-07-13 |
+| Onboarding - Know Your Voters Completed | 2026-07-13 |
+| Onboarding - Office Selection Completed | 2026-07-13 |
+| Onboarding - Party Selection Completed | 2026-07-13 |
+| Onboarding - Path To Victory Completed | 2026-07-13 |
+| Onboarding - Pledge Completed | 2026-07-13 |
+| Onboarding - Welcome Completed | 2026-07-13 |
+| Pro Upgrade - Splash Page: Click upgrade | 2026-07-13 |
+| Schedule Text Campaign: Submit | 2026-07-13 |
+| Voter Outreach - Phone Banking Call Sheet Downloaded | 2026-09-29 |
+| Onboarding - User Created | 2026-10-09 |
+
 ## 2026-10-19
 
 Basis: complete weeks before 2026-10-19. 737 events — active 330, retired 148, deprecating 81, instrumented_never_observed 64, dormant 42, system 39, code_unknown 33. 62 flagged (28 priority in 3 cause(s), 34 dormant tail).
