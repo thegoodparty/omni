@@ -16,7 +16,8 @@ import {
 } from '@/priorities/util/censusWeighting.util'
 import type { MrpFrameCell, MrpGroupEstimate } from '@/priorities/util/mrp.util'
 import type { RakingTargets } from '@/priorities/util/raking.util'
-import { asksFor, sizePanelWave } from './civicPanelBuild.util'
+import { sizePanelWave } from './civicPanelBuild.util'
+import { asksFor } from './civicPanelInvite.util'
 
 // A priority's two rounds of outreach: how big round 1's doors, calls and
 // text are, and who round 2's scheduled text leans toward, from the model's

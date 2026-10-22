@@ -1204,8 +1204,8 @@ replacing the do-it-yourself build plan above
 (`docs/adr/2026-10-22-managed-civic-panel-replaces-build-plan.md`). The
 official approves once, in their own name; GoodParty then sends free,
 texts-only waves of that one invite until members reach the district goal.
-Only the model and the routes exist so far: no wave, job, free send or UI
-reads them yet.
+The model, the routes and the wave draw exist so far: no job, free send or
+UI calls them yet.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
@@ -1234,6 +1234,36 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   stopped comes back unchanged; a stopped one is approved again in place.
 - `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
   from building, paused or ready. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
+
+**Drawing a wave** (`ManagedPanelWaveDrawService.drawNextWave`, no route).
+It draws a building enrollment's next wave and sends nothing. A wave not yet
+sent (`sentAt` null) comes back as `pending` instead of a new draw, so there
+is one unsent wave at a time. The insert runs under an advisory lock per
+enrollment that re-checks for an unsent wave, so of two overlapping draws
+one makes the wave and the other drops its list and returns it. Otherwise:
+
+- Size: the member gap (`goalMembers` minus the standing members) at the
+  cold `PANEL_SEED_ASSUMED_JOIN_RATE`, capped at the reachable cell phones,
+  `MAX_LIST_SAMPLE_SIZE` and the free texts left (`freeTextCap` minus
+  `freeTextsUsed`). `textInviteSize` in `utils/civicPanelInvite.util.ts`,
+  which the plan's `sizePanelWave` also calls for its text.
+- Who: the plan's text criteria (`civicPanelInviteCriteria`:
+  `civicPanelNeverInvited`, `notContactedRecently`, `hasCellPhone`), leaving
+  out by id everyone an earlier wave or a plan step drew (a step skipped
+  untouched gives its people back, as in the plan) and everyone opted out of
+  the office's texts. The draw is frozen.
+- Lean: `panelSteering` over the members' census cells, as a plan text step
+  leans; `steeredToward` is `inviteLean`'s group. A failed census read leans
+  nowhere.
+- Saved as a hidden list (`civicPanelInvite`, named like the plan's: "Civic
+  panel invite, batch 2") and a `ManagedPanelWave` row with the next `wave`.
+
+It returns `drawn` or `pending` (with the wave and its list's size), or,
+drawing nothing, `goal_reached`, `out_of_free_texts`, `not_building`, or
+`exhausted` when nobody is left to text. A wave goes out on
+`nextManagedSendDate(now)` (`outreach/services/outreachServeSmsCreate.service.ts`):
+the third business day, the earliest `assertServeSmsSendDateAllowed`
+accepts, so staff get their full lead.
 
 ### Saved-filter lifecycle
 
