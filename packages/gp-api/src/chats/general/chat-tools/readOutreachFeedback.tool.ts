@@ -39,8 +39,9 @@ export const buildReadOutreachFeedbackTool = (deps: {
           return {
             heldBack: HELD_BACK_NOTE,
             sends: sends.map(
-              ({ outreachId, audience, channel, sentOn, heardFrom }) => ({
+              ({ outreachId, name, audience, channel, sentOn, heardFrom }) => ({
                 outreachId,
+                name,
                 audience,
                 channel,
                 sentOn,
@@ -59,7 +60,7 @@ export interface HeldBackFeedback {
   heldBack: string
   sends: Pick<
     OutreachFeedback,
-    'outreachId' | 'audience' | 'channel' | 'sentOn' | 'heardFrom'
+    'outreachId' | 'name' | 'audience' | 'channel' | 'sentOn' | 'heardFrom'
   >[]
 }
 
