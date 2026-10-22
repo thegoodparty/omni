@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Creates the Unity Catalog connection the Lakeflow gateway reads gp-api's
-# Postgres through (bundles cannot create connections). The replication
-# password is resolved inside Databricks from the secret the DB admin wrote in
-# README step 3, so it never reaches this machine.
+# Postgres through (the Terraform in gp-terraform-dataplatform does not create
+# it). The replication password is resolved inside Databricks from the secret
+# the Databricks admin wrote in README step 5, so it never reaches this machine.
 set -euo pipefail
 
 target=${1:?usage: create-connection.sh dev|prod}

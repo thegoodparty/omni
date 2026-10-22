@@ -25,8 +25,8 @@ The pipeline that fills this catalog lives in a **separate repo,
 `gp-data-platform`** (not in omni): Airbyte ingests 9+ sources, dbt transforms them
 with 460+ models, and the results land here and get written back to the Postgres
 databases. If you need to change what a table contains or add one, that work happens
-in `gp-data-platform`, not here. The one pipeline omni owns is the gp-api
-mirror below.
+in `gp-data-platform`, not here. This repo only _reads_ Databricks, except for
+the connection script of the gp-api mirror below.
 
 ### gp-api mirror (Lakeflow Connect)
 
@@ -44,12 +44,17 @@ Connect CDC, a few minutes behind:
   picked up by an event trigger; it appears within a few hours.
 - **Renaming or retyping a column re-copies that table.** Auto full refresh
   handles it; the table is stale while it reloads.
-- The mirror holds users' personal data, so access is granted per principal.
+- The mirror holds users' personal data. Read access is membership in the
+  mirror's readers group, managed in `gp-terraform-dataplatform`.
 - **Nothing alerts on replication slot growth yet.** Check the slot and
   change-log size by hand (README, Operations).
 
-Setup, runbook, lag checks and teardown:
-`packages/gp-api/deploy/databricks/lakeflow/README.md`.
+The Databricks side (service principal, schemas, secret scopes, grants,
+gateway, ingestion pipeline and loop job) is Terraform in
+[`thegoodparty/gp-terraform-dataplatform`](https://github.com/thegoodparty/gp-terraform-dataplatform).
+Omni owns the Aurora side (parameter group, publication migration) and the
+script that creates the Unity Catalog connection. Setup, runbook, lag checks
+and teardown: `packages/gp-api/deploy/databricks/lakeflow/README.md`.
 
 ## Access — use the CLI
 

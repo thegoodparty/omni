@@ -22,7 +22,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
-| `databricks/lakeflow/`                      | Databricks bundle mirroring gp-api Postgres into Databricks (Lakeflow Connect); deployed by a Databricks admin, not CI |
+| `databricks/lakeflow/`                      | Runbook and connection script for the Lakeflow Connect mirror of gp-api Postgres; the Databricks resources are Terraform in `thegoodparty/gp-terraform-dataplatform` |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
 
 ## Patterns
