@@ -46,5 +46,14 @@ export const cityFromDistrictName = (districtName: string): string | null => {
   // Reject if empty or looks non-city (pure number, single char, etc.)
   if (!name || name.length < 2 || /^\d+$/.test(name)) return null
 
+  // A body's name left over once its seat is stripped ("Council At-Large")
+  // names no place.
+  if (
+    /^(council|board|commission|committee|authority|district|ward|precinct)$/i.test(
+      name,
+    )
+  )
+    return null
+
   return name
 }
