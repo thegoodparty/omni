@@ -3,7 +3,7 @@ title: GoodParty builds the civic panel for flagged officials, and the do-it-you
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-22
-code: ['#PR']
+code: ['#3147']
 scope:
   - packages/gp-api/src/contacts/services/managedCivicPanel.service.ts
   - packages/gp-api/src/contacts/services/civicPanelBuildPlan.service.ts
