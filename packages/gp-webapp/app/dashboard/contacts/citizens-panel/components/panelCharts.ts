@@ -137,6 +137,20 @@ export const spreadLabels = (ys: number[]): number[] => {
   return out
 }
 
+// Filled seats in the brand's red, blue and lavender, so the panel reads as
+// many voices. Each place takes one family, cycled in arc order so
+// neighbors never share one, and its seats cycle three tints of it, darkest
+// first. Fixed by position, never random, so server and client agree.
+export const SEAT_HUES = ['red', 'blue', 'lavender'] as const
+export type SeatHue = (typeof SEAT_HUES)[number]
+export type SeatTint = 0 | 1 | 2
+
+export const seatHue = (placeIndex: number): SeatHue =>
+  SEAT_HUES[placeIndex % SEAT_HUES.length] ?? 'red'
+
+export const seatTint = (seatIndex: number): SeatTint =>
+  (seatIndex % 3) as SeatTint
+
 export interface SeatPlace {
   key: string
   name: string
@@ -147,8 +161,7 @@ export interface SeatPlace {
   empty: number
   progress: number
   behind: boolean
-  // Alternate places take alternate shades so neighbors read apart.
-  shade: 0 | 1
+  hue: SeatHue
   // Middle of the place's seats, for its label.
   angle: number
 }
@@ -158,6 +171,7 @@ export interface Seat {
   y: number
   place: number
   filled: boolean
+  tint: SeatTint
 }
 
 export type SeatsStage = 'tooEarly' | 'building' | 'nearFull' | 'full'
@@ -226,7 +240,13 @@ export const buildSeats = ({
     cursor += count
     const index = rows.length
     mine.forEach((spot, k) =>
-      seats.push({ x: spot.x, y: spot.y, place: index, filled: k < filled }),
+      seats.push({
+        x: spot.x,
+        y: spot.y,
+        place: index,
+        filled: k < filled,
+        tint: seatTint(k),
+      }),
     )
     const first = mine[0]?.angle ?? 0
     const last = mine[mine.length - 1]?.angle ?? first
@@ -239,7 +259,7 @@ export const buildSeats = ({
       empty: count - filled,
       progress,
       behind: canTell && progress < overall * BEHIND_AT,
-      shade: index % 2 === 0 ? 0 : 1,
+      hue: seatHue(index),
       angle: (first + last) / 2,
     })
   })

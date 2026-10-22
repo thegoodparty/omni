@@ -11,6 +11,7 @@ import {
   LABEL_SPACING,
   milestones,
   SEAT_COUNT,
+  SEAT_HUES,
   polar,
   roundCoord,
   seatSpots,
@@ -219,6 +220,29 @@ describe('buildSeats', () => {
     const full = seatsAt(240, (share) => Math.ceil(share * 240))
     expect(full.stage).toBe('full')
     expect(full.filled).toBe(SEAT_COUNT)
+  })
+
+  it('gives neighboring places different color families, red, blue, lavender in arc order', () => {
+    const chart = seatsAt(120, (share) => Math.round(share * 240))
+    const hues = chart.places.map((p) => p.hue)
+    expect(hues.slice(0, 3)).toEqual([...SEAT_HUES])
+    hues.slice(1).forEach((hue, i) => expect(hue).not.toBe(hues[i]))
+  })
+
+  it('varies the tint within a place', () => {
+    const chart = seatsAt(240, (share) => Math.ceil(share * 240))
+    const tints = chart.seats.filter((s) => s.place === 0).map((s) => s.tint)
+    expect(new Set(tints)).toEqual(new Set([0, 1, 2]))
+  })
+
+  it('colors the same seats the same way every time', () => {
+    const mix = (share: number, i: number) => Math.round(share * 200) + (i % 4)
+    const first = seatsAt(200, mix)
+    const again = seatsAt(200, mix)
+    expect(again.seats).toEqual(first.seats)
+    expect(again.places.map((p) => p.hue)).toEqual(
+      first.places.map((p) => p.hue),
+    )
   })
 })
 

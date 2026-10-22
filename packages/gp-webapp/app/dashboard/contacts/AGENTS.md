@@ -148,7 +148,11 @@ Staff's home and chat cards say the same step in the same words.
   Most empty seats rows alike. Rows truncate with the whole name as a
   tooltip; around the arc a name is cut to 14 characters, the whole name
   in its `<title>`. A place's members fill
-  seats only up to its share of the goal. From 30 members a place is behind
+  seats only up to its share of the goal. Filled seats take the brand's
+  red, blue and lavender: each place one family, cycled in arc order so
+  neighbors differ, its seats three tints of it outlined in the darkest
+  (`seatHue`, `seatTint`, fixed by position so server and client agree).
+  From 30 members a place is behind
   when its progress is under half the panel's, outlined in warning and
   listed under "Furthest behind" (up to 5, with "N of M tracts are behind
   the rest."); under 30 the wait
