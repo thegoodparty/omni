@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import { addDays, addYears, format } from 'date-fns'
 import { expect, test, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
@@ -14,7 +14,6 @@ import {
   peerlyAction,
   runJob,
 } from 'src/helpers/vendor-mocks.helper'
-import { SEED_VALID_EIN } from 'src/helpers/pro-upgrade.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
@@ -41,8 +40,15 @@ type TcrComplianceMine = { status?: string | null }
 // Default Campaign Verify PIN of the Peerly 10DLC mock.
 const MOCK_CV_PIN = '123456'
 
-// The EIN the wizard's EIN step enters; the brand request must carry it.
-const EIN = SEED_VALID_EIN
+// A fresh EIN per registration (47 is an IRS-issued prefix, so the wizard's
+// sanity check passes). The Peerly mock ties an identity to a campaign through
+// the EIN in the identity name, newest TcrCompliance row first. A shared EIN
+// let a parallel test's campaign claim this one's identity, leaving this
+// campaign without Peerly records.
+const uniqueEin = (): string => {
+  const serial = String(randomInt(0, 10_000_000)).padStart(7, '0')
+  return `47-${serial}`
+}
 
 const BIO =
   'I am running for City Council because our neighborhood deserves a ' +
@@ -70,6 +76,7 @@ const digitsOnly = (value: unknown): string =>
 const walkWizardToPayment = async (
   page: Page,
   email: string,
+  EIN: string,
 ): Promise<void> => {
   await page.goto('/dashboard/pro-upgrade')
   await NavigationHelper.dismissOverlays(page)
@@ -221,6 +228,7 @@ const getComplianceState = async (
 const playAgentThroughSubmit = async (
   client: AxiosInstance,
   campaignId: number,
+  EIN: string,
 ): Promise<void> => {
   expect((await getComplianceState(client)).stage).toBe(
     'pending_domain_purchase',
@@ -337,8 +345,9 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
       details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
     })
 
+    const ein = uniqueEin()
     const checkoutSessionId = captureCheckoutSessionId(page)
-    await walkWizardToPayment(page, user.email)
+    await walkWizardToPayment(page, user.email, ein)
     await payWithTestCard(page)
     const sessionId = checkoutSessionId()
     expect(sessionId, 'checkout session id').not.toBeNull()
@@ -352,7 +361,7 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
       )
       .toBe(true)
 
-    await playAgentThroughSubmit(client, campaign.id)
+    await playAgentThroughSubmit(client, campaign.id, ein)
     return { client, campaignId: campaign.id }
   }
 
