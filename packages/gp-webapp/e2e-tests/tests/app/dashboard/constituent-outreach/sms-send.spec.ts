@@ -374,17 +374,18 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       timeout: 30_000,
     })
 
-    // Open the completed outreach's drawer. The row label comes from the
-    // campaign name (auto-filled from purpose on this isolated user).
-    // Click the first row in the outreach history table.
+    // Clickable history rows carry role="button", and a completed send's
+    // status cell reads "Done" (historyStatus.util.ts), not "completed".
     await page
-      .getByRole('row')
-      .filter({ hasText: /completed/i })
+      .getByRole('table')
+      .getByRole('button')
+      .filter({ hasText: 'Done' })
       .first()
       .click()
 
-    // The "Responses" heading appears in the drawer once it opens.
-    await expect(page.getByRole('heading', { name: 'Responses' })).toBeVisible({
+    // The section title is an Overline div, not a heading. exact keeps it
+    // from matching the row's "2 responses" results cell.
+    await expect(page.getByText('Responses', { exact: true })).toBeVisible({
       timeout: 15_000,
     })
 
