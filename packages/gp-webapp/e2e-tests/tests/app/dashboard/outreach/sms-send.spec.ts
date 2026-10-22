@@ -216,18 +216,20 @@ test.describe('Win SMS send', () => {
     // ── 12. Review step ───────────────────────────────────────────────────
     // "Review & pay" for a charged send, "Review and send" when the Pro free
     // texts offer covers the audience.
-    await expect(
-      page.getByRole('heading', { name: /Review (& pay|and send)/ }).first(),
-    ).toBeVisible({ timeout: 30_000 })
+    const reviewHeading = page
+      .getByRole('heading', { name: /Review (& pay|and send)/ })
+      .first()
+    await expect(reviewHeading).toBeVisible({ timeout: 30_000 })
 
     const scheduleButton = page.getByRole('button', {
       name: 'Schedule campaign',
     })
-    const paymentFrame = page.frameLocator(
-      'iframe[title="Secure payment input frame"]',
-    )
-    const cardInput = paymentFrame.locator('#payment-numberInput')
-    await expect(scheduleButton.or(cardInput)).toBeVisible({ timeout: 60_000 })
+    const completeButton = page.getByRole('button', {
+      name: 'Complete Purchase',
+    })
+    await expect(scheduleButton.or(completeButton)).toBeVisible({
+      timeout: 60_000,
+    })
 
     if (await scheduleButton.isVisible()) {
       // Free path: the offer covers the send, so there is no card to fill.
@@ -237,9 +239,6 @@ test.describe('Win SMS send', () => {
     } else {
       // ── 13. Fill Stripe card and submit ─────────────────────────────────
       await fillStripeCard(page)
-      const completeButton = page.getByRole('button', {
-        name: 'Complete Purchase',
-      })
       await expect(completeButton).toBeEnabled({ timeout: 15_000 })
       await completeButton.scrollIntoViewIfNeeded()
       await completeButton.click()
