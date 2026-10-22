@@ -309,6 +309,46 @@ describe('SmsFlow (Serve surface)', () => {
     expect(calendarColumn).not.toHaveClass('items-center')
   })
 
+  // Staff need 3 business days to set up a priority's two-round text, so
+  // its calendar opens a day later than any other Serve text's.
+  it('closes days within 3 business days for a two-round priority text', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    render(
+      <SmsFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        roundTwoSize={1_000}
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/drafted body/)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/All messages are sent at 11am local time\./)
+
+    expect(
+      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
+    ).toBeEnabled()
+  })
+
   it('keeps the opt-out footer and appends no paid-for-by line', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
