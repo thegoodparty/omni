@@ -3,7 +3,7 @@ title: Census tract names are worked out once and stored in gp-api's Postgres
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-22
-code: ['#TBD']
+code: ['#3127']
 scope:
   - packages/gp-api/src/contacts/services/censusTractName.service.ts
   - packages/gp-api/src/contacts/utils/censusTractName.util.ts
