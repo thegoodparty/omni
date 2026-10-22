@@ -88,6 +88,14 @@ conversation marker says so out loud — `Back to your options`, `What we know
 needs another look`. Hiding a backwards move makes the rail look broken, which
 is worse than the move itself.
 
+The agent makes that move on its own (`GOING_BACK_BLOCK` in
+`priorityFlow.prompt.ts`): a new fact that undercuts what a settled step
+rested on, from a department head, a report or the official, sends that step
+and the settled steps built on it back in the same turn. On the demo run it
+used a fire chief's overtime figure as evidence and left "The problem"
+settled until the official asked to rethink it. Judge case
+`new-fact-reframes-settled-problem` guards it.
+
 `statusChanges` carries where each step came from, so the marker copy can say
 "backwards". A stored patch only says what a step became, so
 `replayStatusMarkers` rebuilds the prior state by replaying every status call
