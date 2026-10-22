@@ -96,6 +96,7 @@ import {
   OutreachTextDeliveryService,
   TextDeliveryAudience,
 } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
@@ -198,6 +199,7 @@ export class QueueConsumerService {
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
+    private readonly textSendFunding: OutreachTextSendFundingService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -652,6 +654,19 @@ export class QueueConsumerService {
       return true
     }
 
+    // Paid at checkout, or a live managed civic panel wave; anything else is
+    // refused before an audience is resolved. `requestSend` repeats this in
+    // its own claim.
+    const funding = await this.textSendFunding.check(outreachId, sendSeq)
+    if (!funding.funded && funding.reason !== 'not_sendable') {
+      await this.textSendFunding.reportRefusal(
+        outreachId,
+        sendSeq,
+        funding.reason,
+      )
+      return true
+    }
+
     const {
       message,
       imageUrl,
@@ -723,7 +738,10 @@ export class QueueConsumerService {
         result.terminalReason === 'send_failed'
           ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
               'at all; the row is now failed'
-          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+          : result.terminalReason === 'unfunded'
+            ? 'outreachTextSend: nothing was sent — the send was neither ' +
+              'paid nor a live managed panel wave'
+            : 'outreachTextSend: nothing was sent — the outreach was not ' +
               'pending, or a previous attempt already handed off this send',
       )
       return true
