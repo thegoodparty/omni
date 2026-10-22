@@ -595,15 +595,16 @@ CARD_FIELDS = (
 def queue_event_types(queues: Sequence[Mapping]) -> set[str]:
     """Every event named anywhere in this run's queues.
 
-    Flags carry their members in ``events``; a proposal is itself an event; a gap is
-    about a surface and names none.
+    Flags carry their members in ``events``; a proposal (addition or removal) is itself
+    an event; a gap is about a surface and names none.
     """
     names: set[str] = set()
     for queue in queues:
         for item in queue["items"]:
             names.update(item.get("events") or [])
             if queue["queue"] == "proposals":
-                names.add(item["id"])
+                # A removal's id is "remove:<event>"; the card is the event's.
+                names.add(item["id"].removeprefix("remove:"))
     return names
 
 

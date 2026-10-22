@@ -16,6 +16,7 @@ import { IndependentAffinityColumnService } from './services/independentAffinity
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
 import { ManagedCivicPanelService } from './services/managedCivicPanel.service'
+import { ManagedPanelWaveDrawService } from './services/managedPanelWaveDraw.service'
 import { CensusTractNameService } from './services/censusTractName.service'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 
@@ -44,12 +45,14 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
     CivicPanelSummaryService,
     CivicPanelBuildPlanService,
     ManagedCivicPanelService,
+    ManagedPanelWaveDrawService,
     CensusTractNameService,
     IndependentAffinityColumnService,
   ],
   exports: [
     ContactsService,
     CivicPanelBuildPlanService,
+    ManagedPanelWaveDrawService,
     IndependentAffinityColumnService,
   ],
 })
