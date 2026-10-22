@@ -380,6 +380,7 @@ describe('PATCH /v1/contacts/civic-panel/managed', () => {
     ['building', 'stop', 'stopped'],
     ['paused', 'stop', 'stopped'],
     ['ready', 'stop', 'stopped'],
+    ['exhausted', 'stop', 'stopped'],
   ]
 
   it.each(VALID)('moves %s on %s to %s', async (from, action, to) => {
@@ -399,6 +400,8 @@ describe('PATCH /v1/contacts/civic-panel/managed', () => {
     ['stopped', 'pause'],
     ['building', 'resume'],
     ['ready', 'resume'],
+    ['exhausted', 'pause'],
+    ['exhausted', 'resume'],
     ['stopped', 'resume'],
     ['stopped', 'stop'],
   ]

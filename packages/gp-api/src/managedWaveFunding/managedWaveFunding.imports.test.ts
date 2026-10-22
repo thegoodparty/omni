@@ -12,6 +12,9 @@ const ALLOWED_IMPORTERS = new Set([
   'app.module.ts',
   'managedWaveFunding/managedWaveFunding.module.ts',
   'managedWaveFunding/managedWaveFunding.service.test.ts',
+  // The wave job, the one caller.
+  'managedPanelWaves/managedPanelWaveJob.service.ts',
+  'managedPanelWaves/managedPanelWaves.module.ts',
   'outreach/tests/textSendFundingGate.test.ts',
 ])
 

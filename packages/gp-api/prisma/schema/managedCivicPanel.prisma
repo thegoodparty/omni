@@ -3,6 +3,8 @@ enum ManagedCivicPanelStatus {
   ready
   paused
   stopped
+  // Nobody is left to invite by text before the goal.
+  exhausted
 }
 
 /// An office's civic panel that GoodParty builds for it, once the official
@@ -55,6 +57,10 @@ model ManagedPanelWave {
   steeredToward     String?           @map("steered_toward")
   sentAt            DateTime?         @map("sent_at")
   replyWindowEndsAt DateTime?         @map("reply_window_ends_at")
+  /// Set once the reply window has passed; a wave is open until then.
+  closedAt          DateTime?         @map("closed_at")
+  /// The residents the wave's list drew who were members when it closed.
+  joinedMembers     Int?              @map("joined_members")
 
   @@unique([enrollmentId, wave])
   @@index([voterFileFilterId])

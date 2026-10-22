@@ -44,9 +44,9 @@ const WAVES_INCLUDE = {
 
 type Action = UpdateManagedCivicPanelInput['action']
 
-// Which statuses each action may leave from. A ready panel has nothing left
-// to send, so there is nothing to pause or resume, but it can still be
-// stopped.
+// Which statuses each action may leave from. A ready or exhausted panel has
+// nothing left to send, so there is nothing to pause or resume, but it can
+// still be stopped.
 const ALLOWED_FROM: Record<Action, ManagedCivicPanelStatus[]> = {
   pause: [ManagedCivicPanelStatus.building],
   resume: [ManagedCivicPanelStatus.paused],
@@ -54,6 +54,7 @@ const ALLOWED_FROM: Record<Action, ManagedCivicPanelStatus[]> = {
     ManagedCivicPanelStatus.building,
     ManagedCivicPanelStatus.paused,
     ManagedCivicPanelStatus.ready,
+    ManagedCivicPanelStatus.exhausted,
   ],
 }
 
@@ -89,7 +90,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     userId: number,
   ): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
-    assertInvite(input.inviteMessage)
+    assertManagedPanelInvite(input.inviteMessage)
     const existing = await this.model.findUnique({
       where: { organizationSlug: organization.slug },
       select: { status: true },
@@ -237,7 +238,7 @@ const APPROVABLE_JOIN_LINES: readonly string[] = CIVIC_PANEL_JOIN_LINES.filter(
 // The build_citizens_panel text's locked lines: a civic panel JOIN line, the
 // STOP opt-out, and no second panel line. Every wave sends these words, so
 // the reply reader must recognize the JOIN line.
-const assertInvite = (message: string): void => {
+export const assertManagedPanelInvite = (message: string): void => {
   const joinLine = findCivicPanelJoinLine(message)?.text
   if (joinLine === undefined || !APPROVABLE_JOIN_LINES.includes(joinLine)) {
     throw new BadRequestException(
