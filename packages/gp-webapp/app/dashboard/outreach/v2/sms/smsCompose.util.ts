@@ -572,7 +572,7 @@ export const managedInviteBody = (invite: string): string =>
   withoutLockedLines(invite).trim()
 
 // What follows the editable body, shown locked under it.
-export const MANAGED_INVITE_LOCKED_LINES = `${CIVIC_PANEL_JOIN_LINE} ${OPT_OUT_FOOTER}`
+export const MANAGED_INVITE_LOCKED_LINES = `${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
 
 // --- Add it back ------------------------------------------------------------
 //

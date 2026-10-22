@@ -509,7 +509,9 @@ export const SmsComposeStep = ({
               data-testid="managed-invite-locked-lines"
             >
               <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-              <span>{managedInvite.lockedLines}</span>
+              <span className="whitespace-pre-line">
+                {managedInvite.lockedLines}
+              </span>
             </div>
           ) : null}
 
