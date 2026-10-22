@@ -48,6 +48,13 @@ describe('POST /v1/vendor-mocks/peerly/token-auth', () => {
     expect(payload.exp).toBeLessThan(nowSec + 3700)
     expect(payload.accountNumber).toBe('mock-peerly')
   })
+
+  it('returns a user with the names request_canvassers needs', async () => {
+    const res = await service.client.post(`${BASE}/token-auth`, {})
+    expect(res.data).toMatchObject({
+      user: { first_name: 'Mock', last_name: 'Peerly' },
+    })
+  })
 })
 
 describe('P2P job CRUD', () => {
