@@ -185,6 +185,22 @@ export {
   type CivicPanelSummary,
 } from './people/CivicPanelSummary.schema'
 export {
+  MANAGED_CIVIC_PANEL_STATUSES,
+  ManagedCivicPanelStatusSchema,
+  type ManagedCivicPanelStatus,
+  ApproveManagedCivicPanelInputSchema,
+  type ApproveManagedCivicPanelInput,
+  MANAGED_CIVIC_PANEL_ACTIONS,
+  UpdateManagedCivicPanelInputSchema,
+  type UpdateManagedCivicPanelInput,
+  ManagedCivicPanelProgressSchema,
+  type ManagedCivicPanelProgress,
+  ManagedCivicPanelSchema,
+  type ManagedCivicPanel,
+  ManagedCivicPanelResponseSchema,
+  type ManagedCivicPanelResponse,
+} from './people/ManagedCivicPanel.schema'
+export {
   isCivicPanelOnlyList,
   type CivicPanelOnlyCriteria,
 } from './people/CivicPanelOnlyList'

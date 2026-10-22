@@ -338,7 +338,9 @@ outreach proposal can carry the same details as `event` (contracts
   prompt, Win and Serve, draft and improve, carries
   `SMS_LOCKED_LINES_AND_STYLE_RULE`: never write a JOIN, LEAVE or STOP line,
   no em or en dashes, never "just". The Serve create refuses (400) a message
-  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`).
+  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`,
+  `util/serveSmsLockedLines.util.ts`, which the managed civic panel's
+  approval also runs).
   The controllers
   pass the names and committee scheduling checks against (Win: the campaign
   owner plus `tcr_compliance`, as `requireCompliantScript` reads them; Serve:

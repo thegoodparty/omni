@@ -20,8 +20,8 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
+import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
-  assertServeSmsLockedLines,
   assertServeSmsSendDateAllowed,
   MIN_SERVE_SMS_RECIPIENTS,
   OutreachServeSmsCreateService,
