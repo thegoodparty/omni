@@ -4,10 +4,12 @@ import {
   OfficeLevel,
   OutreachStatus,
   OutreachType,
+  RobocallSettleState,
   TcrComplianceStatus,
   UserRole,
   VendorMockVendor,
 } from '@/generated/prisma'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -464,6 +466,81 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/jobs/robocall.send/run', () => {
+  beforeEach(async () => {
+    envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const spies: { mockRestore: () => void }[] = []
+  afterEach(() => {
+    spies.splice(0).forEach((spy) => spy.mockRestore())
+  })
+
+  const seedRobocall = async (
+    campaignId: number,
+    date: Date,
+    data: Record<string, unknown>,
+  ) => {
+    const outreach = await service.prisma.outreach.create({
+      data: { outreachType: OutreachType.robocall, campaignId, date },
+    })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: outreach.id,
+        audioKey: `audio-${outreach.id}`,
+        callbackNumber: '+15551234567',
+        callhubCampaignPkStr: `pk-${outreach.id}`,
+        ...data,
+      },
+    })
+    return outreach
+  }
+
+  it("launches the caller's due run past another user's leftovers", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Date.now()}@example.com`,
+        clerkId: `user_other_${Date.now()}`,
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const otherCampaign = await seedCampaign(other.id)
+    const longAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.dialed,
+      dialedAt: new Date(),
+      billableCount: 100,
+    })
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.authorized,
+    })
+    const campaign = await seedCampaign(service.user.id)
+    const mine = await seedRobocall(
+      campaign.id,
+      new Date(Date.now() - 60 * 1000),
+      { settleState: RobocallSettleState.authorized },
+    )
+    const startCampaign = vi
+      .spyOn(service.app.get(OutreachRobocallSendService), 'startCampaign')
+      .mockResolvedValue('done')
+    spies.push(startCampaign)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/robocall.send/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(startCampaign.mock.calls).toEqual([[mine.id]])
   })
 })
 
