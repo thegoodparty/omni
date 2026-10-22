@@ -231,7 +231,8 @@ test.describe('Win SMS send', () => {
       timeout: 60_000,
     })
 
-    if (await scheduleButton.isVisible()) {
+    const isFreeSend = await scheduleButton.isVisible()
+    if (isFreeSend) {
       // Free path: the offer covers the send, so there is no card to fill.
       await scheduleButton.scrollIntoViewIfNeeded()
       await expect(scheduleButton).toBeEnabled({ timeout: 15_000 })
@@ -250,7 +251,9 @@ test.describe('Win SMS send', () => {
     ).toBeVisible({ timeout: 60_000 })
 
     // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
-    if (sessionId) {
+    // The review step requests a checkout session even when the offer makes
+    // the send free, so only a paid send has a completed session to deliver.
+    if (!isFreeSend && sessionId) {
       await deliverStripeEvent(client, sessionId)
     }
 
