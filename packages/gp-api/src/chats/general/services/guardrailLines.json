@@ -1,7 +1,7 @@
 {
   "scope_decline": {
     "campaign_assistant": "I can only help with your campaign: your race, your voters, your outreach, and your plan to win.",
-    "chief_of_staff": "I'm your Chief of Staff. Please ask me something about your office, your priorities, your meetings, or your work as an elected official.",
+    "chief_of_staff": "I can only help with your office, your priorities, your meetings, and your work as an elected official.",
     "ordinance_flow.municipal": "I can only help you with this ordinance: the policy, the current law, comparable ordinances, and the draft.",
     "ordinance_flow.bill": "I can only help you with this bill: the policy, the current law, comparable legislation, and the draft.",
     "briefing_chat": "I can only help with this briefing and your work as an elected official."
@@ -16,7 +16,6 @@
     "chief_of_staff": "This is a draft. Nothing is sent until you send it."
   },
   "legal_advice": {
-    "campaign_assistant": "This is not a substitute for legal advice. Confirm it with the relevant election or regulatory authority, or an election attorney.",
     "default": "This is not a substitute for legal advice. Confirm it with qualified legal counsel or the relevant authority before you act on it."
   },
   "professional_advice": {

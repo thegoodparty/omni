@@ -238,7 +238,7 @@ describe('walkListRows', () => {
     expect(rows[0]?.answer).toEqual({ kind: 'logged', label: 'Supporter' })
   })
 
-  // ADR 0007. The flag outranks whatever was logged at that door before: an
+  // Do-not-knock. The flag outranks whatever was logged at that door before: an
   // instruction not to return is not retracted by an earlier conversation.
   it('prints a skip for a flagged door, even one already logged', () => {
     const rows = walkListRows([
@@ -259,7 +259,7 @@ describe('walkListRows', () => {
     expect(rows[0]?.name).toBe('Dorian Fen')
   })
 
-  // ADR 0008. Without this a resident who moved away or died got a blank
+  // Not-a-voter. Without this a resident who moved away or died got a blank
   // tick-box form on paper — an invitation to knock a door we already know not
   // to, on the one surface that cannot be corrected after it prints.
   it('prints the reason as the skip instruction, worded per reason', () => {
@@ -487,9 +487,10 @@ describe('walkListRows', () => {
     )
   })
 
-  // Absence is not a claim: a route the service worker snapshotted before ADR
-  // 0009 shipped carries no `history` key at all, so a printed "never
-  // contacted" would be asserting something this payload cannot know.
+  // Absence is not a claim: a route the service worker snapshotted before the
+  // activity feed was added to the route payload carries no `history` key at
+  // all, so a printed "never contacted" would be asserting something this
+  // payload cannot know.
   it('says nothing about a resident it was served no history for', () => {
     const rows = walkListRows([
       stop({
@@ -528,7 +529,7 @@ describe('walkListRows', () => {
     expect(JSON.stringify(rows)).not.toMatch(/Dog in the yard/)
   })
 
-  // ADR 0011's saved contact notes, and the same rule one level up: the knock
+  // Saved contact notes, and the same rule one level up: the knock
   // note above is one line attached to an event, while this is the resident's
   // whole written record. Asserted against the model rather than the page,
   // because the renderer structurally cannot print what it was never handed.

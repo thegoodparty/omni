@@ -3,7 +3,8 @@
 Owner: Justin. Status: waves 0 and 1 built (`Textarea` seamless variant;
 `TokenField`, `TokenPill` and `MERGE_TAGS`), the SMS span derivation
 (`deriveSmsProtectedParts`), and in #2353 every compose field moved onto
-`TokenField`: SMS with its locked greeting, disclaimer and opt-out, and
+`TokenField`: SMS with its greeting, disclaimer and opt-out as text the
+standards check watches (decision 6), and
 phone banking (a contact-name pill), social and door knocking with no locks,
 and robocall with its app-written, locked disclosure line (wave 3, below).
 
@@ -187,6 +188,9 @@ footer as a single required string.
 
 ### SMS spans (Win)
 
+The SMS composer does not lock these (decision 6). They are what Improve
+masks, so a rewrite cannot change them.
+
 | Rule               | Protected span                              | Editable around it                | Broken because                                                 |
 | ------------------ | ------------------------------------------- | --------------------------------- | -------------------------------------------------------------- |
 | `first_name_token` | `{first_name}` atom                         | yes                               | it is a placeholder, so it is a pill, not a span               |
@@ -246,13 +250,6 @@ This also means the list is **per campaign and legitimately sometimes empty**:
 
 Hand-maintaining this list would get one of those wrong.
 
-### Side benefit
-
-Today deleting the identification sentence is allowed, and the candidate finds
-out from a validation line after the fact. Protecting the name converts a
-post-hoc block into in-the-moment feedback, which is the whole point of the
-change.
-
 ### Merge tags: available versus required
 
 Only `{first_name}` is required, and it is the only tag we emit. But Peerly's
@@ -277,6 +274,12 @@ Three system-owned regions wrap the editable body:
 | identification sentence                               | prepended _into_ the editable body | yes, and deleting it blocks Continue |
 | `Paid for by <committee>.` + `Reply STOP to opt out.` | muted text below the field         | no                                   |
 
+The identification sentence is `identificationIntro`'s: the candidate's full
+name and office in one of four tone variants ("this is Jane Doe, candidate for
+City Council.", "Jane Doe here, running for City Council."). Full name, not
+first name: a voter texted by an unknown number could not tell which Jane was
+asking for their vote.
+
 `composeScript(body, committeeName)` in `v2/sms/smsCompose.util.ts` concatenates
 the three. `checkSmsStandards`
 (`packages/contracts/src/outreach/SmsAdminConsole.schema.ts`) runs on the
@@ -293,6 +296,12 @@ candidate-facing update route, so after registration only staff can change it
 
 Opt-out line only, double-brace `{{first_name}}`, `paid_for_by` rule ignored.
 **No server-side standards check exists on the Serve create path.**
+
+The identification sentence is `serveIdentificationIntro`'s: the official's
+full name and the office they hold ("this is Jane Doe, your City Council
+Member."), as polls introduce them. An official asked to be named in full
+every time, so the Chief of Staff, the priority flow and the Serve phone
+banking and door knocking prompts ask for the full name too.
 
 ### Robocall
 
@@ -582,7 +591,7 @@ script' })` and `aria-label="Message body"`. A contenteditable exposes
 3. **Required fields: settled**, see the atom spec above.
 4. **The footer is no longer deterministic.** The 2026-09-02 rule that the
    paid-for-by and opt-out lines are appended where neither the candidate nor
-   the model can reach them is reversed: they are locked text inside the
+   the model can reach them is reversed: they are text inside the
    editable message. Approved for wave 2a; both `outreach/AGENTS.md` files
    record it.
 5. **One AI action.** Regenerate and Improve were two buttons doing two
@@ -590,10 +599,15 @@ script' })` and `aria-label="Message body"`. A contenteditable exposes
    Regenerate (a fresh draft) while the words are an untouched AI draft,
    Improve with AI once they are the candidate's. A tone pill follows the
    same rule, so a tone change never throws away words the candidate wrote.
-6. **Locks come from what the system wrote, not from keystrokes.** The
-   flow derives locks from the message as it last loaded it (a draft, a
-   seed, an Improve reply, an undo). Deriving them live would lock a name the
-   moment it was typed, and every change of lock rebuilds the field.
+6. **Nothing in an SMS message is locked.** A locked part confused
+   candidates who could not tell why text would not delete: one who goes by
+   "Josh" could not remove the "Joshua Martin" the intro wrote, and it was
+   stranded mid-message (Oct 2026). Every part is text like any other. One
+   that is no longer anywhere in the message shows under the field with the
+   exact line and an Add it back button, and Continue holds; another copy
+   that satisfies the rule is enough. Robocall's disclosure is still locked,
+   derived from the script as the system last wrote it, never from
+   keystrokes.
 
 ## Follow-ups, deliberately out of scope
 

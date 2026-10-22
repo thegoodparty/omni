@@ -7,14 +7,15 @@ import type { Arm } from './record'
 // one read as a clear win for the base. This reads the judge's per-run
 // `handled` answers instead, oriented to arms.
 //
-// ADDITIVE. Nothing here moves the verdict label or any score; it is its own
-// section of the report.
+// No score reads this. It moves the verdict label only through the test
+// in regressionSignals.ts.
 
 export type HandlingClass =
   | 'bothHandled'
   | 'sharedFailure'
   | 'regression'
   | 'improvement'
+  | 'unsettled'
 
 export interface ArmHandling {
   primary?: HandledValue
@@ -62,6 +63,14 @@ export const ordersDisagree = (arm: ArmHandling): boolean => {
   return values.length === 2 && values[0] !== values[1]
 }
 
+// One order said yes and the other did not. Still not handled, but too weak
+// to call a change: on a no-change sweep, this is what produced the only
+// false regression.
+const splitByOrder = (arm: ArmHandling): boolean => {
+  const values = valuesOf(arm)
+  return values.includes('yes') && values.some((v) => v !== 'yes')
+}
+
 export const classify = (
   base: ArmHandling,
   candidate: ArmHandling,
@@ -70,7 +79,8 @@ export const classify = (
   const c = armHandled(candidate)
   if (b && c) return 'bothHandled'
   if (!b && !c) return 'sharedFailure'
-  return b ? 'regression' : 'improvement'
+  if (b) return splitByOrder(candidate) ? 'unsettled' : 'regression'
+  return splitByOrder(base) ? 'unsettled' : 'improvement'
 }
 
 // `asked` is every pair whose case carries a handling sentence, keyed the

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
 import {
   ARM_BUDGET_MS,
@@ -16,8 +16,10 @@ import {
   chatTurnsIn,
   refusedBeforeSpend,
   refuseChat,
+  RUNTIME_SKIP_PREFIX,
   walkedBackgroundCases,
   withChatRefusals,
+  withRuntimeRefusals,
 } from './backgroundDispatch'
 import { DEFAULT_JUDGE_CONFIG } from '../config'
 import { AGENTS, findAgent, type AgentEntry } from '../agents'
@@ -26,6 +28,10 @@ import type { AgentConfig } from './background'
 import type { ArmCaseRequest } from '../sweepArm'
 import { parseArmEnv, type ArmEnv } from '../sweepEnv'
 import { loadCaseList } from '../cases'
+import { SPEND_ENV, SPEND_VALUE } from '../config'
+import type { TestServiceContext } from '@/test-service'
+import { inProcessChatRuntime } from './chatRuntime'
+import { httpChatRuntime } from './httpChatRuntime'
 import type { BackgroundCase, CaseList, JudgeCase } from '../cases'
 
 // WHAT THIS FILE IS FOR. Every argument of the dispatch used to be built
@@ -65,6 +71,7 @@ const env = (over: Partial<ArmEnv> = {}): ArmEnv => ({
   spends: true,
   explicitSelection: false,
   recordsDir: '/tmp/records',
+  armRuntime: 'inprocess',
   arm: 'base',
   baseRef: 'main',
   candidateSha: 'c0ffee',
@@ -1385,15 +1392,15 @@ describe('the chat budget', () => {
     return found
   }
 
-  // 65 minutes for chat. chief_of_staff 8 minutes, priority_flow 48, and
-  // ordinance_flow's 48 more does not fit; campaign_assistant's 6 still
+  // 65 minutes for chat. chief_of_staff 8 minutes, campaign_assistant 48,
+  // and ordinance_flow's 48 more does not fit; priority_flow's 2 still
   // does, which only holds if the refused agent left its share behind.
   it('refuses by name what does not fit, and leaves its share to the next', () => {
     const count: Record<string, number> = {
       chief_of_staff: 24,
-      priority_flow: 24,
+      campaign_assistant: 24,
       ordinance_flow: 24,
-      campaign_assistant: 3,
+      priority_flow: 3,
     }
     const refused = refuseChat(
       Object.keys(count).map(chatAgent),
@@ -1508,10 +1515,10 @@ describe('the chat budget', () => {
     const arm = parseArmEnv(armEnvFor({ JUDGE_AGENTS: ids.join(',') }))
     expect(arm.backgroundRefused).toBeUndefined()
     const { loadCases } = armDeps(arm, DEFAULT_JUDGE_CONFIG)
-    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(8)
-    expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(8)
+    expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(9)
+    expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(9)
     expect(() => loadCases(registered('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 24 chat turns at 120s each/,
+      /^priority_flow was not admitted to this sweep: would take about 36 minutes for 72 chat turns at 30s each/,
     )
     expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
       ['chief_of_staff', 'campaign_assistant'],
@@ -1599,5 +1606,215 @@ describe('the chat budget', () => {
     expect(
       capturableAgents(ids, env({ agentIds: ids }), find, DEFAULT_JUDGE_CONFIG),
     ).toEqual(expected)
+  })
+})
+
+// The arm environment helper above, under a name the blocks below can use
+// without colliding with their own `env` locals.
+const armEnvOf = env
+
+// THE REAL RUNTIMES, not stand-ins. `assertCanDrive` is the predicate under
+// test and it touches no network, so building the HTTP runtime against an
+// origin nothing listens on exercises the real refusal strings rather than a
+// second copy of them that could agree today and drift tomorrow.
+const httpRuntime = () =>
+  httpChatRuntime({
+    baseUrl: 'http://127.0.0.1:1',
+    session: { token: async () => 't', refused: async () => 't' },
+  })
+const inProcess = () => inProcessChatRuntime({} as TestServiceContext)
+
+// An HTTP arm always spends — parseArmEnv refuses `http` with the switch
+// off — so every case here says so. Without it the spend refusal fires for
+// every agent and the tests below would pass for the wrong reason.
+const spendingArm = (): void => {
+  vi.stubEnv(SPEND_ENV, SPEND_VALUE)
+}
+
+describe('withRuntimeRefusals', () => {
+  const ids = ['chief_of_staff', 'briefing_annotation']
+
+  it('refuses nothing in process, whatever the lists say', () => {
+    spendingArm()
+    const given = armEnvOf({ agentIds: ids })
+    expect(withRuntimeRefusals(given, inProcess())).toBe(given)
+  })
+
+  // The one in-process refusal: no district resolves there, so a spending
+  // arm cannot measure priority_flow. A dry arm replaces the model and can.
+  it('refuses priority_flow in process on a spending arm only', () => {
+    const spending = withRuntimeRefusals(
+      armEnvOf({ agentIds: ['priority_flow', 'chief_of_staff'] }),
+      inProcess(),
+    )
+    expect([...(spending.chatRuntimeRefused?.keys() ?? [])]).toEqual([
+      'priority_flow',
+    ])
+    expect(spending.chatRuntimeRefused?.get('priority_flow')).toMatch(
+      /needs a district that resolves/,
+    )
+
+    const dry = armEnvOf({ agentIds: ['priority_flow'], spends: false })
+    expect(withRuntimeRefusals(dry, inProcess())).toBe(dry)
+  })
+
+  // briefing_annotation is the agent the HTTP runtime cannot drive at all:
+  // BriefingChatsService writes no telemetry row, so there is nothing to
+  // read a turn back from.
+  it('refuses the agent the HTTP runtime cannot drive, and only it', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(armEnvOf({ agentIds: ids }), httpRuntime())
+    expect([...(env.chatRuntimeRefused?.keys() ?? [])]).toEqual([
+      'briefing_annotation',
+    ])
+    expect(env.chatRuntimeRefused?.get('briefing_annotation')).toMatch(
+      /records no judge telemetry/,
+    )
+  })
+
+  // Named by case, because that is what the next reader has to look at.
+  it('names the case that could not be driven', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(
+      armEnvOf({ agentIds: ['briefing_annotation'] }),
+      httpRuntime(),
+    )
+    expect(env.chatRuntimeRefused?.get('briefing_annotation')).toMatch(
+      /^briefing_annotation\/[\w-]+ cannot be driven on the "http" runtime:/,
+    )
+  })
+
+  it('leaves background agents alone', () => {
+    spendingArm()
+    expect(
+      withRuntimeRefusals(
+        armEnvOf({ agentIds: ['meeting_briefing'] }),
+        httpRuntime(),
+      ).chatRuntimeRefused,
+    ).toBeUndefined()
+  })
+
+  // The arm reports the real error by name when it loads the list for real,
+  // the way withChatRefusals already treats one it cannot read.
+  it('does not refuse an agent whose list will not load', () => {
+    spendingArm()
+    expect(
+      withRuntimeRefusals(
+        armEnvOf({ agentIds: ['chief_of_staff'] }),
+        httpRuntime(),
+        findAgent,
+        () => {
+          throw new Error('no such file')
+        },
+      ).chatRuntimeRefused,
+    ).toBeUndefined()
+  })
+
+  // The data-version pin is refused at the env level by assertRuntimeCanPin,
+  // but the per-case predicate carries it too, so the two cannot disagree
+  // about an arm that reached here with one set.
+  it('carries the arm-wide data version into the question', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(
+      { ...armEnvOf({ agentIds: ['chief_of_staff'] }), dataVersion: '412' },
+      httpRuntime(),
+    )
+    expect(env.chatRuntimeRefused?.get('chief_of_staff')).toMatch(
+      /never applied/,
+    )
+  })
+})
+
+// THE FINDING THIS EXISTS FOR. An HTTP arm that selected briefing_annotation
+// refused every case correctly, put the agent in manifest.skipped, and then
+// failed its own final assertion because capturableAgents still named it —
+// a red sweep for an arm that behaved. The two now read one decision.
+describe('the capturable set is runtime-aware', () => {
+  const ids = ['chief_of_staff', 'briefing_annotation']
+
+  it('still expects both agents in process', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(armEnvOf({ agentIds: ids }), inProcess())
+    expect(capturableAgents(ids, env, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
+      ids,
+    )
+  })
+
+  it('does not expect the one the HTTP runtime refused', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(armEnvOf({ agentIds: ids }), httpRuntime())
+    expect(capturableAgents(ids, env, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
+      ['chief_of_staff'],
+    )
+  })
+
+  // The loader is the other half: the agent left out of the capturable set
+  // has to actually be skipped, by name, with nothing spent on it.
+  it('skips it by name when the walk reaches it', () => {
+    spendingArm()
+    const env = withRuntimeRefusals(armEnvOf({ agentIds: ids }), httpRuntime())
+    const { loadCases } = armDeps(env, DEFAULT_JUDGE_CONFIG)
+    const agent = findAgent('briefing_annotation')
+    expect(agent).toBeDefined()
+    expect(() => loadCases(agent!)).toThrow(RUNTIME_SKIP_PREFIX)
+    expect(() => loadCases(findAgent('chief_of_staff')!)).not.toThrow()
+  })
+})
+
+describe('a runtime skip reads differently from a budget skip', () => {
+  const chatAgentEntry: AgentEntry = {
+    agentId: 'chief_of_staff',
+    shape: 'chat',
+    cases: 'cos.json',
+    status: 'wired',
+  }
+  const list: CaseList = {
+    shape: 'chat',
+    agentId: 'chief_of_staff',
+    cases: [{ caseId: 'c1', question: 'hi' }],
+  } as CaseList
+
+  const loaderWith = (budget: {
+    refusedReasons?: ReadonlyMap<string, string>
+    runtimeRefusedReasons?: ReadonlyMap<string, string>
+  }) =>
+    caseLoaderFor(
+      {},
+      {
+        budgetMs: ARM_BUDGET_MS,
+        attemptsPerCase: 1,
+        maxCases: 1,
+        maxInFlight: 1,
+        ...budget,
+      },
+      { load: () => list },
+    )
+
+  it('says select fewer agents for a budget refusal', () => {
+    expect(() =>
+      loaderWith({
+        refusedReasons: new Map([['chief_of_staff', 'would take 75 minutes']]),
+      })(chatAgentEntry),
+    ).toThrow('chief_of_staff was not admitted to this sweep: would take 75')
+  })
+
+  it('carries its own prefix for a runtime refusal', () => {
+    expect(() =>
+      loaderWith({
+        runtimeRefusedReasons: new Map([['chief_of_staff', 'no telemetry']]),
+      })(chatAgentEntry),
+    ).toThrow(`${RUNTIME_SKIP_PREFIX} no telemetry`)
+  })
+
+  // The runtime first: an agent the arm physically cannot drive was never a
+  // budget question, and saying "select fewer agents" about one would send
+  // the reader to the wrong fix.
+  it('reports the runtime one first when an agent earned both', () => {
+    expect(() =>
+      loaderWith({
+        refusedReasons: new Map([['chief_of_staff', 'would take 75 minutes']]),
+        runtimeRefusedReasons: new Map([['chief_of_staff', 'no telemetry']]),
+      })(chatAgentEntry),
+    ).toThrow(`${RUNTIME_SKIP_PREFIX} no telemetry`)
   })
 })

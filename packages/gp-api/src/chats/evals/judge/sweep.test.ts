@@ -7,7 +7,12 @@ import { hoursToMilliseconds } from 'date-fns'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { AgentEntry } from './agents'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
-import { CaseListError, type CaseJudging, type CaseList } from './cases'
+import {
+  CaseListError,
+  parseCaseList,
+  type CaseJudging,
+  type CaseList,
+} from './cases'
 import type { ContractRead } from './outputContract'
 import { BACKGROUND_PAIR, CHAT_PAIR } from './fixtures/records'
 import {
@@ -299,6 +304,32 @@ describe('the canned judge', () => {
 })
 
 describe('judgeSweep', () => {
+  it('judges a chat pair whose candidate tool calls failed', async () => {
+    const failing = (caseId: string): RunRecord[] => [
+      { ...BASE, caseId, runId: `${BASE.sweepId}:${caseId}:base:1` },
+      {
+        ...CANDIDATE,
+        caseId,
+        runId: `${BASE.sweepId}:${caseId}:candidate:1`,
+        telemetry: { ...CANDIDATE.telemetry, toolErrors: 1 },
+        trace: [
+          {
+            index: 0,
+            kind: 'tool',
+            tool: 'crud_priorities',
+            error: '401 Unauthorized',
+          },
+        ],
+      },
+    ]
+    const result = await run(await seeded([...failing('a'), ...failing('b')]))
+    const score = result.report.agents[0]
+    expect(score?.exclusions.infraError).toBe(0)
+    expect(score?.overall.judgments).toBeGreaterThan(0)
+    expect(score?.evidence.toolErrors.candidate).toBe(1)
+    expect(result.markdown).not.toContain('Tools called')
+  })
+
   it('produces a verdict per agent from both arms', async () => {
     const result = await run(await seeded(cases(3)))
     expect(result.report.agents).toHaveLength(1)
@@ -526,9 +557,7 @@ describe('judgeSweep', () => {
     )
     // Two entries, one blocked, so the denominator is 1 and not 2 — a
     // blocked agent in it would make the number permanently unreachable.
-    expect(result.markdown).toContain(
-      '**Coverage: 1 of 1 agents wired (1 on placeholder inputs).**',
-    )
+    expect(result.markdown).toContain('**Coverage: 1 of 1 agents wired.**')
     expect(result.markdown).toContain(
       '- blocked: briefing_annotation — No ChatScopeHandler yet.',
     )
@@ -624,13 +653,13 @@ describe('judgeSweep', () => {
   // non-zero exit would turn the judge into a required check nobody asked
   // for.
   //
-  // Three cases is below the default floor of 20, so the corpus verdict is
+  // Three cases is below the default floor of 5, so the corpus verdict is
   // CAN'T SAY however the judge voted — which is the point: a non-verdict is
   // reported, not failed.
   it("exits zero on a CAN'T SAY, which is not a failure", async () => {
     const result = await run(await seeded(cases(3)))
     const score = result.report.agents[0]
-    // Judged, and still CAN'T SAY: three cases is below the floor of 20, so
+    // Judged, and still CAN'T SAY: three cases is below the floor of 5, so
     // the gate overrides a unanimous result rather than the judge failing.
     expect(score?.exclusions.ungraded).toBe(0)
     expect(score?.label).toBe("CAN'T SAY")
@@ -1313,7 +1342,9 @@ describe('judgeSweep asks a case its own dimensions', () => {
     expect(result.report.refusals).toEqual([
       {
         agentId: 'meeting_briefing',
-        reason: 'meeting_briefing.json: not valid JSON',
+        reason: expect.stringMatching(
+          /could not read the agent's case list.*not valid JSON/,
+        ),
       },
     ])
   })
@@ -2067,5 +2098,144 @@ describe('the page replay line', () => {
 
     expect(result.report.pageReplay).toBeUndefined()
     expect(result.markdown).not.toContain('Page replay')
+  })
+})
+
+describe('a chat case with a check', () => {
+  const CONDITION = 'The act the user names does not exist.'
+  const HANDLED = 'the reply does not cite the act as authority.'
+  const chatCases = (extra: object): CaseList =>
+    parseCaseList(
+      'chief_of_staff.json',
+      JSON.stringify({
+        agentId: 'chief_of_staff',
+        shape: 'chat',
+        cases: [
+          { caseId: 'case-0', question: 'q' },
+          { caseId: 'case-1', question: 'q', ...extra },
+        ],
+      }),
+      { agentId: 'chief_of_staff', shape: 'chat' },
+    )
+  const recordingCanned = (prompts: string[]): JsonJudgeModel => {
+    const canned = cannedJudge(DEFAULT_JUDGE_CONFIG)
+    return {
+      jsonCompletion: async (options) => {
+        prompts.push(options.messages.map((m) => String(m.content)).join('\n'))
+        return canned.jsonCompletion(options)
+      },
+    }
+  }
+  const sweep = async (
+    llm: JsonJudgeModel,
+    extra: object,
+  ): Promise<SweepResult> =>
+    judgeSweep(
+      {
+        store: await seeded(cases(2)),
+        llm,
+        registry: REGISTRY,
+        loadCases: () => chatCases(extra),
+      },
+      env,
+    )
+  const promptsFor = (prompts: string[], caseNumber: number): string[] =>
+    prompts.filter((p) => p.includes(`base answer ${caseNumber}`))
+
+  it('shows the judge the condition on its own case', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
+
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`Condition: ${CONDITION}`),
+      ),
+    ).toBe(true)
+    expect(
+      promptsFor(prompts, 0).some((p) => p.includes(`Condition: ${CONDITION}`)),
+    ).toBe(false)
+  })
+
+  it('shows the judge the handling sentence after the condition', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {
+      condition: CONDITION,
+      handledWhen: HANDLED,
+    })
+
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(
+          `Condition: ${CONDITION}\n` +
+            `For this case, a run handles the condition when: ${HANDLED}`,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  // case-1 sits outside the one-in-five swap subsample, so without its
+  // condition it would be judged in one order only.
+  it('judges a case with a condition in both orders', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), { condition: CONDITION })
+
+    expect(promptsFor(prompts, 1)).toHaveLength(2)
+  })
+
+  it('judges a plain chat case outside the subsample once', async () => {
+    const prompts: string[] = []
+    await sweep(recordingCanned(prompts), {})
+
+    expect(promptsFor(prompts, 1)).toHaveLength(1)
+  })
+
+  it("asks the judge a chat case's own question", async () => {
+    const prompts: string[] = []
+    const question = 'Does the reply cite only real law?'
+    const result = await sweep(recordingCanned(prompts), {
+      dimensions: [{ name: 'citation_honesty', question }],
+    })
+
+    expect(promptsFor(prompts, 1).length).toBeGreaterThan(0)
+    expect(
+      promptsFor(prompts, 1).every((p) =>
+        p.includes(`- citation_honesty: ${question}`),
+      ),
+    ).toBe(true)
+    const score = result.report.agents[0]
+    expect(score?.exclusions.ungraded).toBe(0)
+    expect(score?.caseDimensions?.map((d) => [d.name, d.caseIds])).toEqual([
+      ['citation_honesty', ['case-1']],
+    ])
+  })
+
+  it('reports how each arm handled the condition', async () => {
+    const result = await sweep(
+      {
+        jsonCompletion: async ({ schema }) => ({
+          object: schema.parse(
+            toWireVerdict({
+              ...verdict('X'),
+              handled: {
+                X: 'yes',
+                Y: 'no',
+                evidence: [
+                  { loc: 'X.final', quote: 'q' },
+                  { loc: 'Y.final', quote: 'q' },
+                ],
+              },
+            }),
+          ),
+          tokens: 10,
+          model: 'claude-sonnet-4-6',
+        }),
+      },
+      { condition: CONDITION, handledWhen: HANDLED },
+    )
+
+    const handling = result.report.agents[0]?.handling?.cases ?? []
+    expect(handling.map((h) => h.caseId)).toEqual(['case-1'])
+    expect(result.markdown).toContain('Condition handling:')
   })
 })

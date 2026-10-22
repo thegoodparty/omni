@@ -3,6 +3,10 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   DeleteTestFixtureUsersResponseSchema,
+  RunJobResponseSchema,
+  SeedTestFixtureActivityRequestSchema,
+  SeedTestFixtureActivityResponseSchema,
+  type SeedTestFixtureActivityRequest,
   TestFixtureSessionResponseSchema,
   TestFixtureUserResponseSchema,
 } from '@goodparty_org/contracts'
@@ -27,6 +31,7 @@ import {
   MintTestFixtureSessionInput,
   MintTestFixtureSessionSchema,
 } from './schemas/testFixtures.schema'
+import { ActivitySeedService } from './services/activitySeed.service'
 import { TestFixturesService } from './services/testFixtures.service'
 
 // Test-only fixture provisioning for automated feature QA: mints
@@ -37,7 +42,10 @@ import { TestFixturesService } from './services/testFixtures.service'
 @Controller('test-fixtures')
 @UseGuards(AdminOrM2MGuard)
 export class TestFixturesController {
-  constructor(private readonly testFixtures: TestFixturesService) {}
+  constructor(
+    private readonly testFixtures: TestFixturesService,
+    private readonly activitySeed: ActivitySeedService,
+  ) {}
 
   @Post('users')
   @ResponseSchema(TestFixtureUserResponseSchema)
@@ -70,6 +78,24 @@ export class TestFixturesController {
   ) {
     this.assertNonProdDeploy()
     return this.testFixtures.mintFixtureSession(id, body)
+  }
+
+  @Post('organizations/:slug/activity')
+  @ResponseSchema(SeedTestFixtureActivityResponseSchema)
+  seedActivity(
+    @Param('slug') slug: string,
+    @Body(new ZodValidationPipe(SeedTestFixtureActivityRequestSchema))
+    body: SeedTestFixtureActivityRequest,
+  ) {
+    this.assertNonProdDeploy()
+    return this.activitySeed.seed(slug, body)
+  }
+
+  @Post('jobs/:name/run')
+  @ResponseSchema(RunJobResponseSchema)
+  runJob(@Param('name') name: string) {
+    this.assertNonProdDeploy()
+    return this.testFixtures.runJob(name)
   }
 
   // Fail-closed to the known non-prod deploys, and 404 rather than 403 so the

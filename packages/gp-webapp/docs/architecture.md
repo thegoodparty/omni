@@ -4,7 +4,7 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and feature-level 
 
 ## Stack
 
-- **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker
+- **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker (`app/shared/AppServiceWorker.tsx`, which never reloads the page when signal returns: a door-knocking walk lives in page state)
 - **TanStack React Query 5** (5-minute stale time) for server-state caching
 - **Tailwind CSS v4** + custom design tokens (`styleguide/design-tokens.css`, `styleguide/tailwind-theme.css`)
 - **Clerk** for auth widgets (e2e setup), session JWT issued by gp-api
@@ -72,7 +72,3 @@ Shared types flow through hand-rolled `Request`/`Response` declarations on `gpAp
 - **Design tokens, not raw hex.** See root `CLAUDE.md` § Design Tokens.
 - **State management**: see `docs/state-management.md`.
 - **Feature flags**: see `docs/feature-flags.md`.
-
-## ADRs
-
-None yet — add `docs/adr/` if/when non-obvious decisions need to be captured.

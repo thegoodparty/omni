@@ -49,7 +49,6 @@ import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
-import CitizensPanelMembers from './CitizensPanelMembers'
 import { SERVE_CITIZENS_PANEL_COPY as PANEL_COPY } from '../../citizens-panel/citizensPanelCopy'
 
 interface ListDetailSheetProps {
@@ -132,14 +131,11 @@ export default function ListDetailSheet({
           : segmentIdNumber,
     ],
     queryFn: () =>
-      (isPanel
-        ? clientRequest('POST /v1/contacts/list-detail', {
-            civicPanelMember: true,
-          })
-        : clientRequest(
-            'GET /v1/contacts/list-detail',
-            isUniverse ? {} : { segment: segmentIdNumber },
-          )
+      clientRequest(
+        'GET /v1/contacts/list-detail',
+        isUniverse
+          ? {}
+          : { segment: isPanel ? CIVIC_PANEL_SEGMENT : segmentIdNumber },
       ).then((res) => res.data),
     // getListDetail's own pro check runs before its segment branch, so a non-pro
     // request can only 400 — including the direct-URL path, which has no upsell
@@ -365,7 +361,7 @@ export default function ListDetailSheet({
               flash the Serve noun to a Win user (ENG-10448). The universe
               row's own mode-aware title already sits in the header above,
               so it skips this second heading entirely (ENG-10778). */}
-          {!isBuiltIn && isWinContextReady && (
+          {!isUniverse && isWinContextReady && (
             <h2 className="text-base font-semibold">
               {labels.listDetailsTitle}
             </h2>
@@ -380,8 +376,6 @@ export default function ListDetailSheet({
             </div>
           )}
 
-          {isPanel && <CitizensPanelMembers />}
-
           {!isBuiltIn && segment && (
             <ListFilterSummary
               segment={segment}
@@ -394,6 +388,9 @@ export default function ListDetailSheet({
               Pro-gated server-side. */}
           {!isBuiltIn && segment && canUseProFeatures && (
             <ListMapSection segment={segment} />
+          )}
+          {isPanel && canUseProFeatures && (
+            <ListMapSection builtInListId={CIVIC_PANEL_SEGMENT} />
           )}
 
           <div className="flex flex-col gap-2">
@@ -434,8 +431,9 @@ export default function ListDetailSheet({
               />
               {/* Last outreach/method have no meaning for the universe row —
                   it isn't a saved list, so there's no outreachHistory to key
-                  them on (the API always returns [] for this mode). */}
-              {!isBuiltIn && (
+                  them on (the API always returns [] for this mode). The
+                  civic panel keeps them so it reads like every other list. */}
+              {!isUniverse && (
                 <>
                   <StatTile
                     icon={<ClockIcon size={16} className="shrink-0" />}
@@ -475,7 +473,7 @@ export default function ListDetailSheet({
             isWinContext={isWinContextReady && isWinContext}
           />
 
-          {!isBuiltIn && (
+          {!isUniverse && (
             <div className="flex flex-col gap-2">
               {/* h3 like the other section labels (valid heading order under
                   the DrawerTitle h2); the prototype styles this one as a

@@ -338,6 +338,19 @@ export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScript
 // human sees and a script an official's volunteer reads aloud cannot carry the
 // word.
 const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
+  build_citizens_panel:
+    'Write a short phonebank script inviting a constituent to join the ' +
+    "elected official's civic panel, a group of residents who agree to " +
+    'tell the official what they think before they decide. Format as ' +
+    'alternating You:/Constituent: lines. After the opener, say in one or ' +
+    'two plain sentences what the panel is: now and then the official ' +
+    'asks members a question, and members can leave any time. Then ask ' +
+    'one clear yes-or-no question: whether they want to join the civic ' +
+    'panel. Show an example answer, and thank them whatever they say. ' +
+    'Never call the panel representative, a poll or a survey, never ' +
+    'promise how often members are asked, and do not invent facts not ' +
+    'present in the source material. Keep the whole call under about 45 ' +
+    'seconds of talk time.',
   introduce_myself:
     'Write a phonebank script for a volunteer or staffer introducing ' +
     'the elected official to a constituent for the first time. Format ' +
@@ -422,7 +435,8 @@ const SERVE_OPENER_RULE =
   'behalf of the elected official, never the elected official ' +
   `themselves: "Hi, is this ${CONSTITUENT_NAME_TOKEN}? My name is [your ` +
   'name], and I am calling on behalf of" followed by the elected ' +
-  'official name given below. Keep "[your name]" and ' +
+  "official's full name given below, never the first name alone. Keep " +
+  '"[your name]" and ' +
   `"${CONSTITUENT_NAME_TOKEN}" as literal bracketed placeholders — never ` +
   'invent a volunteer name or a constituent name.'
 

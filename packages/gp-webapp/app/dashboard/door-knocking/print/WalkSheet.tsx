@@ -143,10 +143,11 @@ const ResidentRow = ({
           that says what else there is. Empty rather than a dash when the file
           has none, for the reason the age cell is. */}
       <td className="ws-phone">{targetPhone(target) ?? ''}</td>
-      {/* ADR 0007 and 0008. Turf evaluation keeps flagged people off new lists,
-          but it cannot reach a route already frozen — and paper freezes again
-          the moment it prints. The row stays so the sheet still matches the
-          app's stop numbering; the boxes go, because there is nothing to ask.
+      {/* Do-not-knock and not-a-voter. Turf evaluation keeps flagged people
+          off new lists, but it cannot reach a route already frozen — and
+          paper freezes again the moment it prints. The row stays so the
+          sheet still matches the app's stop numbering; the boxes go, because
+          there is nothing to ask.
           Checked before `recorded`: a flagged resident is not to be knocked
           whatever was logged there before. */}
       {skip !== null ? (
@@ -315,7 +316,11 @@ export default function WalkSheet({
   // to that surface, and a service worker's snapshot carries no such key.
   const isServe = Boolean(payload.isServe)
   const asksCivicPanel = isServe && citizenPanelsEnabled
-  const columns = walkColumns(isServe, asksCivicPanel)
+  const columns = walkColumns(
+    isServe,
+    asksCivicPanel,
+    Boolean(payload.civicPanelOnly),
+  )
 
   return (
     <div className="ws mx-auto max-w-[10in] p-6 print:max-w-none print:p-0">

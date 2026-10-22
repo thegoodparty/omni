@@ -1,13 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
+  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ContactStatusField,
   PrioritySource,
   type Organization,
 } from '../../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { ChatAnchorSchema, type PriorityStatus } from '@goodparty_org/contracts'
+import {
+  ChatAnchorSchema,
+  type PriorityReadStatus,
+  type PriorityStatus,
+} from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
@@ -24,13 +29,16 @@ export interface PriorityFlowContext {
   organizationSlug: string
   organization: Organization
   officeTitle: string | null
-  officialFirstName: string | null
+  // First and last name joined; the first name alone when no last name is
+  // on file. Every draft introduces the official by it.
+  officialName: string | null
   jurisdiction: string | null
   // Two-letter state from the resolved district, for the date line's zone.
   state?: string | null
   title: string
   description: string
   source: PrioritySource
+  sourceCommunityIssueId: string | null
   status: PriorityStatus
   anchorSummaries: PriorityAnchorSummary[]
   districtFilters: MandatoryFilter[] | null
@@ -45,10 +53,18 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // The hours a week the official gives their civic panel plan, read per
+  // turn behind the same flag: null without an active plan. Sizes the doors
+  // and calls of a check's first round.
+  panelHoursPerWeek?: number | null
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
   reportBacks?: ReportBackSend[]
+  // Answers pooled across this priority's sends against what a good read of
+  // the district needs. Read per turn behind the same flag; undefined while
+  // it is off.
+  readStatus?: PriorityReadStatus
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
@@ -102,7 +118,7 @@ export class PriorityFlowContextService extends createPrismaBase(
 
     const official = await this.client.user.findUnique({
       where: { id: userId },
-      select: { firstName: true },
+      select: { firstName: true, lastName: true },
     })
 
     return {
@@ -112,13 +128,18 @@ export class PriorityFlowContextService extends createPrismaBase(
       organizationSlug: electedOffice.organizationSlug,
       organization: electedOffice.organization,
       officeTitle: electedOffice.organization.customPositionName,
-      officialFirstName: official?.firstName?.trim() || null,
+      officialName:
+        [official?.firstName, official?.lastName]
+          .map((part) => part?.trim())
+          .filter(Boolean)
+          .join(' ') || null,
       // Only the district resolver knows the jurisdiction; the handler fills
       // it in loadContext when the org's position resolves.
       jurisdiction: null,
       title: priority.title,
       description: priority.description,
       source: priority.source,
+      sourceCommunityIssueId: priority.sourceCommunityIssueId,
       status,
       anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
@@ -139,6 +160,14 @@ export class PriorityFlowContextService extends createPrismaBase(
         value: CivicPanelStatus.member,
       },
     })
+  }
+
+  async panelHoursPerWeek(electedOfficeId: string): Promise<number | null> {
+    const plan = await this.client.civicPanelBuildPlan.findFirst({
+      where: { electedOfficeId, status: CivicPanelBuildPlanStatus.active },
+      select: { hoursPerWeek: true },
+    })
+    return plan?.hoursPerWeek ?? null
   }
 
   async assertPriorityOwnership(

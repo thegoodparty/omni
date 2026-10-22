@@ -42,6 +42,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { PollResponseJsonRow } from '../queue.types'
 import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
@@ -275,6 +276,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       hubspotSingleSend as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1159,6 +1161,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -1359,6 +1362,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -1448,12 +1452,14 @@ describe('QueueConsumerService - message type routing', () => {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
   let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
+  let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
+    mockPollExpansion = { resolveDelivery: vi.fn() }
 
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1554,6 +1560,10 @@ describe('QueueConsumerService - message type routing', () => {
           provide: OutreachTextDeliveryService,
           useValue: mockOutreachTextDelivery,
         },
+        {
+          provide: OutreachServePollExpansionService,
+          useValue: mockPollExpansion,
+        },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -1641,6 +1651,120 @@ describe('QueueConsumerService - message type routing', () => {
       message: 'Trash pickup moves to Thursday.',
       imageUrl: 'https://example.com/flyer.png',
       scheduledLocalDate: '2026-10-08',
+    })
+  })
+
+  describe('outreachTextSend for a poll', () => {
+    const pollRow = (overrides: Record<string, unknown> = {}) => ({
+      outreachType: 'poll',
+      approvedAt: new Date('2026-10-10T12:00:00Z'),
+      message: 'Hi, do you support the park?',
+      imageUrl: null,
+      scheduledLocalDate: '2026-10-14',
+      voterFileFilterId: null,
+      textCount: 250,
+      pollDetails: { audienceKind: 'sample' },
+      ...overrides,
+    })
+    const delivered = {
+      audienceResolved: true,
+      recipientCount: 250,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '3-1.csv',
+    }
+
+    it('delivers a sample poll as a sample of textCount people', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'sample', size: 250 },
+          paidRecipientCap: 250,
+        }),
+      )
+    })
+
+    it('delivers a list poll to its saved filter', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({
+          voterFileFilterId: 61,
+          pollDetails: { audienceKind: 'list' },
+        }),
+      )
+      mockOutreachTextDelivery.requestSend.mockResolvedValue(delivered)
+
+      await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: { kind: 'savedFilter', voterFileFilterId: 61 },
+        }),
+      )
+    })
+
+    it('sends nothing for a poll that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(
+        pollRow({ approvedAt: null }),
+      )
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 1 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+    })
+
+    it('delivers an expansion as a sample that excludes earlier recipients', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue({
+        textCount: 80,
+        excludePersonIds: ['person-1', 'person-2'],
+      })
+      mockOutreachTextDelivery.requestSend.mockResolvedValue({
+        ...delivered,
+        recipientCount: 80,
+        sendKey: '3-2.csv',
+      })
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockPollExpansion.resolveDelivery).toHaveBeenCalledWith(3, 2)
+      expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sendSeq: 2,
+          audience: {
+            kind: 'sample',
+            size: 80,
+            excludePersonIds: ['person-1', 'person-2'],
+          },
+          paidRecipientCap: 80,
+        }),
+      )
+    })
+
+    it('sends nothing for an expansion that was never approved', async () => {
+      mockOutreachService.model.findUnique.mockResolvedValue(pollRow())
+      mockPollExpansion.resolveDelivery.mockResolvedValue(null)
+
+      const result = await service.processMessage(
+        outreachTextSendMessage({ outreachId: 3, sendSeq: 2 }),
+      )
+
+      expect(result).toBe(true)
+      expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
     })
   })
 
@@ -2099,22 +2223,11 @@ describe('QueueConsumerService - message type routing', () => {
 describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
   let service: QueueConsumerService
   let mockTcrComplianceService: {
-    findFirstOrThrow: ReturnType<typeof vi.fn>
-    checkTcrRegistrationStatus: ReturnType<typeof vi.fn>
-    model: { updateMany: ReturnType<typeof vi.fn> }
-    sendComplianceCompletedSingleSend: ReturnType<typeof vi.fn>
+    checkUsecaseActivation: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: {
     track: ReturnType<typeof vi.fn>
     identify: ReturnType<typeof vi.fn>
-  }
-
-  const recipient = { id: 42, email: 'candidate@example.com' }
-  const campaignRecord = { userId: recipient.id, user: recipient }
-  const tcrComplianceRecord = {
-    peerlyIdentityId: 'peerly-999',
-    peerlyCvStatus: 'VERIFIED',
-    campaign: campaignRecord,
   }
 
   const buildMessage = (): Message => ({
@@ -2131,10 +2244,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
 
   beforeEach(async () => {
     mockTcrComplianceService = {
-      findFirstOrThrow: vi.fn().mockResolvedValue(tcrComplianceRecord),
-      checkTcrRegistrationStatus: vi.fn().mockResolvedValue(true),
-      model: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      sendComplianceCompletedSingleSend: vi.fn().mockResolvedValue(undefined),
+      checkUsecaseActivation: vi.fn().mockResolvedValue(true),
     }
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
@@ -2180,6 +2290,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -2188,82 +2299,16 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
     service = mod.get(QueueConsumerService)
   })
 
-  // Env-var gating (unset -> no-op) is owned by
-  // CampaignTcrComplianceService.sendComplianceCompletedSingleSend itself
-  // and covered in campaignTcrCompliance.service.test.ts — this suite
-  // covers what the consumer owns: resolving the recipient/properties and
-  // never letting a single-send failure affect the SQS ack.
-  it('resolves the campaign account email off the campaign relation and forwards it', async () => {
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockTcrComplianceService.model.updateMany).toHaveBeenCalledWith({
-      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
-      data: { status: 'approved' },
-    })
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).toHaveBeenCalledWith(recipient.email, {
-      peerly_identity_id: 'peerly-999',
-    })
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-  })
-
-  // bootstrapTcrComplianceCheck (@Cron 7am/7pm ET) re-queries every `pending`
-  // record and re-enqueues this message twice daily, so a backlog or a
-  // slow-handler redelivery can land two messages for the same record while
-  // it's still pending — an at-least-once SQS redelivery, not adversarial
-  // timing. Only the caller that actually flips the status may notify.
-  it('does not re-track or re-send when another delivery already transitioned the record', async () => {
-    mockTcrComplianceService.model.updateMany.mockResolvedValueOnce({
-      count: 0,
-    })
-
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-    expect(mockAnalytics.identify).not.toHaveBeenCalled()
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('does not call single-send when the campaign has no linked user', async () => {
-    mockTcrComplianceService.findFirstOrThrow.mockResolvedValueOnce({
-      ...tcrComplianceRecord,
-      campaign: { userId: recipient.id, user: null },
-    })
-
+  // The body lives in CampaignTcrComplianceService.checkUsecaseActivation
+  // (covered in campaignTcrCompliance.service.test.ts); the consumer only
+  // delegates and returns its ack.
+  it('delegates to checkUsecaseActivation and returns its ack', async () => {
     const result = await service.processMessage(buildMessage())
 
     expect(result).toBe(true)
     expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('never throws out of the handler when single-send fails (no infinite redelivery)', async () => {
-    mockTcrComplianceService.sendComplianceCompletedSingleSend.mockRejectedValueOnce(
-      new Error('HubSpot down'),
-    )
-
-    const result = await service.processMessage(buildMessage())
-
-    // The message is still acked (true) and the Segment event/DB update the
-    // flow depends on already happened — a single-send failure must not
-    // corrupt or requeue this SQS-fired path.
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
+      mockTcrComplianceService.checkUsecaseActivation,
+    ).toHaveBeenCalledWith({ peerlyIdentityId: 'peerly-999' })
   })
 })
 
@@ -2391,6 +2436,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: ChatAttachmentsService, useValue: {} },
         { provide: OutreachService, useValue: { model: {} } },
         { provide: OutreachTextDeliveryService, useValue: {} },
+        { provide: OutreachServePollExpansionService, useValue: {} },
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
@@ -2518,6 +2564,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
       {} as never,
     )
@@ -2566,6 +2613,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
   const buildService = (handle: ReturnType<typeof vi.fn>) => {
     logger = createMockLogger()
     return new QueueConsumerService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

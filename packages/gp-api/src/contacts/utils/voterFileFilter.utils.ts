@@ -101,6 +101,16 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
+// Early-vote boolean -> people-api earlyVoteStatus value, exported for the
+// catalog for the same reason as the audience list above.
+export const EARLY_VOTE_STATUS_VALUES = [
+  { field: 'earlyVoteVeryLikely', value: 'Very Likely' },
+  { field: 'earlyVoteLikely', value: 'Likely' },
+  { field: 'earlyVoteUnlikely', value: 'Unlikely' },
+  { field: 'earlyVoteVeryUnlikely', value: 'Very Unlikely' },
+  { field: 'earlyVoteUnknown', value: 'Unknown' },
+] as const
+
 // Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
 // interactions). Resolved by ContactsMadeResolutionService, never sent to
 // people-api as a raw filter key (see fieldsHandledSeparately below) — kept
@@ -180,6 +190,7 @@ export const convertVoterFileFilterToFilters = (
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
     'audienceUnknown',
+    ...EARLY_VOTE_STATUS_VALUES.map(({ field }) => field),
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
@@ -228,6 +239,12 @@ export const convertVoterFileFilterToFilters = (
     // Resolves against contact_current_status, not a voter-file column.
     'followUpRequested',
     'civicPanelMember',
+    'civicPanelLeft',
+    'civicPanelNeverInvited',
+    'civicPanelJoinedByText',
+    'civicPanelJoinedByDoor',
+    'civicPanelJoinedByPhone',
+    'civicPanelJoinedByHand',
     'notContactedRecently',
     'independentAffinity',
     'ideologyConservative',
@@ -290,6 +307,16 @@ export const convertVoterFileFilterToFilters = (
           ? { eq: voterStatusValues[0] }
           : { in: voterStatusValues }
     }
+  }
+
+  const earlyVoteStatusValues: string[] = EARLY_VOTE_STATUS_VALUES.filter(
+    ({ field }) => segment[field],
+  ).map(({ value }) => value)
+  if (earlyVoteStatusValues.length > 0) {
+    filters['earlyVoteStatus'] =
+      earlyVoteStatusValues.length === 1
+        ? { eq: earlyVoteStatusValues[0] }
+        : { in: earlyVoteStatusValues }
   }
 
   const politicalPartyValues: string[] = []

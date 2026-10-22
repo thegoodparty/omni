@@ -345,8 +345,8 @@ export class OutreachAssignmentService extends createPrismaBase(
   // GET /outreach/assignments/mine: joins each assignment back to its
   // envelope and, for the two native channels, hydrates the same
   // phoneBanking/doorKnocking progress block OutreachSocialService.findDetail
-  // computes for the history drawer — reused rather than re-derived, per
-  // AGENTS.md's ADR 0010 (one aggregate, not two that can disagree).
+  // computes for the history drawer — reused rather than re-derived: one
+  // aggregate, not two that can disagree.
   async listMineDetailed(
     organizationSlug: string,
     userId: number,

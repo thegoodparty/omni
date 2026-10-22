@@ -1,4 +1,5 @@
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import type { ServeStoryStepId } from './serveOnboardingConfig'
 
 /**
  * Funnel events for the net-new (sales-sent magic link) elected-official
@@ -22,12 +23,35 @@ export const SERVE_ONBOARDING_EVENTS = {
   OfficeCompleted: EVENTS.ServeOnboarding.OfficeCompleted,
   ConfirmViewed: EVENTS.ServeOnboarding.ConfirmViewed,
   TermDatesViewed: EVENTS.ServeOnboarding.TermDatesViewed,
-  KnowYourConstituentsViewed: EVENTS.ServeOnboarding.KnowYourConstituentsViewed,
-  KnowYourConstituentsCompleted:
-    EVENTS.ServeOnboarding.KnowYourConstituentsCompleted,
   PledgeViewed: EVENTS.ServeOnboarding.PledgeViewed,
   PledgeCompleted: EVENTS.ServeOnboarding.PledgeCompleted,
+  PrioritiesViewed: EVENTS.ServeOnboarding.PrioritiesViewed,
+  PrioritiesCompleted: EVENTS.ServeOnboarding.PrioritiesCompleted,
 } as const
+
+// One Viewed / Completed pair per district story step, named for what the
+// step tells the official.
+export const SERVE_STORY_EVENTS: Record<
+  ServeStoryStepId,
+  { viewed: string; completed: string }
+> = {
+  'story-represent': {
+    viewed: EVENTS.ServeOnboarding.YouRepresentViewed,
+    completed: EVENTS.ServeOnboarding.YouRepresentCompleted,
+  },
+  'story-loudest': {
+    viewed: EVENTS.ServeOnboarding.HearFromTheLoudestVoicesViewed,
+    completed: EVENTS.ServeOnboarding.HearFromTheLoudestVoicesCompleted,
+  },
+  'story-sample': {
+    viewed: EVENTS.ServeOnboarding.WhereYourCommunityStandsViewed,
+    completed: EVENTS.ServeOnboarding.WhereYourCommunityStandsCompleted,
+  },
+  'story-grow': {
+    viewed: EVENTS.ServeOnboarding.BuildAndGrowYourListViewed,
+    completed: EVENTS.ServeOnboarding.BuildAndGrowYourListCompleted,
+  },
+}
 
 type ServeOnboardingEventProperties =
   | Record<string, string | number | boolean | null | undefined>

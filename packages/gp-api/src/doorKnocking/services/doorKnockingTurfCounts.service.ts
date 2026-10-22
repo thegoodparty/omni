@@ -102,10 +102,10 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
       stops.get(turfId)?.add(target.doorKnockingStopId)
       doors.get(turfId)?.add(door)
 
-      // The walk's `isKnockable`: ADR 0007 do-not-knock and ADR 0008
-      // not-a-voter residents are nobody to talk to, so they are not people
-      // this list can log — counting them would hold a canvasser who
-      // correctly skipped every flagged house below 100%.
+      // The walk's `isKnockable`: do-not-knock and not-a-voter residents are
+      // nobody to talk to, so they are not people this list can log —
+      // counting them would hold a canvasser who correctly skipped every
+      // flagged house below 100%.
       if (
         doNotKnockPersonIds.has(target.personId) ||
         notAVoterReasons.has(target.personId)

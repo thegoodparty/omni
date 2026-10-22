@@ -17,9 +17,11 @@ export const CONTACTS_MADE_DIM_KEY = 'contactsMade'
 export const CONTACTS_MADE_BUCKETS = ['0', '1', '2', '3', '4', '5+'] as const
 
 // The most contacted people gp-api will describe on the wire. It is
-// deliberately MAX_RESOLVED_ID_SET_SIZE (activityConditionResolution.service),
-// the same number at which resolving a contacts-made filter for a real query
-// gives up: above it the filter cannot be applied at knock time either, so a
+// deliberately no larger than MAX_RESOLVED_ID_SET_SIZE
+// (activityConditionResolution.service, 200,000 since ENG-11424), the number
+// at which resolving a contacts-made filter for a real query gives up, so a
+// pack that carries the plane never shades a cohort that 400s: above the
+// resolver's cap the filter cannot be applied at knock time either, so a
 // pack that shaded by it would be previewing an audience no list can serve.
 // Past the cap the plane is omitted rather than truncated — a truncated plane
 // would silently read those people as "0 prior contacts", which is exactly
@@ -34,19 +36,20 @@ export const PACK_CONTACTS_MADE_MAX = 100_000
 // is NOT that, they are a real selectable bucket whose precinct side is
 // empty, exactly as the picker offers it.
 // Whether this door is one the campaign may knock at all. NOT a filter the
-// candidate picks: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are
-// suppression, applied unconditionally by every server-side evaluation, and
-// the map was the only surface still drawing the people they remove. So the
-// plane is consumed as a mask in `runFilter`/`polygonStats` rather than
-// through a dim selection, and it needs no entry in the filter catalog —
-// which is the review ADR 0007 deferred and this deliberately does not open.
+// candidate picks: do-not-knock and not-a-voter are suppression, applied
+// unconditionally by every server-side evaluation, and the map was the only
+// surface still drawing the people they remove. So the plane is consumed as
+// a mask in `runFilter`/`polygonStats` rather than through a dim selection,
+// and it needs no entry in the filter catalog. Adding one is a
+// filter-catalog change with its own review, which this deliberately does
+// not open.
 export const KNOCKABLE_DIM_KEY = 'knockable'
 export const KNOCKABLE_VALUES = ['No', 'Yes'] as const
 
 // The most suppressed people gp-api will describe on the wire. Same number as
-// PACK_CONTACTS_MADE_MAX and for the same reason: it is
-// MAX_RESOLVED_ID_SET_SIZE, the point at which resolving an id set for a real
-// query gives up. These sets are far smaller in practice — a do-not-knock row
+// PACK_CONTACTS_MADE_MAX and for the same reason: it is no larger than
+// MAX_RESOLVED_ID_SET_SIZE (200,000), the point at which resolving an id set
+// for a real query gives up. These sets are far smaller in practice — a do-not-knock row
 // needs a canvasser at a door pressing a button — so the cap is a ceiling
 // rather than a working limit.
 export const PACK_EXCLUDED_PEOPLE_MAX = 100_000

@@ -9,6 +9,11 @@ model VoterFileFilter {
   audienceUnreliableVoters   Boolean?                           @default(false) @map("audience_unreliable_voters")
   audienceUnlikelyVoters     Boolean?                           @default(false) @map("audience_unlikely_voters")
   audienceUnknown            Boolean?                           @default(false) @map("audience_unknown")
+  earlyVoteVeryLikely        Boolean?                           @default(false) @map("early_vote_very_likely")
+  earlyVoteLikely            Boolean?                           @default(false) @map("early_vote_likely")
+  earlyVoteUnlikely          Boolean?                           @default(false) @map("early_vote_unlikely")
+  earlyVoteVeryUnlikely      Boolean?                           @default(false) @map("early_vote_very_unlikely")
+  earlyVoteUnknown           Boolean?                           @default(false) @map("early_vote_unknown")
   partyIndependent           Boolean?                           @default(false) @map("party_independent")
   partyDemocrat              Boolean?                           @default(false) @map("party_democrat")
   partyRepublican            Boolean?                           @default(false) @map("party_republican")
@@ -91,6 +96,28 @@ model VoterFileFilter {
   /// status in contact_current_status is `member`, so someone who left the
   /// panel drops out of a saved list on its next read.
   civicPanelMember           Boolean?                           @default(false) @map("civic_panel_member")
+  /// Serve only. The rest of the panel status group, OR-ed with
+  /// civicPanelMember: `left` is a standing `left` row (so someone who never
+  /// joined never reads as left), and "never invited" is everyone with no
+  /// civic_panel event, no send that asked them, and no door or call answer.
+  civicPanelLeft             Boolean?                           @default(false) @map("civic_panel_left")
+  civicPanelNeverInvited     Boolean?                           @default(false) @map("civic_panel_never_invited")
+  /// Serve only. How a current member last joined: the source of the event
+  /// that most recently set them to `member`. OR-ed with each other.
+  civicPanelJoinedByText     Boolean?                           @default(false) @map("civic_panel_joined_by_text")
+  civicPanelJoinedByDoor     Boolean?                           @default(false) @map("civic_panel_joined_by_door")
+  civicPanelJoinedByPhone    Boolean?                           @default(false) @map("civic_panel_joined_by_phone")
+  civicPanelJoinedByHand     Boolean?                           @default(false) @map("civic_panel_joined_by_hand")
+  /// Serve only. Inclusive calendar days (YYYY-MM-DD, UTC) on that same
+  /// event. Text rather than a date column so every filter path (the saved
+  /// row, an unsaved count, the assistant's tools) carries one shape.
+  civicPanelJoinedFrom       String?                            @map("civic_panel_joined_from")
+  civicPanelJoinedTo         String?                            @map("civic_panel_joined_to")
+  /// Serve only. When the office last reached the person on any channel,
+  /// by the rest window's rule (the four interaction tables' occurred_at),
+  /// as inclusive calendar days like the pair above.
+  lastReachedFrom            String?                            @map("last_reached_from")
+  lastReachedTo              String?                            @map("last_reached_to")
   /// Leaves out anyone the office contacted on any channel in the last 30
   /// days (CONTACT_REST_DAYS), read from the interaction tables when the
   /// list is read, so the window moves with the calendar.
@@ -145,6 +172,7 @@ model VoterFileFilter {
   sampleSize                 Int?                               @map("sample_size")
   sampledAt                  DateTime?                          @map("sampled_at")
   sampleMembers              VoterFileFilterSampleMember[]
+  civicPanelBuildStep        CivicPanelBuildStep?
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
   recommendedVariant         String?                            @map("recommended_variant")
@@ -153,6 +181,11 @@ model VoterFileFilter {
   /// Whether the candidate edited the recommendation before submitting.
   /// Null (not false) when recommendedVariant is null.
   recommendedModified        Boolean?                           @map("recommended_modified")
+  /// Serve. Set on a list our code saved as a civic panel invite's
+  /// audience: a build plan step's draw, or the panel's first text. The
+  /// outreach that used it keeps it, but the lists index leaves it out, since
+  /// the office's one panel list is the built-in Civic panel row.
+  civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,8 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, toast } from '@styleguide'
+import { Badge, Button, Checkbox, cn, Input, Label, toast } from '@styleguide'
+import { pickedNextStepsMessage } from '@goodparty_org/contracts'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -38,8 +40,8 @@ import {
   CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
 import {
-  CLARIFY_TOOL,
   clarifyWidgetTool,
+  isQuestionTool,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
@@ -60,8 +62,13 @@ import {
   COS_INTRO_MESSAGES,
   SAVED_FILTERS_TOOL,
   toolDisplayName,
+  type ChatSuggestion,
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
+import {
+  civicPanelWidgetTools,
+  SAVE_PANEL_WEEKLY_TIME_TOOL,
+} from './civicPanelWidgets'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
@@ -92,6 +99,11 @@ import {
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  trackChatMessageSent,
+  type ChatSendVia,
+  type ChatSurface,
+} from '../../../shared/agent-chat/chatAnalytics'
 
 interface Props {
   /**
@@ -132,6 +144,12 @@ interface Props {
    */
   showSuggestionsWithGreeting?: boolean
   /**
+   * Render the starter chips under the reply to `pendingKickoff` instead of
+   * on an empty transcript, until anything else is sent: the next step a
+   * kickoff's answer leads to.
+   */
+  showSuggestionsAfterKickoff?: boolean
+  /**
    * Short quick-prompt pills shown below the suggestions (above the composer),
    * each sending its own text as a visible message. Distinct from `suggestions`
    * (the larger action cards). Omit for CoS / Community Issues.
@@ -156,12 +174,18 @@ interface Props {
    */
   pendingMessage?: string
   /**
-   * Fires once per VISIBLE message the user sends — the composer, a quick
-   * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
-   * sentinels, which the user never typed. The contacts entry point counts
-   * these for its open-to-send funnel (ENG-10767).
+   * One-shot file to attach on open: the user picked it from a chat bar's
+   * paperclip before this surface was open. Ignored where the scope takes no
+   * attachments.
    */
-  onMessageSent?: () => void
+  pendingFile?: File
+  /**
+   * Where this chat is mounted, for `AI Chat - Message Sent`. It fires once
+   * per VISIBLE message the user sends — the composer, a quick prompt, a
+   * clarify answer, a `pendingMessage`, a retry of one. Not for hidden
+   * kickoffs or sentinels, which the user never typed. Omitted, nothing fires.
+   */
+  analyticsSurface?: ChatSurface
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -192,17 +216,9 @@ interface Props {
   scope?: ChatScope
 }
 
-/**
- * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (no user bubble); otherwise `onSelect` runs. `description` renders a
- * secondary line beneath the label.
- */
-export type ChatSuggestion = {
-  label: string
-  description?: string
-  onSelect?: () => void
-  kickoff?: string
-}
+// Defined beside the copy that builds the Chief of Staff's next steps, so the
+// two modules do not import each other.
+export type { ChatSuggestion }
 
 // Per scope, so seeing one assistant's intro never suppresses the other's.
 // Chief of Staff keeps its original key so officials who already saw it are
@@ -266,6 +282,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
+  ...civicPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -324,11 +341,13 @@ function ChiefOfStaffChatThread({
   defaultIntro = COS_INTRO_MESSAGES,
   suggestions,
   showSuggestionsWithGreeting = false,
+  showSuggestionsAfterKickoff = false,
   quickPrompts,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   pendingMessage,
-  onMessageSent,
+  pendingFile,
+  analyticsSurface,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -375,10 +394,10 @@ function ChiefOfStaffChatThread({
     null,
   )
   const [introProgress, setIntroProgress] = useState(0)
-  // True once anything has been sent this session (visible OR hidden). Gates the
-  // with-greeting starter chips off after a hidden kickoff (which adds no user
-  // turn).
-  const [hasSent, setHasSent] = useState(false)
+  // Sends this session, visible OR hidden. Any send gates the with-greeting
+  // starter chips off, even a hidden kickoff (which adds no user turn).
+  const [sendCount, setSendCount] = useState(0)
+  const hasSent = sendCount > 0
   // Contents sent hidden this session; their persisted user turn is dropped from
   // the rendered transcript (the engine reconciles against the raw server
   // transcript, which includes the hidden turn).
@@ -393,6 +412,8 @@ function ChiefOfStaffChatThread({
   const creatingRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const lastUserContentRef = useRef('')
+  // How that message was sent, so a Retry reports it the same way.
+  const lastUserViaRef = useRef<ChatSendVia>('composer')
   const lastAttachmentIdsRef = useRef<string[]>([])
   // Tracks the pendingKickoff value that has already fired (not a boolean): the
   // parent clears pendingKickoff on close and re-sets the same sentinel on
@@ -555,6 +576,19 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
+          })
+        }
+        // A saved weekly time made or changed the panel's plan, which the
+        // home's panel card and the next step card both follow.
+        if (
+          event.type === 'tool_result' &&
+          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ['civic-panel-plan', orgSlug],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false
@@ -864,6 +898,39 @@ function ChiefOfStaffChatThread({
     ],
   )
 
+  // The paperclip on a chat bar picks the file before this body exists, so it
+  // arrives as a prop. Waits out a load or create so it lands on the resolved
+  // conversation, and latches on the File so a re-render cannot upload twice.
+  const attachedPendingRef = useRef<File | undefined>(undefined)
+  useEffect(() => {
+    if (!pendingFile) {
+      attachedPendingRef.current = undefined
+      return
+    }
+    if (!active || !attachmentsEnabled) return
+    if (attachedPendingRef.current === pendingFile) return
+    if (loading || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    attachedPendingRef.current = pendingFile
+    if (isSupportedAttachmentFile(pendingFile)) {
+      void handleAttachFile(pendingFile)
+    } else {
+      toast.error(
+        `Can't attach ${pendingFile.name}. Use a PDF, DOCX, TXT, JPEG, or PNG.`,
+      )
+    }
+  }, [
+    active,
+    attachmentsEnabled,
+    pendingFile,
+    loading,
+    conversationId,
+    conversationIdOverride,
+    handleAttachFile,
+  ])
+
   const handleAttachLink = useCallback(
     async (url: string): Promise<void> => {
       const cid = conversationId ?? (await ensureConversationId())
@@ -1086,12 +1153,12 @@ function ChiefOfStaffChatThread({
   const deliver = useCallback(
     async (
       content: string,
-      opts?: { hidden?: boolean; attachmentIds?: string[] },
+      opts?: { hidden?: boolean; attachmentIds?: string[]; via?: ChatSendVia },
     ): Promise<boolean> => {
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
       setStreamError(null)
-      setHasSent(true)
+      setSendCount((n) => n + 1)
       // A send mid-playback flushes the rest of the greeting into history so the
       // transcript stays ordered ahead of the user's message.
       if (playback) {
@@ -1105,6 +1172,7 @@ function ChiefOfStaffChatThread({
         )
       } else {
         lastUserContentRef.current = trimmed
+        lastUserViaRef.current = opts?.via ?? 'composer'
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1119,7 +1187,13 @@ function ChiefOfStaffChatThread({
         // returns null and bails above, and counting that as a sent message
         // would overstate the very open-to-send funnel this callback exists
         // to measure (ENG-10767).
-        onMessageSent?.()
+        if (analyticsSurface) {
+          trackChatMessageSent({
+            agent: scope,
+            surface: analyticsSurface,
+            via: opts?.via ?? 'composer',
+          })
+        }
         setMessages((prev) => [
           ...prev,
           {
@@ -1154,7 +1228,8 @@ function ChiefOfStaffChatThread({
       send,
       setMessages,
       attachments,
-      onMessageSent,
+      analyticsSurface,
+      scope,
     ],
   )
 
@@ -1202,6 +1277,17 @@ function ChiefOfStaffChatThread({
     (content: string) => deliver(content, { hidden: false }),
     [deliver],
   )
+  const answerClarify = useCallback(
+    (content: string) => deliver(content, { hidden: false, via: 'clarify' }),
+    [deliver],
+  )
+
+  // Labels of the combinable cards picked so far. Sent in card order, not
+  // click order, so the steps run in the order the official sees them.
+  const [picked, setPicked] = useState<string[]>([])
+  // What the official types under a picked write-in card (Something else).
+  const [ownText, setOwnText] = useState('')
+  const nextStepIdPrefix = useId()
 
   const onSend = useCallback((): void => {
     const text = composer.trim()
@@ -1223,7 +1309,11 @@ function ChiefOfStaffChatThread({
       return
     }
     if (content) {
-      void deliver(content, { hidden: false, attachmentIds })
+      void deliver(content, {
+        hidden: false,
+        attachmentIds,
+        via: lastUserViaRef.current,
+      })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.
@@ -1278,7 +1368,7 @@ function ChiefOfStaffChatThread({
       return
     }
     sentPendingRef.current = pendingMessage
-    void deliver(pendingMessage, { hidden: false })
+    void deliver(pendingMessage, { hidden: false, via: 'assistant_bar' })
   }, [
     active,
     pendingMessage,
@@ -1295,6 +1385,10 @@ function ChiefOfStaffChatThread({
     (s: ChatSuggestion) => {
       if (s.kickoff) {
         void deliver(s.kickoff, { hidden: true })
+        return
+      }
+      if (s.message) {
+        void deliver(s.message, { hidden: false })
         return
       }
       s.onSelect?.()
@@ -1350,7 +1444,7 @@ function ChiefOfStaffChatThread({
       const message = visibleMessages[i]
       if (!message) continue
       if (message.role === 'user') return null
-      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if ((message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return message.id
       }
     }
@@ -1362,7 +1456,7 @@ function ChiefOfStaffChatThread({
     const answers: Record<string, string> = {}
     visibleMessages.forEach((message, index) => {
       if (message.role === 'user') return
-      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+      if (!(message.segments ?? []).some((s) => isQuestionTool(s.toolName))) {
         return
       }
       const reply = visibleMessages
@@ -1425,6 +1519,47 @@ function ChiefOfStaffChatThread({
     [suggestions, sendContent],
   )
 
+  const pickedCards = effectiveSuggestions.filter(
+    (s) => s.combinable && picked.includes(s.label),
+  )
+  const pickedSteps = pickedCards.filter((s) => !s.writeIn)
+  const writingOwn = pickedCards.some((s) => s.writeIn)
+  const ownItem = writingOwn ? ownText.trim() : ''
+  const canStart = pickedCards.length > 0 && (!writingOwn || ownItem !== '')
+
+  // One step alone does exactly what clicking that card alone did, and their
+  // own words alone go as their own message. Anything more goes as a single
+  // visible turn listing the steps in card order, their own item last, which
+  // the agent works through in that order.
+  const startPicked = useCallback((): void => {
+    if (!canStart || busy) return
+    const [first] = pickedSteps
+    setPicked([])
+    setOwnText('')
+    if (first && pickedSteps.length === 1 && !ownItem) {
+      onSuggestionClick(first)
+      return
+    }
+    if (!first) {
+      void answerClarify(ownItem)
+      return
+    }
+    void sendContent(
+      pickedNextStepsMessage([
+        ...pickedSteps.map((s) => s.label),
+        ...(ownItem ? [ownItem] : []),
+      ]),
+    )
+  }, [
+    canStart,
+    busy,
+    pickedSteps,
+    ownItem,
+    onSuggestionClick,
+    answerClarify,
+    sendContent,
+  ])
+
   const showIntro =
     (opener !== undefined || isFirstChat) &&
     visibleMessages.length === 0 &&
@@ -1439,14 +1574,25 @@ function ChiefOfStaffChatThread({
   const isPristineGreeting =
     !hasSent && visibleMessages.length + (playback?.items.length ?? 0) <= 1
 
+  // The kickoff is this session's only send and its reply has landed.
+  const kickoffAnswered =
+    pendingKickoff !== undefined &&
+    sendCount === 1 &&
+    hiddenSent.includes(pendingKickoff.trim()) &&
+    visibleSegments.length === 0 &&
+    visibleMessages.some((m) => m.role === 'assistant')
+
   const showStarters =
-    ((visibleMessages.length === 0 && !playback) ||
-      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    (showSuggestionsAfterKickoff
+      ? kickoffAnswered
+      : (visibleMessages.length === 0 && !playback) ||
+        (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
     !streamError
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )
+  const multiSelect = effectiveSuggestions.some((s) => s.combinable)
 
   return (
     // vaul disables text selection on the drawer and pointer-captures on
@@ -1524,7 +1670,7 @@ function ChiefOfStaffChatThread({
                 context={{
                   clarifyInteractive: m.id === activeClarifyId && !busy,
                   clarifyAnswer: clarifyAnswerById[m.id],
-                  onClarifyAnswer: sendContent,
+                  onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
                 }}
                 onCitationClick={
@@ -1581,7 +1727,7 @@ function ChiefOfStaffChatThread({
               toolLabel={toolLabel}
               context={{
                 clarifyInteractive: false,
-                onClarifyAnswer: sendContent,
+                onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
               }}
               onCitationClick={
@@ -1633,14 +1779,67 @@ function ChiefOfStaffChatThread({
 
       {showStarters && (
         <div
+          role={multiSelect ? 'group' : undefined}
+          aria-label={multiSelect ? 'Next steps' : undefined}
           className={
             suggestionsAsCards
               ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
               : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
           }
         >
-          {effectiveSuggestions.map((s) =>
-            suggestionsAsCards ? (
+          {effectiveSuggestions.map((s, i) =>
+            s.combinable ? (
+              <div key={s.label} className="flex flex-col gap-2">
+                <Label
+                  htmlFor={`${nextStepIdPrefix}-${i}`}
+                  className={cn(
+                    'flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50',
+                    'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
+                    busy && 'pointer-events-none opacity-50',
+                  )}
+                >
+                  <Checkbox
+                    id={`${nextStepIdPrefix}-${i}`}
+                    checked={picked.includes(s.label)}
+                    onCheckedChange={(state) =>
+                      setPicked((prev) =>
+                        state === true
+                          ? [...prev.filter((l) => l !== s.label), s.label]
+                          : prev.filter((l) => l !== s.label),
+                      )
+                    }
+                    disabled={busy}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">
+                      {s.label}
+                    </span>
+                    {s.description && (
+                      <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
+                        {s.description}
+                      </span>
+                    )}
+                  </span>
+                </Label>
+                {s.writeIn && picked.includes(s.label) && (
+                  <Input
+                    value={ownText}
+                    onChange={(e) => setOwnText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        startPicked()
+                      }
+                    }}
+                    placeholder="Type your own..."
+                    aria-label="Write your own"
+                    disabled={busy}
+                    autoFocus
+                  />
+                )}
+              </div>
+            ) : suggestionsAsCards ? (
               <button
                 key={s.label}
                 type="button"
@@ -1674,6 +1873,17 @@ function ChiefOfStaffChatThread({
                 </button>
               </Badge>
             ),
+          )}
+          {multiSelect && (
+            <Button
+              type="button"
+              size="small"
+              className="self-start"
+              onClick={startPicked}
+              disabled={busy || !canStart}
+            >
+              Start
+            </Button>
           )}
         </div>
       )}

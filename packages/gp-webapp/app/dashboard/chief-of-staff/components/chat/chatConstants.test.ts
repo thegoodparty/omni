@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { toolDisplayName, toolStatusLabel } from './chatConstants'
+import {
+  buildChiefOfStaffNextSteps,
+  toolDisplayName,
+  toolStatusLabel,
+} from './chatConstants'
 
 describe('toolStatusLabel', () => {
   it('labels crud_priorities by its action', () => {
@@ -49,8 +53,53 @@ describe('toolStatusLabel', () => {
       'list_precincts',
       'crud_saved_filters',
       'record_check_reminder',
+      'save_panel_weekly_time',
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
+    }
+  })
+})
+
+describe('buildChiefOfStaffNextSteps', () => {
+  const labels = (args: Parameters<typeof buildChiefOfStaffNextSteps>[0]) =>
+    buildChiefOfStaffNextSteps(args).map((s) => s.label)
+
+  it('leaves the middle card out while the panel is loading', () => {
+    expect(labels({ panelsEnabled: true, panelLoading: true })).toEqual([
+      'See what matters in your community',
+      'Get ready for your next meeting',
+      'Something else',
+    ])
+    expect(labels({ panelsEnabled: false, panelLoading: true })).toEqual([
+      'See what matters in your community',
+      'Get ready for your next meeting',
+      'Something else',
+    ])
+  })
+
+  it('picks the middle card once the panel has loaded', () => {
+    expect(labels({ panelsEnabled: false })[1]).toBe(
+      'Hear from your constituents',
+    )
+    expect(labels({ panelsEnabled: true, panelMembers: 0 })[1]).toBe(
+      'Build your civic panel',
+    )
+    expect(labels({ panelsEnabled: true, panelMembers: 5 })[1]).toBe(
+      'Grow your civic panel',
+    )
+  })
+
+  it('lets every card combine, Something else as a write-in', () => {
+    for (const args of [
+      { panelsEnabled: false },
+      { panelsEnabled: true, panelMembers: 0 },
+      { panelsEnabled: true, panelMembers: 5 },
+    ]) {
+      const steps = buildChiefOfStaffNextSteps(args)
+      expect(steps.filter((s) => s.combinable)).toHaveLength(4)
+      expect(steps.filter((s) => s.writeIn)).toEqual([
+        expect.objectContaining({ label: 'Something else' }),
+      ])
     }
   })
 })

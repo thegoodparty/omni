@@ -6,7 +6,10 @@ import {
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
+  SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
+  SERVE_WELCOME_VALUE_PROPS,
   shouldSeedInOfficeOnResume,
+  type ServeStepId,
 } from './serveOnboardingConfig'
 
 describe('computeServeResumeStep', () => {
@@ -53,14 +56,14 @@ describe('computeServeResumeStep', () => {
       ).toBe('term-dates')
     })
 
-    it('resumes at constituents once all data is answered', () => {
+    it('resumes at the pledge once all data is answered', () => {
       expect(
         computeServeResumeStep('net-new', {
           hasParty: true,
           hasOffice: true,
           hasDates: true,
         }),
-      ).toBe('constituents')
+      ).toBe('pledge')
     })
   })
 
@@ -82,18 +85,18 @@ describe('computeServeResumeStep', () => {
       ).toBe('confirm')
     })
 
-    it('resumes at constituents once party, office, and dates are all set', () => {
+    it('resumes at the pledge once party, office, and dates are all set', () => {
       expect(
         computeServeResumeStep('prefill', {
           hasParty: true,
           hasOffice: true,
           hasDates: true,
         }),
-      ).toBe('constituents')
+      ).toBe('pledge')
     })
   })
 
-  it('never returns pledge (a completed office is redirected away first)', () => {
+  it('never returns pledge with serve-citizen-panels on', () => {
     const branches = ['net-new', 'prefill'] as const
     const bools = [false, true]
     for (const branch of branches) {
@@ -101,7 +104,11 @@ describe('computeServeResumeStep', () => {
         for (const hasOffice of bools) {
           for (const hasDates of bools) {
             expect(
-              computeServeResumeStep(branch, { hasParty, hasOffice, hasDates }),
+              computeServeResumeStep(
+                branch,
+                { hasParty, hasOffice, hasDates },
+                true,
+              ),
             ).not.toBe('pledge')
           }
         }
@@ -140,11 +147,11 @@ describe('resolveServeResumeStep', () => {
         hasDates: false,
       }),
     ).toBe('inOffice')
-    // constituents likewise carries no data field; with all data saved the
-    // checkpoint keeps the user there instead of falling back.
-    expect(resolveServeResumeStep('net-new', 'constituents', allSaved)).toBe(
-      'constituents',
-    )
+    // The district story likewise carries no data field; with all data saved
+    // the checkpoint keeps the user there instead of falling back.
+    expect(
+      resolveServeResumeStep('net-new', 'story-loudest', allSaved, true),
+    ).toBe('story-loudest')
   })
 
   it('honors a normal checkpoint that matches the persisted data', () => {
@@ -165,10 +172,10 @@ describe('resolveServeResumeStep', () => {
   })
 
   it('clamps a checkpoint that outruns the persisted data (a save that later failed)', () => {
-    // Checkpoint says constituents, but office/dates never persisted — resume at
+    // Checkpoint says pledge, but office/dates never persisted — resume at
     // the first step whose answer is actually missing rather than skipping it.
     expect(
-      resolveServeResumeStep('net-new', 'constituents', {
+      resolveServeResumeStep('net-new', 'pledge', {
         hasParty: true,
         hasOffice: false,
         hasDates: false,
@@ -187,9 +194,7 @@ describe('resolveServeResumeStep', () => {
   it('ignores a checkpoint that is not a step in the resolved branch', () => {
     // `office` is a net-new-only step; a prefill record carrying it (e.g. a
     // branch flip between sessions) falls back to the data-derived step.
-    expect(resolveServeResumeStep('prefill', 'office', allSaved)).toBe(
-      'constituents',
-    )
+    expect(resolveServeResumeStep('prefill', 'office', allSaved)).toBe('pledge')
   })
 })
 
@@ -224,7 +229,7 @@ describe('shouldSeedInOfficeOnResume', () => {
     expect(shouldSeedInOfficeOnResume('party')).toBe(true)
     expect(shouldSeedInOfficeOnResume('office')).toBe(true)
     expect(shouldSeedInOfficeOnResume('confirm')).toBe(true)
-    expect(shouldSeedInOfficeOnResume('constituents')).toBe(true)
+    expect(shouldSeedInOfficeOnResume('story-represent')).toBe(true)
   })
 })
 
@@ -280,30 +285,114 @@ describe('resolveServeBranch', () => {
   })
 })
 
-describe('the priorities step behind serve-citizen-panels', () => {
+describe('the district story behind serve-citizen-panels', () => {
   const done = { hasParty: true, hasOffice: true, hasDates: true }
+  const story = [
+    'story-represent',
+    'story-loudest',
+    'story-sample',
+    'story-grow',
+  ]
 
-  it('puts priorities between constituents and pledge only when on', () => {
-    expect(getServeBranchSteps('net-new', true).slice(-3)).toEqual([
-      'constituents',
+  it('puts the story after the term, then priorities and pledge', () => {
+    expect(getServeBranchSteps('net-new', true)).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'office',
+      'term-dates',
+      ...story,
       'priorities',
       'pledge',
     ])
-    expect(getServeBranchSteps('prefill').slice(-2)).toEqual([
-      'constituents',
+    expect(getServeBranchSteps('prefill', true)).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'confirm',
+      ...story,
+      'priorities',
       'pledge',
     ])
-    expect(getServeProgress('prefill', 'pledge', true).total).toBe(
-      getServeProgress('prefill', 'pledge').total + 1,
+    expect(getServeProgress('prefill', 'pledge', true).total).toBe(10)
+    expect(getServeProgress('net-new', 'story-sample', true)).toEqual({
+      current: 8,
+      total: 11,
+    })
+  })
+
+  it('goes from the term straight to the pledge when off', () => {
+    expect(getServeBranchSteps('prefill')).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'confirm',
+      'pledge',
+    ])
+    expect(getServeBranchSteps('net-new')).toEqual([
+      'welcome',
+      'inOffice',
+      'party',
+      'office',
+      'term-dates',
+      'pledge',
+    ])
+    for (const step of [...story, 'priorities']) {
+      expect(getServeBranchSteps('net-new')).not.toContain(step)
+    }
+  })
+
+  it('resumes on a story or priorities checkpoint only when on', () => {
+    expect(resolveServeResumeStep('net-new', 'story-sample', done, true)).toBe(
+      'story-sample',
+    )
+    expect(resolveServeResumeStep('prefill', 'priorities', done, true)).toBe(
+      'priorities',
+    )
+    expect(resolveServeResumeStep('net-new', 'story-sample', done)).toBe(
+      'pledge',
+    )
+    expect(resolveServeResumeStep('net-new', 'priorities', done)).toBe('pledge')
+  })
+
+  it('moves a saved checkpoint from a step that is gone to the next step', () => {
+    // Offices that left mid-flow can still carry this checkpoint.
+    const gone = 'constituents' as ServeStepId
+    expect(resolveServeResumeStep('net-new', gone, done, true)).toBe(
+      'story-represent',
+    )
+    expect(resolveServeResumeStep('prefill', gone, done)).toBe('pledge')
+    expect(resolveServeResumeStep('prefill', null, done, true)).toBe(
+      'story-represent',
     )
   })
 
-  it('resumes at a priorities checkpoint only when on', () => {
-    expect(resolveServeResumeStep('net-new', 'priorities', done, true)).toBe(
-      'priorities',
-    )
-    expect(resolveServeResumeStep('net-new', 'priorities', done)).toBe(
-      'constituents',
-    )
+  it('never lets a story checkpoint skip a missing term', () => {
+    expect(
+      resolveServeResumeStep(
+        'net-new',
+        'story-grow',
+        { ...done, hasDates: false },
+        true,
+      ),
+    ).toBe('term-dates')
+  })
+})
+
+describe('the welcome tiles behind serve-citizen-panels', () => {
+  it('fills the 2x2 grid like the flag-off tiles', () => {
+    expect(SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS).toHaveLength(4)
+    expect(SERVE_WELCOME_VALUE_PROPS).toHaveLength(4)
+  })
+
+  it('ends with meeting briefings', () => {
+    expect(
+      SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS.map(({ title }) => title),
+    ).toEqual([
+      'Ask residents before you vote',
+      'Know what your community is talking about',
+      'Follow through on the issues you were elected to solve',
+      'Be ready for your next meeting',
+    ])
   })
 })

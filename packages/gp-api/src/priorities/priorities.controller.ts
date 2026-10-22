@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common'
 import {
   OnboardingPriorityOptionsSchema,
+  PriorityReadStatusSchema,
   PriorityResultsSchema,
   PrioritySchema,
   parsePriorityStatus,
@@ -28,6 +29,7 @@ import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { FeaturesService } from '@/features/services/features.service'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { z } from 'zod'
+import { isDevOnlyRouteEnabled } from '@/constituentFeedback/util/devOnlyRoute.util'
 import { ElectedOffice, PrioritySource, User } from '../generated/prisma'
 import {
   CreatePriorityDto,
@@ -36,9 +38,14 @@ import {
   UpdatePriorityDto,
 } from './schemas/priority.schema'
 import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
+import {
+  RoundTwoDrawResponseSchema,
+  RoundTwoOutreachParamDto,
+} from './schemas/roundTwoDraw.schema'
 import { PrioritiesService } from './services/priorities.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
+import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
 import { currentStepOf, priorityToApi } from './util/priority.util'
 
 @Controller('priorities')
@@ -51,6 +58,7 @@ export class PrioritiesController {
     private readonly onboarding: PriorityOnboardingService,
     private readonly priorityResults: PriorityResultsService,
     private readonly features: FeaturesService,
+    private readonly roundTwo: PriorityRoundTwoDrawService,
   ) {}
 
   @Get()
@@ -110,6 +118,37 @@ export class PrioritiesController {
     })
     if (!enabled) throw new NotFoundException()
     return this.priorityResults.resultsFor(electedOffice, id)
+  }
+
+  @Get(':id/read-status')
+  @ResponseSchema(PriorityReadStatusSchema)
+  async readStatus(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id }: PriorityIdParamDto,
+  ) {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    return this.priorityResults.readStatusFor(electedOffice, id)
+  }
+
+  // Dev and preview only: draws one of the office's round 2 texts now,
+  // whatever its send date, so a reviewer need not wait for the job.
+  @Post('round-two/:outreachId/draw')
+  @ResponseSchema(RoundTwoDrawResponseSchema)
+  async drawRoundTwo(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { outreachId }: RoundTwoOutreachParamDto,
+  ) {
+    // 404, not 403: on prod the route should not admit it exists.
+    if (!isDevOnlyRouteEnabled()) throw new NotFoundException()
+    return this.roundTwo.drawForOffice(
+      electedOffice.organizationSlug,
+      outreachId,
+    )
   }
 
   @Get(':id')

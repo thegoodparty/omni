@@ -67,4 +67,17 @@ describe('sizeOutreachSample', () => {
     expect(parsed.success).toBe(false)
     expect(parsed.error?.issues[0]?.message).toContain('counted nobody')
   })
+
+  it('refuses to size a text once texting is closed for the race', async () => {
+    const closed = buildSizeOutreachSampleTool({ textingClosed: true })
+    expect(await closed.execute({ audience: 50_000 })).toEqual({
+      error: expect.stringContaining('Texting is closed for this race'),
+    })
+  })
+
+  it('sizes a text by default, as the Chief of Staff builds it', async () => {
+    expect(
+      await buildSizeOutreachSampleTool().execute({ audience: 50_000 }),
+    ).toMatchObject({ sampleSize: 2_767 })
+  })
 })

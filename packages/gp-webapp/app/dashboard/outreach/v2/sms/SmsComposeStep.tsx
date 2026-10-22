@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
-  type SmsProtectedPart,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -21,7 +22,6 @@ import {
   FilterPillGroup,
   IconButton,
   Label,
-  type ProtectedSpec,
   seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
@@ -45,29 +45,13 @@ import {
   useDictation,
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
-import { IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
+import {
+  IMAGE_ACCEPT,
+  IMAGE_MAX_BYTES,
+  inMemoryCopy,
+  OPT_OUT_FOOTER,
+} from './smsCompose.util'
 
-// Why each locked part cannot change, shown when an edit runs into it. Both
-// surfaces read the same words: none of them names voters or constituents.
-// Partial because link_shortener forbids text rather than requiring it, so
-// nothing is ever locked for it.
-const LOCK_REASONS: Partial<Record<SmsProtectedPart['rule'], string>> = {
-  first_name_token: 'Keep the first name so each person sees their own.',
-  candidate_name:
-    "Your name stays so people know who's texting, but you can reword anything around it.",
-  paid_for_by: 'The law requires this line, but you can write around it.',
-  opt_out_line:
-    'Every text has to offer a way to opt out, but you can write around it.',
-  civic_panel_join:
-    'This is how people join your civic panel. Uncheck the box below to remove it.',
-}
-
-// A text that builds the panel is its ask, so there is no box to uncheck.
-const LOCKED_JOIN_REASON =
-  'This is how people join your civic panel, but you can write around it.'
-
-const LOCKED_FALLBACK =
-  'This part is required, but you can reword anything around it.'
 const FIRST_NAME_TAG = MERGE_TAGS[0]
 
 const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
@@ -114,16 +98,19 @@ interface SmsComposeStepProps {
   isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
-  standardsFailures: SmsStandardsRule[]
+  standardsFailures: SmsRequiredPart[]
   unfilledBrackets: string[]
   identificationExample: string
+  // The exact "Paid for by" line the message should carry, or null on a
+  // surface or a campaign with no committee to name.
+  paidForByText: string | null
+  // Puts a deleted required line back where the flow writes it.
+  onAddRequiredBack: (rule: SmsRequiredPart) => void
   // The whole message as sent: greeting, body, disclaimer and opt-out.
   message: string
   onMessageChange: (message: string) => void
-  // The parts of `message` nobody may change, from deriveSmsProtectedParts.
-  protectedParts: SmsProtectedPart[]
   mergeTagChannel: MergeTagChannel
-  // Whether the candidate has written anything between the locked parts.
+  // Whether the candidate has written anything between the required parts.
   hasWrittenBody: boolean
   composedLength: number
   // The one AI action: a fresh draft while the words are still the AI's,
@@ -142,7 +129,7 @@ interface SmsComposeStepProps {
   // before the first, and each one moves to the first field still missing.
   continueAttempts: number
   // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
-  // on a text whose purpose is the ask.
+  // on a text whose purpose is the ask, so the box cannot be unchecked.
   civicPanelAsk?: {
     checked: boolean
     locked?: boolean
@@ -150,25 +137,97 @@ interface SmsComposeStepProps {
   }
 }
 
-// Plain-language fix per failed compliance rule. The greeting, opt-out, and
-// paid-for-by lines are system-owned, so these mostly fire only when an edit
-// deletes one of them.
-const standardsFailureCopy = (
-  rule: SmsStandardsRule,
-  identificationExample: string,
-): string => {
+// What a send needs beyond the standards rules: the civic panel line the
+// reply reader or the create looks for.
+export type SmsRequiredPart =
+  | SmsStandardsRule
+  | 'civic_panel_join'
+  | 'civic_panel_leave'
+
+// What is wrong and how to fix it, per missing required part: rule 8 of
+// docs/product-copy.md. The greeting, name, disclaimer, opt-out and panel
+// line are written by the flow and editable like any other text, so these
+// fire when an edit deletes one, and each shows the exact line to restore
+// plus a one-click way to restore it.
+interface StandardsFailureCopy {
+  problem: string
+  fix: string
+  // The exact words, shown as text to copy rather than in quotes to retype.
+  line?: string
+  // Names the Add it back button for a screen reader, which reads several.
+  addBackLabel?: string
+}
+
+// The greeting as the official reads it in the field, not the merge token.
+const GREETING_EXAMPLE = 'Hello [First name],'
+
+export const standardsFailureCopy = (
+  rule: SmsRequiredPart,
+  {
+    identificationExample,
+    paidForByText,
+  }: { identificationExample: string; paidForByText: string | null },
+): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
-    return `messages must include your name, e.g. "${identificationExample}"`
+    return {
+      problem: 'Your text needs your name.',
+      fix: 'Add it back at the start:',
+      line: identificationExample,
+      addBackLabel: 'Add your name back',
+    }
   }
-  if (rule === 'opt_out_line') return 'keep the "Reply STOP" opt-out line'
+  if (rule === 'opt_out_line') {
+    return {
+      problem: 'Your text needs its opt-out line.',
+      fix: 'Add it back as the last line:',
+      line: OPT_OUT_FOOTER,
+      addBackLabel: 'Add the opt-out line back',
+    }
+  }
   if (rule === 'first_name_token') {
-    return 'keep the {first_name} greeting token'
+    return {
+      problem: 'Your text needs its greeting, so each person sees their name.',
+      fix: 'Add it back at the start:',
+      line: GREETING_EXAMPLE,
+      addBackLabel: 'Add the greeting back',
+    }
   }
-  if (rule === 'paid_for_by') return 'keep the "Paid for by" line'
+  if (rule === 'paid_for_by') {
+    return {
+      problem: 'Your text needs its disclaimer.',
+      fix: 'Add it back before the opt-out line:',
+      ...(paidForByText && {
+        line: paidForByText,
+        addBackLabel: 'Add the disclaimer back',
+      }),
+    }
+  }
+  if (rule === 'civic_panel_join') {
+    return {
+      problem: 'Your text needs its civic panel ask.',
+      fix: 'Add it back before the opt-out line:',
+      line: CIVIC_PANEL_JOIN_LINE,
+      addBackLabel: 'Add the civic panel ask back',
+    }
+  }
+  if (rule === 'civic_panel_leave') {
+    return {
+      problem: 'Your text needs the line for leaving your civic panel.',
+      fix: 'Add it back before the opt-out line:',
+      line: CIVIC_PANEL_LEAVE_LINE,
+      addBackLabel: 'Add the civic panel line back',
+    }
+  }
   if (rule === 'link_shortener') {
-    return 'links must not use a shortener like bit.ly — paste the full web address instead'
+    return {
+      problem: 'Your text has a shortened link, like bit.ly.',
+      fix: 'Paste the full web address instead.',
+    }
   }
-  return 'shorten the message to fit the length limit'
+  return {
+    problem: 'Your text is over the length limit.',
+    fix: 'Shorten it to continue.',
+  }
 }
 
 export const SmsComposeStep = ({
@@ -178,9 +237,10 @@ export const SmsComposeStep = ({
   standardsFailures,
   unfilledBrackets,
   identificationExample,
+  paidForByText,
+  onAddRequiredBack,
   message,
   onMessageChange,
-  protectedParts,
   mergeTagChannel,
   hasWrittenBody,
   composedLength,
@@ -203,7 +263,6 @@ export const SmsComposeStep = ({
   const attempted = continueAttempts > 0
   const imageMissing = attempted && !imagePreviewUrl
   const messageMissing = attempted && !hasWrittenBody
-  const [lockReason, setLockReason] = useState<string | null>(null)
   // Dictation lands at the cursor, not at the end: the end of the message is
   // the opt-out line, and nothing may follow it.
   const dictation = useDictation({
@@ -225,29 +284,9 @@ export const SmsComposeStep = ({
       id: FIRST_NAME_TAG.id,
       label: FIRST_NAME_TAG.label,
       text: firstNameText,
-      required: protectedParts.some((part) => part.kind === 'token'),
     },
   ]
-  const protectedRanges: ProtectedSpec[] = protectedParts.flatMap((part) =>
-    part.kind === 'phrase'
-      ? [
-          {
-            id: part.rule,
-            text: part.text,
-            // The copy the lock rules chose (the footer, not a quote of it).
-            start: part.start,
-            reason:
-              part.rule === 'civic_panel_join' && civicPanelAsk?.locked
-                ? LOCKED_JOIN_REASON
-                : (LOCK_REASONS[part.rule] ?? LOCKED_FALLBACK),
-          },
-        ]
-      : [],
-  )
   const isImprove = aiAction === 'improve'
-  useEffect(() => {
-    setLockReason(null)
-  }, [message])
   const overLimit = composedLength > SMS_COMPOSED_MAX_LENGTH
   const segments = Math.max(1, Math.ceil(composedLength / 160))
 
@@ -267,7 +306,7 @@ export const SmsComposeStep = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per press, not per edit
   }, [continueAttempts])
 
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return
     if (!IMAGE_ACCEPT.split(',').includes(file.type)) {
       onImageError('Use a JPG, PNG, or GIF image.')
@@ -277,8 +316,17 @@ export const SmsComposeStep = ({
       onImageError('Image too large — choose one under 500 KB.')
       return
     }
+    let snapshot: File
+    try {
+      snapshot = await inMemoryCopy(file)
+    } catch {
+      onImageError(
+        "We couldn't open that image. Choose it again or pick another.",
+      )
+      return
+    }
     onImageError(null)
-    onImageChange(file)
+    onImageChange(snapshot)
   }
 
   return (
@@ -378,7 +426,7 @@ export const SmsComposeStep = ({
             accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
-              handleFile(e.target.files?.[0] ?? null)
+              void handleFile(e.target.files?.[0] ?? null)
               e.target.value = ''
             }}
           />
@@ -401,14 +449,6 @@ export const SmsComposeStep = ({
             value={message}
             onChange={onMessageChange}
             tokens={tokens}
-            protectedRanges={protectedRanges}
-            onBlockedEdit={(target) =>
-              setLockReason(
-                'reason' in target
-                  ? target.reason
-                  : (LOCK_REASONS.first_name_token ?? LOCKED_FALLBACK),
-              )
-            }
             // Read-only until the first draft lands, so nothing typed is
             // overwritten by it.
             readOnly={isDrafting && !message.trim()}
@@ -422,9 +462,6 @@ export const SmsComposeStep = ({
             variant="seamless"
             className="min-h-[140px]"
           />
-          <p role="status" className="mt-1 min-h-4 text-xs text-foreground">
-            {lockReason}
-          </p>
           {messageMissing && (
             <p className="text-xs text-destructive">{MESSAGE_REQUIRED_ERROR}</p>
           )}
@@ -515,11 +552,42 @@ export const SmsComposeStep = ({
         {hasWrittenBody &&
           standardsFailures
             .filter((rule) => rule !== 'length')
-            .map((rule) => (
-              <p key={rule} className="text-xs text-destructive">
-                Compliance: {standardsFailureCopy(rule, identificationExample)}
-              </p>
-            ))}
+            .map((rule) => {
+              const copy = standardsFailureCopy(rule, {
+                identificationExample,
+                paidForByText,
+              })
+              return (
+                <div
+                  key={rule}
+                  className="flex flex-wrap items-center gap-x-2 text-xs text-destructive"
+                >
+                  <p>
+                    {copy.problem} {copy.fix}
+                    {copy.line && (
+                      <>
+                        {' '}
+                        <span className="select-all rounded bg-muted px-1 font-mono text-foreground">
+                          {copy.line}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                  {copy.addBackLabel && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="small"
+                      className="h-auto px-0 text-xs"
+                      aria-label={copy.addBackLabel}
+                      onClick={() => onAddRequiredBack(rule)}
+                    >
+                      Add it back
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
         {unfilledBrackets.length > 0 && (
           <p className="text-xs text-destructive">
             Your message still has {unfilledBrackets.join(', ')}. Replace{' '}

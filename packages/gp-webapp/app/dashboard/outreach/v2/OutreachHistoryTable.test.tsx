@@ -577,6 +577,106 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(await within(desktopTable()).findByText('n/a')).toBeInTheDocument()
   })
 
+  describe('on the Serve surface', () => {
+    const serveRow = (overrides: Partial<HistoryRow> = {}): HistoryRow => ({
+      id: 21,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'nativePhoneBanking',
+      name: 'Introduction calls',
+      status: 'in_progress',
+      ...overrides,
+    })
+
+    it('names the history outreach, never campaigns', () => {
+      render(<OutreachHistoryTable rows={[serveRow()]} isServe />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your outreach' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText("Everything you've sent, most recent first."),
+      ).toBeInTheDocument()
+      expect(
+        within(desktopTable()).getByRole('columnheader', { name: 'Outreach' }),
+      ).toBeInTheDocument()
+      expect(document.body.textContent).not.toMatch(/campaign|supporter/i)
+    })
+
+    it('reads a call list by who needs a follow-up, not by supporters', async () => {
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: {
+          id: 21,
+          createdAt: new Date('2026-08-10T00:00:00Z'),
+          updatedAt: new Date('2026-08-10T00:00:00Z'),
+          campaignId: null,
+          outreachType: 'nativePhoneBanking',
+          projectId: null,
+          name: 'Introduction calls',
+          status: 'in_progress',
+          error: null,
+          audienceRequest: null,
+          script: null,
+          message: null,
+          date: null,
+          imageUrl: null,
+          voterFileFilterId: null,
+          doorKnockingRouteId: null,
+          phoneBankingListId: 5,
+          phoneListId: null,
+          identityId: null,
+          didState: null,
+          didNpaSubset: [],
+          title: null,
+          textCount: null,
+          billableTextCount: null,
+          campaignPlanDueDate: null,
+          organizationSlug: 'eo-1',
+          archivedAt: null,
+          phoneBanking: {
+            listId: 5,
+            entriesTotal: 10,
+            entriesCalled: 4,
+            peopleTotal: 10,
+            peopleCalled: 4,
+            byOutcome: {
+              answered: 4,
+              no_answer: 0,
+              voicemail: 0,
+              wrong_number: 0,
+              refused: 0,
+              disconnected: 0,
+              hung_up: 0,
+            },
+            supporters: 0,
+            unsure: 0,
+            nonSupporters: 0,
+            byFollowUp: { yes: 3, no: 1 },
+          },
+        },
+      })
+
+      render(<OutreachHistoryTable rows={[serveRow()]} isServe />)
+
+      expect(
+        await within(desktopTable()).findByText('3 need follow-up'),
+      ).toBeInTheDocument()
+      expect(
+        within(desktopTable()).queryByText(/supporter/),
+      ).not.toBeInTheDocument()
+    })
+
+    it('says the empty and archived states in outreach', () => {
+      render(<OutreachHistoryTable rows={[]} isServe />)
+
+      expect(
+        screen.getAllByText(
+          'No outreach yet. Pick a channel above to send your first.',
+        ),
+      ).toHaveLength(2)
+    })
+  })
+
   it('singularizes the supporter count when exactly one supporter is logged', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -819,6 +919,33 @@ describe('OutreachHistoryTable — draft rows', () => {
     // One in the desktop table, one in the mobile card — both in the DOM,
     // the mobile one hidden via CSS (same convention as desktopTable()).
     expect(screen.getAllByText('Pro needed')).toHaveLength(2)
+  })
+
+  it('explains a Texting closed draft on hover', async () => {
+    const user = userEvent.setup()
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'pro',
+          texting: 'closed',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    const [desktopLabel] = screen.getAllByText('Texting closed')
+    await user.hover(desktopLabel!)
+
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
   })
 
   // The hub passes no membership with the flag off, and with it off no draft

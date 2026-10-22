@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { addDays, format } from 'date-fns'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
   blockSlowScripts,
@@ -84,6 +85,11 @@ test.describe('Pro upgrade v2 resume', () => {
     const { user, client } = await authenticateTestUser(page, {
       isolated: true,
     })
+    // Keep the election outside the 19-day texting cutoff so the copy below
+    // does not depend on the calendar.
+    await client.put('/v1/campaigns/mine', {
+      details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+    })
     // The filing a free candidate submitted on an earlier visit, through the
     // endpoint the form posts to, before leaving at payment.
     await seedEinAndFiled(client)
@@ -94,10 +100,10 @@ test.describe('Pro upgrade v2 resume', () => {
 
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`)
     await expect(
-      page.getByRole('heading', { name: 'Submitted for verification' }),
+      page.getByRole('heading', { name: 'Your details are saved' }),
     ).toBeVisible({ timeout: 30_000 })
     await expect(
-      page.getByText('Your campaign has been submitted for verification.'),
+      page.getByText('Verification starts when you finish your upgrade.'),
     ).toBeVisible()
     await expect(
       page.getByText('What are your campaign filing details?'),

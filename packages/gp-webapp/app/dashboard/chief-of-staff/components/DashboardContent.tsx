@@ -1,29 +1,35 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_BUILD_CHAT_PARAM,
-  CIVIC_PANEL_BUILD_CHAT_VALUE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
+import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
-import { chiefOfStaffArchiveHref, chiefOfStaffHref } from '../routes'
+import { chiefOfStaffArchiveHref } from '../routes'
+import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskStack from './TaskStack'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import {
+  buildChiefOfStaffIntro,
+  buildChiefOfStaffNextSteps,
+  civicPanelExplainNextStep,
+} from './chat/chatConstants'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// The build card's turn, hidden again when its conversation is reopened.
-const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE]
+// The build card's turns, hidden again when their conversation is reopened.
+const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
@@ -37,6 +43,7 @@ const NO_INTRO: string[] = []
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
   const [chatOpen, setChatOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | undefined>(undefined)
   const [initialConversationId, setInitialConversationId] = useState<
     string | null
   >(null)
@@ -52,50 +59,75 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  // The build card's Get started links back here with the param, so the
-  // official stays on the home: the chat opens on the conversation that
-  // builds the panel, started by a turn they never see.
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const buildPanelParam =
-    searchParams?.get(CIVIC_PANEL_BUILD_CHAT_PARAM) ===
-    CIVIC_PANEL_BUILD_CHAT_VALUE
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
-  useEffect(() => {
-    if (!buildPanelParam || !panelsReady) return
-    router.replace(chiefOfStaffHref(), { scroll: false })
-    if (!panelsEnabled) return
-    setOpenerKey(null)
-    setInitialConversationId(null)
-    setPendingKickoff(BUILD_CITIZENS_PANEL_MESSAGE)
-    setChatOpen(true)
-  }, [buildPanelParam, panelsReady, panelsEnabled, router])
+  // The panel's members pick the civic panel step: build one, or ask it.
+  const orgSlug = useOrganization()?.slug
+  const { data: panelSummary, isLoading: panelSummaryLoading } = useQuery({
+    ...civicPanelSummaryQueryOptions(orgSlug),
+    enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
+  })
+  const panelMembers = panelsEnabled ? panelSummary?.members : undefined
 
   const openNewChat = () => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
+  const openWithFile = (file: File) => {
+    openNewChat()
+    setPendingFile(file)
+  }
   const openConversation = (id: string) => {
+    setPendingFile(undefined)
     setOpenerKey(null)
     setPendingKickoff(undefined)
     setInitialConversationId(id)
     setChatOpen(true)
   }
   const openCard = (key: OnboardingCardKey) => {
+    setPendingFile(undefined)
     setOpenerKey(key)
     setPendingKickoff(undefined)
     setInitialConversationId(null)
     setChatOpen(true)
   }
   const discussCard = (message: string) => {
+    setPendingFile(undefined)
     setPendingKickoff(message)
     setOpenerKey(null)
     setInitialConversationId(null)
     setChatOpen(true)
   }
+
+  // Memoized: the opener's identity keys the body's typing effect.
+  const opener = useMemo(
+    () =>
+      openerKey ? ONBOARDING_CARDS[openerKey].opener(firstName) : undefined,
+    [openerKey, firstName],
+  )
+  const intro = useMemo(() => buildChiefOfStaffIntro(firstName), [firstName])
+
+  // The intro ends on a question, answered by these cards. The priorities
+  // card asks its own question and a kickoff answers something already, so
+  // neither gets them; the panel explainer gets its one next step instead.
+  const explaining = pendingKickoff === EXPLAIN_CIVIC_PANEL_MESSAGE
+  const explainStep = explaining
+    ? civicPanelExplainNextStep(panelMembers)
+    : undefined
+  const suggestions = explaining
+    ? explainStep
+      ? [explainStep]
+      : []
+    : pendingKickoff || openerKey === 'priorities'
+      ? undefined
+      : buildChiefOfStaffNextSteps({
+          panelsEnabled: panelsReady && panelsEnabled,
+          panelMembers,
+          panelLoading: !panelsReady || (panelsEnabled && panelSummaryLoading),
+        })
 
   return (
     // Same shell as the Campaign Manager home: a 720px column, the stack
@@ -131,22 +163,29 @@ export default function DashboardContent(): React.JSX.Element {
         firstName={firstName}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
-        showAttachIcon
+        onAttachFile={openWithFile}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
         onOpenChange={(next) => {
           setChatOpen(next)
           // A later plain reopen (the footer bar) must never resend it.
-          if (!next) setPendingKickoff(undefined)
+          if (!next) {
+            setPendingKickoff(undefined)
+            setPendingFile(undefined)
+          }
         }}
         initialConversationId={initialConversationId}
-        opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
+        opener={opener}
         openerKey={openerKey}
         pendingKickoff={pendingKickoff}
-        defaultIntro={pendingKickoff ? NO_INTRO : undefined}
+        pendingFile={pendingFile}
+        defaultIntro={pendingKickoff ? NO_INTRO : intro}
+        suggestions={suggestions}
+        showSuggestionsAfterKickoff={explaining}
         hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
+        analyticsSurface="chief_of_staff_page"
       />
     </div>
   )

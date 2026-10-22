@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { OrdinanceFlowStepSchema } from '@goodparty_org/contracts'
 import {
   AgentShapeSchema,
   JsonValueSchema,
@@ -91,54 +90,22 @@ export type ToolFailure = z.infer<typeof ToolFailureSchema>
 export const toolFailureDelayMs = (failure: ToolFailure): number =>
   failure.mode === 'timeout' ? (failure.afterMs ?? DEFAULT_TOOL_TIMEOUT_MS) : 0
 
-// "The capability exists but the user lacks access" as something a seeder can
-// act on. A CLOSED SET, and `.strict()` is what keeps it closed: an open bag
-// of column overrides would let a case list seed a state no deployment can
-// produce, and the verdict would then be about an agent we do not ship.
-//
-// The states worth naming are the ones that decide which tools REGISTER,
-// because tool registration is the only thing about an account the model can
-// see. Each is read off a handler rather than invented:
-//
-//   pro             campaignManager.handler gates the whole CRM and
-//                   voter-file family on `ctx.isPro !== false`.
-//   district        `organization.positionId` is the half of the district
-//                   gate that lives in our own database; without it
-//                   resolveByOrgSlug returns null before it asks
-//                   election-api anything, so `districtFilters` is null and
-//                   the constituent-data pair registers on no scope.
-//   campaignDetails the campaign's `details` blob carries `raceId`, which is
-//                   what `get_ballot_requirements` registers on.
-//   ordinanceStep   each ordinance step past clarify carries its own
-//                   `present_*` tools and nothing else does.
-//   briefingHighlight
-//                   the one state here that registers no tool: it opens the
-//                   briefing chat on a highlighted passage instead of the
-//                   whole briefing, which is the other thing the briefing
-//                   prompt renders differently. Like ordinanceStep it picks
-//                   what the conversation is anchored on, and like it the
-//                   runner reads the anchor back.
-//
-// Absent means "whatever the seeder seeds by default", which is every one of
-// these present. Only an explicit `false` takes something away, so a case
-// list that names none of them seeds exactly what it seeded before. The
-// exception is briefingHighlight, whose default is the whole briefing: a
-// highlight is something a user picks, not something an account has.
-export const ChatAccountStateSchema = z
-  .object({
-    pro: z.boolean().optional(),
-    district: z.boolean().optional(),
-    campaignDetails: z.boolean().optional(),
-    ordinanceStep: OrdinanceFlowStepSchema.optional(),
-    briefingHighlight: z.boolean().optional(),
-  })
-  .strict()
-  .refine((state) => Object.keys(state).length > 0, {
-    message:
-      'an empty accountState asks for nothing; omit the field rather than ' +
-      'declaring a state the seeder cannot tell from the default',
-  })
-export type ChatAccountState = z.infer<typeof ChatAccountStateSchema>
+// The account-state vocabulary and CaseListError live in
+// @/testFixtures/judgeChatFixture/accountState, because the test-only HTTP
+// endpoint that stages a case for a deployed arm validates against the same
+// schema and throws the same error — and src/chats/evals/** is excluded from
+// the production build, so a shipping module cannot import them from here.
+// Re-exported because this file both validates with the schema and throws
+// the error, so they are part of its own surface too.
+export {
+  CaseListError,
+  ChatAccountStateSchema,
+  type ChatAccountState,
+} from '@/testFixtures/judgeChatFixture/accountState'
+import {
+  CaseListError,
+  ChatAccountStateSchema,
+} from '@/testFixtures/judgeChatFixture/accountState'
 
 // One row of a transcript the harness writes onto the record before the agent
 // is asked anything, so a case can be answered MID-conversation.
@@ -240,6 +207,57 @@ export const MAX_CASE_TURNS = 10
 // short of it rather than exactly on it.
 export const MAX_SEEDED_TURNS = 18
 
+// A question the judge is asked about ONE case, beside the config's default
+// dimensions. A probe tests a relationship between the artifact and an input
+// the case mutated, and "is this a good artifact" is the wrong question for
+// it: a polished artifact that glossed over a sparse input can read better
+// than one that handled it.
+//
+// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
+// params or a record. The judging step reads it from its own checkout's case
+// list, keyed by caseId, and puts it on the one payload both slots share — so
+// both runs are always judged on the same questions, and a base ref that
+// predates the field strips it from a case the base arm never judges anyway.
+//
+// The reserved names are the keys a verdict already has. `overall` is
+// judge.ts's OVERALL, spelled out because judge.ts imports this module.
+const RESERVED_DIMENSIONS = new Set([
+  ...DEFAULT_JUDGE_CONFIG.dimensions,
+  'overall',
+])
+
+export const MAX_CASE_DIMENSIONS = 4
+
+export const CaseDimensionSchema = z
+  .object({
+    // Becomes a key in the judge's output schema and a row in a public
+    // report, so it is held to an identifier: a leading letter also rules
+    // out `__proto__`, the one key `z.object` cannot require.
+    name: z
+      .string()
+      .max(40)
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'a case dimension name is a snake_case identifier',
+      )
+      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
+        message:
+          'that name is already a dimension every case is judged on; a ' +
+          'case dimension has to be a question of its own',
+      }),
+    question: z.string().min(1).max(400),
+  })
+  .strict()
+export type CaseDimension = z.infer<typeof CaseDimensionSchema>
+
+// Long enough for a mutation excerpt and the axis it tests, short enough that
+// it cannot become a second input competing with the case's own input for the
+// judge's attention.
+export const MAX_CONDITION_CHARS = 2_000
+
+// One sentence, so a bound well short of a condition's.
+export const MAX_HANDLED_WHEN_CHARS = 600
+
 // The case a chat agent is driven with.
 //
 // `question` STAYS VALID ON ITS OWN and is still what every authored list
@@ -275,6 +293,27 @@ export const ChatCaseSchema = z
       .optional(),
     toolFailure: ToolFailureSchema.optional(),
     accountState: ChatAccountStateSchema.optional(),
+    // The same four judge-only fields a background case carries, with the
+    // same bounds; see BackgroundCaseSchema. The runner never reads them, so
+    // a turn is driven the same way with or without them.
+    condition: z.string().trim().min(1).max(MAX_CONDITION_CHARS).optional(),
+    handledWhen: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_HANDLED_WHEN_CHARS)
+      .optional(),
+    scored: z.boolean().optional(),
+    dimensions: z
+      .array(CaseDimensionSchema)
+      .min(1)
+      .max(MAX_CASE_DIMENSIONS)
+      .refine(
+        (dimensions) =>
+          new Set(dimensions.map((d) => d.name)).size === dimensions.length,
+        { message: 'a case names each of its dimensions once' },
+      )
+      .optional(),
   })
   // STRICT, WHICH IS NOT THE SAME AS REQUIRING ANYTHING. Every field above is
   // optional, which is what an older base ref needs. What strict adds is that
@@ -296,6 +335,17 @@ export const ChatCaseSchema = z
       '(several user turns in order); carrying both leaves which one the ' +
       'agent was asked undecided',
     path: ['question'],
+  })
+  .refine(
+    (one) => one.handledWhen === undefined || one.condition !== undefined,
+    {
+      message: 'handledWhen describes handling a condition; add the condition',
+      path: ['handledWhen'],
+    },
+  )
+  .refine((one) => one.handledWhen === undefined || one.scored !== false, {
+    message: 'a control (scored: false) carries no handledWhen',
+    path: ['handledWhen'],
   })
 export type ChatCase = z.infer<typeof ChatCaseSchema>
 
@@ -349,57 +399,6 @@ export const caseTurns = (one: ChatCase): string[] => {
 // as one where production built all of it.
 export const usesSeededTranscript = (one: ChatCase): boolean =>
   one.priorTranscript !== undefined
-
-// A question the judge is asked about ONE case, beside the config's default
-// dimensions. A probe tests a relationship between the artifact and an input
-// the case mutated, and "is this a good artifact" is the wrong question for
-// it: a polished artifact that glossed over a sparse input can read better
-// than one that handled it.
-//
-// JUDGE-ONLY. The runner never reads it, so it never reaches the agent's
-// params or a record. The judging step reads it from its own checkout's case
-// list, keyed by caseId, and puts it on the one payload both slots share — so
-// both runs are always judged on the same questions, and a base ref that
-// predates the field strips it from a case the base arm never judges anyway.
-//
-// The reserved names are the keys a verdict already has. `overall` is
-// judge.ts's OVERALL, spelled out because judge.ts imports this module.
-const RESERVED_DIMENSIONS = new Set([
-  ...DEFAULT_JUDGE_CONFIG.dimensions,
-  'overall',
-])
-
-export const MAX_CASE_DIMENSIONS = 4
-
-export const CaseDimensionSchema = z
-  .object({
-    // Becomes a key in the judge's output schema and a row in a public
-    // report, so it is held to an identifier: a leading letter also rules
-    // out `__proto__`, the one key `z.object` cannot require.
-    name: z
-      .string()
-      .max(40)
-      .regex(
-        /^[a-z][a-z0-9_]*$/,
-        'a case dimension name is a snake_case identifier',
-      )
-      .refine((name) => !RESERVED_DIMENSIONS.has(name), {
-        message:
-          'that name is already a dimension every case is judged on; a ' +
-          'case dimension has to be a question of its own',
-      }),
-    question: z.string().min(1).max(400),
-  })
-  .strict()
-export type CaseDimension = z.infer<typeof CaseDimensionSchema>
-
-// Long enough for a mutation excerpt and the axis it tests, short enough that
-// it cannot become a second input competing with the params for the judge's
-// attention.
-export const MAX_CONDITION_CHARS = 2_000
-
-// One sentence, so a bound well short of a condition's.
-export const MAX_HANDLED_WHEN_CHARS = 600
 
 // A page the broker serves both arms in place of the live one. The URL has to
 // be in the broker's normalized form already (gp-ai
@@ -575,7 +574,7 @@ export const BackgroundCaseSchema = z
 export type BackgroundCase = z.infer<typeof BackgroundCaseSchema>
 
 // What the judging step needs from a case list beyond the records, keyed by
-// caseId. Chat cases carry neither field, so a chat list yields an empty map.
+// caseId.
 export interface CaseJudging {
   condition?: string
   handledWhen?: string
@@ -584,30 +583,22 @@ export interface CaseJudging {
 
 export const caseJudgingOf = (list: CaseList): Map<string, CaseJudging> =>
   new Map(
-    list.cases.flatMap((one) =>
-      'params' in one
-        ? [
-            [
-              one.caseId,
-              {
-                ...(one.condition !== undefined && {
-                  condition: one.condition,
-                }),
-                ...(one.handledWhen !== undefined && {
-                  handledWhen: one.handledWhen,
-                }),
-                scored: one.scored ?? true,
-              },
-            ],
-          ]
-        : [],
-    ),
+    list.cases.map((one) => [
+      one.caseId,
+      {
+        ...(one.condition !== undefined && { condition: one.condition }),
+        ...(one.handledWhen !== undefined && {
+          handledWhen: one.handledWhen,
+        }),
+        scored: one.scored ?? true,
+      },
+    ]),
   )
 
 export type JudgeCase = ChatCase | BackgroundCase
 
 export const caseDimensionsOf = (one: JudgeCase): readonly CaseDimension[] =>
-  'dimensions' in one ? (one.dimensions ?? []) : []
+  one.dimensions ?? []
 
 const CASE_SCHEMAS = {
   chat: ChatCaseSchema,
@@ -640,8 +631,6 @@ export interface CaseList {
   // file rather than only the case.
   source: string
 }
-
-export class CaseListError extends Error {}
 
 // One place, because this sentence is what goes in front of a person after a
 // paid-for sweep failed, and four copies of it drift.

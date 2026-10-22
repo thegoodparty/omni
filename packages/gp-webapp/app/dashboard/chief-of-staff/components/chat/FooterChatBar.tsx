@@ -22,8 +22,8 @@ interface Props {
   historyKey?: readonly unknown[]
   /** aria-label for the open button. Defaults to Chief of Staff. */
   openLabel?: string
-  /** Show the paperclip (attachments-enabled scopes only). Opens the chat. */
-  showAttachIcon?: boolean
+  /** Open the chat surface with this file attached (the paperclip). */
+  onAttachFile: (file: File) => void
 }
 
 /**
@@ -31,7 +31,7 @@ interface Props {
  * the dashboard sidebar (16rem) on lg+ — the breakpoint where the sidebar
  * rail appears (below lg it collapses to a mobile sheet, so the bar spans the
  * full width). Tapping the pill (or any of its buttons) opens the chat
- * surface. Its live height is published as `--chat-dock-height` on the root
+ * surface; the paperclip picks a file first and opens it attached. Its live height is published as `--chat-dock-height` on the root
  * element, for anything sticky that has to sit above it.
  */
 export default function FooterChatBar({
@@ -41,13 +41,14 @@ export default function FooterChatBar({
   chatApi,
   historyKey,
   openLabel = 'Open Chief of Staff chat',
-  showAttachIcon = false,
+  onAttachFile,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
     : 'How can I help?'
 
   const barRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const bar = barRef.current
     if (!bar) return
@@ -83,18 +84,30 @@ export default function FooterChatBar({
             >
               {placeholder}
             </button>
-            {showAttachIcon && (
-              <IconButton
-                type="button"
-                size="small"
-                variant="ghost"
-                aria-label="Attach a file"
-                className="size-10"
-                onClick={onOpen}
-              >
-                <PaperclipIcon className="size-5" aria-hidden />
-              </IconButton>
-            )}
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Attach a file"
+              className="size-10"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <PaperclipIcon className="size-5" aria-hidden />
+            </IconButton>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,image/jpeg,image/png"
+              className="hidden"
+              aria-hidden
+              tabIndex={-1}
+              data-testid="footer-chat-file-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onAttachFile(file)
+              }}
+            />
             <IconButton
               type="button"
               size="small"

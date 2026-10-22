@@ -20,10 +20,10 @@ export const dynamic = 'force-dynamic'
 // runtime.
 export const runtime = 'nodejs'
 // A multi-sheet request renders every sheet before it can zip them, so this
-// scales with sheet count rather than any single sheet's own cost. The
-// default 15s is close enough to a large list's worst case to be worth
-// raising, same as the walk-list PDF route.
-export const maxDuration = 60
+// scales with sheet count rather than any single sheet's own cost. A full
+// 20-sheet list takes 15-23s on a laptop and ran past 60s in prod (ENG-11122),
+// so this leaves room for a slower function CPU.
+export const maxDuration = 300
 
 const notFound = () => new Response('Not found', { status: 404 })
 
@@ -96,6 +96,7 @@ export const GET = async (
       rows: rowsForSheet(sheetIndex),
       isServe,
       citizenPanelsEnabled,
+      civicPanelOnly: list.civicPanelOnly === true,
     })
 
   const sheetParam = new URL(request.url).searchParams.get('sheet')

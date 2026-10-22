@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   AxiosError,
   AxiosHeaders,
@@ -67,6 +67,39 @@ describe('PeerlyPhoneListService', () => {
     )
   })
 
+  describe('addContactToPhoneList', () => {
+    it('turns a non-cell number into an expected 400', async () => {
+      const error = createAxiosError({ Error: 'Not a cell number.' }, 403)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: expect.objectContaining({
+            expectedRejection: true,
+            httpExceptionClass: BadRequestException,
+          }),
+        }),
+      )
+    })
+
+    it('keeps any other failure a warning the send will judge', async () => {
+      const error = createAxiosError({ Error: 'Internal error' }, 500)
+      mockHttpService.post.mockRejectedValue(error)
+
+      await service.addContactToPhoneList(169614, '5551234567')
+
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error,
+          context: { expectedRejection: true },
+        }),
+      )
+    })
+  })
+
   describe('checkPhoneListStatus', () => {
     it('returns validated response on success', async () => {
       const mockResponse = { data: { list_state: 'ACTIVE', list_id: 123 } }
@@ -96,6 +129,36 @@ describe('PeerlyPhoneListService', () => {
       expect(result).toBeNull()
       expect(mockLogger.warn).toHaveBeenCalled()
       expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it.each([502, 503, 504])(
+      'returns null for a Peerly gateway %i when the caller opts in',
+      async (status) => {
+        mockHttpService.get.mockRejectedValue(
+          createAxiosError({ error: 'Bad gateway' }, status),
+        )
+
+        const result = await service.checkPhoneListStatus('test-token', {
+          gatewayErrorIsPending: true,
+        })
+
+        expect(result).toBeNull()
+        expect(mockLogger.warn).toHaveBeenCalled()
+        expect(mockErrorHandling.handleApiError).not.toHaveBeenCalled()
+      },
+    )
+
+    it('still throws a Peerly gateway error for a caller that did not opt in', async () => {
+      const error = createAxiosError({ error: 'Bad gateway' }, 502)
+      mockHttpService.get.mockRejectedValue(error)
+      mockErrorHandling.handleApiError.mockRejectedValue(
+        new BadGatewayException('Peerly API error: Bad gateway'),
+      )
+
+      await expect(service.checkPhoneListStatus('test-token')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
     })
 
     it('delegates non-transient errors to handleApiError', async () => {

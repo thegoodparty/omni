@@ -14,7 +14,11 @@
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
 import { GuardrailChat, tryGuardrailLine } from './guardrailLines'
 import { containsLine } from './normalizeLine'
-import { ADVICE_SIGNALS, DISCLAIMER_PRESENT } from './professionalAdviceCheck'
+import {
+  ADVICE_SIGNALS,
+  DISCLAIMER_PRESENT,
+  SUBSTITUTE_OPENER,
+} from './professionalAdviceCheck'
 
 const HANDOFF_TOOL_NAME = 'compose_handoff'
 
@@ -32,17 +36,34 @@ export const hasCautionLine = (text: string, chat: GuardrailChat): boolean =>
   carriesLine(text, 'legal_advice', chat) ||
   carriesLine(text, 'professional_advice', chat)
 
+// The strict test: only the canonical lines, or a sentence that opens the
+// way they do, count as a caution. A chat whose model tends to close with a
+// caution in its own words ("this is legal-risk analysis, not legal advice")
+// uses this one, so the shared line still lands after the paraphrase.
+export const hasCanonicalCautionLine = (
+  text: string,
+  chat: GuardrailChat,
+): boolean =>
+  SUBSTITUTE_OPENER.test(text) ||
+  carriesLine(text, 'legal_advice', chat) ||
+  carriesLine(text, 'professional_advice', chat)
+
+export type CautionPresent = (text: string, chat: GuardrailChat) => boolean
+
 // A chat may pass a narrower signal list when one of the shared signals is
 // ordinary prose on that surface (the briefing chat quotes agenda material
-// that cites code sections); the shared list itself does not change.
+// that cites code sections), and a stricter caution test when its model
+// paraphrases the caution instead of giving the line; the shared list and
+// the default test do not change.
 export const legalAdviceBackstop = (
   text: string,
   chat: GuardrailChat,
   signals: readonly RegExp[] = ADVICE_SIGNALS,
+  cautionPresent: CautionPresent = hasCautionLine,
 ): string | null => {
   if (!text.trim()) return null
   if (!signals.some((re) => re.test(text))) return null
-  if (hasCautionLine(text, chat)) return null
+  if (cautionPresent(text, chat)) return null
   return tryGuardrailLine('legal_advice', chat)
 }
 

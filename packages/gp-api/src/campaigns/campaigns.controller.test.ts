@@ -169,7 +169,12 @@ describe('CampaignsController', () => {
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
       setIsPro: vi.fn(),
     }
-    campaignsService = campaignsServiceMock as CampaignsService
+    campaignsService = {
+      ...campaignsServiceMock,
+      client: {
+        tcrCompliance: { findUnique: vi.fn().mockResolvedValue(null) },
+      },
+    } as unknown as CampaignsService
 
     const planVersionsServiceMock: Partial<CampaignPlanVersionsService> = {
       findByCampaignId: vi.fn(),
@@ -302,8 +307,11 @@ describe('CampaignsController', () => {
     } as User
 
     it('returns the campaign with positionName, raceTargetMetrics, and the owner name', async () => {
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: owner,
       }
@@ -318,13 +326,21 @@ describe('CampaignsController', () => {
         positionName: 'Mayor',
         raceTargetMetrics: null,
         ownerName: 'Jared Smith',
+        smsCompliance: 'closed',
+        smsCutoffDate: '2025-10-16',
+        generalElectionDate: '2025-11-04',
+        ownerAvatar: null,
       })
       expect(result).not.toHaveProperty('user')
+      expect(result).not.toHaveProperty('tcrCompliance')
     })
 
     it('returns ownerName null when the owner has no usable name', async () => {
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: { firstName: null, lastName: null, name: null } as User,
       }
@@ -332,6 +348,24 @@ describe('CampaignsController', () => {
       const result = await controller.findMine(campaignWithRelations)
 
       expect(result.ownerName).toBeNull()
+    })
+
+    it('returns the owner avatar, and null when it is blank', async () => {
+      const withAvatar = await controller.findMine({
+        ...mockCampaign,
+        tcrCompliance: null,
+        organization: {} as Organization,
+        user: { ...owner, avatar: 'https://assets.example/avatar.jpg' },
+      })
+      const blankAvatar = await controller.findMine({
+        ...mockCampaign,
+        tcrCompliance: null,
+        organization: {} as Organization,
+        user: { ...owner, avatar: '   ' },
+      })
+
+      expect(withAvatar.ownerAvatar).toBe('https://assets.example/avatar.jpg')
+      expect(blankAvatar.ownerAvatar).toBeNull()
     })
 
     it('includes live metrics in raceTargetMetrics', async () => {
@@ -348,8 +382,11 @@ describe('CampaignsController', () => {
         'fetchLiveRaceTargetMetrics',
       ).mockResolvedValue(liveMetrics)
 
-      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+      const campaignWithRelations: CampaignWith<
+        'organization' | 'user' | 'tcrCompliance'
+      > = {
         ...mockCampaign,
+        tcrCompliance: null,
         organization: {} as Organization,
         user: owner,
       }
@@ -969,7 +1006,12 @@ describe('CampaignsController', () => {
         undefined,
         { resetStaleElectionResults: true },
       )
-      expect(result).toEqual(mockCampaign)
+      expect(result).toEqual({
+        ...mockCampaign,
+        smsCompliance: 'closed',
+        smsCutoffDate: '2025-10-16',
+        generalElectionDate: '2025-11-04',
+      })
     })
   })
 

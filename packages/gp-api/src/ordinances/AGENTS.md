@@ -122,6 +122,10 @@ Coexistence rules:
 - Supersession hooks: PATCH `update` (hash input or status-past-draft),
   `saveClarifyAnswer`, and chat tools `saveAuthority`/`saveComparables`/
   `saveExistingLaw` call `supersedeOnEdit`.
+- A PATCH carrying only `lastViewedStep` (the flow chat recording the step on
+  screen) is fenced on `updatedAt` and writes it back unchanged, so a position
+  write never moves the list order or trips a loop fence; a concurrent edit
+  fails the fence and the position is dropped.
 
 ## Queue semantics
 

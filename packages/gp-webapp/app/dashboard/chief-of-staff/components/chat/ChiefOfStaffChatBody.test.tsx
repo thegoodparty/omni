@@ -48,6 +48,10 @@ const trackEventMock = vi.fn()
 // Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
 // toast is asserted through the call, not the DOM. Hoisted because the barrel
 // factory reads it eagerly, before this module's consts initialize.
+const chatSends = () =>
+  trackEventMock.mock.calls.filter(
+    ([event]) => event === EVENTS.AIChat.MessageSent,
+  )
 const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
 vi.mock('@styleguide', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -788,8 +792,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
   })
 
-  it('reports every visible send through onMessageSent, and no hidden one', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a visible send as AI Chat - Message Sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_m' })
     streamMessageMock.mockReturnValue(
@@ -801,18 +804,23 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
-    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toEqual({
+      agent: 'chief_of_staff',
+      surface: 'contacts_assistant',
+      via: 'assistant_bar',
+      product: 'serve',
+    })
   })
 
   // The funnel event has to mean "delivered", not "attempted": the callback
   // exists to measure open-to-send, so a send that never reached a
   // conversation must not inflate it.
   it('does not report a send whose conversation create failed', async () => {
-    const onMessageSent = vi.fn()
     listConversationsMock.mockResolvedValue([])
     createMock.mockRejectedValue(new Error('network down'))
     listMessagesMock.mockResolvedValue([])
@@ -821,7 +829,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingMessage="young supporters"
-        onMessageSent={onMessageSent}
+        analyticsSurface="contacts_assistant"
       />,
     )
 
@@ -833,11 +841,34 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).toBeInTheDocument(),
     )
     expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
-  it('does not report a hidden kickoff through onMessageSent', async () => {
-    const onMessageSent = vi.fn()
+  it('reports a retried assistant bar message as sent from the bar', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue({ conversationId: 'conv_r' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        analyticsSurface="contacts_assistant"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+
+    await waitFor(() => expect(chatSends()).toHaveLength(1))
+    expect(chatSends()[0]?.[1]).toMatchObject({ via: 'assistant_bar' })
+  })
+
+  it('does not report a hidden kickoff as a message sent', async () => {
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_h' })
     streamMessageMock.mockReturnValue(
@@ -852,7 +883,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       <ChiefOfStaffChatBody
         active
         pendingKickoff="__kickoff__"
-        onMessageSent={onMessageSent}
+        analyticsSurface="chief_of_staff_page"
       />,
     )
 
@@ -861,7 +892,7 @@ describe('<ChiefOfStaffChatBody>', () => {
         expect.objectContaining({ content: '__kickoff__' }),
       ),
     )
-    expect(onMessageSent).not.toHaveBeenCalled()
+    expect(chatSends()).toHaveLength(0)
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
@@ -1164,6 +1195,151 @@ describe('<ChiefOfStaffChatBody>', () => {
 
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('sends a suggestion with `message` as the user’s own visible turn', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_msg' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Your next meeting is Tuesday.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'Help me get ready for my next meeting.'),
+      msg('assistant', 'Your next meeting is Tuesday.', { id: 'a1' }),
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Get ready for your next meeting',
+            description: 'Walk in knowing what is on the agenda.',
+            message: 'Help me get ready for my next meeting.',
+          },
+        ]}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Get ready for your next meeting/,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Help me get ready for my next meeting.',
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText('Help me get ready for my next meeting.'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Get ready for your next meeting/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  describe('showSuggestionsAfterKickoff', () => {
+    const EXPLAIN = '[Explain] What is it?'
+    const BUILD = '[Build] Build it.'
+    const REPLY = 'It is a group of residents. Do you want to build yours?'
+
+    beforeEach(() => {
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_explain' })
+      streamMessageMock
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: REPLY },
+            { type: 'done', assistantMessageId: 'a1' },
+          ]),
+        )
+        .mockReturnValueOnce(
+          makeStream([
+            { type: 'text', delta: 'Here is the math.' },
+            { type: 'done', assistantMessageId: 'a2' },
+          ]),
+        )
+      listMessagesMock
+        .mockResolvedValueOnce([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+        ])
+        .mockResolvedValue([
+          msg('user', EXPLAIN),
+          msg('assistant', REPLY, { id: 'a1' }),
+          msg('user', BUILD),
+          msg('assistant', 'Here is the math.', { id: 'a2' }),
+        ])
+    })
+
+    it('shows the step under the kickoff’s reply, and sends it into the same conversation', async () => {
+      const user = userEvent.setup()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[{ label: 'Build my panel', kickoff: BUILD }]}
+        />,
+      )
+
+      // Never on the empty transcript before the kickoff has answered.
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+
+      const cta = await screen.findByRole(
+        'button',
+        { name: 'Build my panel' },
+        { timeout: 5000 },
+      )
+      expect(screen.getByText(REPLY)).toBeInTheDocument()
+
+      await user.click(cta)
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            conversationId: 'conv_explain',
+            content: BUILD,
+          }),
+        ),
+      )
+      expect(createMock).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.getByText('Here is the math.')).toBeInTheDocument(),
+      )
+      expect(screen.queryByText(BUILD)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Build my panel' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when the kickoff has no next step', async () => {
+      render(
+        <ChiefOfStaffChatBody
+          active
+          pendingKickoff={EXPLAIN}
+          showSuggestionsAfterKickoff
+          suggestions={[]}
+        />,
+      )
+      await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument())
+      // Not the built-in starter chips either.
+      expect(
+        screen.queryByRole('button', { name: "What's most urgent this week?" }),
+      ).not.toBeInTheDocument()
+    })
   })
 
   it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
@@ -2068,6 +2244,59 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
   })
 })
 
+describe('<ChiefOfStaffChatBody> file picked from a chat bar', () => {
+  const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+  })
+
+  it('uploads it once the conversation is ready, and only once', async () => {
+    const view = render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    view.rerender(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        pendingFile={file}
+      />,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores it on a scope without attachment support', async () => {
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv"
+        scope="ordinance_flow"
+        pendingFile={file}
+      />,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('<ChiefOfStaffChatBody> upload guard toast', () => {
   const SERVE_GUARD_COPY =
     "Don't upload closed-session, privileged, or active-litigation material."
@@ -2838,5 +3067,231 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       conversationId: 'conv',
       content: 'Main Street',
     })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> building the civic panel', () => {
+  type Next = {
+    stepId: string
+    channel: 'text' | 'phone_banking' | 'door_knocking'
+    status: 'not_started' | 'in_progress' | 'waiting_on_replies'
+    line: string
+    href: string | null
+  }
+  const plan = (next: Next | null) => ({
+    plan: {
+      id: 'plan-1',
+      status: 'active' as const,
+      goalMembers: 100,
+      keepFresh: false,
+      hoursPerWeek: 2,
+      currentWave: 1,
+      createdAt: new Date('2026-10-15T00:00:00.000Z'),
+      completedAt: null,
+      steps: next
+        ? [
+            {
+              id: next.stepId,
+              wave: 1,
+              channel: next.channel,
+              position: 1,
+              targetSize: 30,
+              status: next.status,
+              voterFileFilterId: null,
+              outreachId: null,
+              phoneBankingListId: null,
+              doorKnockingTurfId: null,
+              startedAt: null,
+              completedAt: null,
+              expectedRepliesBy: null,
+              markedDone: null,
+              reached: null,
+              joined: null,
+              steeredToward: null,
+              landlineFirst: null,
+            },
+          ]
+        : [],
+    },
+    next,
+    progress: {
+      members: 62,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 25,
+      groupsCovered: 9,
+      groupsTotal: 12,
+    },
+    balance: null,
+  })
+
+  const timeQuestion = (answer?: string) => [
+    msg('assistant', 'A plan mixes texts with your own calls.', {
+      segments: [
+        { kind: 'text', text: 'A plan mixes texts with your own calls.' },
+        { kind: 'tool', toolName: 'ask_panel_weekly_time', payload: {} },
+      ],
+    }),
+    ...(answer ? [msg('user', answer), msg('assistant', 'Done.')] : []),
+  ]
+
+  it("asks the weekly time question with the panel page's answers, and sends the one picked", async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText(
+        'How much time can you spend each week to connect with constituents by phone or in person?',
+      ),
+    ).toBeInTheDocument()
+    for (const label of [
+      '1 hour a week',
+      '2 hours a week',
+      '3 hours a week',
+      '4 or more hours a week',
+    ]) {
+      expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
+    }
+    await user.click(screen.getByRole('radio', { name: '2 hours a week' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: '2 hours a week',
+    })
+  })
+
+  it('locks an answered weekly time question on reload', async () => {
+    listMessagesMock.mockResolvedValue(timeQuestion('3 hours a week'))
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', { name: '3 hours a week' })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+  })
+
+  it("shows the plan's next step in the panel page's words, opening that step", async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'phone_banking',
+        status: 'not_started',
+        line: 'Call residents to invite them to your civic panel',
+        href: '/dashboard/contacts/citizens-panel?step=s1',
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Your plan is ready.', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+          { kind: 'text', text: 'Your plan is ready.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(await within(card).findByText('Call 30 residents')).toBeVisible()
+    expect(within(card).queryByText(/members so far/)).toBeNull()
+    // The button opens the calls themselves (civicPanelWidgets.test.tsx).
+    expect(
+      within(card).getByRole('button', { name: 'Start the calls' }),
+    ).toBeInTheDocument()
+    expect(within(card).queryByRole('link')).toBeNull()
+  })
+
+  it('offers no button while the plan waits on replies, only the plan', async () => {
+    api.mock('GET /v1/contacts/civic-panel/plan', {
+      status: 200,
+      data: plan({
+        stepId: 's1',
+        channel: 'text',
+        status: 'waiting_on_replies',
+        line: 'Replies to your civic panel invite should be in by Monday',
+        href: null,
+      }),
+    })
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: {} },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(
+      within(card).getByText(
+        'Replies to your civic panel invite should be in by Monday',
+      ),
+    ).toBeInTheDocument()
+    expect(within(card).getAllByRole('link')).toHaveLength(1)
+    expect(
+      within(card).getByRole('link', { name: /See your plan/ }),
+    ).toBeInTheDocument()
+    expect(within(card).queryByRole('button')).toBeNull()
+  })
+
+  it('draws nothing for a refused call', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here it is.', {
+        segments: [
+          { kind: 'text', text: 'Here it is.' },
+          { kind: 'tool', toolName: 'present_panel_next_step', payload: null },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText('Here it is.')).toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-next-step')).toBeNull()
+    expect(screen.queryByTestId('chat-card-loading')).toBeNull()
+  })
+
+  it('reads the plan and the home cards again once the weekly time is saved', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const user = userEvent.setup()
+    listMessagesMock.mockResolvedValueOnce(timeQuestion())
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'save_panel_weekly_time',
+          args: { hoursPerWeek: 2 },
+          toolCallId: 't1',
+        },
+        {
+          type: 'tool_result',
+          toolName: 'save_panel_weekly_time',
+          result: { saved: 'created' },
+          toolCallId: 't1',
+        },
+        { type: 'done' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+    await user.click(
+      await screen.findByRole('radio', { name: '2 hours a week' }),
+    )
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['civic-panel-plan', 'eo-test-org'],
+      }),
+    )
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['chief-of-staff', 'cards'],
+    })
+    invalidate.mockRestore()
   })
 })

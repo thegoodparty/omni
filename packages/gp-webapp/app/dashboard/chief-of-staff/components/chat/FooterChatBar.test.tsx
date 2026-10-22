@@ -4,24 +4,24 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FooterChatBar from './FooterChatBar'
 
-describe('<FooterChatBar> attach icon', () => {
-  it('shows the paperclip when showAttachIcon and opens the chat on click', async () => {
+describe('<FooterChatBar> paperclip', () => {
+  it('opens the chat with the picked file, not before', async () => {
+    const user = userEvent.setup()
     const onOpen = vi.fn()
+    const onAttachFile = vi.fn()
     render(
       <FooterChatBar
         onOpen={onOpen}
         onOpenConversation={vi.fn()}
-        showAttachIcon
+        onAttachFile={onAttachFile}
       />,
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }))
-    expect(onOpen).toHaveBeenCalledTimes(1)
-  })
+    const file = new File(['hi'], 'notes.pdf', { type: 'application/pdf' })
 
-  it('hides the paperclip by default', () => {
-    render(<FooterChatBar onOpen={vi.fn()} onOpenConversation={vi.fn()} />)
-    expect(
-      screen.queryByRole('button', { name: 'Attach a file' }),
-    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Attach a file' }))
+    expect(onOpen).not.toHaveBeenCalled()
+    await user.upload(screen.getByTestId('footer-chat-file-input'), file)
+
+    expect(onAttachFile).toHaveBeenCalledWith(file)
   })
 })

@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClerkClient } from '@clerk/backend'
 import { BadGatewayException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
+import {
+  CLERK_API_TIMEOUT_MS,
+  CLERK_LIST_TIMEOUT_MS,
+} from '@/vendors/clerk/clerk.consts'
 import { ClerkInvitationsService } from './clerkInvitations.service'
 
 // Stands in for a Clerk call that never settles, so the only way the
@@ -35,8 +38,10 @@ const makeService = ({
     invitations: { createInvitation, getInvitationList, revokeInvitation },
     users: { getUser, updateUserMetadata, getUserList },
   } as unknown as ClerkClient
+  const logger = createMockLogger()
   return {
-    service: new ClerkInvitationsService(clerkClient, createMockLogger()),
+    service: new ClerkInvitationsService(clerkClient, logger),
+    logger,
     createInvitation,
     getInvitationList,
     revokeInvitation,
@@ -176,6 +181,59 @@ describe('ClerkInvitationsService', () => {
       await expect(
         service.listPendingTeamInvitations('acme'),
       ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it("logs Clerk's status, error codes, trace id and the failing page offset, without error meta", async () => {
+      // Same shape @clerk/backend throws for a non-2xx response; meta can
+      // carry email addresses, which must not reach the log fields.
+      const apiError = Object.assign(new Error(''), {
+        clerkError: true,
+        status: 502,
+        clerkTraceId: 'trace_1',
+        errors: [
+          {
+            code: 'internal_clerk_error',
+            message: 'Oops, an unexpected error occurred',
+            meta: { emailAddresses: ['invitee@example.com'] },
+          },
+        ],
+      })
+      const getInvitationList = vi
+        .fn()
+        .mockResolvedValueOnce({
+          data: [{ id: 'inv_1', publicMetadata: null }],
+          totalCount: 501,
+        })
+        .mockRejectedValueOnce(apiError)
+      const { service, logger } = makeService({ getInvitationList })
+
+      await expect(
+        service.listPendingTeamInvitations('acme'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          err: apiError,
+          offset: 500,
+          clerkStatus: 502,
+          clerkErrorCodes: ['internal_clerk_error'],
+          clerkTraceId: 'trace_1',
+        },
+        'Failed to list Clerk team invitations',
+      )
+    })
+
+    it('logs only the offset for a failure that is not a Clerk API error', async () => {
+      const err = new Error('down')
+      const getInvitationList = vi.fn().mockRejectedValue(err)
+      const { service, logger } = makeService({ getInvitationList })
+
+      await expect(
+        service.listPendingTeamInvitations('acme'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(logger.error).toHaveBeenCalledWith(
+        { err, offset: 0 },
+        'Failed to list Clerk team invitations',
+      )
     })
 
     describe('page retries', () => {
@@ -330,6 +388,44 @@ describe('ClerkInvitationsService', () => {
         metadata: null,
         verifiedEmails: [],
       })
+    })
+
+    it('retries once when the Clerk call times out', async () => {
+      const getUser = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce({ publicMetadata: metadata, emailAddresses })
+      const { service } = makeService({ getUser })
+      vi.useFakeTimers()
+      try {
+        const result = service.getTeamInviteState('user_1')
+        await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+        await expect(result).resolves.toEqual({
+          metadata,
+          verifiedEmails: ['verified@example.com'],
+        })
+        expect(getUser).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('throws BadGatewayException when both Clerk attempts time out', async () => {
+      const getUser = vi
+        .fn()
+        .mockImplementation(() => new Promise(() => undefined))
+      const { service } = makeService({ getUser })
+      vi.useFakeTimers()
+      try {
+        const result = service.getTeamInviteState('user_1')
+        const assertion =
+          expect(result).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS * 2)
+        await assertion
+        expect(getUser).toHaveBeenCalledTimes(2)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('throws BadGatewayException when Clerk fails to fetch the user', async () => {

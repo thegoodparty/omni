@@ -3,7 +3,10 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  outreachEventProps,
+  recalledLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
 // The three states a saved list can be in, as one value rather than two
@@ -160,6 +163,9 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
             recipientCount: completed?.data.loggedCount ?? turf.loggedCount,
             sendDate: new Date(),
             listId: turf.id,
+            launchSource: recalledLaunchSource('doorKnocking', turf.id),
+            priorityId:
+              completed?.data.priorityId ?? turf.priorityId ?? undefined,
           }),
           method: 'turf',
         })

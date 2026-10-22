@@ -130,38 +130,6 @@ describe('TopVoterIssuesSection', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders custom heading and description when overrides are supplied', async () => {
-    // The serve (elected-official) flow addresses constituents, not voters,
-    // and pipes constituent copy through these override props. Guards against
-    // a regression that drops the prop forwarding and silently reverts to the
-    // candidate wording.
-    api.mock('GET /v1/onboarding/voter-issues', {
-      status: 200,
-      data: { issues: issues.slice(0, 1) },
-    })
-
-    render(
-      <TopVoterIssuesSection
-        ballotReadyPositionId="br-1"
-        office="Mayor"
-        heading="Top issues for your constituents"
-        description="The issues constituents in your district care about most right now."
-      />,
-    )
-
-    expect(
-      await screen.findByText('Top issues for your constituents'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'The issues constituents in your district care about most right now.',
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Top issues for your voters'),
-    ).not.toBeInTheDocument()
-  })
-
   it('refetches when ballotReadyPositionId changes (no stale cross-office cache)', async () => {
     api.mockOrdered('GET /v1/onboarding/voter-issues', [
       {

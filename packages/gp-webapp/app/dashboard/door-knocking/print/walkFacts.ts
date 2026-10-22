@@ -10,6 +10,7 @@ import {
   ANSWER_OPTIONS,
   CIVIC_PANEL_OPTIONS,
   CIVIC_PANEL_QUESTION,
+  CIVIC_PANEL_STAY_QUESTION,
   ENGAGEMENT_OPTIONS,
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -77,6 +78,16 @@ const SERVE_PANEL_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
     : column,
 ) as unknown as typeof WALK_COLUMNS
 
+// A turf of panel members asks whether they want to stay on instead.
+const SERVE_PANEL_STAY_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
+  column.key === 'support'
+    ? {
+        ...column,
+        label: `${FOLLOW_UP_QUESTION} ${CIVIC_PANEL_STAY_QUESTION}`,
+      }
+    : column,
+) as unknown as typeof WALK_COLUMNS
+
 // Which grid a sheet prints, off the payload's own `isServe`. Paper is the
 // reason that flag is on the payload at all: `print/[turfId]` and its PDF
 // sibling render server-side with no organization provider over them, so the
@@ -84,11 +95,14 @@ const SERVE_PANEL_WALK_COLUMNS = WALK_COLUMNS.map((column) =>
 export const walkColumns = (
   isServe: boolean,
   asksCivicPanel: boolean,
+  civicPanelOnly = false,
 ): typeof WALK_COLUMNS =>
   !isServe
     ? WALK_COLUMNS
     : asksCivicPanel
-      ? SERVE_PANEL_WALK_COLUMNS
+      ? civicPanelOnly
+        ? SERVE_PANEL_STAY_WALK_COLUMNS
+        : SERVE_PANEL_WALK_COLUMNS
       : SERVE_WALK_COLUMNS
 
 // The three answer columns a blank form fills, in order. What a skip
@@ -210,8 +224,8 @@ export const legTravelLine = (stop: RoutePayloadStop): string | null =>
 // profile and the saved contact notes still are. The walk sheet template rules a
 // Phone column, and a door that doesn't answer is the case it exists for. The
 // narrower rule stands for everything else on the payload — the eleven
-// demographic attributes and ADR 0011's notes are still screen-only, and the
-// tests that assert their omission are unchanged.
+// demographic attributes and the saved contact notes are still screen-only,
+// and the tests that assert their omission are unchanged.
 //
 // Null on a `mayHaveMoved` target, and not by a check here: phones are live-only
 // on the payload, so a target with no live row carries neither number rather
@@ -232,8 +246,8 @@ export const describeTarget = (target: RoutePayloadTarget): string =>
 // anywhere in the US would print as the following day — which is the same
 // reason neither page stamps itself with today's date, and a consistently wrong
 // day is not an improvement on a coarse right month. A month is also the
-// granularity the feed was argued for at: "we spoke in June about the
-// sidewalks" (ADR 0009).
+// granularity the activity feed was argued for at: "we spoke in June about
+// the sidewalks".
 const contactMonth = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
   month: 'long',
@@ -272,26 +286,27 @@ const contactDescription = (
 // ENG-10876, on the surface where it is still open. `deriveKnockStatus`
 // collapses answered-but-unsure into `unknown` on purpose, so the door stays
 // worth knocking — which leaves paper unable to tell that door from one nobody
-// has ever been to, because both print an identical blank form. On screen ADR
-// 0009's activity feed answers it; paper carried no history at all, and paper is
-// the surface used when the app isn't.
+// has ever been to, because both print an identical blank form. On screen the
+// activity feed answers it; paper carried no history at all, and paper is the
+// surface used when the app isn't.
 //
 // One line, and only the two facts a doorstep needs: when, and what happened.
 // **Never the note** — free text about a named voter, on the surface that leaves
 // the building and stops being access-controlled the moment it does. Same rule
-// that keeps the demographic profile and ADR 0011's saved notes off these two
-// pages; the Phone column is a deliberate exception to it and the only one.
+// that keeps the demographic profile and the saved contact notes off these
+// two pages; the Phone column is a deliberate exception to it and the only one.
 //
 // Read by `WalkSheet` and by `walkListRows`, because the printable page builds
 // its own blocks and the PDF reads a row model: one function is what stops the
 // two formats wording the same history differently. Absent history prints
 // nothing rather than "never contacted" — a route snapshotted offline before
-// ADR 0009 shipped carries no `history` key at all, so absence is not a claim.
+// the activity feed was added to the route payload carries no `history` key
+// at all, so absence is not a claim.
 export const lastContactLine = (
   target: RoutePayloadTarget,
   isServe: boolean,
 ): string | null => {
-  // Newest first and capped server-side (ADR 0009), so the first row that is
+  // Newest first and capped server-side, so the first row that is
   // outreach rather than a record edit is the last contact.
   for (const activity of target.history ?? []) {
     const what = contactDescription(activity, isServe)

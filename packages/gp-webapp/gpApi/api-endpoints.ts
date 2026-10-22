@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -71,6 +70,16 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServePollCreate,
+  ServePollExpansionCreate,
+  ServePollExpansionCreateResponse,
+  PollResults,
+  ReplyFlag,
+  ReplyFlagUpdate,
+  SmsOutreachRepliesFilter,
+  ServePollCreateResponse,
+  ServePollDraftRequest,
+  ServePollDraftResponse,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
   ServeSmsDraftRequest,
@@ -115,8 +124,14 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityReadStatus,
   CivicPanelSummary,
-  CivicPanelRepresentation,
+  CIVIC_PANEL_SEGMENT,
+  CivicPanelBuildPlanResponse,
+  CreateCivicPanelBuildPlanInput,
+  UpdateCivicPanelBuildPlanInput,
+  MarkCivicPanelBuildStepInput,
+  PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -154,6 +169,7 @@ import type {
   ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
@@ -484,6 +500,20 @@ export type APIEndpoints = {
     Response: ServeSmsCreateResponse
   }
 
+  // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
+  // returns only the question: the greeting and opt-out line are composed by
+  // the create. The create writes the pending_payment row the SERVE_TEXT
+  // checkout then bills.
+  'POST /v1/outreach/serve/poll/draft': {
+    Request: ServePollDraftRequest
+    Response: ServePollDraftResponse
+  }
+
+  'POST /v1/outreach/serve/poll': {
+    Request: ServePollCreate
+    Response: ServePollCreateResponse
+  }
+
   // Persists the social campaign atomically (spine row + satellite +
   // assets). Response is the created row so the hub updates without a
   // refetch.
@@ -541,8 +571,35 @@ export type APIEndpoints = {
   // `total` is every reply on the send, so "Show all {n} responses" can name
   // a number it has not fetched.
   'GET /v1/outreach/serve/:id/replies': {
-    Request: { limit?: number; offset?: number }
+    Request: {
+      limit?: number
+      offset?: number
+      // Poll results: narrow to one theme, or to the replies no theme took.
+      themeId?: string
+      nonClustered?: boolean
+      filter?: SmsOutreachRepliesFilter
+    }
     Response: SmsOutreachReplies
+  }
+
+  // Serve poll results (ENG-11288): counts, confidence, themes and the
+  // expansions the official has paid for. Confidence is the server's call.
+  'GET /v1/outreach/serve/:id/poll-results': {
+    Request: {}
+    Response: PollResults
+  }
+
+  // The session user's own favourite and read marks on one reply.
+  'PUT /v1/outreach/serve/:id/replies/:replyId/flags': {
+    Request: ReplyFlagUpdate
+    Response: ReplyFlag
+  }
+
+  // Gather more feedback (ENG-11287): writes a pending_payment expansion the
+  // checkout then pays for by `expansionId`.
+  'POST /v1/outreach/serve/poll/:id/expansions': {
+    Request: ServePollExpansionCreate
+    Response: ServePollExpansionCreateResponse
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
@@ -1017,7 +1074,7 @@ export type APIEndpoints = {
 
   'GET /v1/elected-office/mine': {
     Request: {}
-    Response: ElectedOffice[]
+    Response: MyElectedOffice[]
   }
 
   'POST /v1/elected-office': {
@@ -1075,6 +1132,11 @@ export type APIEndpoints = {
   }
 
   'PUT /v1/dashboard/onboarding-cards/:key/skip': {
+    Request: {}
+    Response: void
+  }
+
+  'PUT /v1/dashboard/onboarding-cards/:key/complete': {
     Request: {}
     Response: void
   }
@@ -1271,6 +1333,12 @@ export type APIEndpoints = {
     Response: PriorityResults
   }
 
+  // 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/read-status': {
+    Request: {}
+    Response: PriorityReadStatus
+  }
+
   // A proposal key names the outreach a chat card WOULD create. A 404 is the
   // normal "not sent yet" answer.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
@@ -1427,6 +1495,8 @@ export type APIEndpoints = {
   // the PUT, omitting it keeps whatever the row already holds, like every
   // other key of this partial update. `geoPolyLabels` names and colours each
   // part, aligned by index, and is only read beside `geoPoly`.
+  // `unreachedAreaOfPriorityId` has gp-api draw the boundary instead: the
+  // parts of the district that priority's answers have barely reached.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
@@ -1434,6 +1504,7 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
+      unreachedAreaOfPriorityId?: string
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1494,15 +1565,37 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
-  // off and 400 for a Win org.
+  // Serve's civic panel as a whole. 404s with serve-citizen-panels off and
+  // 400s for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
   }
-  'GET /v1/contacts/civic-panel/representation': {
+  // The plan that builds the panel across texts, calls and doors. Reading
+  // it is what moves it on (links, dates, the next wave).
+  'GET /v1/contacts/civic-panel/plan': {
     Request: {}
-    Response: CivicPanelRepresentation
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan': {
+    Request: CreateCivicPanelBuildPlanInput
+    Response: CivicPanelBuildPlanResponse
+  }
+  'PATCH /v1/contacts/civic-panel/plan': {
+    Request: UpdateCivicPanelBuildPlanInput
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
+    Request: {}
+    Response: PrepareCivicPanelBuildStepResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
+    Request: {}
+    Response: CivicPanelBuildPlanResponse
+  }
+  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
+    Request: MarkCivicPanelBuildStepInput
+    Response: CivicPanelBuildPlanResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}
@@ -1682,16 +1775,18 @@ export type APIEndpoints = {
     Request: {}
     Response: DoorKnockingRoutePayload
   }
-  // ADR 0010. The exact in-ring audience for a shape being drawn, addresses
-  // included — the knock's own evaluation without the billed vendor call. The
-  // filter half of the request is the same unsaved-draft grammar
-  // `POST /v1/voters/voter-file/filter` takes (no filter row exists yet at
-  // draw time), so it is typed here the way that endpoint is rather than
-  // restated as a contract; the response is a contracts schema.
+  // Draw-time address preview. The exact in-ring audience for a shape being
+  // drawn, addresses included — the knock's own evaluation without the
+  // billed vendor call. The filter half of the request is the same
+  // unsaved-draft grammar `POST /v1/voters/voter-file/filter` takes (no
+  // filter row exists yet at draw time), so it is typed here the way that
+  // endpoint is rather than restated as a contract; the response is a
+  // contracts schema.
   'POST /v1/door-knocking/address-preview': {
     Request: {
       geoPoly: GeoJsonPolygon
       filters: Record<string, unknown>
+      voterFileFilterId?: number
     }
     Response: DoorKnockingAddressPreviewResponse
   }
@@ -1707,15 +1802,15 @@ export type APIEndpoints = {
     Request: RecordDoorKnockInteraction
     Response: RecordDoorKnockInteractionResponse
   }
-  // ADR 0007. Separate from the interaction write because a do-not-knock is
+  // Do-not-knock. Separate from the interaction write because a do-not-knock is
   // recordable with no outcome to log, and reversible on its own.
   'POST /v1/door-knocking/do-not-knock': {
     Request: SetDoNotKnock
     Response: SetDoNotKnockResponse
   }
-  // ADR 0008. The reason behind a `not_a_voter` outcome, asked as a follow-up
-  // and written separately: the interaction row is replay-idempotent on
-  // clientKey, so a correction made on a later visit could never reach it.
+  // Not-a-voter. The reason behind a `not_a_voter` outcome, asked as a
+  // follow-up and written separately: the interaction row is replay-idempotent
+  // on clientKey, so a correction made on a later visit could never reach it.
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
@@ -1742,17 +1837,6 @@ export type APIEndpoints = {
   'POST /v1/constituent-feedback/audio-upload-url': {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
-  }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
   }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.
@@ -1781,8 +1865,8 @@ export type APIEndpoints = {
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
-    // unfiltered district.
-    Request: { segment?: number }
+    // unfiltered district. 'civicPanel' = Serve's built-in panel list.
+    Request: { segment?: number | typeof CIVIC_PANEL_SEGMENT }
     Response: ListDetailContactsResponse
   }
   // The same payload for a filter that has not been saved (a recommended
@@ -1829,6 +1913,10 @@ export type APIEndpoints = {
   'GET /v1/contact-engagement/:id/activities': {
     Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
+  }
+  'GET /v1/contact-engagement/:id/priority-answers': {
+    Request: {}
+    Response: GetPersonPriorityAnswersResponse
   }
 
   'GET /v1/meetings': {
@@ -2907,6 +2995,10 @@ export type ElectedOffice = {
   // routing must NOT send them into serve onboarding for a missing term/date.
   campaignId: number | null
 }
+
+// `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
+// gave it issues they ran on, which the Serve onboarding priorities step shows.
+export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

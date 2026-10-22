@@ -10,10 +10,7 @@ import sanitizeHtml from 'sanitize-html'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
-import {
-  isPublicAddress,
-  ssrfSafeLookup,
-} from '@/websites/services/websites.service'
+import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 import {
   ensureUrlHasProtocol,
   getUrlHostname,

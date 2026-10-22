@@ -162,10 +162,8 @@ ingestReplies({
 }) → { matched, unmatched, optOuts }
 ```
 
-`audience` accepts a sample spec on day one even though only polls will pass
-one, and nothing calls it that way yet. That is the guard against the layer
-quietly becoming SMS-shaped: if the sample branch does not work, the layer is
-not shared.
+`audience` accepts a sample spec, which is what a self-serve poll passes. That
+is the guard against the layer quietly becoming SMS-shaped.
 
 `ingestReplies` is source-agnostic. One writer, two producers: both start from
 the same upload, but SMS's rows are parsed straight out of it while polls' rows
@@ -241,16 +239,21 @@ shared message rows.
 
 ### Polls layer
 
-Not built in this work, specified so the delivery layer is shaped correctly.
+A self-serve poll is an `Outreach` row of type `poll` plus an `OutreachPoll`
+satellite (`topic`, `tone`, `audienceKind`, `lastAnalysisAt`, and
+`OutreachPollExpansion` rows for follow-on sends). The question is the spine's
+`message`. Themes are not `PollIssue` rows: a poll's replies take the `sms`
+upload path and What we heard synthesis groups them like any Serve send, so
+`FeedbackTheme` and `FeedbackThemeMember` (keyed on `textReplyId`) are the
+theme store. `PollIssue` stays on the legacy `Poll` table.
 
-When polls moves in, it becomes an `Outreach` row of type `poll` plus an
-`OutreachPoll` satellite, following the repo's documented satellite convention
-(a channel gets its own table only when its data changes shape, as with
-`OutreachSocial` and `OutreachRobocall`). The satellite carries what the spine
-has no column for: `targetAudienceSize`, `confidence`, `responseCount`,
-`estimatedCompletionDate`, `lastAnalysisAt`. `PollIssue` is re-keyed from
-`pollId` to `outreachId` the same XOR way. The `Poll` table then collapses into
-the spine.
+`GET /v1/outreach/serve/:id/poll-results` (flag `serve-self-serve-polls`)
+reads that run: `sent` is the `OutreachTextRecipient` count, `responses` is
+distinct non-opt-out constituents, and confidence uses `sent` as the
+population. Under `POLL_MIN_RESPONSES` (20, in contracts) it returns no themes
+and no confidence. `lastAnalysisAt` is stamped when an effort-scope run
+completes. The pipeline publishes at most 3 themes today (`publish_top_n`),
+under the contract's cap of 5.
 
 ## Layer 1: Delivery
 
@@ -378,9 +381,8 @@ choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
-entirely and run only post-merge on the release train
-(`gpbot-dev-test-triage.yml`: "These never run on PRs, so nothing saw them
-before the merge"; prior incident ENG-11106). The poll e2e is `@dev-only`, so
+entirely and run only post-merge on the release train, so nothing sees them
+before the merge (prior incident ENG-11106). The poll e2e is `@dev-only`, so
 removing the line fails nothing until the train runs.
 
 **Pre-work, shipped to main on its own before this line is removed: PR #2024.**
@@ -476,6 +478,17 @@ version, the live one, so the two Serve products make the same promise:
 * Estimated completion is `addBusinessDays(scheduledDate, 3)`, matching
   `polls.service.ts`.
 
+**Every newly scheduled Serve campaign gets the ops lead.** Ops schedules
+each Serve text by hand, so its send date must be on the 3rd business day or
+later: today and the next 2 business days are closed (`getDisabledState` in
+the picker, `assertServeSmsSendDateAllowed` on every Serve text and poll
+create in gp-api). That holds for a plain text, a civic panel plan step or
+`build_citizens_panel` invite, a Keep fresh wave, and any text made later to
+fill a panel gap, each from the day it is created. A priority's two rounds
+are bought and scheduled at once, so they share the first send's gate:
+round 2 gets no extra day of its own. Pinned by `SmsFlow.serveSurface.test.tsx`
+and gp-api's `outreachServeSmsSendDate.test.ts`.
+
 This is strictly simpler than Win's step: no hourly slots, no custom time, no
 48-hour arithmetic. It also drops `scheduledLocalTime` from the Serve create
 payload entirely, since the time is a constant rather than a choice.
@@ -508,7 +521,7 @@ new purchase type, because the `TEXT` handler hard-requires a `campaignId` and
 
 Draft-first is required, not preferred: the poll pattern puts message content
 in Stripe checkout metadata, which caps values at 500 characters, and
-`SMS_COMPOSED_MAX_LENGTH` is 1000.
+`SMS_COMPOSED_MAX_LENGTH` is 2000.
 
 **Results.** `getSmsResults` with its campaign predicate parametrized to an org
 scope, the same way `findByScope` already handles Win and Serve. Plus a
@@ -529,6 +542,34 @@ Serve SMS drawer links to the report once somebody has replied. Detail in
 send.
 
 ## Layer 3: Polls
+
+### Paid polls wait for review
+
+A poll pays through the same `SERVE_TEXT` handler as a text. The post-payment
+claim moves it `pending_payment → pending` and stops there: nothing is
+enqueued, and `pending` renders "In review". The claim winner posts one "New
+poll awaiting review" notice to the fulfilment channel, so a redelivered
+Stripe webhook, which loses the claim, posts nothing. The staff approval is what
+enqueues `outreachTextSend`.
+
+Staff review it at `/v1/outreach/admin/polls` (gp-admin, admin or M2M). Approve
+is a compare-and-set on `approvedAt IS NULL AND deniedAt IS NULL`, so of two
+approvals exactly one enqueues and the other gets a 409; if the enqueue fails,
+the claim is reverted by its own timestamp and the poll can be approved again.
+Deny is terminal and refunds nothing. A staff edit recomposes the text and
+stamps `adminEditedAt`. A poll still unreviewed two business days after it was
+created logs a line the `serve-poll-review-overdue` alert pages on.
+
+The consumer refuses a poll with no `approvedAt` (error log, ack, no send). An
+approved poll's first send (`sendSeq` 1) delivers a `sample` audience of
+`textCount` people for a sample poll, or the saved filter for a list poll.
+Expansions (`sendSeq` above 1) are not delivered yet.
+
+A sample is drawn after the opt-out scrub, so a draw of N returns N. If the
+pool shrank while the poll sat in review (someone opted out), the size is
+clamped to what is still reachable and the shortfall is logged at warn with
+`outreachId`, `requested` and `delivered`. The send is not failed, and the
+shortfall is not refunded automatically.
 
 Not built here. What it will add, once it moves in:
 
@@ -666,20 +707,21 @@ model, and no per-person outbound path:
 `PollIndividualMessageSender.ELECTED_OFFICIAL` rows are only ever written by
 the bulk blast.
 
-**All three are deferred for v1** (decided 2026-09-21). Recorded by cost, since
-they come back at different times:
+**The thread and composer are deferred for v1** (decided 2026-09-21).
+Recorded by cost, since they come back at different times:
 
-* **Favorites and read state** need no vendor, just one flags table in the
-  delivery layer keyed by user and message. Deferred because the customer's
-  need is seeing who replied and what they said, not triage.
-* **The three filters that depend on read state** (Unread, Responded today,
-  Awaiting reply) come free once that table exists, and two of them are
-  meaningless without the thread anyway.
+* **Favorites and read state** shipped with polls (`OutreachReplyFlag`, one
+  row per user and reply). `PUT /v1/outreach/serve/:id/replies/:replyId/flags`
+  sets them and `GET :id/replies` returns the session user's own, with
+  `filter=unread|favorited`, `themeId`, `nonClustered` and a `crm` block
+  (contact id and status label only).
+* **The Unread filter** comes with that table. Responded today and Awaiting
+  reply are meaningless without the thread.
 * **The reply thread** needs per-person outbound SMS, which Slack fulfillment
   does not have. A vendor decision, not a slice. Do not design around it.
 
-v1 renders the reply list read-only: first name, content, CRM panel, and the
-"All" filter.
+The reply list has no thread or composer: first name, content, CRM panel,
+favorite and read state.
 
 ## Sequencing
 

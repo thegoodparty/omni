@@ -14,6 +14,7 @@ import {
 const service = useTestService()
 
 const deleteJob = vi.fn()
+const getJob = vi.fn()
 const slackMessage = vi.fn()
 const retrieveCheckoutSession = vi.fn()
 const refundPaymentIntent = vi.fn()
@@ -26,6 +27,12 @@ beforeEach(async () => {
   // clearMocks resets calls, not implementations — a persistent
   // mockRejectedValue from one test must not leak into the next.
   deleteJob.mockReset().mockResolvedValue(undefined)
+  // Outreach 85286's live job: paused, nobody booked.
+  getJob.mockReset().mockResolvedValue({
+    status: 'paused',
+    has_canvassers_scheduled: false,
+    canvassers_schedule: null,
+  })
   slackMessage.mockReset().mockResolvedValue(undefined)
   retrieveCheckoutSession.mockReset()
   refundPaymentIntent.mockReset()
@@ -33,6 +40,7 @@ beforeEach(async () => {
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
+  vi.spyOn(peerly, 'getJob').mockImplementation(getJob)
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
   )
@@ -120,7 +128,7 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(blob).toContain('P2P Campaign Canceled (by candidate)')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
-      `outreach-cancel-${row.id}`,
+      'outreach-cancel-pi_test_1',
     )
     const persisted = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: row.id },
@@ -258,6 +266,173 @@ describe('POST /v1/outreach/:id/cancel', () => {
     })
     expect(persisted.status).toBe(OutreachStatus.canceled)
     expect(persisted.canceledAt).not.toBeNull()
+  })
+
+  it('cancels an unbooked row the sweep moved to in_progress on its send day', async () => {
+    // Prod outreach 85286 (2026-10-15): the completion sweep ratchets a p2p
+    // row to in_progress at the UTC start of its send day whether or not it
+    // was booked. Unbooked, it never sends, so it cancels, refunds and
+    // returns the promo exactly as the pending path does.
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        hasFreeTextsOffer: false,
+        freeTextsOfferRedeemedAt: new Date(),
+      },
+    })
+    retrieveCheckoutSession.mockResolvedValue({ payment_intent: 'pi_test_1' })
+    refundPaymentIntent.mockResolvedValue({ id: 're_1' })
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+      textCount: 7000,
+      billableTextCount: 2000,
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.refunded).toBe(true)
+    expect(getJob).toHaveBeenCalledWith('peerly-job-1')
+    expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    expect(refundPaymentIntent).toHaveBeenCalledWith(
+      'pi_test_1',
+      'outreach-cancel-pi_test_1',
+    )
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(persisted.status).toBe(OutreachStatus.canceled)
+    expect(persisted.canceledAt).not.toBeNull()
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    expect(campaign.hasFreeTextsOffer).toBe(true)
+    expect(campaign.freeTextsOfferRedeemedAt).toBeNull()
+  })
+
+  it('still refuses a booked in_progress row past its send time', async () => {
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+      approvedAt: new Date(),
+      canvassRequestedAt: new Date(),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('refuses an in_progress row booked by hand in Peerly', async () => {
+    // Staff can book canvassers in Peerly's console, which stamps nothing on
+    // the row, so past the send time the live job is the booking record.
+    getJob.mockResolvedValue({
+      status: 'active',
+      has_canvassers_scheduled: true,
+      canvassers_schedule: { approved: true },
+    })
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('refuses when the live booking check cannot read Peerly', async () => {
+    getJob.mockRejectedValue(new Error('peerly down'))
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('loses to an approve that lands between the eligibility read and the claim', async () => {
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+    // The live read sits between the eligibility check and the claim, so it
+    // is where a concurrent approve gets in.
+    getJob.mockImplementation(async () => {
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { approvedAt: new Date(), approvedBy: 'cas@goodparty.org' },
+      })
+      return { status: 'paused', has_canvassers_scheduled: false }
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
+    expect(refundPaymentIntent).not.toHaveBeenCalled()
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+    expect(unchanged.approvedAt).not.toBeNull()
+  })
+
+  it('does not widen the in_progress cancel beyond p2p', async () => {
+    // A Serve text reads in_progress once its delivery handoff has claimed
+    // the send, with no booking stamps — that claim must keep refusing.
+    const row = await seedOutreach({
+      outreachType: OutreachType.text,
+      status: OutreachStatus.in_progress,
+      projectId: null,
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    const unchanged = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(unchanged.status).toBe(OutreachStatus.in_progress)
+  })
+
+  it('reverts a failed in_progress cancel to in_progress, not pending', async () => {
+    retrieveCheckoutSession.mockResolvedValue({ payment_intent: 'pi_test_1' })
+    refundPaymentIntent.mockRejectedValue(new Error('stripe down'))
+    const row = await seedOutreach({
+      status: OutreachStatus.in_progress,
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(persisted.status).toBe(OutreachStatus.in_progress)
+    expect(persisted.canceledAt).toBeNull()
   })
 
   it('cancels a robocall by unwinding its hold and flipping the spine', async () => {

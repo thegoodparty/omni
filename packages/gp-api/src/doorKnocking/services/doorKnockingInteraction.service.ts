@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
   DoorKnockStatus,
+  isCivicPanelOnlyList,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -23,6 +24,7 @@ import {
 import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
 import { DoorKnockingStatusService } from './doorKnockingStatus.service'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 
 @Injectable()
 export class DoorKnockingInteractionService extends createPrismaBase(
@@ -48,10 +50,8 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     input: RecordDoorKnockInteraction,
     role: OrganizationRole | undefined,
   ): Promise<RecordDoorKnockInteractionResponse> {
-    const { personId, outreachId } = await this.resolveTargetForOrg(
-      organization.slug,
-      input.stopTargetId,
-    )
+    const { personId, outreachId, civicPanelOnly } =
+      await this.resolveTargetForOrg(organization.slug, input.stopTargetId)
     await assertVolunteerAssignedToOutreach(
       this.moduleRef,
       role,
@@ -69,6 +69,12 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       willVote: input.willVote ?? null,
       followUp: input.followUp ?? null,
       joinCivicPanel: input.joinCivicPanel ?? null,
+      // Only a turf of panel members asks whether they want to stay on, so
+      // an answer from any other turf answers nothing and must not take a
+      // member off the panel.
+      stayOnCivicPanel: civicPanelOnly
+        ? (input.stayOnCivicPanel ?? null)
+        : null,
       note: input.note ?? null,
       sourceId: input.clientKey,
       manual: false,
@@ -107,7 +113,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     }
   }
 
-  // ADR 0007. Its own endpoint rather than a field on the knock payload: a
+  // Do-not-knock. Its own endpoint rather than a field on the knock payload: a
   // do-not-knock is recordable when there is no outcome worth logging, and it
   // has to be reversible on its own.
   //
@@ -152,7 +158,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     }
   }
 
-  // ADR 0008. The answer to "What happened?" behind a `not_a_voter` outcome.
+  // The answer to "What happened?" behind a `not_a_voter` outcome.
   // Recorded, never acted on destructively: no person is deleted, no address
   // is unlinked, and nothing is written back to the L2-derived voter data. The
   // consequence is suppression from future turf evaluation, which the knock
@@ -216,7 +222,11 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   private async resolveTargetForOrg(
     organizationSlug: string,
     stopTargetId: number,
-  ): Promise<{ personId: string; outreachId: number }> {
+  ): Promise<{
+    personId: string
+    outreachId: number
+    civicPanelOnly: boolean
+  }> {
     const target = await this.findFirst({
       where: {
         id: stopTargetId,
@@ -225,7 +235,14 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       select: {
         personId: true,
         stop: {
-          select: { turf: { select: { outreach: { select: { id: true } } } } },
+          select: {
+            turf: {
+              select: {
+                outreach: { select: { id: true } },
+                voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
+              },
+            },
+          },
         },
       },
     })
@@ -239,6 +256,10 @@ export class DoorKnockingInteractionService extends createPrismaBase(
           'outreach envelope; every turf is created with one',
       )
     }
-    return { personId: target.personId, outreachId }
+    return {
+      personId: target.personId,
+      outreachId,
+      civicPanelOnly: isCivicPanelOnlyList(target.stop.turf.voterFileFilter),
+    }
   }
 }

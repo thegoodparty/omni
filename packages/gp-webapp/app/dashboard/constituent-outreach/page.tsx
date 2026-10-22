@@ -19,8 +19,8 @@ const fetchOutreaches = async (): Promise<Outreach[]> => {
 }
 
 const meta = pageMetaData({
-  title: 'Constituent Outreach | GoodParty.org',
-  description: 'Constituent outreach',
+  title: 'Outreach | GoodParty.org',
+  description: 'Outreach',
   slug: '/dashboard/constituent-outreach',
 })
 

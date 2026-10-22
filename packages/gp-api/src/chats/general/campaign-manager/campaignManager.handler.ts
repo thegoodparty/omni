@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  SmsComplianceWindow,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import {
@@ -25,12 +26,16 @@ import {
   ResolveConversationParams,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import type { FinalizeTurn } from '@/chats/services/chatStream.service'
+import {
+  composeAppendix,
+  legalAdviceBackstop,
+  smallCountBackstop,
+} from '../services/guardrailBackstops'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
   currentPageBlock,
-  LEGAL_LINE,
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
@@ -56,13 +61,22 @@ import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { smsComplianceWindow } from '@/campaigns/util/eligibility.util'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildComposeHandoffTool } from '../chief-of-staff/services/composeHandoff.tool'
 import { areaForPath } from '../product-knowledge/productMap'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import {
+  PublicProfileAddressService,
+  type PublicProfileAddress,
+  type PublicProfileGate,
+} from '@/personProfiles/services/public-profile-address.service'
 import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { ISSUE_CAPTURE_FLAG } from '@/constituentFeedback/util/issueCaptureFlag.util'
 import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
@@ -134,15 +148,20 @@ export const buildStoryGreeting = (story: StoryState): string => {
 // Canned reply for the product-overview sentinel (the "Learn more about the
 // product" chip). Independent of the candidate's Campaign Story state, so it
 // answers the same way whether the story is missing, in progress, or done.
-const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
-  "I'm your campaign manager, here to help you run and win.",
-  'GoodParty.org gives you a personalized campaign and outreach plan with ' +
-    'your highest-impact tasks each week, voter outreach tools like texting, ' +
-    'door-knocking scripts, and social posts, and a free candidate website.',
-  'Tell me what you are working on and I will point you to the next best ' +
-    'step. When you are ready, tap Personalize your campaign and I will ' +
-    'tailor everything to your race.',
-].join('\n\n')
+// Past the SMS cutoff it leaves texting out rather than announcing the cutoff.
+const buildProductOverview = (textingClosed: boolean): string =>
+  [
+    "I'm your campaign manager, here to help you run and win.",
+    'GoodParty.org gives you a personalized campaign and outreach plan with ' +
+      'your highest-impact tasks each week, voter outreach tools like ' +
+      (textingClosed
+        ? 'robocalls, door-knocking scripts, and social posts'
+        : 'texting, door-knocking scripts, and social posts') +
+      ', and a free candidate website.',
+    'Tell me what you are working on and I will point you to the next best ' +
+      'step. When you are ready, tap Personalize your campaign and I will ' +
+      'tailor everything to your race.',
+  ].join('\n\n')
 
 // Injection tokens for the aggregate-only Databricks provider and the in-code
 // table allowlist, provided by CampaignManagerModule.
@@ -203,6 +222,8 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-election-date' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -222,6 +243,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   webSearchEnabled: false,
   story: null,
   plan: null,
+  publicProfile: { status: 'unknown' },
 }
 
 @Injectable()
@@ -267,6 +289,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly pastOutreach?: PriorityFlowOutreachService,
     @Optional()
     private readonly logger?: PinoLogger,
+    @Optional()
+    private readonly publicProfiles?: PublicProfileAddressService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {
     this.logger?.setContext(CampaignManagerHandler.name)
   }
@@ -285,6 +311,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       conversationId,
       role: ChatMessageRole.assistant,
       content: greeting,
+      inputTokens: 0,
+      outputTokens: 0,
     })
   }
 
@@ -326,7 +354,25 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
 
     const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
-      include: { user: true },
+      // The public profile's publish gate rides along: three columns on the
+      // read that already fetches the user, so an ordinary turn learns the
+      // page is not live without a query of its own.
+      include: {
+        user: {
+          include: {
+            personProfile: {
+              select: { personId: true, publishedAt: true, deletedAt: true },
+            },
+          },
+        },
+        tcrCompliance: {
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            peerlyIdentityId: true,
+          },
+        },
+      },
     })
     if (!campaign) return this.emptyContext()
 
@@ -348,6 +394,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
     const ballotStatus = parseBallotStatus(campaign.ballotStatus)
+    const { smsCompliance, smsCutoffDate } = smsComplianceWindow({
+      electionDate: details.electionDate,
+      tcrCompliance: campaign.tcrCompliance ?? null,
+      now: new Date(),
+    })
 
     // Scope constituent queries to the campaign's district (from its org's
     // position), same shape Chief of Staff uses. Folding districtFilters into
@@ -380,10 +431,24 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
-    const liveRace = await this.resolveLiveRace(
-      campaign,
-      localDay(details.state ?? null),
-    )
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: ISSUE_CAPTURE_FLAG,
+        })
+      : false
+
+    const day = localDay(details.state ?? null)
+    // Independent lookups on independent timers, so a slow day costs one
+    // timeout and not two in a row.
+    const [liveRace, publicProfile] = await Promise.all([
+      this.resolveLiveRace(campaign, day),
+      this.resolvePublicProfile(
+        campaign.user?.personProfile ?? null,
+        campaign.id,
+        day,
+      ),
+    ])
 
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
@@ -394,6 +459,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       officeLevel: details.ballotLevel ?? null,
       location,
       state: details.state ?? null,
+      districtState: resolved?.state ?? details.state ?? null,
       // The record as stored. The prompt builder parses and counts from these
       // against the candidate's local day, so an unparseable value reads as no
       // date there rather than becoming NaN here.
@@ -401,6 +467,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       primaryElectionDate: details.primaryElectionDate ?? null,
       primaryResult: campaign.primaryResult ?? null,
       didWin: campaign.didWin ?? null,
+      smsCompliance,
+      smsCutoffDate,
       liveRace,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
@@ -421,8 +489,36 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
+      outreachFeedbackEnabled,
       story,
       plan,
+      publicProfile,
+    }
+  }
+
+  // The gate read with the campaign decides not-live for free; a published
+  // profile costs the removal check and, once a day, the election-api read
+  // for its canonical address. That read races the same timer as the live
+  // race data, so a slow day reads as unknown instead of holding the turn.
+  // Unknown, not not-live: the prompt must never tell a candidate who
+  // published that they did not.
+  private async resolvePublicProfile(
+    gate: PublicProfileGate | null,
+    campaignId: number,
+    day: string,
+  ): Promise<PublicProfileAddress> {
+    if (!this.publicProfiles) return { status: 'unknown' }
+    try {
+      return await withTimeout(
+        this.publicProfiles.resolve(gate, day),
+        LIVE_RACE_TIMEOUT_MS,
+      )
+    } catch (error) {
+      this.logger?.warn(
+        { error, campaignId },
+        'campaign manager public profile lookup failed',
+      )
+      return { status: 'unknown' }
     }
   }
 
@@ -537,6 +633,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       const scope = buildWinConstituentDataScope(
         ctx.districtFilters,
         this.constituentTables,
+        ctx.districtState,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -571,6 +668,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         outreach: this.pastOutreach,
         campaignId: ctx.campaignId,
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback =
+          buildCampaignManagerReadOutreachFeedbackTool({
+            outreach: this.pastOutreach,
+            campaignId: ctx.campaignId,
+          })
+      }
       tools.present_past_outreach =
         buildCampaignManagerPresentPastOutreachTool()
     }
@@ -644,15 +748,19 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         filterConsumers: registeredFilterConsumers(filterTools),
         peopleDataset: 'voters',
         citizenPanels: false,
+        state: ctx.districtState,
       })
       Object.assign(tools, filterTools)
       // The card's flows save the list through the voter-file route,
       // which a free campaign can use too, so this follows the saved-list
       // signal rather than the Pro-only tool.
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        tools.size_outreach_sample = buildSizeOutreachSampleTool()
+        const textingClosed = ctx.smsCompliance === SmsComplianceWindow.closed
+        tools.size_outreach_sample = buildSizeOutreachSampleTool({
+          textingClosed,
+        })
         tools.present_outreach_proposal =
-          buildCampaignManagerOutreachProposalTool()
+          buildCampaignManagerOutreachProposalTool({ textingClosed })
       }
     }
 
@@ -662,12 +770,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   // The prompt's legal-and-compliance rules carry the caution. The shared
   // finish-time check decides whether a reply is shaped like legal advice (a
   // statute citation, liability language, complaint filing) and carries no
-  // caution; when it is, the candidate gets the same line the prompt asks
-  // for, so the wording does not depend on which path supplied it.
-  finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text) === null
-      ? null
-      : `\n\n${LEGAL_LINE}`
+  // caution; when it is, the candidate gets the same registry line the prompt
+  // asks for, so the wording does not depend on which path supplied it. The
+  // small-count line rides the same hook: a data result that reports
+  // suppressed rows gets the disclosure whether or not the model wrote it.
+  finalizeAssistantText(text: string, turn: FinalizeTurn): string | null {
+    return composeAppendix([
+      legalAdviceBackstop(text, 'campaign_assistant'),
+      smallCountBackstop(text, 'campaign_assistant', turn.toolEvents),
+    ])
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the
@@ -680,7 +791,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   ): string | null {
     const message = userMessage.trim()
     if (message === CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL) {
-      return CAMPAIGN_MANAGER_PRODUCT_OVERVIEW
+      return buildProductOverview(
+        ctx.smsCompliance === SmsComplianceWindow.closed,
+      )
     }
     if (message !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
       return null

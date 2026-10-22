@@ -3,6 +3,7 @@ import {
   isActiveCampaign,
   isHeldOffice,
   isUpcomingElectionDate,
+  smsComplianceWindow,
 } from './eligibility.util'
 import { Campaign, ElectedOffice } from '../../generated/prisma'
 
@@ -108,5 +109,171 @@ describe('isHeldOffice', () => {
     // isActive is derived from termEndDate, so a null end (missing term data)
     // is treated as not held until the holder supplies dates.
     expect(isHeldOffice(office({ termEndDate: null }), new Date())).toBe(false)
+  })
+})
+
+describe('smsComplianceWindow', () => {
+  const electionDate = '2026-11-03'
+  const at = (iso: string) => new Date(`${iso}T15:00:00.000Z`)
+
+  it('is open at 26 days to the election', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: null,
+        now: at('2026-10-08'),
+      }),
+    ).toEqual({
+      smsCompliance: 'open',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+  })
+
+  it('is closing at 25 days to the election', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: null,
+        now: at('2026-10-09'),
+      }).smsCompliance,
+    ).toBe('closing')
+  })
+
+  it('is closing at 10 pm Eastern on the cutoff day', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: null,
+        now: new Date('2026-10-16T02:00:00.000Z'),
+      }).smsCompliance,
+    ).toBe('closing')
+  })
+
+  it('is closing at 11:59 pm Eastern on the cutoff day', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: null,
+        now: new Date('2026-10-16T03:59:00.000Z'),
+      }).smsCompliance,
+    ).toBe('closing')
+  })
+
+  it('is closed from midnight Eastern after the cutoff day', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: null,
+        now: new Date('2026-10-16T04:00:00.000Z'),
+      }),
+    ).toEqual({
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+  })
+
+  it('is open with null dates when there is no election date', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate: undefined,
+        tcrCompliance: null,
+        now: at('2026-10-20'),
+      }),
+    ).toEqual({
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    })
+  })
+
+  it('treats an unparseable election date as missing', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate: 'not-a-date',
+        tcrCompliance: null,
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('open')
+  })
+
+  it('is not_applicable once the kickoff was sent, even inside the window', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: { kickoffSentAt: new Date('2026-10-10T12:00:00.000Z') },
+        now: at('2026-10-20'),
+      }),
+    ).toEqual({
+      smsCompliance: 'not_applicable',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+  })
+
+  it('is not_applicable for an internal-testing approval inside the window', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: new Date('2026-10-18T12:00:00.000Z'),
+        },
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('not_applicable')
+  })
+
+  // Candidates who completed TCR via the legacy POST /campaigns/tcr-compliance
+  // path (approved before ~mid-May 2026) have kickoffSentAt NULL forever — the
+  // column is only stamped by the agentic claimAndEnqueueKickoff path. Their
+  // Peerly brand is live and they are actively texting; a non-null
+  // peerlyIdentityId is self-evidence of "filed, paid, and Peerly accepted it"
+  // (submitCampaignVerifyRequest's idempotency guard requires it), so once they
+  // hit the cutoff they must still read as not_applicable rather than closed.
+  it('is not_applicable for a legacy approval with a Peerly identity', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: null,
+          peerlyIdentityId: '11539648',
+        },
+        now: at('2026-10-20'),
+      }),
+    ).toEqual({
+      smsCompliance: 'not_applicable',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    })
+  })
+
+  it('ignores a compliance record without a kickoff', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: { kickoffSentAt: null },
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('closed')
+  })
+
+  // A record saved without ever being accepted by Peerly (no peerlyIdentityId)
+  // does not count as having made the cutoff — only the trio of kickoff, Peerly
+  // identity, or internal-testing exemption does.
+  it('ignores a compliance record with no Peerly identity', () => {
+    expect(
+      smsComplianceWindow({
+        electionDate,
+        tcrCompliance: {
+          kickoffSentAt: null,
+          internalTestingAt: null,
+          peerlyIdentityId: null,
+        },
+        now: at('2026-10-20'),
+      }).smsCompliance,
+    ).toBe('closed')
   })
 })

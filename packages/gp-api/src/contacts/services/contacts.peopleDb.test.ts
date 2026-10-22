@@ -63,6 +63,7 @@ const FIXTURE_PERSON: PersonOutput = {
   registeredVoter: 'Yes',
   estimatedIncomeAmount: 50000,
   voterStatus: 'Super',
+  earlyVoteStatus: null,
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,
@@ -201,6 +202,7 @@ describe('ContactsService — people-db (sole path)', () => {
     }
     const mockContactsMadeResolutionService = {
       resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+      lastReachedAt: vi.fn().mockResolvedValue(null),
     }
 
     service = new ContactsService(
@@ -221,6 +223,10 @@ describe('ContactsService — people-db (sole path)', () => {
       mockStatsService as never,
       mockPeopleDatasetService as never,
       mockContactsMadeResolutionService as never,
+      { latestEvent: vi.fn().mockResolvedValue(null) } as never,
+      {
+        resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+      } as never,
       createMockLogger(),
     )
   })

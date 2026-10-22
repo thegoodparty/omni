@@ -1,6 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
+import { SmsComplianceWindow } from '@goodparty_org/contracts'
 import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import {
+  SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+  smsComplianceWindow,
+} from 'src/campaigns/util/eligibility.util'
 import {
   ContactsFilterResolutionInput,
   ContactsService,
@@ -59,11 +68,44 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   async validatePurchase({
     contactCount,
     outreachType,
+    campaignId,
   }: OutreachPurchaseMetadata): Promise<void> {
     // p2p is priced off the draft's own list, where a Peerly-confirmed 0 is a
     // valid $0 send. Only types priced off the request's count need one here.
     if (outreachType !== 'p2p' && !contactCount) {
       throw new BadRequestException('contactCount is required')
+    }
+
+    // Win text purchases always carry a campaign (Serve texts use
+    // SERVE_TEXT). An organization without one has no general election date,
+    // which the SMS cutoff rule reads as open, so there is nothing to check.
+    if (!campaignId) {
+      return
+    }
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: campaignId },
+      include: {
+        tcrCompliance: {
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            peerlyIdentityId: true,
+          },
+        },
+      },
+    })
+    const { smsCompliance } = smsComplianceWindow({
+      electionDate: campaign?.details?.electionDate,
+      tcrCompliance: campaign?.tcrCompliance ?? null,
+      now: new Date(),
+    })
+    if (smsCompliance === SmsComplianceWindow.closed) {
+      throw new ConflictException({
+        message:
+          'Texting is closed for this race because it is too close to ' +
+          'the general election to finish verification.',
+        errorCode: SMS_COMPLIANCE_CUTOFF_ERROR_CODE,
+      })
     }
   }
 
@@ -132,7 +174,14 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         0,
         billedContactCount - FREE_TEXTS_OFFER.COUNT,
       )
-      const finalAmount = calcTextAmountInCents(discountedContactCount)
+      const discountedAmount = calcTextAmountInCents(discountedContactCount)
+      // A send just over the free allowance leaves a remainder of a few
+      // cents (5,001-5,014 contacts) — non-zero but under Stripe's 50c
+      // minimum, so createCheckoutSession's session is rejected and the
+      // candidate can't submit. Forgive it the same way the hold path does
+      // (amount 0 -> the free path) rather than block a free-texts send.
+      const finalAmount =
+        discountedAmount < WIN_SMS_HOLD_MIN_CENTS ? 0 : discountedAmount
 
       this.logger.info(
         `Campaign ${campaignId}: applying free texts discount (${billedContactCount} contacts, ${discountedContactCount} billable, amount: ${finalAmount})`,
@@ -144,13 +193,20 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return calcTextAmountInCents(billedContactCount)
   }
 
-  // The Win SMS hold amount (cents) for a p2p checkout: UNDISCOUNTED so a later
-  // capture (slice C1) can apply the free-texts discount and still never exceed
-  // the hold. One build-row lookup drives both branches:
+  // The Win SMS hold amount (cents) for a p2p checkout. One build-row lookup
+  // drives both branches:
   //  - READY build: bill the current server-derived leads_loaded (the unchanged
-  //    B1 basis), undiscounted; sub-50c forgiven to 0 (below Stripe's floor).
+  //    B1 basis) — see resolveReadyHoldAmount for the free-texts/forgiveness
+  //    rules.
   //  - PRE-BUILD (slice D2a): no final leads_loaded yet, so source the hold from
-  //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount.
+  //    the pre-pay match-count estimate — see resolvePreBuildHoldAmount. This
+  //    estimate is ALWAYS undiscounted (the free-texts offer is never consulted
+  //    pre-build, see resolvePreBuildHoldAmount's zero-amount guard): a covered
+  //    send that isn't yet ready must wait rather than take the free path,
+  //    because a free send places no hold/link for the build-ready recovery
+  //    edge to find. The webapp mirrors this — it defers creating the draft
+  //    (and so the checkout) for a free-texts-covered send until the build is
+  //    ready, so FE and BE can never disagree pre-build.
   private async resolveWinSmsHoldAmount(
     draft: P2pDraftAudience,
     phoneListBuildId: string | undefined,
@@ -182,8 +238,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
         clientContactCount,
         campaignId,
       )
-      const undiscounted = calcTextAmountInCents(builtContactCount)
-      amount = undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
+      amount = await this.resolveReadyHoldAmount(builtContactCount, campaignId)
     }
 
     // HARD send cap (slice D2b — never oversend): persist the paid text count
@@ -205,6 +260,31 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       )
     }
     return amount
+  }
+
+  // The READY-build hold amount (cents): the same free-texts rule the non-hold
+  // path applies, so a send the offer fully covers is $0 — the free path, no
+  // hold — exactly like non-hold billing. PROD BUG this fixes: before this
+  // check existed, a fully-covered send still priced the undiscounted amount
+  // here, so the client (which shows "Free" the same way the non-hold path
+  // would) called complete-free-purchase and the server's nonzero amount threw
+  // its "only allowed for zero-amount purchases" 400 — the candidate could
+  // never send. A send the offer only PARTIALLY covers still holds the full
+  // UNDISCOUNTED count (unchanged): the discount is applied at capture
+  // (OutreachP2pSms.freeTextsApplied), clamped to this hold, never exceeding
+  // it.
+  private async resolveReadyHoldAmount(
+    builtContactCount: number,
+    campaignId: number,
+  ): Promise<number> {
+    const hasOffer =
+      await this.campaignsService.checkFreeTextsEligibility(campaignId)
+    if (hasOffer && builtContactCount <= FREE_TEXTS_OFFER.COUNT) {
+      return 0
+    }
+
+    const undiscounted = calcTextAmountInCents(builtContactCount)
+    return undiscounted < WIN_SMS_HOLD_MIN_CENTS ? 0 : undiscounted
   }
 
   // The pre-build hold amount: the has-cell match count of the EXACT filter the

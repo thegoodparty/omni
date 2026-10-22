@@ -37,6 +37,35 @@ export function createAssetsRouter({
 
   const originId = `S3-${domain}`
 
+  // CloudFront ignores S3's `Vary: Origin`, so unless Origin is in the cache
+  // key, whichever request fills the cache wins: an <img> load caches a copy
+  // with no Access-Control-Allow-Origin and every later fetch() is blocked.
+  // Cache-key headers are also forwarded to S3, which is what makes it answer
+  // with CORS headers at all.
+  const cachePolicy = new aws.cloudfront.CachePolicy('assetsCachePolicy', {
+    name: `gp-${environment}-assets`,
+    comment: `Assets CDN for ${environment}: query strings and CORS headers`,
+    minTtl: 1,
+    defaultTtl: 86400,
+    maxTtl: 31536000,
+    parametersInCacheKeyAndForwardedToOrigin: {
+      enableAcceptEncodingGzip: true,
+      enableAcceptEncodingBrotli: true,
+      cookiesConfig: { cookieBehavior: 'none' },
+      headersConfig: {
+        headerBehavior: 'whitelist',
+        headers: {
+          items: [
+            'Origin',
+            'Access-Control-Request-Method',
+            'Access-Control-Request-Headers',
+          ],
+        },
+      },
+      queryStringsConfig: { queryStringBehavior: 'all' },
+    },
+  })
+
   const distribution = new aws.cloudfront.Distribution('assetsDistribution', {
     enabled: true,
     isIpv6Enabled: true,
@@ -51,17 +80,7 @@ export function createAssetsRouter({
       },
     ],
     defaultCacheBehavior: {
-      // We should find a way to generalize this for all environments
-      ...(environment === 'prod'
-        ? {
-            forwardedValues: {
-              queryString: true,
-              cookies: { forward: 'none' },
-            },
-          }
-        : {
-            cachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
-          }),
+      cachePolicyId: cachePolicy.id,
       targetOriginId: originId,
       viewerProtocolPolicy: 'redirect-to-https',
       allowedMethods: ['GET', 'HEAD', 'OPTIONS'],

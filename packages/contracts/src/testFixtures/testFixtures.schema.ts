@@ -1,8 +1,12 @@
 import { z } from 'zod'
+import { ComplianceStageSchema } from '../campaigns/enums'
 
 export const TEST_FIXTURE_STATE_VALUES = [
   'free-win',
   'pro-win',
+  // A Pro Win candidate whose real 10DLC registration has run to `tcr_approved`
+  // against the vendor mocks (VENDOR_MODE=mock only).
+  'pro-win-10dlc-mock',
   'serve',
   'serve-won-race',
 ] as const
@@ -54,10 +58,73 @@ export type TestFixtureSessionResponse = z.infer<
   typeof TestFixtureSessionResponseSchema
 >
 
+// Result of applying a fixture state to an existing user
+// (`POST /test-fixtures/users/:id/states/:state`). Only the 10DLC state is
+// applicable that way today, so the shape is that state's outcome.
+export const TestFixtureStateResponseSchema = z.object({
+  state: TestFixtureStateSchema,
+  userId: z.number(),
+  campaignId: z.number(),
+  stage: ComplianceStageSchema,
+  peerlyIdentityId: z.string(),
+})
+export type TestFixtureStateResponse = z.infer<
+  typeof TestFixtureStateResponseSchema
+>
+
 export const DeleteTestFixtureUsersResponseSchema = z.object({
   deleted: z.array(z.object({ userId: z.number(), email: z.string() })),
   notFound: z.array(z.union([z.number(), z.string()])),
 })
 export type DeleteTestFixtureUsersResponse = z.infer<
   typeof DeleteTestFixtureUsersResponseSchema
+>
+
+export const TEST_FIXTURE_ACTIVITY_MAX_PEOPLE = 500
+
+// How many residents answer the seeded priority, each with a coded answer.
+// Every resident asked answers when it is left out.
+export const TestFixtureAnswersSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+
+// `lean` codes nine in ten answers yes, which lets every group read as
+// heard; `even` splits them half yes and half no, which leaves the model
+// unsure of its groups however many answer.
+export const TestFixtureSplitSchema = z.enum(['lean', 'even'])
+
+export const SeedTestFixtureActivityRequestSchema = z
+  .object({
+    people: z
+      .number()
+      .int()
+      .min(20)
+      .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+      .optional(),
+    answers: TestFixtureAnswersSchema.optional(),
+    split: TestFixtureSplitSchema.optional(),
+  })
+  .strict()
+  .default({})
+export type SeedTestFixtureActivityRequest = z.infer<
+  typeof SeedTestFixtureActivityRequestSchema
+>
+
+export const TestFixtureActivityEffortSchema = z.object({
+  outreachId: z.number(),
+  outreachType: z.string(),
+  interactions: z.number(),
+  memos: z.number(),
+  synthesisRunId: z.string().nullable(),
+})
+
+export const SeedTestFixtureActivityResponseSchema = z.object({
+  organizationSlug: z.string(),
+  people: z.number(),
+  efforts: z.array(TestFixtureActivityEffortSchema),
+})
+export type SeedTestFixtureActivityResponse = z.infer<
+  typeof SeedTestFixtureActivityResponseSchema
 >

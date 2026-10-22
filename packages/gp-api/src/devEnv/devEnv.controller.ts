@@ -2,7 +2,10 @@ import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
-import { DevEnvBundleResponseSchema } from '@goodparty_org/contracts'
+import {
+  DevEnvBundleResponseSchema,
+  DevEnvElectionSeedResponseSchema,
+} from '@goodparty_org/contracts'
 import {
   Body,
   Controller,
@@ -51,5 +54,18 @@ export class DevEnvController {
       throw new NotFoundException()
     }
     return this.devEnv.getBundles(body.packages, req.githubLogin)
+  }
+
+  // A presigned URL for the slice of the dev election database that local
+  // setup loads into `electiondb`. Same gate as the bundle: org membership,
+  // non-prod only. The URL is a bearer credential until it expires.
+  @Post('election-seed')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(DevEnvElectionSeedResponseSchema)
+  getElectionSeed(@Req() req: DevEnvRequest) {
+    if (!IS_NON_PROD_DEPLOY) {
+      throw new NotFoundException()
+    }
+    return this.devEnv.getElectionSeedUrl(req.githubLogin)
   }
 }

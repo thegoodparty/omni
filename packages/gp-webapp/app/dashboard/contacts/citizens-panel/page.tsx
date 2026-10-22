@@ -10,7 +10,7 @@ import { CITIZENS_PANEL_PATH } from './citizensPanelCopy'
 
 const meta = pageMetaData({
   title: 'Civic panel | GoodParty.org',
-  description: 'Who is on your civic panel',
+  description: 'Build your civic panel and see who is on it',
   slug: CITIZENS_PANEL_PATH,
 })
 export const metadata = meta
@@ -22,11 +22,9 @@ export default async function Page(): Promise<React.JSX.Element> {
   const variants = await getFlagVariants()
   if (variants?.[SERVE_CITIZEN_PANELS_FLAG_KEY]?.value !== 'on') notFound()
 
-  const [summaryResult, representationResult] = await Promise.all([
+  const [summaryResult, planResult] = await Promise.all([
     serverRequest('GET /v1/contacts/civic-panel', {}).catch(() => null),
-    serverRequest('GET /v1/contacts/civic-panel/representation', {}).catch(
-      () => null,
-    ),
+    serverRequest('GET /v1/contacts/civic-panel/plan', {}).catch(() => null),
   ])
 
   const summary = summaryResult?.data
@@ -34,10 +32,7 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   return (
     <DashboardLayout pathname="/dashboard/contacts" showAlert={false}>
-      <CitizensPanelView
-        summary={summary}
-        representation={representationResult?.data ?? null}
-      />
+      <CitizensPanelView summary={summary} plan={planResult?.data ?? null} />
     </DashboardLayout>
   )
 }

@@ -7,9 +7,11 @@ import {
   ConflictException,
   Controller,
   ForbiddenException,
+  forwardRef,
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Post,
@@ -41,6 +43,7 @@ import {
 import { SupportEstimateService } from './services/supportEstimate.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { electedOfficeToApi } from './util/electedOffice.util'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   SupportEstimate,
@@ -55,6 +58,8 @@ export class ElectedOfficeController {
     private readonly organizationsService: OrganizationsService,
     private readonly supportEstimateService: SupportEstimateService,
     private readonly crmOfficeHolder: CrmOfficeHolderService,
+    @Inject(forwardRef(() => PrioritiesService))
+    private readonly prioritiesService: PrioritiesService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -88,7 +93,14 @@ export class ElectedOfficeController {
         where: { userId: user.id },
         orderBy: { termStartDate: 'asc' },
       })
-    return offices.map((office) => this.toApi(office))
+    // Serve onboarding holds back paid community issues research until an
+    // official with issues they ran on confirms they are in office.
+    const withWinIssues =
+      await this.prioritiesService.officesWithWinIssues(offices)
+    return offices.map((office) => ({
+      ...this.toApi(office),
+      hasWinIssues: withWinIssues.has(office.id),
+    }))
   }
 
   @UseElectedOffice()

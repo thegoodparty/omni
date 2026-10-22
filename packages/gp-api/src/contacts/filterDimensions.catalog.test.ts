@@ -39,16 +39,25 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   'homeownerLikely',
 ])
 
+const valueKeysOf = (key: string): string[] => {
+  const dimension = FILTER_DIMENSIONS.find((d) => d.key === key)
+  return dimension && 'values' in dimension
+    ? dimension.values.map((value) => value.key)
+    : []
+}
+
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))
 
-// Every schema field the catalog claims to cover: boolean-group value keys
-// plus multi-value/activity dimension keys (those dimensions' keys ARE the
+// Every schema field the catalog claims to cover: boolean-group value keys,
+// date-range from/to keys, plus multi-value/activity dimension keys (those dimensions' keys ARE the
 // schema array fields).
 const catalogSchemaFields = new Set(
   FILTER_DIMENSIONS.flatMap((dimension) =>
     dimension.kind === 'boolean-group'
       ? dimension.values.map((value) => value.key)
-      : [dimension.key],
+      : dimension.kind === 'date-range'
+        ? [dimension.fromKey, dimension.toKey]
+        : [dimension.key],
   ),
 )
 
@@ -96,10 +105,7 @@ describe('FILTER_DIMENSIONS catalog', () => {
   // (override-only, ENG-10833) alongside the four derivable ones, so the
   // assistant/wizard can safely build a filter on any of them.
   it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
-    const supportStatus = FILTER_DIMENSIONS.find(
-      (d) => d.key === 'supportStatus',
-    )
-    expect(supportStatus?.values.map((value) => value.key)).toEqual([
+    expect(valueKeysOf('supportStatus')).toEqual([
       'supporter',
       'non_supporter',
       'unknown',
@@ -109,12 +115,10 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 
   it('sources income and language values from the conversion maps', () => {
-    const income = FILTER_DIMENSIONS.find((d) => d.key === 'incomeRanges')
-    expect(income?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('incomeRanges')).toEqual(
       Object.keys(INCOME_RANGE_MAPPING),
     )
-    const language = FILTER_DIMENSIONS.find((d) => d.key === 'languageCodes')
-    expect(language?.values.map((value) => value.key)).toEqual(
+    expect(valueKeysOf('languageCodes')).toEqual(
       Object.keys(LANGUAGE_CODE_TO_LABEL),
     )
   })
@@ -164,6 +168,7 @@ describe('FILTER_DIMENSIONS provenance', () => {
       [
         'audience',
         'businessOwner',
+        'earlyVote',
         'education',
         'ethnicity',
         'homeowner',
@@ -214,6 +219,8 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -235,7 +242,10 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(on).toEqual(expect.arrayContaining(['civicPanel', 'contactHistory']))
     expect(on.filter((key) => !off.includes(key)).sort()).toEqual([
       'civicPanel',
+      'civicPanelJoinedBy',
+      'civicPanelJoinedWhen',
       'contactHistory',
+      'lastAsked',
     ])
   })
 
@@ -269,6 +279,19 @@ describe('ContactsService.getFilterDimensions', () => {
       .map((d) => d.key)
     expect(winKeys).toContain('ethnicity')
     expect(serveKeys).not.toContain('ethnicity')
+  })
+
+  // Named for the same reason as ethnicity: 'audience' (turnout likelihood)
+  // is still 'both', so early vote could plausibly be "fixed" to match it.
+  it('offers early vote likelihood to Win and never to an eo- organization', () => {
+    const winKeys = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .map((d) => d.key)
+    const serveKeys = buildService()
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
+      .map((d) => d.key)
+    expect(winKeys).toContain('earlyVote')
+    expect(serveKeys).not.toContain('earlyVote')
   })
 
   // Each mode sees the shared dimensions plus only its own. Stated
@@ -330,5 +353,92 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
       'modeled',
     )
+  })
+})
+
+// Party is a registration only where the state reports one; elsewhere L2
+// assigns it from primary ballots or models it (peopleDb/partySource.ts),
+// and the catalog's static "observed" mark would have the model report an
+// estimate as a fact on the file.
+describe('ContactsService.getFilterDimensions: party by state', () => {
+  const buildService = () =>
+    new ContactsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      createMockLogger() as unknown as PinoLogger,
+    )
+  const win = { slug: 'win-campaign' } as Organization
+  const party = (state: string | null | undefined) =>
+    buildService()
+      .getFilterDimensions(win, { citizenPanels: true, state })
+      .find((d) => d.key === 'party')
+
+  it('marks party observed, with no note, where the state registers by party', () => {
+    expect(party('CA')?.provenance).toBe('observed')
+    expect(party('CA')?.note).toBeUndefined()
+  })
+
+  it('keeps the catalog entry as it is when no state is known', () => {
+    expect(party(null)?.provenance).toBe('observed')
+    expect(party(undefined)?.note).toBeUndefined()
+  })
+
+  it("marks party modeled, with the vendor's account as the note, elsewhere", () => {
+    const minnesota = party('MN')
+    expect(minnesota?.provenance).toBe('modeled')
+    expect(minnesota?.note).toBe(
+      'Minnesota provides no party information in its voter file. The ' +
+        "voter file vendor models every voter's party from commercial " +
+        'data, with a limited amount of partisan-contribution and ' +
+        'office-holding records.',
+    )
+    expect(party('TX')?.provenance).toBe('modeled')
+    expect(party('TX')?.note).toMatch(/^Texas voters do not register by party/)
+  })
+
+  it('changes nothing else about the Win catalog', () => {
+    const plain = buildService().getFilterDimensions(win, {
+      citizenPanels: true,
+    })
+    const modeled = buildService().getFilterDimensions(win, {
+      citizenPanels: true,
+      state: 'MN',
+    })
+    expect(modeled.map((d) => d.key)).toEqual(plain.map((d) => d.key))
+    expect(modeled.filter((d) => d.key !== 'party')).toEqual(
+      plain.filter((d) => d.key !== 'party'),
+    )
+    expect(modeled.find((d) => d.key === 'party')).toEqual({
+      ...plain.find((d) => d.key === 'party'),
+      provenance: 'modeled',
+      note: expect.any(String),
+    })
+  })
+
+  it('still strips party for an eo- organization whatever the state', () => {
+    const keys = buildService()
+      .getFilterDimensions({ slug: 'eo-city-council' } as Organization, {
+        citizenPanels: true,
+        state: 'MN',
+      })
+      .map((d) => d.key)
+    expect(keys).not.toContain('party')
   })
 })

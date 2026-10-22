@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { NON_PROD_LIVE_VENDOR_BYPASS } from '@/shared/util/appEnvironment.util'
 import {
   Campaign,
   Domain,
@@ -18,6 +19,7 @@ import { formatISO, isBefore, parseISO } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { maskPinDeliveryDestination } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
+import { smsComplianceWindow } from '../../util/eligibility.util'
 
 const DOMAIN_REGISTERED_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -114,6 +116,11 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       cvValidationFailureReasons:
         tcrCompliance?.cvValidationFailureReasons ?? [],
       ...cvState,
+      ...smsComplianceWindow({
+        electionDate: campaign.details?.electionDate,
+        tcrCompliance,
+        now: new Date(),
+      }),
     }
   }
 
@@ -144,11 +151,12 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       }
     }
 
-    // Non-prod short-circuits Peerly submission (see websites.service.ts
-    // verifyLive), so there is no real CV to query; report APPROVED so testers
-    // still reach the PIN screen (mirrors retrieveCampaignVerifyToken's bypass).
-    // There is no real delivery, so pinDelivery stays null.
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+    // Non-prod live-mode deploys (dev) short-circuit Peerly submission (see
+    // websites.service.ts verifyLive), so there is no real CV to query; report
+    // APPROVED so testers still reach the PIN screen (mirrors
+    // retrieveCampaignVerifyToken's bypass). There is no real delivery, so
+    // pinDelivery stays null. In mock mode the status comes from the mock.
+    if (NON_PROD_LIVE_VENDOR_BYPASS) {
       return {
         peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
         pinDelivery: null,

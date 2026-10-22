@@ -5,6 +5,7 @@ import {
 } from '../generated/enums'
 import {
   CivicPanelStatusSchema,
+  ContactStatusSourceSchema,
   FollowUpStatusSchema,
   VoterLikelihoodSchema,
 } from './ContactStatus.schema'
@@ -20,6 +21,22 @@ import {
 // contactInteraction.types.ts ties its SUPPORT_ANSWER_ROLLUP derivation to
 // this schema's inferred type via `satisfies`, so the two can't drift.
 export const SupportStatusRollupSchema = GeneratedSupportStatusRollupSchema
+
+// Serve's civic panel history on the person record (`GET /v1/contacts/:id`):
+// the latest join or leave, how and when, and when the office last reached
+// them on any channel (the rest window's rule). Null when there is none.
+export const CivicPanelActivitySchema = z.object({
+  latestChange: z
+    .object({
+      value: CivicPanelStatusSchema,
+      source: ContactStatusSourceSchema,
+      at: z.string(),
+    })
+    .nullable(),
+  lastReachedAt: z.string().nullable(),
+})
+
+export type CivicPanelActivity = z.infer<typeof CivicPanelActivitySchema>
 
 export type SupportStatusRollup = GeneratedSupportStatusRollup
 
@@ -124,6 +141,12 @@ export const PersonSchema = z.object({
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
+  // Likelihood of voting before Election Day, early in person or by mail,
+  // from Haystaq's within-state percentile scores, so it is relative to the
+  // person's state rather than a probability.
+  earlyVoteStatus: z
+    .enum(['Very Likely', 'Likely', 'Unlikely', 'Very Unlikely'])
+    .nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])
     .nullable(),
@@ -186,6 +209,8 @@ export const PersonSchema = z.object({
   followUp: FollowUpStatusSchema.optional(),
   // Serve's civic panel membership, omitted for a Win org like followUp.
   civicPanel: CivicPanelStatusSchema.optional(),
+  // Its history, beside it and on the same terms.
+  civicPanelActivity: CivicPanelActivitySchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

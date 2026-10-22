@@ -204,7 +204,7 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-const openFlow = () => {
+const openFlow = (tcrCompliance: TcrCompliance = TCR_FIXTURE) => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(
@@ -213,7 +213,7 @@ const openFlow = () => {
       open
       onClose={onClose}
       onScheduled={onScheduled}
-      tcrCompliance={TCR_FIXTURE}
+      tcrCompliance={tcrCompliance}
     />,
   )
   return { onClose, onScheduled }
@@ -348,7 +348,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -407,6 +407,7 @@ describe('SmsFlow', () => {
         date: expect.stringMatching(/T10:00:00-0[45]:00$/),
       }),
       expect.anything(),
+      expect.any(Function),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
@@ -576,6 +577,60 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
+    // Money-safety (prod bug ENG win-sms-freetexts-hold-fix): a pre-build send
+    // the free-texts offer would fully cover (reachable estimate <=5,000) must
+    // NEVER take the pay-before-ready estimate path or create a draft while
+    // the build is still running — gp-api's pre-build pricing never consults
+    // the offer, so a free pre-build send would place no hold and strand
+    // (R1's build-ready recovery edges find a paid draft only through a hold's
+    // satellite link). The flow must wait for `ready` instead, exactly like
+    // the flag-off path, so the client and server can never disagree.
+    it('flag ON + free-texts-covered estimate: waits for the build instead of pay-before-ready (never strands a free send)', async () => {
+      winSmsHoldRef.enabled = true
+      vi.mocked(createOutreach).mockClear()
+      completeFreePurchase.mockClear()
+      // hasFreeTextsOffer stays true (the campaignState default) and the
+      // mocked audience reach (1,200) is under FREE_TEXTS_OFFER.COUNT.
+      vi.mocked(getP2pPhoneListBuildStatus).mockResolvedValue({
+        buildStatus: 'building',
+      })
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByText(/AI body \(warm\) for introduce_myself/)
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      // The review step sits in its preparing (spinner) state — no draft, no
+      // checkout session, and no "Schedule campaign" free-complete CTA — while
+      // the build runs, same as the flag-off wait.
+      await waitFor(() =>
+        expect(screen.getByRole('progressbar')).toHaveAttribute(
+          'aria-valuetext',
+          'Step 5 of 5',
+        ),
+      )
+      expect(
+        screen.queryByRole('button', { name: 'Schedule campaign' }),
+      ).not.toBeInTheDocument()
+      expect(createOutreach).not.toHaveBeenCalled()
+      expect(completeFreePurchase).not.toHaveBeenCalled()
+    })
+
     // NO CLIENT/SERVER RACE: gp-api and the browser evaluate the SAME managed
     // flag independently, so this client's own read can lag the server's
     // (e.g. the Amplitude JS SDK hasn't resolved yet when the request fires).
@@ -729,7 +784,7 @@ describe('SmsFlow', () => {
     })
   })
 
-  // The greeting is part of the message, its first name a locked pill, so
+  // The greeting is part of the message, its first name a pill, so
   // a candidate writing their own body sees it already opens with "Hello" —
   // CAS saw "Hello {first_name}, Hello! My name is…" reach the P2P queue
   // while the greeting sat outside the box. The review bubble stays
@@ -797,7 +852,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jared, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jared Smith, candidate for City Council\./),
     )
     expect(
       screen.getByRole('textbox', { name: 'Message body' }),
@@ -826,13 +881,13 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for Mayor\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for Mayor\./),
     )
     expect(screen.queryByText(/local office/)).not.toBeInTheDocument()
   })
 
   describe('the message field', () => {
-    // Improve gets the whole message back from gp-api, locked parts
+    // Improve gets the whole message back from gp-api, required parts
     // restored there, so the mock answers with the message it was sent.
     const mockDraftAndImprove = () => {
       const calls: SmsDraftRequest[] = []
@@ -850,8 +905,8 @@ describe('SmsFlow', () => {
       return calls
     }
 
-    const reachCompose = async () => {
-      openFlow()
+    const reachCompose = async (tcrCompliance?: TcrCompliance) => {
+      openFlow(tcrCompliance)
       await userEvent.click(screen.getByText('Introduce myself to voters'))
       await userEvent.click(screen.getByText('Choose a voter list'))
       await userEvent.click(await screen.findByText('Likely voters'))
@@ -875,7 +930,7 @@ describe('SmsFlow', () => {
     }
 
     const COMPOSED_DRAFT =
-      'Hello {first_name}, this is Jane, candidate for City Council. ' +
+      'Hello {first_name}, this is Jane Doe, candidate for City Council. ' +
       'AI body (warm) for introduce_myself\n\n' +
       'Paid for by Friends of Jane. Reply STOP to opt out.'
 
@@ -924,7 +979,7 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
-    // The polish endpoint takes a message within the 1000-character limit,
+    // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
     it('sends no polish for a message over the length limit', async () => {
@@ -933,7 +988,7 @@ describe('SmsFlow', () => {
       act(() => {
         editor.commands.insertContentAt(
           endOf(editor, 'introduce_myself'),
-          ` ${'Vote early. '.repeat(80)}`,
+          ` ${'Vote early. '.repeat(180)}`,
         )
       })
 
@@ -941,7 +996,7 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: 'Improve with AI' }),
       ).toBeDisabled()
       expect(
-        screen.getByText(/Keep the whole message .* under 1000 characters/),
+        screen.getByText(/Keep the whole message .* under 2000 characters/),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
@@ -1097,7 +1152,7 @@ describe('SmsFlow', () => {
       expect(box).not.toHaveTextContent(/The AI rewrite/)
     })
 
-    it('gives a failed first draft the locked parts to write between', async () => {
+    it('gives a failed first draft the required parts to write between', async () => {
       api.mock('POST /v1/outreach/sms/draft', {
         status: 502,
         data: { message: 'SMS draft generation failed' },
@@ -1190,18 +1245,127 @@ describe('SmsFlow', () => {
       )
     })
 
-    it('refuses an edit inside a locked part and says why', async () => {
+    // A candidate who goes by a shorter name than the one on file: the
+    // committee does not carry the name, so only the intro identifies them.
+    const goesByJosh = () => {
+      campaignState.campaign = {
+        ...campaignState.base(),
+        ownerName: 'Joshua Martin',
+      }
+      return {
+        ...TCR_FIXTURE,
+        committeeName: 'Friends for Better Parks',
+        candidateName: 'Joshua Martin',
+      }
+    }
+
+    // A held Continue focuses the field, which scrolls to its cursor, and
+    // jsdom cannot measure that.
+    const stubRangeRects = () => {
+      Object.defineProperty(Range.prototype, 'getClientRects', {
+        configurable: true,
+        value: () => [],
+      })
+      Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => new DOMRect(),
+      })
+    }
+
+    const deleteText = (editor: Editor, text: string) => {
+      const to = endOf(editor, text)
+      act(() => {
+        editor.view.dispatch(editor.state.tr.delete(to - text.length, to))
+      })
+    }
+
+    it('deletes the name on file while another copy still names the candidate', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose(goesByJosh())
+      act(() => {
+        editor.commands.insertContentAt(
+          endOf(editor, 'introduce_myself'),
+          ' Josh Martin here.',
+        )
+      })
+      deleteText(editor, 'Joshua Martin')
+
+      expect(editor.getText()).not.toContain('Joshua Martin')
+      expect(screen.queryByText(/Your text needs your name/)).toBeNull()
+      await attachImage()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(await screen.findByText('Pick a date')).toBeInTheDocument()
+    })
+
+    it('deletes the only copy of the name, shows the line to add back and holds Continue', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose(goesByJosh())
+      deleteText(editor, 'Joshua Martin')
+
+      expect(editor.getText()).not.toContain('Joshua Martin')
+      expect(
+        await screen.findByText(/Your text needs your name\./),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('this is Joshua Martin, candidate for City Council.', {
+          exact: false,
+        }),
+      ).toBeInTheDocument()
+      await attachImage()
+      stubRangeRects()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(screen.queryByText('Pick a date')).toBeNull()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add your name back' }),
+      )
+      await waitFor(() =>
+        expect(editor.getText()).toContain('this is Joshua Martin'),
+      )
+      expect(screen.queryByText(/Your text needs your name/)).toBeNull()
+    })
+
+    it('deletes the disclaimer, shows it to add back and holds Continue', async () => {
       mockDraftAndImprove()
       const { editor } = await reachCompose()
-      const at = endOf(editor, 'Reply ST')
+      deleteText(editor, 'Paid for by Friends of Jane. ')
+
+      expect(
+        await screen.findByText(/Your text needs its disclaimer\./),
+      ).toBeInTheDocument()
+      expect(editor.getText()).not.toContain('Paid for by')
+      expect(
+        screen.getByText('Paid for by Friends of Jane.'),
+      ).toBeInTheDocument()
+      await attachImage()
+      stubRangeRects()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(screen.queryByText('Pick a date')).toBeNull()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Add the disclaimer back' }),
+      )
+      await waitFor(() =>
+        expect(editor.getText({ blockSeparator: '\n' })).toBe(COMPOSED_DRAFT),
+      )
+      expect(screen.queryByText(/Your text needs its disclaimer/)).toBeNull()
+    })
+
+    it('lets the greeting pill be deleted and offers it back', async () => {
+      mockDraftAndImprove()
+      const { editor } = await reachCompose()
+      let pill = -1
+      editor.state.doc.descendants((node, pos) => {
+        if (pill === -1 && node.type.name === 'token') pill = pos
+      })
       act(() => {
-        editor.view.dispatch(editor.state.tr.delete(at - 1, at))
+        editor.view.dispatch(editor.state.tr.delete(pill, pill + 1))
       })
 
-      expect(await screen.findByRole('status')).toHaveTextContent(
-        'Every text has to offer a way to opt out, but you can write around it.',
-      )
-      expect(editor.getText()).toContain('Reply STOP to opt out.')
+      expect(
+        await screen.findByText(/Your text needs its greeting/),
+      ).toBeInTheDocument()
+      expect(editor.getText()).not.toContain('{first_name}')
     })
 
     it('Try again repeats an Improve that failed', async () => {
@@ -1357,7 +1521,7 @@ describe('SmsFlow', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('textbox', { name: 'Message body' }),
-      ).toHaveTextContent(/this is Jane, candidate for City Council\./),
+      ).toHaveTextContent(/this is Jane Doe, candidate for City Council\./),
     )
   })
 
@@ -1538,6 +1702,7 @@ describe('SmsFlow', () => {
         expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
           expect.objectContaining({ proposalKey, voterFileFilterId: 41 }),
           expect.anything(),
+          expect.any(Function),
         ),
       )
     })
@@ -1572,11 +1737,48 @@ describe('SmsFlow', () => {
       )
     })
 
+    it('says why the server refused the draft on the review step', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(createOutreach).mockImplementationOnce(
+        async (_payload, _image, onRejected) => {
+          onRejected?.('Campaign is 10DLC-approved for internal testing only')
+          return null
+        },
+      )
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/couldn.t set up your purchase/),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Campaign is 10DLC-approved for internal testing only',
+        ),
+      ).toBeInTheDocument()
+    })
+
     // Words the product carried in or wrote are checked for the sender's
     // name before the compose step shows them; words the candidate typed
     // never are.
     describe('identification', () => {
-      const INTRO = 'this is Jane, candidate for City Council.'
+      const INTRO = 'this is Jane Doe, candidate for City Council.'
 
       // The field holds the whole message; these cases are about the body
       // between its greeting and its footer, which is what the repair edits.
@@ -1613,7 +1815,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         expect(
-          screen.queryByText(/messages must include your name/),
+          screen.queryByText(/Your text needs your name/),
         ).not.toBeInTheDocument()
       })
 
@@ -1624,7 +1826,7 @@ describe('SmsFlow', () => {
 
         await waitFor(() =>
           expect(bodyOf(box)).toBe(
-            `${INTRO} Vote Tuesday. Questions? Ask for Jane.`,
+            `${INTRO} Vote Tuesday. Questions? Ask for Jane Doe.`,
           ),
         )
       })
@@ -1633,6 +1835,15 @@ describe('SmsFlow', () => {
         const box = await reachCompose(`${INTRO} Vote Tuesday.`)
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
+      })
+
+      // A seed that names the sender passes the standards check, so it is
+      // carried in as written rather than gaining a second, full-name intro.
+      it('leaves a seed that names the candidate by first name alone', async () => {
+        const seed = 'this is Jane, candidate for City Council. Vote Tuesday.'
+        const box = await reachCompose(seed)
+
+        await waitFor(() => expect(bodyOf(box)).toBe(seed))
       })
 
       it('never rewrites what the candidate typed', async () => {
@@ -1672,7 +1883,7 @@ describe('SmsFlow', () => {
         const box = await screen.findByRole('textbox', {
           name: 'Message body',
         })
-        const direct = 'Jane here, candidate for City Council. Vote early.'
+        const direct = 'Jane Doe here, candidate for City Council. Vote early.'
 
         await waitFor(() => expect(bodyOf(box)).toBe(`${INTRO} Vote Tuesday.`))
         await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
@@ -1932,7 +2143,7 @@ describe('SmsFlow', () => {
       campaignId: 9,
       outreachType: 'p2p',
       projectId: null,
-      name: 'Likely voters — SMS',
+      name: 'Likely voters',
       status: 'draft',
       error: null,
       audienceRequest: null,
@@ -1997,7 +2208,7 @@ describe('SmsFlow', () => {
       await buildToName()
 
       expect(screen.getByLabelText('Campaign name')).toHaveValue(
-        'Likely voters — SMS',
+        'Likely voters',
       )
       expect(screen.queryByText('Send date')).not.toBeInTheDocument()
       expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
@@ -2048,9 +2259,9 @@ describe('SmsFlow', () => {
       // The saved-lists mock never returns the row the create just made, so
       // the auto-name falls back to the channel; the field being filled is
       // what matters here.
-      expect(
-        (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
-      ).toMatch(/ — SMS$/)
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Text campaign',
+      )
     })
 
     // The banner's gate opens the wizard on its first step, whose Back is the
@@ -2114,7 +2325,7 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
         expect.objectContaining({
           outreachType: 'p2p',
-          name: 'Likely voters — SMS',
+          name: 'Likely voters',
           voterFileFilterId: 41,
           script: expect.stringContaining('Paid for by Friends of Jane.'),
         }),
@@ -2251,11 +2462,43 @@ describe('SmsFlow', () => {
             phoneListId: 77,
           }),
           null,
+          expect.any(Function),
         ),
       )
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
+    })
+
+    // A date picked in an earlier session must not rewrite the name a
+    // reopened draft comes back with, even when it ends with that date.
+    it('keeps a resumed name that ends with a date picked before reopening', async () => {
+      gateRef.set(CLEARED_GATE)
+      const flow = (open: boolean, resumeDraft: OutreachDetail) => (
+        <SmsFlow
+          source="outreach_page"
+          open={open}
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={resumeDraft}
+        />
+      )
+      const { rerender } = render(flow(true, draftDetail()))
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+
+      rerender(flow(false, draftDetail()))
+      const reopened = draftDetail({ id: 89, name: 'Likely voters, Sep 5' })
+      rerender(flow(true, reopened))
+
+      await screen.findByText('When do you want to send it?')
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Likely voters, Sep 5',
+      )
     })
 
     // QA 2026-09-30: an unverified campaign has no committee yet. The line
@@ -2333,6 +2576,7 @@ describe('SmsFlow', () => {
               'Reply STOP to opt out.',
           }),
           null,
+          expect.any(Function),
         ),
       )
     })
@@ -2486,6 +2730,68 @@ describe('SmsFlow', () => {
         screen.queryByText('When do you want to send it?'),
       ).not.toBeInTheDocument()
       expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+    })
+
+    const CLOSED_GATE: OutreachGateState = {
+      enabled: true,
+      resolved: true,
+      requirement: 'closed',
+      twoStep: true,
+      membership: {
+        tier: 'free',
+        texting: 'closed',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    it('shows the cutoff notice instead of the build once texting is closed', async () => {
+      gateRef.set(CLOSED_GATE)
+      const { onClose } = openFlow()
+
+      expect(
+        await screen.findByText('How else do you want to reach voters?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getAllByText(/deadline to get verified for texting has passed/)
+          .length,
+      ).toBeGreaterThan(0)
+      expect(
+        screen.queryByText('Introduce myself to voters'),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.SmsCutoff.NoticeViewed,
+        expect.objectContaining({ surface: 'sms_flow' }),
+      )
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Back to outreach' }),
+      )
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('shows the notice over a resumed draft and never opens the gate', async () => {
+      gateRef.set(CLOSED_GATE)
+      render(
+        <SmsFlow
+          source="draft"
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByRole('button', { name: 'Back to outreach' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
     })
 
     it('renders no banner and keeps the message step with the flag off', async () => {
@@ -2748,7 +3054,10 @@ describe('SuccessScreen receipt', () => {
     const back = screen.getByRole('link', {
       name: 'See your civic panel',
     })
-    expect(back).toHaveAttribute('href', '/dashboard/contacts/citizens-panel')
+    expect(back).toHaveAttribute(
+      'href',
+      '/dashboard/contacts/citizens-panel?from=outreach',
+    )
     await userEvent.click(back)
     expect(onDone).toHaveBeenCalled()
   })

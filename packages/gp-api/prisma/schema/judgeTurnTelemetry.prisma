@@ -1,0 +1,77 @@
+/// Per-turn observations the Universal Judge compares across its two arms,
+/// written by a chat arm as it runs and read back by a later endpoint.
+///
+/// It exists because the chat arms are moving off in-process runners and onto
+/// a deployed gp-api over HTTP. Everything compared today is captured by
+/// monkeypatches the arm installs in its own process (`runners/chatSeam.ts`),
+/// and a patch on `DatabricksSqlProvider.prototype` observes nothing at all
+/// once the agent runs in another process behind an HTTP boundary. These rows
+/// are that same observation, durable and fetchable.
+///
+/// Judge-only. Rows are written on non-prod deploys only, but the table is
+/// created in every environment, because migrations are global and there is
+/// no per-environment schema.
+///
+/// Retention is 7 days, applied by a cleanup job in a later change. That
+/// number was chosen, not defaulted: `toolQueries` holds SQL the agent wrote
+/// against constituent tables, so a row describes how real people's data was
+/// read even though it stores none of it, and no judge report ever looks
+/// further back than the sweep it is reporting on.
+model JudgeTurnTelemetry {
+  id String @id @default(uuid(7))
+
+  sweepId        String @map("sweep_id")
+  conversationId String @map("conversation_id")
+
+  /// Which turn of the conversation this row describes. Load-bearing rather
+  /// than bookkeeping: the in-process capture is one buffer overwritten on
+  /// every turn, so telemetry that cannot name its turn is racy on any
+  /// multi-turn case and will happily compare one arm's second turn against
+  /// the other's first. The compound unique with `conversationId` is also
+  /// what makes a retried write idempotent instead of a second opinion.
+  turnIndex Int @map("turn_index")
+
+  /// The assistant `ChatMessage` this turn produced, when one was persisted.
+  /// There are deliberately no model or token columns here: `ChatMessage`
+  /// already carries `model`, `input_tokens` and `output_tokens`, stamped by
+  /// `recordAssistantUsage` after the stream drains. The reader joins on this
+  /// id rather than duplicating them, so spend can never be reported from two
+  /// copies that disagree.
+  assistantMessageId String? @map("assistant_message_id")
+
+  /// The prompt the turn ran on, hashed and never stored. It carries an
+  /// official's priorities and their community's issues, which is
+  /// constituent content the judge has no reason to keep a copy of.
+  /// `promptHashVersion` names the implementation that produced the digest,
+  /// so a reader can refuse to compare two hashes that were never computed
+  /// the same way instead of reporting an algorithm change as a prompt
+  /// change.
+  promptHash        String @map("prompt_hash")
+  promptHashVersion String @map("prompt_hash_version")
+
+  /// Which tools the turn called, and in `toolSteps` the per-call detail, in
+  /// call order. Which tools RAN, not whether any of them failed: a failure
+  /// is an unmatched `toolCallId` in the stream, which the judge infers on
+  /// its own side in a separate change. There is no error column here on
+  /// purpose, because a second recording of the same fact is a second
+  /// recording that can disagree.
+  toolNames String[] @default([]) @map("tool_names")
+  toolSteps Json     @map("tool_steps")
+
+  /// The SQL the agent generated, verbatim, so the two arms' queries can be
+  /// diffed directly with no judge call spent. Json and not columns because
+  /// nothing queries inside it and its shape belongs to the runner that
+  /// writes it, not to Postgres.
+  toolQueries Json @map("tool_queries")
+
+  /// The Delta table version the turn read, so a verdict can never be an
+  /// artifact of the voter data moving between the two arms. Null for a turn
+  /// that touched no versioned table.
+  dataVersion String? @map("data_version")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([conversationId, turnIndex])
+  @@index([sweepId])
+  @@map("judge_turn_telemetry")
+}

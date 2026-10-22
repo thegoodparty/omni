@@ -148,5 +148,4 @@ export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
       'en-US',
     )}), not something gp-api can read. If all four tiers fired at once, suspect the constant before the spend — a free-tier key is 3,000/day.`,
   ].join('\n\n'),
-  notify: 'win-bugs',
 }))

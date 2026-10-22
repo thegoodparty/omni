@@ -1,25 +1,28 @@
-import { addYears, format } from 'date-fns'
+import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
-import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
-import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
-// funnel through an embedded Stripe subscription to Pro, then lands on the
-// post-payment dashboard PIN state (ENG-10475).
+// funnel through an embedded Stripe subscription to Pro, and its TCR record
+// reaches the post-payment PIN state (ENG-10475).
 //
-// @dev-only: the `isPro` flip and the compliance-agent dispatch are driven by
-// the live Stripe `checkout.session.completed` webhook in `paymentEventsService`
-// — not synchronously by the confirm call — which an ephemeral per-PR preview
-// can't deliver. The webhook can run past 90s, so the `isPro` poll widens
-// retries and the test budgets 15 minutes. Tagged on the test title so CI greps
-// it out on `pull_request` and includes it on the post-merge `develop` run.
-// See e2e-tests/CLAUDE.md ("@dev-only").
+// @dev-only: the filing-details step requires a Google Places address
+// suggestion (.pac-item). Google Places does not load on *.vercel.app PR
+// previews — the Maps JS SDK is domain-restricted to goodparty.org and
+// dev.goodparty.org — so the .pac-item dropdown never appears and the step
+// cannot proceed. The Stripe deliverStripeEvent change (M3-5) is kept.
+//
+// The Stripe `checkout.session.completed` event is delivered in-process via
+// deliverStripeEvent, which calls POST /v1/test-fixtures/vendor-mocks/stripe/events
+// and fires paymentEventsService synchronously — no inbound webhook from Stripe
+// is needed. The session ID is extracted from the checkout-session response's
+// `clientSecret` field (Pro subscription returns only clientSecret, not a
+// session id), using Stripe's format:
+// `cs_<test|live>_<id>_secret_<random>` → `split('_secret_')[0]`.
 //
 // Side effects (no automated teardown for either):
 //   - Creates a real test-mode Stripe subscription. There is no candidate-facing
@@ -51,41 +54,29 @@ test.beforeEach(async ({ page }) => {
 test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
   page,
 }) => {
-  // The `isPro` poll below can sleep up to ~240s on the Stripe webhook, so the
-  // budget must exceed the default 10 minutes.
-  test.setTimeout(15 * 60 * 1000)
+  // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
+  // near-instant; the budget can be much tighter than the old 15-minute window.
+  test.setTimeout(8 * 60 * 1000)
 
   // Isolated: this mutates account-level state (campaign → Pro), so it must
   // never reuse the per-worker cached user. Default race (Cheyenne City Council
   // - Ward 1) is a local office, matching the manual run.
   const { user, client } = await authenticateTestUser(page, { isolated: true })
 
-  // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
-  // the wizard.
-  await page.goto('/dashboard')
-  await page.waitForURL(/\/dashboard/)
-  await NavigationHelper.dismissOverlays(page)
-  // Closes any stray task-detail dialog (which aria-hides the whole page) and
-  // waits for the campaign-gated chrome, like the sibling pro-upgrade specs.
-  await waitForDashboardReady(page)
+  // Inside the 19-day texting cutoff SuccessStep swaps "Welcome to Pro!" for
+  // the closed-window screen, so keep the default Cheyenne race clear of it.
+  // The closed path is covered by pro-upgrade-v2-cutoff.spec.ts.
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+  })
 
-  await expect(
-    page.getByText('76% of candidates who use Pro win'),
-  ).toBeVisible()
-
-  // A click that lands before hydration attaches the banner's handler is
-  // swallowed (observed in CI: click fired on the half-hydrated dashboard,
-  // then no navigation for 45s), so retry the click until the URL moves.
-  await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/value-prop/.test(page.url())) {
-      await page
-        .getByRole('button', { name: 'Get Pro' })
-        .click({ timeout: 5_000 })
-    }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
-      timeout: 10_000,
-    })
-  }).toPass({ timeout: 60_000 })
+  // 1. The wizard index. With the flag off the dashboard has no Pro entry
+  // (the sidebar banner is flag-gated), so open it directly; it lands a
+  // zero-progress candidate on the value-prop step.
+  await page.goto('/dashboard/pro-upgrade')
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
+    timeout: 60_000,
+  })
 
   // 2. Value prop.
   await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
@@ -183,6 +174,27 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     .getByRole('button', { name: 'Edit Safe and affordable housing' })
     .waitFor({ state: 'visible', timeout: 10_000 })
 
+  // Arm the checkout-session interceptor before clicking Continue. PaymentContent
+  // POSTs to /checkout-session on mount, so the interceptor must be live before
+  // the navigation that mounts it; arming after waitForURL is too late.
+  // gp-api returns only `clientSecret` for Pro subscriptions (no `id` field),
+  // so derive the session ID from the Stripe client secret format:
+  // `cs_test_<id>_secret_<random>` → `split('_secret_')[0]` gives `cs_test_<id>`.
+  let proSessionId: string | null = null
+  await page.route(
+    /\/api\/v1\/payments\/purchase\/checkout-session$/,
+    async (route) => {
+      const response = await route.fetch()
+      if (response.ok()) {
+        const body = (await response.json()) as { clientSecret?: string }
+        if (body.clientSecret) {
+          proSessionId = body.clientSecret.split('_secret_')[0] ?? null
+        }
+      }
+      await route.fulfill({ response })
+    },
+  )
+
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 8. Payment — embedded Stripe Payment Element.
@@ -241,17 +253,25 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     timeout: 60_000,
   })
   await expect(page.getByText('Welcome to Pro!')).toBeVisible()
+
+  // Deliver the Stripe checkout.session.completed event in-process. This fires
+  // paymentEventsService synchronously, flipping `isPro` without waiting for a
+  // real Stripe webhook. proSessionId was captured from the checkout-session
+  // response above; it must be non-null before we reach this point.
+  expect(proSessionId).toBeTruthy()
+  await deliverStripeEvent(client, proSessionId!)
+
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // The webhook flips `isPro` server-side (never client-side); prove it via the
-  // authed client before asserting the dependent dashboard UI. Widen retries to
-  // ~240s because the Stripe webhook can run past the default ~90s window.
+  // authed client before asserting the dependent dashboard UI. In-process
+  // delivery is near-instant, so a short poll is sufficient.
   await eventually(
     {
-      that: 'the campaign isPro flips server-side via the Stripe webhook',
-      minTimeout: 1_000,
-      maxTimeout: 15_000,
-      retries: 20,
+      that: 'the campaign isPro flips server-side via deliverStripeEvent',
+      minTimeout: 500,
+      maxTimeout: 2_000,
+      retries: 5,
     },
     async () => {
       const res = await client.get<CampaignProState>('/v1/campaigns/mine')
@@ -271,21 +291,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // 10. Dashboard post-payment state. The success-step exit refreshes the
   // shared campaign cache, but the webhook usually lands after that refresh,
   // so the already-rendered dashboard can still show the non-Pro state —
-  // reload now that `isPro` is proven server-side. Expect: PRO badge, the
-  // compliance card in the Get Pro banner's slot, and the banner gone. For a
-  // fresh submission the card shows the awaiting-PIN in-review state — the
-  // "Enter your PIN" box appears only once Peerly CampaignVerify approves,
-  // days later (the CV gate, ENG-10785) — never within this test's window.
+  // reload now that `isPro` is proven server-side. Expect the PRO badge. The
+  // compliance state itself lives in the flag-gated sidebar banner, which
+  // does not render with the flag off.
   await page.goto('/dashboard')
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
 
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(
-    page.getByText('Your registration is being verified'),
-  ).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText('76% of candidates who use Pro win')).toHaveCount(
-    0,
-  )
 })

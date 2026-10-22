@@ -86,6 +86,7 @@ import {
   SweepEnvError,
   type SweepEnv,
 } from './sweepEnv'
+import { withRegressionSignals } from './regressionSignals'
 
 // STEP 3 OF THREE, and the only one that is not a vitest suite.
 //
@@ -107,10 +108,11 @@ export interface JudgingDeps {
   // a seed rather than only from a run.
   rng?: Rng
   registry?: readonly AgentEntry[]
-  // Where a case's own dimensions come from. THIS checkout's case list, not
-  // either arm's records: the judging step runs at the candidate commit, the
-  // arms never record the field, and so both slots of a pair are asked the
-  // same questions whatever the base ref knew.
+  // Where a case's own dimensions, condition, handling sentence and control
+  // flag come from. THIS checkout's case list, not either arm's records: the
+  // judging step runs at the candidate commit, the arms never record the
+  // fields, and so both slots of a pair are judged the same way whatever the
+  // base ref knew.
   loadCases?: (agent: AgentEntry) => CaseList
   // Each case's condition and scored flag, read from the case list in THIS
   // checkout. Injected so a test need not stand a case list on disk.
@@ -125,14 +127,6 @@ export interface JudgingDeps {
   // on disk.
   outputContract?: (agent: AgentEntry) => ContractRead
 }
-
-// Only a background list carries either field, so a chat agent costs no read.
-const readCaseJudging = (
-  agent: AgentEntry,
-): ReadonlyMap<string, CaseJudging> =>
-  agent.shape === 'background'
-    ? caseJudgingOf(loadCaseList(agent))
-    : new Map<string, CaseJudging>()
 
 // Read raw rather than through `parseCaseList`: the base ref's list is held to
 // the base ref's schema, not this one, and the only fact wanted here is which
@@ -366,12 +360,11 @@ const storeRulings = async (
   }
 }
 
-// Background agents only: a chat case has no dimensions of its own yet.
 const caseDimensionsByCase = (
   agent: AgentEntry | undefined,
   load: (agent: AgentEntry) => CaseList,
 ): ReadonlyMap<string, readonly CaseDimension[]> => {
-  if (agent === undefined || agent.shape !== 'background') return new Map()
+  if (agent === undefined) return new Map()
   return new Map(
     load(agent)
       .cases.map((one) => [one.caseId, caseDimensionsOf(one)] as const)
@@ -403,7 +396,8 @@ export const judgeSweep = async (
   const rng = deps.rng ?? createRng(1)
   const registry = deps.registry ?? AGENTS
   const loadCases = deps.loadCases ?? loadCaseList
-  const caseJudging = deps.caseJudging ?? readCaseJudging
+  const caseJudging =
+    deps.caseJudging ?? ((agent: AgentEntry) => caseJudgingOf(loadCases(agent)))
   const outputContract =
     deps.outputContract ??
     ((agent: AgentEntry) => readOutputContracts(agent.agentId, env.baseDir))
@@ -593,7 +587,16 @@ export const judgeSweep = async (
           meter.llm,
           normalized.judgeable,
           config,
-          unscoredCaseIds,
+          // A case with a condition is the whole evidence for it, so it is
+          // read in both orders like a control. Background cases already
+          // are; this is what extends it to a chat case outside the swap
+          // subsample.
+          new Set([
+            ...unscoredCaseIds,
+            ...[...judging]
+              .filter(([, one]) => one.condition !== undefined)
+              .map(([caseId]) => caseId),
+          ]),
         )
       } finally {
         judgeByAgent.set(agentId, judgeSpendBetween(before, meter.snapshot()))
@@ -633,19 +636,24 @@ export const judgeSweep = async (
         { normalized, judgments, unscoredCaseIds },
         config,
       )
-      scores.push({
-        ...scored,
-        // Dropped when no model was called: the canned judge answers `no`
-        // for every run, and a section of shared failures nobody judged
-        // would read as a finding.
-        ...(env.spends && handling !== undefined && { handling }),
-        ...(controls.scoredAnyway !== undefined && {
-          controlsScoredAnyway: controls.scoredAnyway,
-        }),
-        ...(contract.note !== undefined && {
-          outputContractNote: contract.note,
-        }),
-      })
+      scores.push(
+        withRegressionSignals(
+          {
+            ...scored,
+            // Dropped when no model was called: the canned judge answers `no`
+            // for every run, and a section of shared failures nobody judged
+            // would read as a finding.
+            ...(env.spends && handling !== undefined && { handling }),
+            ...(controls.scoredAnyway !== undefined && {
+              controlsScoredAnyway: controls.scoredAnyway,
+            }),
+            ...(contract.note !== undefined && {
+              outputContractNote: contract.note,
+            }),
+          },
+          config,
+        ),
+      )
     } catch (err) {
       if (
         !(err instanceof IdenticalConfigError) &&

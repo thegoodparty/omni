@@ -11,7 +11,6 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
-import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
@@ -26,16 +25,6 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
-}))
-
-// The question-asking card is offered only where issue capture is on. On by
-// default so every other case here keeps the full set of cards.
-const issueCapture = vi.hoisted(() => ({ enabled: true }))
-vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
-  useIssueCaptureFlag: vi.fn(() => ({
-    ready: true,
-    enabled: issueCapture.enabled,
-  })),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -208,6 +197,7 @@ const savedTurf = {
   loggedCount: 0,
   knockedDoorCount: 0,
   routeSeconds: 1860,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),
@@ -2085,6 +2075,60 @@ describe('CreateListFlow preselected list', () => {
     expect(audiencePicker()).not.toHaveTextContent('Super voters')
   })
 
+  // A civic panel plan's door step settles the purpose and its frozen list,
+  // so the flow goes straight on to the talking points, drafted for it.
+  it('lands a plan step on the talking points, with the list and the invite', async () => {
+    const draftBodies: unknown[] = []
+    api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
+      draftBodies.push(body)
+      return { status: 200, data: { draft: '• Ask them to join' } }
+    })
+    const onStepChange = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      initialPurpose: 'build_citizens_panel' as const,
+      onStepChange,
+    }
+
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="points" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+  })
+
+  it('stays on the who step with the invite when the plan list is not yours', async () => {
+    const onStepChange = vi.fn()
+    render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow
+          {...baseProps}
+          savedLists={savedLists}
+          preselectedListId={12_345}
+          initialPurpose="build_citizens_panel"
+          onStepChange={onStepChange}
+          step="filters"
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(
+      await screen.findByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
+    expect(onStepChange).not.toHaveBeenCalledWith('points')
+  })
+
   // The whole point of carrying it: the turf attaches to the list the
   // candidate arrived with, rather than to a near-identical copy of it.
   it('attaches the turf to the carried list without copying it', async () => {
@@ -2126,7 +2170,6 @@ describe('CreateListFlow purpose step', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
-    issueCapture.enabled = true
   })
 
   const renderPurpose = (serveMode: boolean) =>
@@ -2212,55 +2255,14 @@ describe('CreateListFlow purpose step', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
+  // Every channel offers the community feedback goal, as texts always have.
   it.each([
     [false, 'Hear from voters'],
     [true, 'Ask for community input'],
-  ])(
-    'offers the question-asking goal only where issue capture is on (serve: %s)',
-    (serveMode, label) => {
-      const first = renderPurpose(serveMode)
-      expect(screen.getByText(label)).toBeInTheDocument()
-      first.unmount()
-
-      issueCapture.enabled = false
-      renderPurpose(serveMode)
-      expect(screen.queryByText(label)).toBeNull()
-      expect(screen.getByText('Introduce myself')).toBeInTheDocument()
-      // A picker render is not the treatment, so it must not log an exposure.
-      expect(useIssueCaptureFlag).toHaveBeenCalledWith(false)
-    },
-  )
-
-  // The card is the only thing the flag takes away: a campaign already on the
-  // question-asking goal when the flag goes off still asks and still saves.
-  it.each([
-    [false, 'Hear from voters'],
-    [true, 'Ask for community input'],
-  ])(
-    'keeps the question step for a goal picked before the flag went off (serve: %s)',
-    async (serveMode, label) => {
-      const view = renderPurpose(serveMode)
-      fireEvent.click(screen.getByText(label))
-      const field = await screen.findByLabelText('The question')
-
-      issueCapture.enabled = false
-      view.rerender(
-        <DoorKnockingSurfaceProvider value={serveMode}>
-          <CreateListFlow {...baseProps} step="filters" />
-        </DoorKnockingSurfaceProvider>,
-      )
-
-      expect(screen.getByLabelText('The question')).toBe(field)
-      fireEvent.change(field, { target: { value: 'Would you compost?' } })
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-      await waitFor(() =>
-        expect(screen.queryByLabelText('The question')).toBeNull(),
-      )
-    },
-  )
+  ])('offers the community feedback goal (serve: %s)', (serveMode, label) => {
+    renderPurpose(serveMode)
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
 
   // The per-card second line is gone with the bespoke card: no other channel
   // has one, and the step is now literally the other channels' component.
@@ -2638,6 +2640,74 @@ describe('CreateListFlow multi-turf save', () => {
     expect(created).toHaveLength(2)
     expect(created[0]?.[1]).toMatchObject({ stops: 14, people: 28 })
     expect(created[1]?.[1]).toMatchObject({ stops: 40, people: 80 })
+  })
+
+  const cardLink = {
+    proposalKey: '3f6c1b2a-8d4e-5f70-9a1b-2c3d4e5f6a7b',
+    priorityId: 'priority-7',
+  }
+
+  it('sends a Win card’s key on the anchor only, and its priority on every creation event', async () => {
+    const { turfs } = mockBatch()
+
+    await buildRoutes({ ...twoTurfs, proposalLink: cardLink })
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+
+    expect(turfs[0]).toMatchObject({ proposalKey: cardLink.proposalKey })
+    expect(turfs[0]).not.toHaveProperty('priorityId')
+    expect(turfs[1]).not.toHaveProperty('proposalKey')
+
+    const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0] === EVENTS.Dashboard.VoterContact.CampaignCreated,
+    )
+    expect(created).toHaveLength(2)
+    for (const call of created) {
+      expect(call[1]).toMatchObject({ priorityId: 'priority-7' })
+    }
+  })
+
+  it('sends a Serve card’s whole link on the anchor, so the walk counts toward the priority', async () => {
+    const turfs: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77 },
+    })
+    api.mock('POST /v1/door-knocking/serve/turfs', ({ body }) => {
+      turfs.push(body as Record<string, unknown>)
+      return {
+        status: 200 as const,
+        data: {
+          ...savedTurf,
+          id: 100 + turfs.length,
+          outreachId: 900 + turfs.length,
+          name: String((body as Record<string, unknown>).name),
+        },
+      }
+    })
+    const props = { ...twoTurfs, proposalLink: cardLink }
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} {...props} step="name" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    advanceToDraw(
+      (ui) =>
+        rerender(
+          <DoorKnockingSurfaceProvider value>{ui}</DoorKnockingSurfaceProvider>,
+        ),
+      props,
+      'Fall canvass',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+
+    expect(turfs[0]).toMatchObject(cardLink)
+    expect(turfs[1]).not.toHaveProperty('proposalKey')
+    expect(turfs[1]).not.toHaveProperty('priorityId')
   })
 
   it('assigns each turf after its route, against its own envelope', async () => {

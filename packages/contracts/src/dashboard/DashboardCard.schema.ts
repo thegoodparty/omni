@@ -4,6 +4,8 @@ import {
   DashboardCardTypeSchema,
   type DashboardCardType,
 } from '../generated/enums'
+import { CIVIC_PANEL_PAGE_HREF } from '../people/CivicPanelBuildPlan.schema'
+import { GOOD_READ_STATUSES } from '../priorities/PriorityResults.schema'
 
 export {
   DASHBOARD_CARD_TYPE_VALUES,
@@ -48,7 +50,7 @@ export const DASHBOARD_CARD_SNOOZE_DAYS = 3
 
 const CIVIC_PANEL_BUILD_CARD_PREFIX = 'build:'
 
-// The office's one "Build your civic panel" card. Its source is the office
+// The office's one card that builds its civic panel. Its source is the office
 // rather than a priority, which is what tells it apart from the per-priority
 // panel cards that share its type.
 export const civicPanelBuildCardSourceId = (electedOfficeId: string): string =>
@@ -60,12 +62,42 @@ export const isCivicPanelBuildCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_BUILD_CARD_PREFIX)
 
-// Where the build card's Get started goes: the Chief of Staff home, which
-// opens its chat on the conversation that builds the panel and drops the
-// param, so the official never leaves the home to start.
-export const CIVIC_PANEL_BUILD_CHAT_PARAM = 'chat'
-export const CIVIC_PANEL_BUILD_CHAT_VALUE = 'build_citizens_panel'
-export const CIVIC_PANEL_BUILD_CARD_HREF = `/dashboard/chief-of-staff?${CIVIC_PANEL_BUILD_CHAT_PARAM}=${CIVIC_PANEL_BUILD_CHAT_VALUE}`
+export const CIVIC_PANEL_STEP_CARD_PREFIX = 'panel-step:'
+
+// A card for one ready step of the panel's plan, once the build card is done.
+// Keyed by the step, so a skipped card stays skipped while that step is next
+// and the step after it gets a card of its own.
+export const civicPanelStepCardSourceId = (stepId: string): string =>
+  `${CIVIC_PANEL_STEP_CARD_PREFIX}${stepId}`
+
+export const isCivicPanelStepCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
+
+// gp-api keys a report back card on the read status it was made for
+// (`sourceItemId`), so the deck can tell whether its priority has a good read.
+export const isGoodReadReportBackCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceItemId'>,
+): boolean =>
+  card.type === 'report_back' &&
+  GOOD_READ_STATUSES.some((status) => status === card.sourceItemId)
+
+// The build card's button before there is a plan: the home opens the chat
+// build flow from it. Once a plan is active, gp-api gives the card the plan
+// button instead, and the home opens the panel page, where the plan lives,
+// rather than starting a second build. Without the chat the link is the
+// panel page either way.
+export const CIVIC_PANEL_BUILD_CARD_CTA = 'Build your panel'
+export const CIVIC_PANEL_BUILD_CARD_PLAN_CTA = 'See your plan'
+export const CIVIC_PANEL_BUILD_CARD_HREF = CIVIC_PANEL_PAGE_HREF
+
+export const civicPanelBuildCardOpensPlan = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId' | 'ctaLabel'>,
+): boolean =>
+  isCivicPanelBuildCard(card) &&
+  card.ctaLabel === CIVIC_PANEL_BUILD_CARD_PLAN_CTA
 
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,

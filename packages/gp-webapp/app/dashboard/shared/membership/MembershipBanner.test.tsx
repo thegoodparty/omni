@@ -18,6 +18,23 @@ const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
   }),
 )
 
+const { mockSmsCompliance } = vi.hoisted(() => ({
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    } as {
+      smsCompliance: string
+      smsCutoffDate: string | null
+      generalElectionDate: string | null
+    },
+  },
+}))
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: () => mockSmsCompliance.current,
+}))
+
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
@@ -71,6 +88,11 @@ const setup = ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSmsCompliance.current = {
+    smsCompliance: 'open',
+    smsCutoffDate: null,
+    generalElectionDate: null,
+  }
 })
 
 describe('resolveMembershipAction', () => {
@@ -86,13 +108,22 @@ describe('resolveMembershipAction', () => {
       null,
     )
     expect(resolveMembershipAction(membership({ texting: 'cleared' }))).toBe(
-      null,
+      'schedule',
     )
     expect(
       resolveMembershipAction(
         membership({ tier: 'free', isElectedOffice: true }),
       ),
     ).toBe(null)
+  })
+
+  it('has no action for closed texting, and still pitches Pro to a free campaign', () => {
+    expect(resolveMembershipAction(membership({ texting: 'closed' }))).toBe(
+      null,
+    )
+    expect(
+      resolveMembershipAction(membership({ tier: 'free', texting: 'closed' })),
+    ).toBe('pitch')
   })
 })
 
@@ -127,7 +158,7 @@ describe('MembershipBanner', () => {
   it('does not expose the flag when the surface is hidden', () => {
     for (const state of [
       membership({ isElectedOffice: true }),
-      membership({ texting: 'cleared' }),
+      membership({ texting: 'closed' }),
     ]) {
       setup({ state })
 
@@ -225,11 +256,65 @@ describe('MembershipBanner', () => {
     )
   })
 
-  it('renders nothing once a Pro campaign is cleared to text', () => {
-    setup({ state: membership({ texting: 'cleared' }) })
+  it('counts down to the cutoff while the window is closing', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'needs_verification' }) })
+
+    expect(
+      screen.getByText('Get verified to send SMS by Oct. 15'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button')).toHaveTextContent('Start verification')
+  })
+
+  it('renders nothing, and fires nothing, once texting is closed for a Pro campaign', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ texting: 'closed' }) })
 
     expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(mockExposure).not.toHaveBeenCalled()
     expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('still pitches Pro to a free campaign once texting is closed', () => {
+    mockSmsCompliance.current = {
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    setup({ state: membership({ tier: 'free', texting: 'closed' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
+    ).toBeInTheDocument()
+  })
+
+  it('sends a Pro campaign cleared to text to schedule its text', async () => {
+    const user = userEvent.setup()
+    setup({ state: membership({ texting: 'cleared' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.cleared.body),
+    ).toBeInTheDocument()
+    expect(screen.getByText(MEMBERSHIP_COPY.banner.cleared.cta)).toBeVisible()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach?compose=text&source=navigation',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.ScheduleBannerClicked,
+      { path: '/' },
+    )
   })
 
   it('keeps the upsell for a lapsed Pro campaign whose texting is still cleared', () => {
@@ -279,10 +364,12 @@ describe('MembershipBanner', () => {
       ).toBeInTheDocument()
     })
 
-    it('renders nothing for the approved preset (texting=cleared, Pro campaign)', () => {
+    it('renders the schedule banner for the approved preset (texting=cleared, Pro campaign)', () => {
       setup({ state: membership({ texting: 'cleared' }) })
 
-      expect(screen.queryByRole('button')).toBeNull()
+      expect(
+        screen.getByText(MEMBERSHIP_COPY.banner.cleared.body),
+      ).toBeInTheDocument()
     })
 
     it('renders the verification banner for rejected and error presets (needs_verification)', () => {

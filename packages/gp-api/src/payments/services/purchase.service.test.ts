@@ -227,7 +227,7 @@ describe('PurchaseService', () => {
         amount: 105,
       })
 
-      await service.createCheckoutSession({
+      const result = await service.createCheckoutSession({
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
@@ -236,15 +236,17 @@ describe('PurchaseService', () => {
         metadata: { campaignId: mockCampaign.id },
       })
 
-      // Promo codes are disabled on a hold: a Stripe promo would shrink the
-      // PaymentIntent amount and corrupt the recorded hold ceiling.
+      expect(result.isHold).toBe(true)
+      // A hold takes promo codes like any checkout, and the session carries
+      // the hold decision for a code that leaves it no PaymentIntent.
       expect(
         mockStripeService.createCustomCheckoutSession,
       ).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           manualCapture: true,
-          allowPromoCodes: false,
+          allowPromoCodes: true,
+          metadata: expect.objectContaining({ winSmsHoldBilling: 'true' }),
         }),
       )
       // ENTRY: evaluated once for the paying user against the managed flag,
@@ -272,14 +274,21 @@ describe('PurchaseService', () => {
         amount: 105,
       })
 
-      await service.createCheckoutSession({
+      const result = await service.createCheckoutSession({
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
-          metadata: { contactCount: 3000, outreachType: 'p2p' },
+          // A client cannot mark its own checkout a hold.
+          metadata: {
+            contactCount: 3000,
+            outreachType: 'p2p',
+            winSmsHoldBilling: 'true',
+          },
         },
         metadata: { campaignId: mockCampaign.id },
       })
+
+      expect(result.isHold).toBe(false)
 
       // An immediate-capture checkout keeps promo-code support.
       expect(
@@ -289,6 +298,7 @@ describe('PurchaseService', () => {
         expect.objectContaining({
           manualCapture: false,
           allowPromoCodes: true,
+          metadata: expect.objectContaining({ winSmsHoldBilling: undefined }),
         }),
       )
     })
@@ -451,6 +461,7 @@ describe('PurchaseService', () => {
       expect(result.id).toMatch(/^free_\d+_1$/)
       expect(result.clientSecret).toBe('')
       expect(result.amount).toBe(0)
+      expect(result.isHold).toBe(false)
 
       // Assert: Should NOT execute post-purchase handler during session creation
       // Post-purchase is deferred to completeFreePurchase() when user explicitly confirms

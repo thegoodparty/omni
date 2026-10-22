@@ -47,6 +47,7 @@ describe('CampaignTcrComplianceController', () => {
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
   let mockTcrService: {
     fetchByCampaignId: ReturnType<typeof vi.fn>
+    isPastSmsCutoff: ReturnType<typeof vi.fn>
     create: ReturnType<typeof vi.fn>
     createAgentic: ReturnType<typeof vi.fn>
     submitToPeerlyForAgent: ReturnType<typeof vi.fn>
@@ -84,6 +85,7 @@ describe('CampaignTcrComplianceController', () => {
 
     mockTcrService = {
       fetchByCampaignId: vi.fn().mockResolvedValue(null),
+      isPastSmsCutoff: vi.fn().mockResolvedValue(false),
       create: vi.fn().mockResolvedValue(mockTcrCompliance),
       createAgentic: vi
         .fn()

@@ -153,12 +153,10 @@ const pipeline = async (
 }
 
 describe('the coverage line', () => {
-  // The real registry, pinned. race_opponent_summary was wired on Melecia's
-  // real bench, so it is the one wired agent outside the parenthetical.
-  it('reads 3 of 20 wired, 2 on placeholder inputs, for the registry', () => {
-    expect(coverageLines()[0]).toBe(
-      '**Coverage: 3 of 20 agents wired (2 on placeholder inputs).**',
-    )
+  // The real registry, pinned. Every case list carries a real bench or core
+  // checks, so no wired agent is counted as on placeholder inputs.
+  it('reads 3 of 20 wired, none on placeholder inputs, for the registry', () => {
+    expect(coverageLines()[0]).toBe('**Coverage: 3 of 20 agents wired.**')
   })
 
   // Asserted as an exact string. A pattern like /\d+ of \d+/ would pass
@@ -166,7 +164,7 @@ describe('the coverage line', () => {
   // like coverage and is not.
   it('counts the wired agents against the judgeable ones', () => {
     expect(coverageLines(REGISTRY)[0]).toBe(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
+      '**Coverage: 1 of 2 agents wired.**',
     )
   })
 
@@ -184,14 +182,16 @@ describe('the coverage line', () => {
   })
 
   // Wired and placeholder differ here, so the parenthetical cannot be
-  // printing the wired count by mistake.
+  // printing the wired count by mistake. No real list is a placeholder, so
+  // the placeholder is a wired agent whose list will not load, which coverage
+  // counts as one.
   it('counts placeholder inputs apart from wired', () => {
     const mixed: readonly AgentEntry[] = [
       ...REGISTRY,
       {
         agentId: 'race_opponent_summary',
         shape: 'background',
-        cases: 'race_opponent_summary.json',
+        cases: 'no-such-list.json',
         status: 'wired',
       },
     ]
@@ -210,9 +210,7 @@ describe('the coverage line', () => {
   // so this prints even when the sweep produced nothing at all.
   it('prints even when no agent was judged', () => {
     const report = renderReport({ agents: [], registry: REGISTRY })
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
     expect(report).toContain('No agent produced a verdict')
   })
 })
@@ -433,18 +431,19 @@ describe('the measured layer', () => {
 })
 
 describe('exclusions', () => {
-  it('counts tool error, infra error and ungraded apart', async () => {
-    const records = [
+  it('counts infra error, identical config and ungraded apart', async () => {
+    const [base, candidate] = TOOL_ERROR_PAIR
+    const records: RunRecord[] = [
       ...sweepRecords(3),
-      ...TOOL_ERROR_PAIR,
+      base,
+      { ...candidate, status: 'infraError', output: null },
       ...IDENTICAL_DIGEST_PAIR,
     ]
     const score = await pipeline(records)
     const report = renderReport({ agents: [score] })
     expect(report).toContain(
-      'Excluded pairs: 1 tool error, 0 infra error, 1 identical ' +
-        'config. Plus 0 unpaired record(s). Separately, 0 ungraded ' +
-        'judgment(s)',
+      'Excluded pairs: 1 infra error, 1 identical config. Plus 0 ' +
+        'unpaired record(s). Separately, 0 ungraded judgment(s)',
     )
     expect(report).toContain("which is not a CAN'T SAY verdict")
   })
@@ -485,7 +484,6 @@ describe('provenance', () => {
       exclusions: {
         ungradedReasons: [],
         toolErrorCauses: [],
-        toolError: 0,
         infraError: 0,
         identicalConfig: 0,
         unpaired: 0,
@@ -544,7 +542,7 @@ describe('condition handling', () => {
     })
     expect(report).toContain(
       'Condition handling: 0 both handled, 1 shared failure(s), 0 ' +
-        'regression(s), 0 improvement(s), over 1 case pair(s).',
+        'regression(s), 0 improvement(s), 0 unsettled, over 1 case pair(s).',
     )
     expect(report).toContain(
       '- t2-conflict attempt 1: base yes / partly (orders disagree), ' +
@@ -559,6 +557,63 @@ describe('condition handling', () => {
     expect(renderReport({ agents: [score] })).not.toContain(
       'Condition handling',
     )
+  })
+})
+
+describe('regression signals', () => {
+  it('names the handling signal under the heading when it moved the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: "CAN'T SAY",
+            handling: {
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+          },
+        },
+      ],
+    })
+    const lines = report.split('\n')
+    const heading = lines.indexOf(`### ${score.agentId} \u2014 WORSE`)
+    expect(heading).toBeGreaterThan(-1)
+    expect(lines[heading + 2]).toBe(
+      '**WORSE on condition handling: the base met its checks in 16 of 24 ' +
+        'runs, the candidate in 9 (p = 0.008).** The quality comparison ' +
+        "alone says CAN'T SAY.",
+    )
+  })
+
+  it('prints no headline when the quality comparison reached the label', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          label: 'WORSE',
+          signals: {
+            qualityLabel: 'WORSE',
+            handling: {
+              baseHandled: 16,
+              candidateHandled: 9,
+              runs: 24,
+              pWorse: 0.0076,
+              pBetter: 1,
+              says: 'WORSE',
+            },
+          },
+        },
+      ],
+    })
+    expect(report).not.toContain('on condition handling:')
   })
 })
 
@@ -637,6 +692,55 @@ describe('qualifiers', () => {
     expect(report).not.toContain('raised on the candidate only')
   })
 
+  it('lists but does not headline a flag type seen on one case', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            {
+              arm: 'candidate',
+              type: 'fabricated_source',
+              explanation: 'x',
+              loc: undefined,
+              caseId: 'cos-case-0',
+            },
+          ],
+        },
+      ],
+    })
+    expect(report).not.toContain('raised on the candidate only')
+    expect(report).toContain(
+      'Flags (cases affected): 1 on candidate fabricated_source.',
+    )
+  })
+
+  it('headlines a flag type the candidate repeats across cases', async () => {
+    const score = await pipeline(sweepRecords(3))
+    const flag = {
+      arm: 'candidate' as const,
+      type: 'fabricated_source' as const,
+      explanation: 'x',
+      loc: undefined,
+    }
+    const report = renderReport({
+      agents: [
+        {
+          ...score,
+          flags: [
+            { ...flag, caseId: 'cos-case-0' },
+            { ...flag, caseId: 'cos-case-1' },
+          ],
+        },
+      ],
+    })
+    expect(report).toContain(
+      '2 flag(s) raised on the candidate only (counted once per case):** ' +
+        'fabricated_source',
+    )
+  })
+
   it('names a regression without changing the verdict', async () => {
     const score = await pipeline(sweepRecords(25))
     const report = renderReport({
@@ -662,9 +766,7 @@ describe('refusals', () => {
     })
     expect(report).toContain('### ordinance_flow — refused')
     expect(report).toContain('both arms hashed to the same config digest')
-    expect(report).toContain(
-      '**Coverage: 1 of 2 agents wired (1 on placeholder inputs).**',
-    )
+    expect(report).toContain('**Coverage: 1 of 2 agents wired.**')
   })
 })
 
@@ -687,7 +789,7 @@ describe('a whole report', () => {
       '### chief_of_staff \u2014 BETTER',
       '| dimension |',
       'Measured, beside the verdict and never part of it',
-      'Excluded pairs: 1 tool error',
+      'Excluded pairs: 0 infra error',
       'Position consistency across order-swapped pairs:',
       'Change under test:',
       '**Coverage:',
@@ -1113,8 +1215,8 @@ describe('the all-identical-outputs qualifier', () => {
   })
 })
 
-// The same failure for tool errors: "Excluded pairs: 9 tool error" and no way
-// to tell which tool, or why, without a diagnostic branch.
+// The same failure for tool errors: a count and no way to tell which tool, or
+// why, without a diagnostic branch.
 describe('tool-error exclusions say which tool and why', () => {
   const withCauses = async (
     toolErrorCauses: AgentScore['exclusions']['toolErrorCauses'],
@@ -1159,7 +1261,7 @@ describe('tool-error exclusions say which tool and why', () => {
     expect(report).toContain('- and 2 more')
   })
 
-  // A background pair with tool errors is scored, so its causes are not
+  // A pair with tool errors is scored, so its causes are not
   // exclusions and must not read as ones: they get their own heading, after a
   // blank line so Markdown does not fold it into the line above.
   it('lists scored causes under their own heading', async () => {
@@ -1203,7 +1305,7 @@ describe('tool-error exclusions say which tool and why', () => {
     const report = renderReport({ agents: [score] })
 
     expect(score.overall.judgments).toBeGreaterThan(0)
-    expect(report).toContain('Excluded pairs: 0 tool error, 0 infra error')
+    expect(report).toContain('Excluded pairs: 0 infra error')
     expect(report).toContain('- tool errors: -1.00 per run pair')
     expect(report).toContain('Tool errors (scored, not excluded):')
     expect(report).toContain(
@@ -1214,7 +1316,7 @@ describe('tool-error exclusions say which tool and why', () => {
     )
   })
 
-  it('adds nothing when no pair was excluded for a tool error', async () => {
+  it('adds nothing when no excluded pair hit a tool error', async () => {
     const report = await withCauses([])
     const lines = report.split('\n')
     const at = lines.findIndex((line) => line.startsWith('Excluded pairs:'))
@@ -1465,7 +1567,7 @@ describe('the case dimension rows', () => {
   it('prints no interval below the case floor', async () => {
     const report = renderReport({ agents: [await withCaseDimension(1)] })
     const row = report.split('\n').find((l) => l.startsWith('| sparse_'))
-    expect(row).toContain('too few cases for an interval (1 of 20)')
+    expect(row).toContain('too few cases for an interval (1 of 5)')
     expect(row).not.toMatch(/\[-?\d\.\d\d, -?\d\.\d\d\]/)
   })
 

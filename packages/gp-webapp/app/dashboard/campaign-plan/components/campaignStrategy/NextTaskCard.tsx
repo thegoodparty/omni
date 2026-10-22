@@ -26,9 +26,17 @@ import {
   EmptyState,
   ExternalLinkIcon,
   MessagesSquareIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
 } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignManagerChatProvider'
 import {
   buildTrackerStrategy,
@@ -288,6 +296,7 @@ const NextTaskCard = ({
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
   const chat = useCampaignManagerChat()
+  const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   // The task just marked done, held in front while it celebrates and leaves.
   const [leaving, setLeaving] = useState<{
     id: string
@@ -413,6 +422,12 @@ const NextTaskCard = ({
 
   const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
   const action = taskAction(frontRow, surface)
+  // gp-api swaps text sends out once texting closes; a text task still here
+  // keeps its button, disabled, with the reason on hover.
+  const textClosed =
+    smsCompliance === 'closed' &&
+    frontRow?.flowType === 'text' &&
+    !frontRow.link?.trim()
 
   // Only a task that closes itself however it gets done (the story) offers no
   // manual "Mark done". Outreach closes itself only when started from its own
@@ -604,7 +619,30 @@ const NextTaskCard = ({
                       every button sits in a single row (sm:contents). */}
                   <div className="flex flex-col gap-2 pt-5 sm:flex-row sm:flex-wrap sm:items-center">
                     <>
-                      {action && (
+                      {action && textClosed && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0} className={PRIMARY_ON_PHONE}>
+                              <Button
+                                type="button"
+                                size="medium"
+                                disabled
+                                className="w-full"
+                              >
+                                {action.label}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {SMS_CUTOFF_COPY.closedReason(
+                              smsCutoffDate
+                                ? formatSmsCutoffDate(smsCutoffDate)
+                                : null,
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {action && !textClosed && (
                         <Button
                           asChild
                           size="medium"

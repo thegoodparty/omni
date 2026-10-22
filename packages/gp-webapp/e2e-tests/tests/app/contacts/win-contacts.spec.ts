@@ -15,6 +15,7 @@ import {
   wizardPillGroup,
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
+import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 
 // The canonical Voter Likelihood option order (most → least likely), read
 // from filters.config.ts ("Voter Likelihood" field): Super, Likely,
@@ -52,6 +53,7 @@ test.describe('Win Contacts', () => {
     // with the branch step + party filter). The client is already scoped to
     // the campaign org for the member lookup below.
     const { client } = await setupProCampaignUser(page)
+    await openSmsWindow(client)
 
     await gotoCrmContacts(page)
 
@@ -81,9 +83,12 @@ test.describe('Win Contacts', () => {
     await expect(
       channelPicker.getByRole('heading', { name: 'Choose a channel' }),
     ).toBeVisible({ timeout: 15_000 })
+    // Robocall, not SMS: the SMS row turns into a disabled, link-less row once
+    // the candidate's election is inside the texting cutoff, which would make
+    // this assertion depend on the calendar.
     await expect(
-      channelPicker.getByRole('link', { name: /^SMS/ }),
-    ).toHaveAttribute('href', /compose=text&source=voter_data$/)
+      channelPicker.getByRole('link', { name: /^Robocall/ }),
+    ).toHaveAttribute('href', /compose=robocall&source=voter_data$/)
     await channelPicker.getByRole('button', { name: 'Close' }).click()
     await expect(channelPicker).toBeHidden({ timeout: 10_000 })
 

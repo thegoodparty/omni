@@ -221,7 +221,8 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
   // HARD SEND CAP (team decision 2 — never oversend). The money-safe recipient
   // cap for a build's send: the largest text count the hold covers
-  // (maxTextsForAmountInCents on the authorized amount). The phone-list build
+  // (maxTextsForAmountInCents on the authorized amount plus any promotion
+  // code). The phone-list build
   // reads this before uploading recipients to Peerly and truncates to it, so the
   // uploaded list — and the Peerly send that reads it — can never exceed what was
   // billed, even if re-resolving the filter yields a larger audience than the
@@ -249,7 +250,7 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     })
     if (build?.sendCapTexts != null) return build.sendCapTexts
 
-    const hold = await this.model.findFirst({
+    const holds = await this.model.findMany({
       where: {
         peerlyPhoneListId: buildId,
         authorizedAmountInCents: { not: null },
@@ -261,14 +262,19 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
           ],
         },
       },
-      select: { authorizedAmountInCents: true },
-      // Deterministic + conservative: a build is linked 1:1 to its hold, but if
-      // two satellites ever pointed at one build, cap to the SMALLEST authorized
-      // amount so the send can never exceed any hold that paid for it.
-      orderBy: { authorizedAmountInCents: 'asc' },
+      select: { authorizedAmountInCents: true, promoDiscountInCents: true },
     })
-    if (hold?.authorizedAmountInCents == null) return null
-    return maxTextsForAmountInCents(hold.authorizedAmountInCents)
+    // A promotion code shrinks the hold but not what it paid for, so the cap
+    // adds the discount back: a discounted send keeps its whole list.
+    // Conservative: a build is linked 1:1 to its hold, but if two satellites
+    // ever pointed at one build, cap to the SMALLEST so the send can never
+    // exceed any hold that paid for it.
+    const paidAmounts = holds.map(
+      (hold) =>
+        (hold.authorizedAmountInCents ?? 0) + (hold.promoDiscountInCents ?? 0),
+    )
+    if (paidAmounts.length === 0) return null
+    return maxTextsForAmountInCents(Math.min(...paidAmounts))
   }
 
   // EDGE (b): called right after the build finisher stamps a list `ready`. Finds
@@ -447,6 +453,30 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
     const { authorizationIntentId, authorizedAmountInCents } = sms
+    const promoDiscount = sms.promoDiscountInCents ?? 0
+
+    // A promotion code covered the whole checkout, so Stripe placed no hold:
+    // there is nothing to capture or void. Once the send is out (the billing
+    // rendezvous below) it settles captured at $0, which is what lets CAS
+    // approve it. A list scrubbed to nobody sent nothing, so that one voids
+    // and hands the free-texts offer back.
+    if (sms.promoCoversTotal && authorizationIntentId == null) {
+      const billing = await this.resolveCaptureBilling(outreachId)
+      if (!billing) {
+        await this.transitionFromCapturing(
+          outreachId,
+          P2pSmsSettleState.authorized,
+        )
+        return
+      }
+      if (billing.leadsLoaded === 0) {
+        await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
+        await this.restoreFreeTextsBestEffort(outreachId)
+        return
+      }
+      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      return
+    }
 
     // An `authorized`/`capturing` row MUST carry both. A null here is a data
     // anomaly, never a reason to charge blind: nothing was captured, so park
@@ -480,11 +510,21 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
       return
     }
 
-    // The discounted amount, clamped to the hold (defense-in-depth: the hold is
-    // undiscounted and promo codes are disabled on hold sessions, but never
-    // capture above what was authorized).
+    // Both discounts come off the final count: the free-texts offer here, and
+    // a promotion code Stripe already took off the hold. Floored at 0 because
+    // the two together can exceed what the send costs, and clamped to the hold
+    // so capture never takes more than was authorized.
     const discountedAmount = this.computeDiscountedAmount(billing)
-    const captureAmount = Math.min(discountedAmount, authorizedAmountInCents)
+    const captureAmount = Math.min(
+      Math.max(0, discountedAmount - promoDiscount),
+      authorizedAmountInCents,
+    )
+    // Only a send that reached someone: a list scrubbed to nobody sent
+    // nothing, so it voids and hands the free-texts offer back as before.
+    const promoCovered =
+      captureAmount < WIN_SMS_HOLD_MIN_CENTS &&
+      promoDiscount > 0 &&
+      billing.leadsLoaded > 0
 
     // FRESH re-read: never trust the persisted state before moving money. The
     // live PI status decides the branch (preferring Stripe's own state over the
@@ -524,6 +564,17 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // later concern, never a blind charge here. Restore the free-texts offer this
     // send redeemed at hold time, since the void means it is never billed.
     if (intent.status !== 'requires_capture') {
+      // A promo-covered send owed nothing, so a hold that is already gone (a
+      // run that released it and died before its commit) settles at $0 too.
+      if (promoCovered) {
+        await this.commitCaptured(
+          outreachId,
+          0,
+          null,
+          billing.peerlyPhoneListId,
+        )
+        return
+      }
       this.logger.error(
         { outreachId, intentStatus: intent.status },
         'CRITICAL win sms capture: hold not capturable at capture time; ' +
@@ -545,6 +596,22 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
     // `voided`. Covers a $0 amount (e.g. every contact free or scrubbed) too.
     // Restore the free-texts offer this send redeemed: the void means it never
     // bills, so the offer must go back to the campaign.
+    //
+    // A promotion code changes what that means. The candidate paid with the
+    // code, and the send is out: releasing the remainder is the discount, not
+    // a failed payment. So it settles captured at $0, which CAS can approve,
+    // and the free-texts offer stays spent on the send that used it. Parking
+    // it voided would read as "payment did not complete" and block the send.
+    if (promoCovered) {
+      await this.stripe.voidHold(authorizationIntentId)
+      await this.commitCaptured(outreachId, 0, null, billing.peerlyPhoneListId)
+      this.logger.info(
+        { outreachId, captureAmount, promoDiscount },
+        'win sms capture: promotion code covered the send; released the ' +
+          'hold and settled at $0',
+      )
+      return
+    }
     if (captureAmount < WIN_SMS_HOLD_MIN_CENTS) {
       await this.stripe.voidHold(authorizationIntentId)
       await this.transitionFromCapturing(outreachId, P2pSmsSettleState.voided)
@@ -558,11 +625,12 @@ export class OutreachP2pSmsCaptureService extends createPrismaBase(
 
     try {
       // Stable idempotency key (deterministic per send), so a retried capture
-      // replays instead of double-charging.
+      // replays instead of double-charging. Keyed on the hold, not the
+      // outreach, for the same reason as the robocall capture's.
       intent = await this.stripe.capturePaymentIntent(
         authorizationIntentId,
         captureAmount,
-        `p2p-sms-capture-${outreachId}`,
+        `p2p-sms-capture-${authorizationIntentId}`,
       )
     } catch (err) {
       // Capture failed. No commit yet, so revert to `authorized` and retry next

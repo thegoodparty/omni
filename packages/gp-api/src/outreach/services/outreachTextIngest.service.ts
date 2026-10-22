@@ -17,6 +17,7 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { phoneDigitsKey } from '@/shared/util/strings.util'
 import { isCivicPanelJoinMessage } from '../util/civicPanelJoin.util'
+import { isCivicPanelLeaveMessage } from '../util/civicPanelLeave.util'
 import { isOptOutMessage } from '../util/textOptOut.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
@@ -356,9 +357,14 @@ export class OutreachTextIngestService extends createPrismaBase(
   /**
    * Step 5b. Serve's civic panel. A STOP takes the person off the panel on
    * any send, because panel membership is not consent to text and a texted
-   * STOP always wins. A JOIN puts them on it only when this send asked; a
-   * JOIN to any other text means nothing. Both are idempotent on the message
-   * id, the same key as the reply events, so a re-upload writes nothing new.
+   * STOP always wins. A LEAVE takes them off it on any send too, whether or
+   * not this one offered it (a member may answer any text from the office),
+   * and is not an opt-out: they still get the office's other texts. From
+   * someone not on the panel it writes nothing, since `left -> left` is a
+   * no-op. A JOIN puts them on it only when this send asked; a JOIN to any
+   * other text means nothing, and a reply saying both reads as LEAVE. All
+   * three are idempotent on the message id, the same key as the reply
+   * events, so a re-upload writes nothing new.
    * Replies are applied in the order they were sent, not the order the
    * upload lists them, and a JOIN from anyone who has opted out on any send
    * is skipped, so a STOP stays the last word even when it arrived in an
@@ -377,11 +383,12 @@ export class OutreachTextIngestService extends createPrismaBase(
     )
     let joins = 0
     for (const message of inSentOrder) {
-      const toValue = message.isOptOut
-        ? CivicPanelStatus.left
-        : asksToJoinCivicPanel && isCivicPanelJoinMessage(message.content)
-          ? CivicPanelStatus.member
-          : null
+      const toValue =
+        message.isOptOut || isCivicPanelLeaveMessage(message.content)
+          ? CivicPanelStatus.left
+          : asksToJoinCivicPanel && isCivicPanelJoinMessage(message.content)
+            ? CivicPanelStatus.member
+            : null
       if (!toValue) continue
       if (toValue === CivicPanelStatus.member) {
         const optedOutAt = await this.textInteractions.latestOptOutAt(
@@ -419,6 +426,12 @@ export class OutreachTextIngestService extends createPrismaBase(
     if (messages.length === 0) return false
     const advanced = await this.model.updateMany({
       where: { id: outreachId, status: OutreachStatus.in_progress },
+      data: { status: OutreachStatus.completed },
+    })
+    // Not gated on the spine advancing: a re-upload finds it already
+    // completed, and an expansion delivered since would stay in_progress.
+    await this.client.outreachPollExpansion.updateMany({
+      where: { outreachId, status: OutreachStatus.in_progress },
       data: { status: OutreachStatus.completed },
     })
     return advanced.count > 0

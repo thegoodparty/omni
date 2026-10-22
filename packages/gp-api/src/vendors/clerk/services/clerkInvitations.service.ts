@@ -32,6 +32,21 @@ const isClerkRateLimitError = (
 ): err is Error & { status: number; retryAfter?: number } =>
   err instanceof Error && 'status' in err && err.status === RATE_LIMIT_STATUS
 
+// ClerkAPIResponseError also lives in @clerk/shared, so it is narrowed
+// structurally for the same reason. @clerk/backend throws it for a failed
+// fetch too, with no `status` and the single code `unexpected_error`.
+const isClerkApiResponseError = (
+  err: unknown,
+): err is Error & {
+  status?: number
+  errors: { code: string }[]
+  clerkTraceId?: string
+} =>
+  err instanceof Error &&
+  'clerkError' in err &&
+  'errors' in err &&
+  Array.isArray(err.errors)
+
 // Retries one page fetch on a Clerk timeout or 429; any other error (or
 // exhausted retries) propagates so the caller's existing catch still maps it
 // to BadGatewayException.
@@ -108,9 +123,9 @@ export class ClerkInvitationsService {
     // exhausted, THEN filter to this org, so no team's invites can fall off
     // the end of someone else's backlog.
     const invitations: Invitation[] = []
+    let offset = 0
     try {
       const PAGE_SIZE = 500 // Clerk's documented page-size ceiling
-      let offset = 0
       let totalCount = Infinity
       while (offset < totalCount) {
         const page = await fetchPageWithRetry(() =>
@@ -134,7 +149,20 @@ export class ClerkInvitationsService {
         offset += PAGE_SIZE
       }
     } catch (err) {
-      this.logger.error({ err }, 'Failed to list Clerk team invitations')
+      // The OTel log bridge that feeds Loki keeps only an error's code,
+      // message and stack, so Clerk's status, codes and trace id have to be
+      // top-level fields. Codes only: an error's meta can carry emails.
+      const clerkFields = isClerkApiResponseError(err)
+        ? {
+            clerkStatus: err.status,
+            clerkErrorCodes: err.errors.map((error) => error.code),
+            clerkTraceId: err.clerkTraceId,
+          }
+        : {}
+      this.logger.error(
+        { err, offset, ...clerkFields },
+        'Failed to list Clerk team invitations',
+      )
       throw new BadGatewayException('Failed to list team invitations')
     }
 
@@ -176,13 +204,22 @@ export class ClerkInvitationsService {
     metadata: TeamInviteMetadata | null
     verifiedEmails: string[]
   }> {
+    const fetchUser = () =>
+      clerkCall('users.getUser', { 'clerk.user_id': clerkId }, () =>
+        this.clerkClient.users.getUser(clerkId),
+      )
     let user
     try {
-      user = await clerkCall(
-        'users.getUser',
-        { 'clerk.user_id': clerkId },
-        () => this.clerkClient.users.getUser(clerkId),
-      )
+      // A read-only lookup, so one retry after a Clerk stall is safe and
+      // absorbs the transient timeouts that otherwise surface as a 502.
+      try {
+        user = await fetchUser()
+      } catch (firstErr) {
+        if (!(firstErr instanceof ClerkTimeoutError)) {
+          throw firstErr
+        }
+        user = await fetchUser()
+      }
     } catch (err) {
       this.logger.error(
         { err },

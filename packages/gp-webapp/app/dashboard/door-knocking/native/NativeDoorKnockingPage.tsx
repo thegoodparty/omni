@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
@@ -29,6 +32,7 @@ import {
   type FilterResult,
   type PolygonStats,
 } from './filterEngine'
+import type { ServeDoorKnockingPurpose } from './createFlow/serveDoorKnockingPurposes'
 import type { DecodedPack } from './packDecoder'
 import { campaignTurfsQueryOptions, turfsQueryOptions } from './turfQueries'
 import { assignNextColor } from './turfColors'
@@ -36,6 +40,7 @@ import {
   draftAsTurfLike,
   draftTurfId,
   isDrawnTurf,
+  nextTurfName,
   patchChangesDraft,
   sameDrafts,
   type TurfDraft,
@@ -139,6 +144,13 @@ interface NativeDoorKnockingPageProps {
   proposalLink?: ProposalLink
   // Where the `?create=1` link was pressed.
   createSource?: OutreachFlowSource
+  // A civic panel plan's door step: the purpose it answered, handed to the
+  // create flow, and the walkable area it drew, loaded as the turf's boundary
+  // on the first arrival at the draw step. Spent once, like `?listId=`.
+  initialPurpose?: ServeDoorKnockingPurpose
+  prefillArea?: PolygonRing
+  // The agent surface that opened the create flow, for the Outreach events.
+  launchSource?: OutreachLaunchSource
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -183,6 +195,9 @@ export default function NativeDoorKnockingPage({
   trackerTaskId,
   proposalLink,
   createSource,
+  initialPurpose,
+  prefillArea,
+  launchSource,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   // Doors logged with no signal wait on the phone; this sends them when it
@@ -254,6 +269,8 @@ export default function NativeDoorKnockingPage({
   const [spentPreselectId, setSpentPreselectId] = useState<number>()
   const carriedListId =
     preselectedListId === spentPreselectId ? undefined : preselectedListId
+  const [spentArea, setSpentArea] = useState<PolygonRing>()
+  const carriedArea = prefillArea === spentArea ? undefined : prefillArea
   const [spentPreselectVariant, setSpentPreselectVariant] =
     useState<RecommendedListVariant>()
   const carriedVariant =
@@ -1171,7 +1188,14 @@ export default function NativeDoorKnockingPage({
     // round trip as a first arrival is what used to throw the shape away.
     if (next === 'draw' && flowStep !== 'draw') {
       if (ring) draw.resumeDrawing()
-      else draw.startDrawing()
+      else if (carriedArea && turfDrafts.length === 0) {
+        // Loading it reports it back as the boundary under the cursor, which
+        // makes it the campaign's first turf, named the way an unnamed turf
+        // is saved, since nobody drew it to name it.
+        setSpentArea(prefillArea)
+        setPendingName(nextTurfName(campaignTurfCount))
+        draw.loadRing(carriedArea, draw.drawColor)
+      } else draw.startDrawing()
     }
     setFlowStep(next)
   }
@@ -1590,12 +1614,16 @@ export default function NativeDoorKnockingPage({
                   onPreselectApplied={() =>
                     setSpentPreselectId(preselectedListId)
                   }
+                  {...(serveMode &&
+                    carriedListId !== undefined &&
+                    initialPurpose && { initialPurpose })}
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
                   trackerTaskId={trackerTaskId}
                   joinSaveRequest={joinSaveRequest}
                   onJoinSaveStateChange={setJoinSave}
                   {...(proposalLink && { proposalLink })}
+                  launchSource={launchSource}
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
                   onSelectDraft={selectDraft}

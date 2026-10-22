@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
 import FormData from 'form-data'
@@ -15,6 +15,10 @@ import {
   P2P_PHONE_LIST_MAP,
 } from '../constants/p2pJob.constants'
 import { PinoLogger } from 'nestjs-pino'
+import {
+  isPeerlyNotCellRejection,
+  NOT_CELL_MESSAGE,
+} from '../utils/peerlyTestSendRejection.util'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
@@ -166,7 +170,11 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
   // Adds one number to a list that already exists, which is how a second
   // reviewer's handset joins a test list without uploading another one.
   // Throws Peerly's own message through — the caller decides whether a
-  // rejection (already present, list full) is fatal.
+  // rejection (already present, list full) is fatal. A number Peerly says is
+  // not a cell can never be texted, so it is a 400 the caller can surface.
+  //
+  // Logged at warn whatever the cause: the only caller sends right after and
+  // lets that send judge, so a real Peerly fault still pages from there.
   async addContactToPhoneList(listId: number, phone: string): Promise<void> {
     try {
       await this.peerlyHttpService.post(`/phonelists/${listId}/addcontact`, {
@@ -176,13 +184,24 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       return this.peerlyErrorHandling.handleApiError({
         error,
         logger: this.logger,
+        context: isPeerlyNotCellRejection(error)
+          ? {
+              expectedRejection: true,
+              httpExceptionClass: BadRequestException,
+              customMessage: NOT_CELL_MESSAGE,
+            }
+          : { expectedRejection: true },
       })
     }
   }
 
   // Returns null if status is not available yet (e.g. still processing), otherwise returns the status response.
+  // A gateway error reads as "not yet" only when the caller opts in: the
+  // purchase path treats null as still processing and refuses checkout,
+  // while a thrown 5xx lets it bill off the captured count.
   async checkPhoneListStatus(
     token: string,
+    { gatewayErrorIsPending = false }: { gatewayErrorIsPending?: boolean } = {},
   ): Promise<PhoneListStatusResponseDto | null> {
     try {
       const response = await this.peerlyHttpService.get(
@@ -195,7 +214,10 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
         'status',
       )
     } catch (error) {
-      if (this.isTransientPhoneListError(error)) {
+      if (
+        this.isTransientPhoneListError(error) ||
+        (gatewayErrorIsPending && this.isPeerlyGatewayError(error))
+      ) {
         this.logger.warn(
           { token },
           'Peerly returned a transient error during phone list status check. This is expected during processing and will likely resolve on retry.',
@@ -224,6 +246,16 @@ export class PeerlyPhoneListService extends PeerlyBaseConfig {
       message
         .toLowerCase()
         .includes('there may be an error with the phone list for context')
+    )
+  }
+
+  private isPeerlyGatewayError(error: unknown): boolean {
+    if (!isAxiosError(error)) return false
+    const status = error.response?.status
+    return (
+      status === HttpStatus.BAD_GATEWAY ||
+      status === HttpStatus.SERVICE_UNAVAILABLE ||
+      status === HttpStatus.GATEWAY_TIMEOUT
     )
   }
 

@@ -46,6 +46,8 @@ export const useDuplicateList = () => {
         recommendedModified: _recommendedModified,
         // Unique per list: the copy was not created from that chat card.
         proposalKey: _proposalKey,
+        // A copy is the official's own list, so it shows in the index.
+        civicPanelInvite: _civicPanelInvite,
         ...rest
       } = segment
 

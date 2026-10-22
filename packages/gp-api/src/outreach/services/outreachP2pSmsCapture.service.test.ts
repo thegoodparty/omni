@@ -155,7 +155,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       AUTHORIZED,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
     expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
       capturedAmountInCents: AUTHORIZED,
@@ -166,7 +166,9 @@ describe('OutreachP2pSmsCaptureService', () => {
 
   describe('resolveSendCapForBuild (send cap — never oversend)', () => {
     it('returns the paid count (max texts the hold covers) for an authorized build', async () => {
-      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+      sms.findMany.mockResolvedValue([
+        { authorizedAmountInCents: AUTHORIZED, promoDiscountInCents: null },
+      ])
 
       const cap = await service.resolveSendCapForBuild(BUILD_ID)
 
@@ -174,7 +176,7 @@ describe('OutreachP2pSmsCaptureService', () => {
       // largest count whose price does not exceed the hold.
       expect(cap).toBe(LEADS_LOADED)
       // Found through the satellite link (peerlyPhoneListId), only for a live hold.
-      expect(sms.findFirst).toHaveBeenCalledWith(
+      expect(sms.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             peerlyPhoneListId: BUILD_ID,
@@ -195,13 +197,13 @@ describe('OutreachP2pSmsCaptureService', () => {
       // webhook links the hold to the satellite. The persisted sendCapTexts
       // (stamped at session creation) still caps it — no satellite hold needed.
       peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 250 })
-      sms.findFirst.mockResolvedValue(null)
+      sms.findMany.mockResolvedValue([])
 
       const cap = await service.resolveSendCapForBuild(BUILD_ID)
 
       expect(cap).toBe(250)
       // The persisted field short-circuits — the satellite is never consulted.
-      expect(sms.findFirst).not.toHaveBeenCalled()
+      expect(sms.findMany).not.toHaveBeenCalled()
       expect(peerlyPhoneList.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: BUILD_ID } }),
       )
@@ -209,17 +211,43 @@ describe('OutreachP2pSmsCaptureService', () => {
 
     it('prefers the persisted build cap over the satellite hold when both exist', async () => {
       peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: 10 })
-      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+      sms.findMany.mockResolvedValue([
+        { authorizedAmountInCents: AUTHORIZED, promoDiscountInCents: null },
+      ])
 
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(10)
-      expect(sms.findFirst).not.toHaveBeenCalled()
+      expect(sms.findMany).not.toHaveBeenCalled()
     })
 
     it('falls back to the satellite hold when the build carries no persisted cap', async () => {
       peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
-      sms.findFirst.mockResolvedValue({ authorizedAmountInCents: AUTHORIZED })
+      sms.findMany.mockResolvedValue([
+        { authorizedAmountInCents: AUTHORIZED, promoDiscountInCents: null },
+      ])
 
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(LEADS_LOADED)
+    })
+
+    it('adds a promotion code back so a discounted hold keeps its whole list', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
+      sms.findMany.mockResolvedValue([
+        {
+          authorizedAmountInCents: AUTHORIZED - 1000,
+          promoDiscountInCents: 1000,
+        },
+      ])
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(LEADS_LOADED)
+    })
+
+    it('caps to the smallest paid amount when two holds point at one build', async () => {
+      peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
+      sms.findMany.mockResolvedValue([
+        { authorizedAmountInCents: AUTHORIZED, promoDiscountInCents: null },
+        { authorizedAmountInCents: 0, promoDiscountInCents: 350 },
+      ])
+
+      expect(await service.resolveSendCapForBuild(BUILD_ID)).toBe(100)
     })
 
     // SATELLITE-gated, not flag-gated: no persisted cap and no authorized hold
@@ -227,7 +255,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     // flag for.
     it('returns null when no cap is persisted and no hold is authorized (no cap applied)', async () => {
       peerlyPhoneList.findUnique.mockResolvedValue({ sendCapTexts: null })
-      sms.findFirst.mockResolvedValue(null)
+      sms.findMany.mockResolvedValue([])
       expect(await service.resolveSendCapForBuild(BUILD_ID)).toBeNull()
     })
   })
@@ -277,7 +305,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       AUTHORIZED,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -309,7 +337,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       discounted,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -339,7 +367,7 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
       INTENT_ID,
       authorized,
-      `p2p-sms-capture-${OUTREACH_ID}`,
+      `p2p-sms-capture-${INTENT_ID}`,
     )
   })
 
@@ -377,6 +405,153 @@ describe('OutreachP2pSmsCaptureService', () => {
     expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
     // A capture-time void hands the free-texts offer back (closes C1's TODO).
     expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
+  })
+
+  describe('with a promotion code', () => {
+    const PROMO = 600
+    const promoRow = (overrides: Record<string, unknown> = {}) => ({
+      outreachId: OUTREACH_ID,
+      settleState: P2pSmsSettleState.authorized,
+      authorizationIntentId: INTENT_ID,
+      authorizedAmountInCents: AUTHORIZED - PROMO,
+      promoDiscountInCents: PROMO,
+      promoCoversTotal: false,
+      ...overrides,
+    })
+
+    it('captures the final count less the code', async () => {
+      arrange({ smsRow: promoRow() })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
+        INTENT_ID,
+        AUTHORIZED - PROMO,
+        `p2p-sms-capture-${INTENT_ID}`,
+      )
+    })
+
+    it('takes the code off a list that came in smaller than the estimate', async () => {
+      arrange({
+        smsRow: promoRow(),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 300 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.capturePaymentIntent).toHaveBeenCalledWith(
+        INTENT_ID,
+        calcTextAmountInCents(300) - PROMO,
+        `p2p-sms-capture-${INTENT_ID}`,
+      )
+    })
+
+    it('settles captured at $0, not voided, when the code leaves under the floor', async () => {
+      arrange({
+        smsRow: promoRow(),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 150 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+      expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
+      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
+        capturedAmountInCents: 0,
+        chargeIntentId: null,
+      })
+      expect(settingState()(P2pSmsSettleState.voided)).toBeUndefined()
+      expect(freeTexts.restore).not.toHaveBeenCalled()
+    })
+
+    it('voids and hands back the free texts when the list was scrubbed to nobody', async () => {
+      arrange({
+        smsRow: promoRow(),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 0 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.voidHold).toHaveBeenCalledWith(INTENT_ID)
+      expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+      expect(settingState()(P2pSmsSettleState.captured)).toBeUndefined()
+      expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
+    })
+
+    it('voids a covered send whose list was scrubbed to nobody', async () => {
+      arrange({
+        smsRow: promoRow({
+          authorizationIntentId: null,
+          authorizedAmountInCents: 0,
+          promoCoversTotal: true,
+        }),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 0 },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.voidHold).not.toHaveBeenCalled()
+      expect(settingState()(P2pSmsSettleState.voided)).toBeDefined()
+      expect(freeTexts.restore).toHaveBeenCalledWith(OUTREACH_ID)
+    })
+
+    it('settles at $0 when the released hold is already gone (crash recovery)', async () => {
+      arrange({
+        smsRow: promoRow(),
+        build: { id: BUILD_ID, buildStatus: 'ready', leadsLoaded: 150 },
+        intent: mockIntent({ status: 'canceled' }),
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
+        capturedAmountInCents: 0,
+      })
+      expect(settingState()(P2pSmsSettleState.voided)).toBeUndefined()
+      expect(freeTexts.restore).not.toHaveBeenCalled()
+    })
+
+    it('settles a send the code covered in full at $0 without calling Stripe', async () => {
+      arrange({
+        smsRow: promoRow({
+          authorizationIntentId: null,
+          authorizedAmountInCents: 0,
+          promoDiscountInCents: AUTHORIZED,
+          promoCoversTotal: true,
+        }),
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(stripe.retrievePaymentIntent).not.toHaveBeenCalled()
+      expect(stripe.capturePaymentIntent).not.toHaveBeenCalled()
+      expect(stripe.voidHold).not.toHaveBeenCalled()
+      expect(settingState()(P2pSmsSettleState.captured)?.data).toMatchObject({
+        capturedAmountInCents: 0,
+        chargeIntentId: null,
+        peerlyPhoneListId: BUILD_ID,
+      })
+    })
+
+    it('leaves a covered send authorized until it has gone to Peerly', async () => {
+      arrange({
+        smsRow: promoRow({
+          authorizationIntentId: null,
+          authorizedAmountInCents: 0,
+          promoCoversTotal: true,
+        }),
+        outreachRow: {
+          phoneListId: PEERLY_LIST_ID,
+          projectId: null,
+          campaign: { hasFreeTextsOffer: false },
+          p2pSms: { freeTextsApplied: false },
+        },
+      })
+
+      await service.captureHold(OUTREACH_ID)
+
+      expect(sms.updateMany).not.toHaveBeenCalled()
+    })
   })
 
   it('reconciles an already-succeeded PI without a second capture', async () => {

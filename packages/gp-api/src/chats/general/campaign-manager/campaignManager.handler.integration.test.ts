@@ -1,8 +1,24 @@
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
-import { describe, expect, it } from 'vitest'
+import { addDays, format, parseISO, subDays } from 'date-fns'
+import { v7 as uuidv7 } from 'uuid'
+import {
+  ChatMessageRole,
+  ChatScope,
+  ConstituentFeedbackCaptureMethod,
+  ConstituentFeedbackChannel,
+  OfficeLevel,
+  OutreachStatus,
+  OutreachType,
+} from '../../../generated/prisma'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { FeaturesService } from '@/features/services/features.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import { GeneralChatsService } from '../services/general-chats.service'
+import type {
+  OutreachFeedback,
+  PastOutreachRow,
+} from '../priority-flow/services/priorityFlowOutreach.service'
 import { CampaignManagerHandler } from './campaignManager.handler'
 
 const service = useTestService()
@@ -67,6 +83,211 @@ describe('CampaignManagerHandler.loadContext (integration)', () => {
     expect(ctx.electionDate).toBe('2099-11-03')
     expect(handler.buildSystemPrompt(ctx)).toContain(
       'Election date on record: Tuesday, November 3, 2099',
+    )
+  })
+})
+
+describe('CampaignManagerHandler.loadContext SMS cutoff (integration)', () => {
+  const electionIn = (days: number): string =>
+    format(addDays(new Date(), days), 'yyyy-MM-dd')
+
+  const conversationFor = async (electionDate: string) => {
+    const userId = service.user.id
+    const slug = `cam-${userId}-${Math.random().toString(36).slice(2, 10)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: userId },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { organizationSlug: slug, slug, userId, details: { electionDate } },
+    })
+    const conversation = await service.prisma.chatConversation.create({
+      data: {
+        ownerUserId: userId,
+        organizationSlug: slug,
+        scope: ChatScope.campaign_assistant,
+      },
+    })
+    return { campaign, conversationId: conversation.id, userId }
+  }
+
+  it('closes texting inside the window and tells the prompt', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const electionDate = electionIn(10)
+    const { conversationId, userId } = await conversationFor(electionDate)
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('closed')
+    expect(ctx.smsCutoffDate).toBe(
+      format(subDays(parseISO(electionDate), 19), 'yyyy-MM-dd'),
+    )
+    expect(handler.buildSystemPrompt(ctx)).toContain(
+      'TEXTING IS CLOSED FOR THIS RACE',
+    )
+  })
+
+  it('keeps texting open for a campaign that filed and paid in time', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { campaign, conversationId, userId } = await conversationFor(
+      electionIn(10),
+    )
+    await service.prisma.tcrCompliance.create({
+      data: {
+        campaignId: campaign.id,
+        ein: '12-3456789',
+        postalAddress: '1 Main St, Springfield, IL 62701',
+        committeeName: 'Friends of Renee',
+        websiteDomain: 'reneediaz.com',
+        filingUrl: 'https://example.com/filing',
+        phone: '5555550100',
+        email: 'renee@example.com',
+        officeLevel: OfficeLevel.local,
+        kickoffSentAt: new Date(),
+      },
+    })
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('not_applicable')
+    expect(handler.buildSystemPrompt(ctx)).not.toContain(
+      'TEXTING IS CLOSED FOR THIS RACE',
+    )
+  })
+
+  it('leaves texting open well before the cutoff', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { conversationId, userId } = await conversationFor(electionIn(90))
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(ctx.smsCompliance).toBe('open')
+  })
+})
+
+describe('CampaignManagerHandler door notes (integration)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const runTool = (tool: LlmTool | undefined, input: object) => {
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    return tool.execute(input)
+  }
+
+  const campaignWithWalk = async () => {
+    const userId = service.user.id
+    const slug = `cam-${userId}-${Math.random().toString(36).slice(2, 10)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: userId },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { organizationSlug: slug, slug, userId, details: {} },
+    })
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'Oak Street' },
+    })
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: filter.id,
+        name: 'Turf A',
+        color: '#ff0000',
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-87.66, 41.89],
+              [-87.64, 41.89],
+              [-87.65, 41.91],
+              [-87.66, 41.89],
+            ],
+          ],
+        },
+      },
+    })
+    const walk = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Oak Street walk',
+        doorKnockingTurfId: turf.id,
+      },
+    })
+    await service.prisma.constituentFeedback.create({
+      data: {
+        organizationSlug: slug,
+        personId: uuidv7(),
+        occurredAt: new Date(),
+        actorUserId: userId,
+        channel: ConstituentFeedbackChannel.door_knock,
+        transcript: 'Wants the crosswalk on Oak fixed.',
+        captureMethod: ConstituentFeedbackCaptureMethod.dictation,
+        clientKey: uuidv7(),
+        outreachId: walk.id,
+        confirmedAt: new Date(),
+      },
+    })
+    const conversation = await service.prisma.chatConversation.create({
+      data: {
+        ownerUserId: userId,
+        organizationSlug: slug,
+        scope: ChatScope.campaign_assistant,
+      },
+    })
+    return { walk, conversationId: conversation.id, userId }
+  }
+
+  it('finds the walk by door knocking and reads what voters said', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { walk, conversationId, userId } = await campaignWithWalk()
+
+    const tools = handler.buildTools(
+      await handler.loadContext(conversationId, userId),
+    )
+
+    const past = (await runTool(tools.read_past_outreach, {
+      channel: OutreachType.doorKnocking,
+    })) as { sends: PastOutreachRow[] }
+    expect(past.sends.map((row) => row.outreachId)).toEqual([walk.id])
+    const feedback = (await runTool(tools.read_outreach_feedback, {})) as {
+      sends: OutreachFeedback[]
+    }
+    expect(feedback.sends).toMatchObject([
+      {
+        outreachId: walk.id,
+        heardFrom: 1,
+        verbatims: [
+          {
+            said: 'Wants the crosswalk on Oak fixed.',
+            source: 'door_note',
+            confirmed: true,
+          },
+        ],
+      },
+    ])
+  })
+
+  it('leaves the notes out with issue-capture off for the user', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const isFeatureEnabled = vi
+      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+      .mockResolvedValue(false)
+    const { conversationId, userId } = await campaignWithWalk()
+
+    const ctx = await handler.loadContext(conversationId, userId)
+
+    expect(isFeatureEnabled).toHaveBeenCalledWith({
+      user: userId,
+      feature: 'issue-capture',
+    })
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+      'read_outreach_feedback',
+    )
+    expect(handler.buildSystemPrompt(ctx)).not.toContain(
+      'read_outreach_feedback',
     )
   })
 })

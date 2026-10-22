@@ -40,5 +40,14 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     // Create-only: a sample is drawn once, when the list is saved, and the
     // update schema has nothing to redraw it with.
     sample: ListSampleSchema.optional(),
+    // Serve, from a priority's card: keep the list to the parts of the
+    // district that priority's answers have barely reached. gp-api draws
+    // the area and saves it as the list's boundary; the request carries no
+    // geometry of its own.
+    unreachedAreaOfPriorityId: z.string().min(1).optional(),
+    // Serve: the audience of a civic panel invite. The outreach that used
+    // the list keeps it, and the lists index leaves it out, since the
+    // panel's one list is the built-in Civic panel row. Create-only.
+    civicPanelInvite: z.boolean().optional(),
   }),
 ) {}

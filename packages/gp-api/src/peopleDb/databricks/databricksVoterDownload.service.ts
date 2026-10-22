@@ -47,6 +47,7 @@ export class DatabricksVoterDownloadService {
       filters: dto.filters,
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+      affinityColumn: dto.affinityColumn,
       excludeColumns: dto.excludeColumns,
     })
 
@@ -143,7 +144,7 @@ export class DatabricksVoterDownloadService {
   // round trip and its download overlap the gzip write instead of following it.
   // Drained strictly in series, the link round trips alone measured ~6.5s of a
   // 22.6s drain on a large district -- time spent waiting on nothing. At most
-  // two chunks (~8-20MB each at the 76-column projection) are in memory.
+  // two chunks (~8-20MB each at the 77-column projection) are in memory.
   private async pumpChunks(
     first: PeopleDbxCsvChunk,
     gzip: NodeJS.WritableStream,

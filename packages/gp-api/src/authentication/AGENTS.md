@@ -78,7 +78,12 @@ Auth state is enforced globally via three guards registered in order. Most route
 ## Gotchas
 
 - `AUTH_SECRET` must be set at boot — module throws otherwise. No fallback path.
-- ADR for the M2M flow is `docs/adr/0004-clerk-m2m-auth.md` — read before adding new M2M-callable endpoints.
+- **`SessionGuard` never verifies the `Authorization` header under
+  `/v1/vendor-mocks/`.** Those routes receive a real vendor client's own
+  credential (CallHub sends `Token <key>`), and `verifySessionToken` throws
+  on it before `@PublicAccess()` is consulted, so every mocked call 401'd on
+  previews. The guard goes straight to the public-and-no-roles check there,
+  so a vendor-mock route without `@PublicAccess()` is still rejected.
 - `effectiveUser.util.ts` returns `req.actorUser ?? req.user` — **the admin**
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated
@@ -111,6 +116,12 @@ Auth state is enforced globally via three guards registered in order. Most route
   `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
   emits the span — the SDK uses undici, which our OTel setup does not
   instrument, so a call made without that wrapper is invisible in Tempo.
+  Session tokens and M2M JWTs verify locally against `CLERK_JWT_KEY`, the
+  instance's PEM public key, set per environment in `deploy/index.ts`; opaque
+  `mt_` M2M tokens still call Clerk. Without the key the SDK refetches
+  Clerk's JWKS every 5 minutes on the request path, and a fetch slower than
+  2s rejects the request (about 0.06% of gp-marketing's M2M calls on
+  2026-10-19).
 - **gp-api owns the user's first and last name; Clerk holds a copy.** The
   name enters through Clerk at sign-up and `findOrProvisionByClerk` copies it
   once. After that the only writers are `PUT /v1/users/me` (the webapp's

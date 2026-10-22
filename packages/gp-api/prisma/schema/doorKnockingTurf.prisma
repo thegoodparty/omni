@@ -28,6 +28,8 @@ enum DoorKnockingPurpose {
   explain_decision
   community_input
   share_resource
+  // Serve-only: the civic panel invite, the same slug as the Serve text's.
+  build_citizens_panel
 }
 
 model DoorKnockingTurf {
@@ -73,6 +75,7 @@ model DoorKnockingTurf {
   // the window before a route is bought. Optional only because the FK lives
   // on the child; a nativeDoorKnocking envelope is required to have one.
   outreach          Outreach?
+  civicPanelBuildSteps CivicPanelBuildStep[]
 
   // No completedAt/archivedAt here: the lifecycle lives on the Outreach
   // envelope (status + archivedAt), which since 3.0 every turf has. It used

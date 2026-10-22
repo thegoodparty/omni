@@ -5,7 +5,8 @@ import {
   LEGAL_LINE,
   type LiveRaceData,
 } from './campaignManagerPrompt'
-import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
+import { legalAdviceBackstop } from '../services/guardrailBackstops'
+import { guardrailLine } from '../services/guardrailLines'
 import {
   GUARDRAIL_DECLINE,
   HONEST_REPORTING_BLOCK,
@@ -26,6 +27,8 @@ const ctx = (
   primaryElectionDate: null,
   primaryResult: null,
   didWin: null,
+  smsCompliance: null,
+  smsCutoffDate: null,
   liveRace: { status: 'none', reason: 'no-race' },
   ballotStatus: null,
   filingPeriodStart: null,
@@ -51,6 +54,7 @@ const ctx = (
   isPro: null,
   story: null,
   plan: null,
+  publicProfile: { status: 'not-live' },
   ...over,
 })
 
@@ -81,9 +85,27 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(
       'A text message you draft for the candidate to send must say who is ' +
-        'sending it: their first name and the office they are running for',
+        'sending it: their full name and the office they are running for',
     )
+    expect(prompt).toContain('"this is Renee Diaz, running for City Council"')
     expect(prompt).toContain('never write a placeholder such as [Your Name]')
+  })
+
+  // The texting flow introduces the candidate by full name; a drafted text
+  // that names them already is carried in as written, so the manager needs
+  // the full name in front of it to write the same intro.
+  it('gives the manager the full name a text introduces the candidate by', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Candidate: Renee\nCandidate full name: Renee Diaz',
+    )
+  })
+
+  it('omits the full-name line when it adds nothing to the first name', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ candidateName: 'Renee' }),
+    )
+    expect(prompt).not.toContain('Candidate full name:')
   })
 
   // The product map's status line is the only place the prompt says whether
@@ -142,6 +164,126 @@ describe('buildCampaignManagerSystemPrompt', () => {
       'The dates on record are a snapshot taken when the candidate set up the race.',
     )
     expect(prompt).not.toContain('refreshed monthly')
+  })
+
+  describe('calendar', () => {
+    it('states the election day from the record with its status and days remaining', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'IL', now: at('2026-09-15') }),
+      )
+      expect(prompt).toContain(
+        "CALENDAR (as of the candidate's local day)\n" +
+          'Take dates, weekdays and statuses from this calendar; do not derive them.',
+      )
+      expect(prompt).toContain(
+        'ELECTION DAY (campaign record)\n' +
+          'Tuesday, November 3, 2026\n' +
+          'Status: UPCOMING\n' +
+          'Days remaining: 49\n' +
+          'Approved description: "Election Day is Tuesday, November 3."\n' +
+          'Do not describe Election Day as past.',
+      )
+    })
+
+    it('sits after the live block and before the ballot status', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-09-15'),
+          ballotStatus: 'on-ballot',
+          liveRace: { status: 'unavailable' },
+        }),
+      )
+      const live = prompt.indexOf('Current race data was not available today.')
+      const calendar = prompt.indexOf('CALENDAR (as of')
+      const status = prompt.indexOf('When the candidate signed up')
+      expect(live).toBeGreaterThan(-1)
+      expect(calendar).toBeGreaterThan(live)
+      expect(status).toBeGreaterThan(calendar)
+    })
+
+    it('marks a record-versus-live conflict unknown with both dates, beside the disagreement line', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          electionDate: '2027-04-06',
+          liveRace: {
+            status: 'ok',
+            data: {
+              generalElectionDate: '2027-02-23',
+              primaryElectionDate: null,
+              milestones: null,
+              winNumber: 0,
+              voterContactGoal: 0,
+            },
+          },
+        }),
+      )
+      expect(prompt).toContain(
+        'ELECTION DAY\n' +
+          'Status: UNKNOWN\n' +
+          'Reason: conflicting_sources\n' +
+          'Campaign record: Tuesday, April 6, 2027\n' +
+          'Election data: Tuesday, February 23, 2027',
+      )
+      expect(prompt).toContain('disagree on the election date')
+    })
+
+    it('leaves the filing period to the record line, so it renders once', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          filingPeriodStart: '2026-11-16',
+          filingPeriodEnd: '2026-11-23',
+        }),
+      )
+      expect(prompt).toContain(
+        'Filing period on record: opens Monday, November 16, 2026 (in 42 days)',
+      )
+      expect(prompt).not.toContain('FILING PERIOD')
+    })
+
+    it('keeps a malformed feed window visible as "no window on file"', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          state: 'IL',
+          now: at('2026-10-05'),
+          liveRace: {
+            status: 'ok',
+            data: {
+              generalElectionDate: '2026-11-03',
+              primaryElectionDate: null,
+              milestones: {
+                voterRegistration: null,
+                earlyVoting: { start: '2026-13-45', end: null },
+                ballotRequest: null,
+              },
+              winNumber: 0,
+              voterContactGoal: 0,
+            },
+          },
+        }),
+      )
+      expect(prompt).toContain('Early voting: no window on file (BallotReady)')
+      expect(prompt).not.toContain('EARLY VOTING')
+    })
+
+    it('drops the cautions when the context says so', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ state: 'IL', now: at('2026-09-15'), calendarCautions: false }),
+      )
+      expect(prompt).toContain('Status: UPCOMING')
+      expect(prompt).not.toContain('Do not describe Election Day')
+    })
+
+    it('renders no calendar when nothing is on file', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ electionDate: null, primaryElectionDate: null }),
+      )
+      expect(prompt).not.toContain('CALENDAR (as of')
+    })
   })
 
   describe('race dates on record', () => {
@@ -310,12 +452,42 @@ describe('buildCampaignManagerSystemPrompt', () => {
           'Current race data, fetched today:\n' +
             'General election date: Tuesday, November 3, 2026 (in 29 days) (election data)\n' +
             'Primary election date: no date on file (election data)\n' +
-            'Voter registration: closed Friday, October 2, 2026 (3 days ago) (BallotReady)\n' +
-            'Early voting: opens Saturday, October 24, 2026 (in 19 days), closes Sunday, November 1, 2026 (in 27 days) (BallotReady)\n' +
-            'Mail ballot requests: close Saturday, October 24, 2026 (in 19 days) (BallotReady)\n' +
             'Votes needed to win: about 1,234 (model estimate). Voter contact goal: about 4,936 (model estimate).',
         )
         expect(prompt).not.toContain('disagree')
+      })
+
+      it('restates each live window in the calendar with its status for the day', () => {
+        const prompt = buildCampaignManagerSystemPrompt(liveCtx())
+        expect(prompt).toContain(
+          'VOTER REGISTRATION (BallotReady)\n' +
+            'Opens: not on file\n' +
+            'Closes: Friday, October 2, 2026\n' +
+            'Status: CLOSED\n' +
+            'Days since it closed: 3\n' +
+            'Approved description: "Voter registration closed October 2."\n' +
+            'Do not describe voter registration as open.',
+        )
+        expect(prompt).toContain(
+          'EARLY VOTING (BallotReady)\n' +
+            'Opens: Saturday, October 24, 2026\n' +
+            'Closes: Sunday, November 1, 2026\n' +
+            'Status: NOT YET OPEN\n' +
+            'Days until it opens: 19\n' +
+            'Approved description: "Early voting opens October 24."\n' +
+            'Do not describe early voting as currently open.',
+        )
+        expect(prompt).toContain(
+          'MAIL BALLOT REQUESTS (BallotReady)\n' +
+            'Opens: not on file\n' +
+            'Closes: Saturday, October 24, 2026\n' +
+            'Status: UNKNOWN\n' +
+            'Reason: opening_date_unknown\n' +
+            'Days until it closes: 19\n' +
+            'Approved description: "Mail ballot requests close October 24."',
+        )
+        // The live block no longer carries the window dates itself.
+        expect(prompt).not.toContain('Early voting: opens')
       })
 
       it('places the live block after the record and before the ballot status', () => {
@@ -384,7 +556,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
           }),
         )
         expect(noEarlyVoting).toContain(
-          'Voter registration: opened Tuesday, September 1, 2026 (34 days ago), closes Monday, October 19, 2026 (in 14 days) (BallotReady)',
+          'VOTER REGISTRATION (BallotReady)\n' +
+            'Opens: Tuesday, September 1, 2026\n' +
+            'Closes: Monday, October 19, 2026\n' +
+            'Status: OPEN\n' +
+            'Days until it closes: 14\n' +
+            'Approved description: "Voter registration is open through October 19."',
         )
         expect(noEarlyVoting).toContain(
           'Early voting: no window on file (BallotReady)',
@@ -412,7 +589,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
           'Primary election date: no date on file (election data)',
         )
         expect(prompt).not.toContain('election date: none')
-        expect(prompt).toContain('Early voting: opens Saturday, October 24')
+        expect(prompt).toContain('Opens: Saturday, October 24, 2026')
         expect(prompt).toContain('Votes needed to win: about 1,234')
         expect(prompt).not.toContain('disagree')
       })
@@ -551,6 +728,38 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(on).toContain('query_constituent_data')
     expect(on).toContain('describe_constituent_data')
+  })
+
+  // Party is a registration only where the state reports one
+  // (peopleDb/partySource.ts); the tool description says how L2 assigned it
+  // elsewhere, so the prompt only has to stop calling it one.
+  it('calls party a registration only where the state registers by party', () => {
+    const registered = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'CA' }),
+    )
+    expect(registered).toContain(
+      'Party registration and modeled partisanship breakdowns ARE allowed',
+    )
+    const modeled = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'MN' }),
+    )
+    expect(modeled).toContain(
+      'Party and modeled partisanship breakdowns ARE allowed',
+    )
+    expect(modeled).not.toContain('Party registration and modeled')
+    const primary = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, districtState: 'IL' }),
+    )
+    expect(primary).toContain(
+      'Party and modeled partisanship breakdowns ARE allowed',
+    )
+    // The record's state keeps the clock; only the district's decides party.
+    const unknown = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true, state: 'MN', districtState: null }),
+    )
+    expect(unknown).toContain(
+      'Party registration and modeled partisanship breakdowns ARE allowed',
+    )
   })
 
   it('advertises the CRM contact tools only when they are registered', () => {
@@ -710,11 +919,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('size a random sample with size_outreach_sample')
     expect(prompt).toContain('When the text asks voters something')
     expect(prompt).toContain(
-      'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+      'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
         'about $97 and should bring back about 83 replies.',
     )
     expect(prompt).toContain(
-      "I'd text 2,767 of the 58,520, picked at random. About 83 replies " +
+      "I'd text 2,767 of the 58,520. About 83 replies " +
         'is enough to tell how voters feel about it.',
     )
     expect(prompt).toContain('never work out a sample or a cost yourself')
@@ -724,7 +933,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'Do not save a list for it with crud_saved_filters',
     )
-    expect(prompt).toContain('this is Renee, candidate for Asheville City')
+    expect(prompt).toContain(
+      'the candidate by full name and the office they are running for, ' +
+        'for example "this is Renee Diaz, candidate for Asheville City',
+    )
     expect(prompt).toContain('"Paid for by"')
     expect(prompt).not.toContain('sample.size set to the sampleSize')
     expect(prompt).not.toContain('/dashboard/outreach?compose=text')
@@ -735,6 +947,76 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(block).not.toContain('constituent')
     expect(block).not.toContain('official')
     expect(block).not.toContain('{{first_name}}')
+  })
+
+  describe('SMS compliance cutoff', () => {
+    const outreachTools = [
+      'count_contacts',
+      'crud_saved_filters',
+      'size_outreach_sample',
+      'present_outreach_proposal',
+      'ask_clarify_question',
+    ]
+    const crm = {
+      crmToolsEnabled: true,
+      savedFilterToolsEnabled: true,
+      isPro: true,
+      organization: { slug: 'win-campaign' } as Organization,
+    }
+
+    it('closes texting with the cutoff date when the window is closed', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          ...crm,
+          smsCompliance: 'closed',
+          smsCutoffDate: '2026-10-15',
+        }),
+        outreachTools,
+      )
+      expect(prompt).toContain('TEXTING IS CLOSED FOR THIS RACE')
+      expect(prompt).toContain(
+        'The deadline to get verified for texting was Thursday, October ' +
+          '15, 2026 and has passed.',
+      )
+      expect(prompt).toContain(
+        'Never propose, recommend, draft or schedule a text',
+      )
+      expect(prompt).toContain(
+        'door knocking, robocalls, phone banking and social media',
+      )
+      expect(prompt).toContain('Never a text: texting is closed for this race.')
+      expect(prompt).not.toContain(
+        'A text for a short answer from a large group.',
+      )
+      expect(prompt).not.toContain('a sequence of texts')
+      expect(prompt.indexOf('TEXTING IS CLOSED')).toBeLessThan(
+        prompt.indexOf('SAMPLING RULES'),
+      )
+    })
+
+    it('closes texting without the CRM tools too', () => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ smsCompliance: 'closed', smsCutoffDate: '2026-10-15' }),
+      )
+      expect(prompt).toContain('TEXTING IS CLOSED FOR THIS RACE')
+      expect(prompt).not.toContain('SAMPLING RULES')
+    })
+
+    it.each(['open', 'closing', 'not_applicable', null] as const)(
+      'leaves texting alone when the window is %s',
+      (smsCompliance) => {
+        const prompt = buildCampaignManagerSystemPrompt(
+          ctx({ ...crm, smsCompliance, smsCutoffDate: '2026-10-15' }),
+          outreachTools,
+        )
+        expect(prompt).not.toContain('TEXTING IS CLOSED')
+        expect(prompt).not.toContain('Never a text')
+        expect(prompt).toContain(
+          'A text for a short answer from a large group.',
+        )
+        expect(prompt).toContain('a sequence of texts, a text and a call')
+      },
+    )
   })
 
   it('reads past sends only where the tool is registered', () => {
@@ -753,6 +1035,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'present_past_outreach',
       ]),
     ).toContain('present_past_outreach')
+    expect(withRead).not.toContain('read_outreach_feedback')
+    const withNotes = buildCampaignManagerSystemPrompt(base, [
+      'read_past_outreach',
+      'read_outreach_feedback',
+    ])
+    expect(withNotes).toContain(
+      'When the candidate asks what voters said at the doors or on calls, call read_outreach_feedback',
+    )
   })
 
   it('asks choices as a card only where the clarify tool is registered', () => {
@@ -934,7 +1224,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'snapshot taken when the candidate set up the race',
     )
-    expect(prompt).toContain('confirm it with the filing office')
+    expect(prompt).toContain('the line from ELECTION RULES')
     expect(prompt).not.toContain('refreshed monthly')
   })
 
@@ -1188,10 +1478,15 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('pins the legal line to one the finish-time check recognizes', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    expect(prompt).toContain(
+      `in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
     // A statute-citing reply that carries the line gets nothing appended.
     expect(
-      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+      legalAdviceBackstop(
+        `RCW 42.17A applies. ${LEGAL_LINE}`,
+        'campaign_assistant',
+      ),
     ).toBeNull()
   })
 
@@ -1226,5 +1521,104 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })
+  })
+})
+
+describe('public profile address', () => {
+  const URL = 'https://goodparty.org/people/renee-diaz-0189abcd'
+
+  it('hands over the live address verbatim and forbids building one', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'live', url: URL } }),
+    )
+    expect(prompt).toContain(
+      `The candidate's public profile is live at ${URL}. That is its only address`,
+    )
+    expect(prompt).toContain("never build one from the candidate's name")
+  })
+
+  it('withholds an address while the profile is not published, without claiming no page exists', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'not-live' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile is not published. Do not give or print an address for it until it is live; they publish it from the Public Profile page.",
+    )
+    expect(prompt).not.toContain('no public address')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('withholds an address while a removal is on record, without sending them to publish', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'removed' } }),
+    )
+    expect(prompt).toContain(
+      "The candidate's public profile page is not being served: a removal is on record. Do not give or print an address for it.",
+    )
+    expect(prompt).not.toContain('they publish it')
+    expect(prompt).not.toContain('/people/')
+  })
+
+  it('says the address could not be determined instead of guessing', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ publicProfile: { status: 'unknown' } }),
+    )
+    expect(prompt).toContain(
+      "The address of the candidate's public profile could not be determined today. Do not give one",
+    )
+    expect(prompt).not.toContain('/people/')
+  })
+})
+
+describe('guardrail lines on the Campaign Manager', () => {
+  it('gives the decline in place of an answer and splits a mixed request', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `do not do it; give this line in its place, in these exact words: "${GUARDRAIL_DECLINE.win}"`,
+    )
+    expect(prompt).toContain(
+      'If a request mixes their campaign with something unrelated, answer the part that belongs here and give the line in place of the rest.',
+    )
+    expect(prompt).toContain('respond to the danger first')
+    expect(prompt).toContain('reply with the same line and nothing more')
+    expect(prompt).not.toContain('entire reply')
+    expect(prompt).not.toContain('exact line and nothing else')
+  })
+
+  it('asks for the legal line once, in exact words, in place of its own caution', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      `include this line, once, in these exact words and in place of any caution of your own: "${LEGAL_LINE}"`,
+    )
+    expect(LEGAL_LINE).toBe(guardrailLine('legal_advice', 'campaign_assistant'))
+  })
+
+  it('closes a stated election rule with the registry line', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'ELECTION RULES (apply whenever you state a rule of this race)',
+    )
+    expect(prompt).toContain(
+      `include this line, once, in these exact words: "${guardrailLine('election_rule_verify', 'campaign_assistant')}"`,
+    )
+  })
+
+  it('asks for the small-count line only where the data tool is registered', () => {
+    const line = guardrailLine('small_count', 'campaign_assistant')
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: true })),
+    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    expect(
+      buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: false })),
+    ).not.toContain(line)
+  })
+
+  it('asks for the search line in exact words when search is on', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain(
+      `include this line in the draft, in these exact words: "${guardrailLine('search_provenance', 'campaign_assistant')}"`,
+    )
   })
 })

@@ -1,5 +1,5 @@
 import { ComponentProps, useState } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -13,6 +13,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import WalkView, { stopNumeralColor } from './WalkView'
 import type { KnockDraft } from './RecordKnockForm'
 import { useUnsavedDrafts } from 'app/dashboard/shared/useUnsavedDrafts'
@@ -36,6 +37,11 @@ vi.mock('@shared/organization-picker', () => ({
 // provider that would carry it belongs to the app shell rather than to this
 // view.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+// The knock form is main's with issue capture off and the step drawer with it
+// on; this file tests the first, and the block at the end the second.
+vi.mock('app/shared/experiments/issueCaptureFlag', () => ({
+  useIssueCaptureFlag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
 vi.mocked(useSnackbar).mockReturnValue({
   successSnackbar: vi.fn(),
   errorSnackbar: vi.fn(),
@@ -970,7 +976,7 @@ describe('WalkView', () => {
     expect(within(stopRow(0)).queryByText(/walk/)).toBeNull()
   })
 
-  // ADR 0007. A flagged door has nothing to say and nothing to log, so the
+  // Do-not-knock. A flagged door has nothing to say and nothing to log, so the
   // footer swaps the script and the form for the flag's own banner — and the
   // marker reaches the collapsed stop row too, so a canvasser reads it before
   // walking up rather than only on the resident one tap in.
@@ -997,7 +1003,7 @@ describe('WalkView', () => {
     expect(within(stopRow(0)).getByText('Do not knock')).toBeInTheDocument()
   })
 
-  // ADR 0007. A flagged door keeps `knockStatus: 'unknown'`, so counting it
+  // Do-not-knock. A flagged door keeps `knockStatus: 'unknown'`, so counting it
   // would strand a canvasser who correctly skipped it below 100% and leave it
   // sitting under the "Support unknown" chip as work still to do.
   it('drops a flagged door out of the progress counts', async () => {
@@ -1098,9 +1104,9 @@ describe('WalkView', () => {
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
 
-    // ADR 0007. The flagged resident gets no per-person dot either — a status
-    // dot beside the "Do not knock" label would say the opposite of the label.
-    // One level in, where the residents now live.
+    // Do-not-knock. The flagged resident gets no per-person dot either — a
+    // status dot beside the "Do not knock" label would say the opposite of the
+    // label. One level in, where the residents now live.
     expandStop('210 Cedar Row')
     const personDots = Array.from(row.querySelectorAll('span.h-2'))
     expect(personDots).toHaveLength(1)
@@ -1243,6 +1249,55 @@ describe('WalkView', () => {
     expect(keys[1]).toBe(keys[0])
   })
 
+  // With issue capture on, the questions open in a step drawer over the
+  // person sheet, and closing that step is what lets the sheet behind it close.
+  describe('with the step drawer', () => {
+    beforeEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: true,
+      })
+    })
+    afterEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: false,
+      })
+    })
+
+    it('replays the same clientKey when the sheet is closed and reopened', async () => {
+      const keys: string[] = []
+      let failFirst = true
+      api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+        keys.push((body as { clientKey: string }).clientKey)
+        if (failFirst) {
+          failFirst = false
+          return { status: 500, data: {} }
+        }
+        return {
+          status: 200,
+          data: { personId: 'person-1', knockStatus: 'not_home' },
+        }
+      })
+
+      render(<WalkHarness turfId={3} />)
+      await openPersonSheet('105 Elm St')
+      knockNotHome()
+      await waitFor(() => expect(keys).toHaveLength(1))
+
+      // Close and reopen the sheet — the remount must not mint a new key,
+      // or the server-side upsert can't dedupe the retry.
+      // Closing the step is a step back that clears its answers, which is what
+      // lets the sheet behind it close; the retry answers the door again.
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      await closePersonSheet()
+      await openPersonSheet('105 Elm St')
+      knockNotHome()
+      await waitFor(() => expect(keys).toHaveLength(2))
+      expect(keys[1]).toBe(keys[0])
+    })
+  })
+
   it('mints a fresh clientKey for the next knock after a success', async () => {
     const keys: string[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
@@ -1294,7 +1349,7 @@ describe('WalkView', () => {
   })
 })
 
-// ADR 0008. The reason behind a `not_a_voter` outcome: optional, asked after
+// The reason behind a `not_a_voter` outcome: optional, asked after
 // the door is already saved, and suppressing the resident once it is given.
 describe('WalkView not-a-voter reason', () => {
   beforeEach(() => {
@@ -1313,8 +1368,8 @@ describe('WalkView not-a-voter reason', () => {
     })
 
   // The route as the server would build it now. Dorian's knock status and both
-  // flags are read live at serve time (ADR 0008), so a serve asked for mid-walk
-  // reflects whatever has been written since the walk opened.
+  // flags are read live at serve time, so a serve asked for mid-walk reflects
+  // whatever has been written since the walk opened.
   const serveWithDorian = (
     live: Partial<RoutePayloadTarget>,
   ): DoorKnockingRoutePayload => ({
@@ -1366,10 +1421,10 @@ describe('WalkView not-a-voter reason', () => {
 
   // A live serve rather than a frozen payload, because both writes below are
   // things the next serve genuinely reflects — and because answering the
-  // follow-up now asks for one (ADR 0009's deferred refresh), so a static mock
-  // would answer that request by walking the write it had just accepted back
-  // off. Each write also adds the feed row it really produces, which is the row
-  // the refresh exists to fetch.
+  // follow-up now asks for one (the activity feed's deferred refresh), so a
+  // static mock would answer that request by walking the write it had just
+  // accepted back off. Each write also adds the feed row it really produces,
+  // which is the row the refresh exists to fetch.
   const mockLiveRoute = () => {
     const live: Partial<RoutePayloadTarget> = {}
     let serves = 0
@@ -1594,11 +1649,12 @@ describe('WalkView not-a-voter reason', () => {
     expect(legendCount('Support unknown')).toBe('0')
   })
 
-  // ADR 0009 left exactly one resident on a stale feed: this one, because their
-  // sheet is deliberately held open across their own knock, so neither
-  // `openSheet` nor the resident switcher ever fires for them. The refresh is
-  // deferred rather than dropped — the three tests below are the two ways a
-  // follow-up resolves, and the reason it could not simply fire on the knock.
+  // The activity feed left exactly one resident on a stale feed: this one,
+  // because their sheet is deliberately held open across their own knock, so
+  // neither `openSheet` nor the resident switcher ever fires for them. The
+  // refresh is deferred rather than dropped — the three tests below are the two
+  // ways a follow-up resolves, and the reason it could not simply fire on the
+  // knock.
   //
   // This one is that reason. `NotAVoterControl` switches branches on
   // `notAVoterReason`, so a serve arriving mid-answer replaces the question with
@@ -1694,8 +1750,9 @@ describe('WalkView not-a-voter reason', () => {
   })
 
   // Every other outcome auto-advances, so `openSheet` already covers it — and
-  // paying a serve on every sheet close would be the per-door refresh ADR 0009
-  // rejected, on the one connection the whole design exists to work without.
+  // paying a serve on every sheet close would be a per-door refresh, a round
+  // trip at the door, on the one connection the whole design exists to work
+  // without.
   it('does not re-serve the route when an ordinary door is closed on', async () => {
     let serves = 0
     api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
@@ -1861,7 +1918,7 @@ describe('WalkView auto-advance', () => {
     await expectSheetAtDoor('318 Birch Ave')
   })
 
-  // ADR 0007. A flagged door has nothing to log, so advancing onto it would
+  // Do-not-knock. A flagged door has nothing to log, so advancing onto it would
   // park the canvasser on a dead end.
   it('skips a do-not-knock door', async () => {
     mockRoute([
@@ -1880,8 +1937,8 @@ describe('WalkView auto-advance', () => {
     await expectSheetAtDoor('318 Birch Ave')
   })
 
-  // ADR 0008. Same dead end as a do-not-knock door: advancing onto a resident
-  // who moved away parks the canvasser on a door with nothing to log.
+  // Not-a-voter. Same dead end as a do-not-knock door: advancing onto a
+  // resident who moved away parks the canvasser on a door with nothing to log.
   it('skips a resident flagged with a reason', async () => {
     mockRoute([
       stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
@@ -2101,7 +2158,7 @@ describe('WalkView auto-advance', () => {
 
   // Each door needs its own replay key, so advancing has to mint for the
   // stop it lands on rather than reusing the one just cleared.
-  // ADR 0009. The feed is served with the route, so the door just logged is
+  // The activity feed is served with the route, so the door just logged is
   // missing from it until the route is served again. Reopening the resident is
   // where that shows, and is therefore where the fresh serve is asked for.
   it('shows a door logged this walk in the feed when the resident is reopened', async () => {
@@ -2339,6 +2396,85 @@ describe('WalkView auto-advance', () => {
 
     await waitFor(() => expect(keys).toHaveLength(3))
     expect(keys[2]).toBe(keys[1])
+  })
+
+  // With issue capture on, the questions open in a step drawer over the
+  // person sheet, and closing that step is what lets the sheet behind it close.
+  describe('with the step drawer', () => {
+    beforeEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: true,
+      })
+    })
+    afterEach(() => {
+      vi.mocked(useIssueCaptureFlag).mockReturnValue({
+        ready: true,
+        enabled: false,
+      })
+    })
+
+    it('keeps a failed knock replayable across a feed refresh', async () => {
+      let serves = 0
+      api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+        serves += 1
+        return {
+          status: 200,
+          data: payload([
+            stop(11, 1, '105 Elm St', [
+              target(
+                21,
+                'Dorian Fen',
+                serves === 1 ? {} : { knockStatus: 'not_home' },
+              ),
+              target(24, 'Winnie Fen'),
+            ]),
+          ]),
+        }
+      })
+      const keys: string[] = []
+      api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+        const { stopTargetId, clientKey } = body as {
+          stopTargetId: number
+          clientKey: string
+        }
+        keys.push(`${stopTargetId}:${clientKey}`)
+        if (stopTargetId === 24 && keys.length === 2) {
+          return { status: 500, data: {} }
+        }
+        return {
+          status: 200,
+          data: { personId: `person-${stopTargetId}`, knockStatus: 'not_home' },
+        }
+      })
+
+      render(<WalkHarness turfId={3} />)
+      await openHouseholdMember('105 Elm St', 'Dorian Fen')
+
+      knockNotHome()
+      // Advances to the housemate, whose knock then fails.
+      await expectSheetOnResident('Winnie Fen')
+      knockNotHome()
+      await waitFor(() =>
+        expect(screen.getByText(/Saving failed/)).toBeTruthy(),
+      )
+
+      // Back to the logged housemate, which is what asks for the fresh serve,
+      // and then forward again to retry the door that failed. The failed
+      // step is closed first: it covers the sheet, and closing it clears its
+      // answers, so the retry answers the door again.
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Dorian Fen' }))
+      await waitFor(() => expect(serves).toBe(2))
+      fireEvent.click(screen.getByRole('button', { name: 'Winnie Fen' }))
+      await waitFor(() =>
+        expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+      )
+      knockNotHome()
+
+      await waitFor(() => expect(keys).toHaveLength(3))
+      expect(keys[2]).toBe(keys[1])
+    })
   })
 
   it('gives the door it advances to a distinct clientKey', async () => {
@@ -2898,8 +3034,8 @@ describe('WalkView notes', () => {
   // note is the one thing worth writing at a door nobody answered, and a door
   // nobody answered is often shut without being logged — the canvasser writes
   // "come back Saturday", closes the sheet and walks on. Nothing then refreshes
-  // that resident (`openSheet`'s ADR 0009 serve is for residents logged this
-  // session, and this one was not), so a sheet re-seeded from the frozen
+  // that resident (`openSheet`'s activity-feed serve is for residents logged
+  // this session, and this one was not), so a sheet re-seeded from the frozen
   // payload showed a note that had definitely saved as though it had not.
   it('keeps a note written at a door that was closed without being logged', async () => {
     mockRoute([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])])
@@ -2964,8 +3100,8 @@ describe('WalkView notes', () => {
   // payload rather than on a list held beside it, since that is the copy a
   // reopened sheet reads. A fourth note is not evicted to imitate a wire cap
   // that prices payload bytes a note in this browser does not cost, and an
-  // edit is replaced in place rather than floated to the top, because ADR 0011
-  // orders by `created_at` so that fixing a typo in an old note does not
+  // edit is replaced in place rather than floated to the top, because notes are
+  // ordered by `created_at` so that fixing a typo in an old note does not
   // resurface it above one written this morning.
   it('does not trim to the cap, and does not resurface an edited note', async () => {
     const user = userEvent.setup()
@@ -3021,16 +3157,16 @@ describe('WalkView notes', () => {
     expect(bodies[0]).toContain('Written at the door')
     expect(bodies[1]).toContain('Newest served note')
     expect(bodies[2]).toContain('Middle served note')
-    // Still last, though it is the note most recently touched: ADR 0011 orders
-    // by when a note was written, not by when it was edited.
+    // Still last, though it is the note most recently touched: notes are
+    // ordered by when a note was written, not by when it was edited.
     expect(bodies[3]).toContain('Oldest, corrected')
     // Four of four, so the card claims no truncation it does not have.
     expect(screen.queryByText(/Showing the/)).toBeNull()
   })
 
-  // The same race `patchPerson` cancels for a knock, met by a note: the ADR
-  // 0009 feed refresh for this resident is already in flight when the note is
-  // written, and it was built by a server that had never seen it. Landing
+  // The same race `patchPerson` cancels for a knock, met by a note: the
+  // activity feed refresh for this resident is already in flight when the note
+  // is written, and it was built by a server that had never seen it. Landing
   // afterwards it would take the note back off a card the canvasser had just
   // watched save.
   it('does not let an in-flight serve undo a note written while it was open', async () => {
@@ -3087,12 +3223,12 @@ describe('WalkView notes', () => {
 
     await writeNote('Come back Saturday')
 
-    // Settled, not slept on, the way the ADR 0008 refresh test above reads its
-    // failed serve: the patch's cancellation puts this query idle immediately,
-    // so nothing lands and the note stays — while with the cancellation removed
-    // the query is still fetching here, and reaching idle means the serve has
-    // arrived and taken the note back off the card. A wall-clock wait would
-    // pass either way on a slow enough runner.
+    // Settled, not slept on, the way the not-a-voter refresh test above reads
+    // its failed serve: the patch's cancellation puts this query idle
+    // immediately, so nothing lands and the note stays — while with the
+    // cancellation removed the query is still fetching here, and reaching idle
+    // means the serve has arrived and taken the note back off the card. A
+    // wall-clock wait would pass either way on a slow enough runner.
     releaseSecondServe!()
     await waitFor(() =>
       expect(

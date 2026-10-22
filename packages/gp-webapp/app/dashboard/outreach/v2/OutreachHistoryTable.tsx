@@ -31,6 +31,11 @@ import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  SMS_CUTOFF_COPY,
+  formatSmsCutoffDate,
+} from 'app/dashboard/campaign-verification/verificationCopy'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import {
   fetchOutreachDetail,
@@ -38,6 +43,7 @@ import {
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
 import { useSmsResults } from './useOutreachResults'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 
 const PAGE_SIZE = 10
 
@@ -62,9 +68,8 @@ interface OutreachHistoryTableProps {
   // Omitted callers (constituent-outreach: no draft rows exist there) get
   // the same null default getHistoryStatusLabel already carries.
   membership?: MembershipState | null
-  // "Campaign" is fine on both surfaces here — these ARE outreach campaigns,
-  // not a run for office. An election CYCLE is not: an elected official
-  // archives outreach across a term, so Serve names the shelf, not the cycle.
+  // Serve names this "outreach", never "campaign" or "supporters": the
+  // strings live in `outreachHistoryCopy.ts`, keyed by this flag.
   isServe?: boolean
 }
 
@@ -121,23 +126,23 @@ const PhoneBankingCalledMetric = ({
   return <>{count.toLocaleString()} people called</>
 }
 
-const PhoneBankingSupportersMetric = ({
+const PhoneBankingResultsMetric = ({
   id,
   detailFetcher,
+  isServe,
 }: {
   id: number
   detailFetcher: OutreachDetailFetcher
+  isServe: boolean
 }) => {
   const { data } = useOutreachDetail(id, true, detailFetcher)
-  const count = data?.phoneBanking?.supporters
+  const count = isServe
+    ? data?.phoneBanking?.byFollowUp.yes
+    : data?.phoneBanking?.supporters
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
   }
-  return (
-    <>
-      {count.toLocaleString()} supporter{count === 1 ? '' : 's'}
-    </>
-  )
+  return <>{getOutreachHistoryCopy(isServe).callResults(count)}</>
 }
 
 // A door-knocking envelope carries no send counts either, and unlike a text
@@ -356,7 +361,11 @@ const RowResults = ({
   }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
-      <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
+      <PhoneBankingResultsMetric
+        id={row.id}
+        detailFetcher={detailFetcher}
+        isServe={Boolean(isServe)}
+      />
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
@@ -415,16 +424,17 @@ const BASE_STATUS_FILTERS = [
   'Canceled',
 ] as const
 
-// The five names a saved draft's status can take (historyStatus.util.ts's
+// The six names a saved draft's status can take (historyStatus.util.ts's
 // DRAFT_LABELS). They are offered only when the caller passes a membership:
 // with the flag off the hub passes none AND filters every draft row out, so
-// these would be five checkboxes matching nothing.
+// these would be six checkboxes matching nothing.
 const DRAFT_STATUS_FILTERS = [
   'Pro needed',
   'Verification needed',
   'Verification in review',
   'PIN needed',
   'Ready to schedule',
+  'Texting closed',
 ] as const
 
 type StatusFilterKey =
@@ -453,6 +463,10 @@ export const OutreachHistoryTable = ({
   membership = null,
   isServe = false,
 }: OutreachHistoryTableProps) => {
+  const { smsCutoffDate } = useSmsCompliance()
+  const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
+    smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
+  )
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
@@ -557,30 +571,27 @@ export const OutreachHistoryTable = ({
 
   const activeRowCount = rows.filter((row) => !row.archivedAt).length
 
+  const copy = getOutreachHistoryCopy(isServe)
   const emptyMessage =
     visible.length === 0 && activeFilterCount > 0
-      ? 'No campaigns match your filters.'
+      ? copy.emptyFiltered
       : showArchive
-        ? 'No archived campaigns.'
+        ? copy.emptyArchived
         : activeRowCount === 0 && rows.length > 0
-          ? 'All your campaigns are archived. Click “Archive” to view them.'
+          ? copy.emptyAllArchived
           : activeRowCount === 0
-            ? 'No campaigns yet. Pick a channel above to create your first.'
-            : 'No campaigns match your filters.'
+            ? copy.emptyNone
+            : copy.emptyFiltered
 
   return (
     <section className="space-y-3 mt-10 mb-32">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            {showArchive ? 'Archived campaigns' : 'Active campaigns'}
+            {showArchive ? copy.archivedTitle : copy.activeTitle}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {showArchive
-              ? isServe
-                ? 'Completed and cancelled campaigns you have archived.'
-                : 'Completed and cancelled campaigns from earlier cycles.'
-              : "Every campaign you've sent, most recent first."}
+            {showArchive ? copy.archivedCaption : copy.activeCaption}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -658,7 +669,7 @@ export const OutreachHistoryTable = ({
             <TableRow>
               <TableHead className="whitespace-nowrap">Date</TableHead>
               <TableHead className="whitespace-nowrap">Channel</TableHead>
-              <TableHead className="w-full">Campaign</TableHead>
+              <TableHead className="w-full">{copy.nameColumn}</TableHead>
               <TableHead className="whitespace-nowrap">People</TableHead>
               <TableHead className="whitespace-nowrap">Results</TableHead>
               <TableHead className="text-right whitespace-nowrap">
@@ -709,7 +720,7 @@ export const OutreachHistoryTable = ({
                     <TableCell className="max-w-0 font-medium">
                       <span className="flex items-center gap-2">
                         <span className="min-w-0 truncate">
-                          {row.name || row.title || 'Untitled campaign'}
+                          {row.name || row.title || copy.untitled}
                         </span>
                         <TurfBadge row={row} />
                       </span>
@@ -725,7 +736,10 @@ export const OutreachHistoryTable = ({
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <HistoryStatusText label={displayStatusLabel(row)} />
+                      <HistoryStatusText
+                        label={displayStatusLabel(row)}
+                        textingClosedReason={textingClosedReason}
+                      />
                     </TableCell>
                   </TableRow>
                 )
@@ -767,11 +781,14 @@ export const OutreachHistoryTable = ({
                     <span>{rowDisplayDate(row) ?? 'n/a'}</span>
                     <ChannelBadge type={row.outreachType} />
                   </div>
-                  <HistoryStatusText label={displayStatusLabel(row)} />
+                  <HistoryStatusText
+                    label={displayStatusLabel(row)}
+                    textingClosedReason={textingClosedReason}
+                  />
                 </div>
                 <span className="flex items-center gap-2 text-base font-medium text-foreground">
                   <span className="min-w-0 truncate">
-                    {row.name || row.title || 'Untitled campaign'}
+                    {row.name || row.title || copy.untitled}
                   </span>
                   <TurfBadge row={row} />
                 </span>

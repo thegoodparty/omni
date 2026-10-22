@@ -624,6 +624,33 @@ describe('OutreachDetailsDrawer — draft rows', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('holds a closed texting draft disabled and explains why on hover', async () => {
+    const user = userEvent.setup()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'closed' })}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    const cta = await screen.findByRole('button', { name: 'Texting closed' })
+    expect(cta).toBeDisabled()
+
+    await user.hover(cta.parentElement!)
+
+    expect(
+      (
+        await screen.findAllByText(
+          /deadline to get verified for texting has passed/,
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(onResumeDraft).not.toHaveBeenCalled()
+  })
+
   it('holds the CTA disabled while verification is in review', async () => {
     render(
       <OutreachDetailsDrawer
@@ -952,6 +979,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     peopleCount: 9,
     loggedCount: 6,
     routeSeconds: 900,
+    priorityId: null,
     completed: false,
     archivedAt: null,
     createdAt: new Date('2026-08-10T00:00:00Z'),
@@ -1084,8 +1112,8 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   })
 
   // A finished walk keeps its progress rather than swapping it for a Results
-  // table, because door knocking has no outcomes surface here (ADR 0012) and a
-  // walk is routinely ended with doors left unlogged.
+  // table, because door knocking has no outcomes surface here and a walk is
+  // routinely ended with doors left unlogged.
   it('keeps its progress on a finished walk', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -1849,5 +1877,60 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
         selector: 'p',
       }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('OutreachDetailsDrawer — poll rows', () => {
+  const pollRow: HistoryRow = {
+    id: 52,
+    createdAt: '2026-08-10T00:00:00Z',
+    outreachType: 'poll',
+    name: 'Budget poll',
+    status: 'completed',
+    message: 'Hi there, this is Dana. Should we fund the pool? Reply STOP',
+  }
+
+  it('links a completed poll to its results page by outreach id', () => {
+    render(
+      <OutreachDetailsDrawer row={pollRow} onOpenChange={vi.fn()} isServe />,
+    )
+
+    expect(screen.getByText(/Should we fund the pool\?/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'View full results' }),
+    ).toHaveAttribute('href', '/dashboard/polls/results/52')
+  })
+
+  it('says responses are still coming in for a poll in progress, with no results link', () => {
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...pollRow, status: 'in_progress' }}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    expect(
+      screen.getByText('Sent, now gathering responses. No action needed.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers no footer action while a poll is in review', () => {
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...pollRow, status: 'pending' }}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    expect(screen.getByText('In review')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'View full results' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/Move to archive/)).not.toBeInTheDocument()
   })
 })

@@ -6,6 +6,8 @@ import {
   mintProposalKey,
   PROPOSAL_SENT_MARKER,
   reportBackMessage,
+  GET_ANSWERS_MESSAGE,
+  type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -24,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   streamMessage: vi.fn(),
   fetchPriorityStatus: vi.fn(),
+  fetchPriorityReadStatus: vi.fn(),
   citizenPanels: { ready: true, enabled: false },
   sentListener: null as
     | null
@@ -49,6 +52,7 @@ vi.mock('../data/chat-api', () => ({
 
 vi.mock('../data/priority-api', () => ({
   fetchPriorityStatus: mocks.fetchPriorityStatus,
+  fetchPriorityReadStatus: mocks.fetchPriorityReadStatus,
 }))
 
 vi.mock('../../../shared/dictation/useDictationAppend', () => ({
@@ -74,9 +78,11 @@ vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
     ChatCardRenderer: ({
       card,
       detailKey,
+      launchSource,
     }: {
       card: { kind: string; proposalKey?: string }
       detailKey?: string
+      launchSource?: string
     }) =>
       card.kind === 'outside_contact' ? (
         <OutsideContactCard
@@ -88,6 +94,7 @@ vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
           data-testid="chat-card"
           data-kind={card.kind}
           data-proposal-key={card.proposalKey ?? ''}
+          data-launch-source={launchSource ?? ''}
         />
       ),
   }
@@ -136,6 +143,10 @@ const proposalArgs = {
 const renderWorkspace = (
   initialStatus: PriorityStatus = emptyPriorityStatus(),
   reportBackOutreachId: number | null = null,
+  read: {
+    initialReadStatus?: PriorityReadStatus | null
+    getAnswersOnOpen?: boolean
+  } = {},
 ) =>
   render(
     <PriorityWorkspace
@@ -146,6 +157,8 @@ const renderWorkspace = (
       initialNextAction={null}
       initialCurrentStep="define"
       reportBackOutreachId={reportBackOutreachId}
+      initialReadStatus={read.initialReadStatus ?? null}
+      getAnswersOnOpen={read.getAnswersOnOpen ?? false}
     />,
   )
 
@@ -160,6 +173,7 @@ beforeEach(() => {
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamOf([]))
   mocks.fetchPriorityStatus.mockResolvedValue(null)
+  mocks.fetchPriorityReadStatus.mockResolvedValue(null)
   mocks.citizenPanels = { ready: true, enabled: false }
 })
 
@@ -183,6 +197,19 @@ describe('PriorityWorkspace', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('keeps the title in the conversation with serve-citizen-panels off', async () => {
+    renderWorkspace()
+    await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
+    expect(screen.queryByTestId('priority-desktop-bar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('priority-phone-bar')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Fix the Maple Street flooding',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('opens the conversation anchored on the priority and takes the first turn', async () => {
     renderWorkspace()
     await waitFor(() => expect(mocks.createConversation).toHaveBeenCalled())
@@ -197,9 +224,10 @@ describe('PriorityWorkspace', () => {
       priorityId: 'pri-1',
       currentStep: 'define',
       isNewConversation: true,
+      entry: 'direct',
     })
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Priorities.MessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
   })
@@ -396,6 +424,50 @@ describe('PriorityWorkspace', () => {
     )
   })
 
+  it('launches a card that answered Get answers as expand_panel, even after a reload', async () => {
+    const proposalTurn = (id: string, toolCallId: string): ChatMessageDto => ({
+      id,
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: '',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [
+        {
+          kind: 'tool',
+          toolName: 'present_outreach_proposal',
+          toolCallId,
+          payload: proposalArgs,
+        },
+      ],
+    })
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: GET_ANSWERS_MESSAGE,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      } satisfies ChatMessageDto,
+      proposalTurn('a1', 'tc-1'),
+      {
+        id: 'u2',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'Make it a call list instead.',
+        createdAt: '2026-09-01T00:00:00.000Z',
+      } satisfies ChatMessageDto,
+      proposalTurn('a2', 'tc-2'),
+    ])
+
+    renderWorkspace()
+
+    const cards = await screen.findAllByTestId('chat-card')
+    expect(cards.map((card) => card.dataset.launchSource)).toEqual([
+      'expand_panel',
+      '',
+    ])
+  })
+
   it('opens a card in a sheet over the page, leaving the rail, and the X closes it', async () => {
     mocks.listMessages.mockResolvedValue([
       {
@@ -510,9 +582,12 @@ describe('PriorityWorkspace', () => {
     await waitFor(() =>
       expect(screen.getAllByText('The two by the school')).toHaveLength(2),
     )
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Priorities.MessageSent, {
-      priorityId: 'pri-1',
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.AIChat.MessageSent, {
+      agent: 'priority_flow',
+      surface: 'priority_workspace',
       via: 'clarify',
+      product: 'serve',
+      priorityId: 'pri-1',
     })
     gate.resolve()
   })
@@ -930,12 +1005,9 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).toHaveBeenCalledWith(
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        {
-          scroll: false,
-        },
-      )
+      expect(window.location.pathname).toBe('/dashboard/priorities/pri-1')
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
     })
 
     it('starts the report back once in a thread already under way, hidden', async () => {
@@ -948,6 +1020,47 @@ describe('PriorityWorkspace', () => {
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
       expect(screen.queryByText(/Help me report back/)).toBeNull()
+    })
+
+    // Reopening a report back once its chat exists: dropping the param
+    // must not navigate, since a navigation remounts the page mid-open.
+    it('reopens a report back without navigating, and an open it outlived never shows the error', async () => {
+      window.history.replaceState(
+        null,
+        '',
+        '/dashboard/priorities/pri-1?reportBack=77',
+      )
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: reportBackMessage(77),
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+      ])
+      let failFirst: ((err: Error) => void) | undefined
+      mocks.createConversation.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failFirst = reject
+          }),
+      )
+      // The first mount is replaced before its open settles, as a remount
+      // would, and its request then fails.
+      const first = renderWorkspace(emptyPriorityStatus(), 77)
+      first.unmount()
+      failFirst?.(new Error('superseded'))
+      renderWorkspace(emptyPriorityStatus(), 77)
+
+      await screen.findByText('Here is where this stands.')
+      expect(
+        screen.queryByText(/We couldn.t open this priority/),
+      ).not.toBeInTheDocument()
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
     })
 
     it('does not ask again for a send it already started on', async () => {
@@ -966,6 +1079,443 @@ describe('PriorityWorkspace', () => {
 
       expect(screen.queryByText(/Help me report back/)).toBeNull()
       expect(mocks.streamMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('the read status, behind serve-citizen-panels', () => {
+    const thin: PriorityReadStatus = {
+      answers: 24,
+      needed: 96,
+      groupsHeard: 3,
+      groupsTotal: 12,
+      good: false,
+      status: 'tooEarly',
+      underrepresented: ['age65plus'],
+      unheard: ['age65plus'],
+      checkOut: true,
+    }
+    const skewed: PriorityReadStatus = {
+      answers: 103,
+      needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: ['women', 'age65plus'],
+      checkOut: true,
+    }
+    const good: PriorityReadStatus = {
+      answers: 103,
+      needed: 96,
+      groupsHeard: 12,
+      groupsTotal: 12,
+      good: true,
+      status: 'representative',
+      underrepresented: [],
+    }
+    const reply: ChatMessageDto = {
+      id: 'a1',
+      conversationId: CONVERSATION_ID,
+      role: 'assistant',
+      content: 'Here is where this stands.',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      segments: [{ kind: 'text', text: 'Here is where this stands.' }],
+    }
+
+    beforeEach(() => {
+      mocks.citizenPanels = { ready: true, enabled: true }
+      mocks.listMessages.mockResolvedValue([reply])
+    })
+
+    it('puts a short bar on the phone with the answers still needed', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByRole('heading', {
+          name: 'Fix the Maple Street flooding',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'Back to priorities' }),
+      ).toHaveAttribute('href', '/dashboard/priorities')
+      expect(
+        within(bar).getByRole('button', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+      const status = within(bar).getByRole('link', {
+        name: /Still need to hear from people 65 and over/,
+      })
+      expect(status).toHaveAttribute(
+        'href',
+        '/dashboard/priorities/pri-1/results',
+      )
+      expect(
+        within(bar).getByRole('progressbar', {
+          name: '3 of 12 groups heard',
+        }),
+      ).toBeInTheDocument()
+      const getAnswers = within(bar).getByRole('button', {
+        name: 'Get answers',
+      })
+      expect(getAnswers).toBeEnabled()
+      // Its own row under the line, so the line has the full width.
+      expect(status).not.toContainElement(getAnswers)
+    })
+
+    it('keeps Get answers ready while a turn is in flight, and holds it once asked', async () => {
+      const kickoffDone = deferred()
+      const getAnswersDone = deferred()
+      mocks.listMessages.mockResolvedValue([])
+      mocks.streamMessage
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Let me look at this.' },
+              { type: 'done', assistantMessageId: 'a1' },
+            ],
+            kickoffDone.promise,
+          ),
+        )
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Here is a text to ask more people.' },
+              { type: 'done', assistantMessageId: 'a2' },
+            ],
+            getAnswersDone.promise,
+          ),
+        )
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+
+      const buttons = () =>
+        screen.getAllByRole('button', { name: 'Get answers' })
+      expect(buttons()).toHaveLength(2)
+      for (const button of buttons()) expect(button).toBeEnabled()
+
+      fireEvent.click(
+        within(screen.getByTestId('priority-phone-bar')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+
+      await act(async () => kickoffDone.resolve())
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(2))
+      expect(mocks.streamMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+
+      await act(async () => getAnswersDone.resolve())
+      await waitFor(() => {
+        for (const button of buttons()) expect(button).toBeEnabled()
+      })
+    })
+
+    it('puts the title in a bar above the chat and the rail on desktop', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-desktop-bar')
+      expect(
+        within(bar).getByRole('heading', {
+          level: 1,
+          name: 'Fix the Maple Street flooding',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'Back to priorities' }),
+      ).toHaveAttribute('href', '/dashboard/priorities')
+      const titles = screen.getAllByRole('heading', {
+        name: 'Fix the Maple Street flooding',
+      })
+      expect(titles).toHaveLength(2)
+      for (const heading of titles) {
+        expect(
+          heading.closest(
+            '[data-testid="priority-desktop-bar"], [data-testid="priority-phone-bar"]',
+          ),
+        ).not.toBeNull()
+      }
+    })
+
+    it('opens where this stands from the bar', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByTestId('priority-phone-bar')).getByRole('button', {
+          name: 'Where this stands',
+        }),
+      )
+
+      expect(
+        await screen.findByRole('dialog', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+    })
+
+    it('says so on the phone once there is a good read', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: good })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByText("You've heard from every group"),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'See what we heard' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri-1/results')
+      expect(
+        within(bar).queryByRole('button', { name: 'Get answers' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('tops the desktop rail with the read, a quiet link, then where this stands', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('Waiting to hear back')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('Still need to hear from people 65 and over'),
+      ).toBeInTheDocument()
+      expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('button', { name: 'Get answers' }),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('link', { name: 'What we heard' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri-1/results')
+      expect(
+        within(rail).getByRole('heading', { name: 'Where this stands' }),
+      ).toBeInTheDocument()
+    })
+
+    it('shows the good read in the desktop rail', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: good })
+      await screen.findByText('Here is where this stands.')
+
+      const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('Every group heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByRole('link', { name: 'See what we heard' }),
+      ).toBeInTheDocument()
+      // One way to the results, not a button and a link to the same page.
+      expect(
+        within(rail).queryByRole('link', { name: 'What we heard' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('says enough people answered, not every group, when the census was not checked', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: { ...good, status: 'enoughAnswers' },
+      })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
+      expect(
+        within(bar).getByRole('link', { name: 'See what we heard' }),
+      ).toBeInTheDocument()
+      const rail = screen.getByRole('complementary')
+      expect(
+        within(rail).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/every group/i)).not.toBeInTheDocument()
+    })
+
+    it('names who to hear more from once there are enough answers', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: skewed,
+      })
+      await screen.findByText('Here is where this stands.')
+
+      const bar = screen.getByTestId('priority-phone-bar')
+      expect(
+        within(bar).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
+      ).toBeInTheDocument()
+      const rail = screen.getByRole('complementary')
+      expect(
+        within(rail).getByText('A few groups need more answers'),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
+      ).toBeInTheDocument()
+      expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
+      expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
+      expect(
+        within(rail).getByRole('button', { name: 'Get answers' }),
+      ).toBeInTheDocument()
+    })
+
+    it('asks the agent for more answers with one hidden turn', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      expect(screen.queryByText(/Help me get more answers/)).toBeNull()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.GetAnswersClicked,
+        { priorityId: 'pri-1', source: 'rail' },
+      )
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([event]) => event === EVENTS.Priorities.GetAnswersClicked,
+          ),
+      ).toHaveLength(1)
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.AIChat.MessageSent,
+        expect.anything(),
+      )
+    })
+
+    it('asks once when the results page sent the official here', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Here is where this stands.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.GetAnswersClicked,
+        { priorityId: 'pri-1', source: 'results_page' },
+      )
+    })
+
+    it('does not ask again when a reload kept the results page link', async () => {
+      mocks.listMessages.mockResolvedValue([
+        reply,
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:05.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Here is a text to ask more people.',
+          segments: [
+            { kind: 'text', text: 'Here is a text to ask more people.' },
+          ],
+          createdAt: '2026-09-01T00:00:10.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Here is a text to ask more people.')
+
+      expect(screen.queryByText(/Help me get more answers/)).toBeNull()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Priorities.GetAnswersClicked,
+        expect.anything(),
+      )
+    })
+
+    it('asks once for a double click on Get answers', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      const button = within(screen.getByRole('complementary')).getByRole(
+        'button',
+        { name: 'Get answers' },
+      )
+      act(() => {
+        fireEvent.click(button)
+        fireEvent.click(button)
+      })
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalled(),
+      )
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks again from the results page once the official has said more', async () => {
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: GET_ANSWERS_MESSAGE,
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+        {
+          id: 'u2',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: 'Not now, thanks.',
+          createdAt: '2026-09-02T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        {
+          ...reply,
+          id: 'a2',
+          content: 'Okay.',
+          segments: [{ kind: 'text', text: 'Okay.' }],
+          createdAt: '2026-09-02T00:00:05.000Z',
+        },
+      ])
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: thin,
+        getAnswersOnOpen: true,
+      })
+      await screen.findByText('Okay.')
+
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+    })
+
+    it('re-reads the status once a turn settles', async () => {
+      mocks.fetchPriorityReadStatus.mockResolvedValue(good)
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
+      )
+      expect(
+        (await screen.findAllByText("You've heard from every group")).length,
+      ).toBeGreaterThan(0)
     })
   })
 })

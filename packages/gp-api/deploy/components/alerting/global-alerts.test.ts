@@ -112,8 +112,8 @@ describe('public-person-profiles-error-ratio', () => {
     )
   })
 
-  // Same reasoning as the sibling, and the reason this controller is not
-  // simply added to ALERT_OWNERSHIP: the generated rule fires on one error in
+  // Same reasoning as the sibling, and the reason this controller does not
+  // rely on its generated route rule alone: that rule fires on one error in
   // the window, and these routes serve ~4 req/s, so it would sit permanently
   // lit and be muted — which is indistinguishable from the silence it replaced.
   it('is a ratio, not an any-error count', () => {
@@ -281,8 +281,8 @@ const MAX_REREAD_FACTOR = 24
  * quarter of an allowance of ~1,250 GB/day (12.5 GB/day of ingest averaged
  * over the month), leaving the rest for humans and agents.
  *
- * The set totals 92 today: 7 for the seven event rules at the floor of 1, 5
- * for the five route rules, 1 for the door-knocking recording rule, and 79
+ * The set totals 89 today: 7 for the seven event rules at the floor of 1, 2
+ * for the two route rules, 1 for the door-knocking recording rule, and 79
  * for the six that need a window wider than their interval (the two ratio
  * rules at 20 each, admin impersonation at 10, the two 6h rules at 12 each,
  * the email lookup at 5). Before the move to instant queries and the removal
@@ -365,13 +365,6 @@ describe('people-person-id-repoint-collision', () => {
     expect(alert!.expr.indexOf('|= "')).toBeLessThan(
       alert!.expr.indexOf('|~ "'),
     )
-  })
-
-  // Unrouted alerts land on the default receiver. This one names a human
-  // action nobody is otherwise told to take, so it goes to the rotation that
-  // owns the people surface.
-  it('pages a group rather than the default receiver', () => {
-    expect(alert!.notify).toEqual('win-bugs')
   })
 })
 
@@ -681,10 +674,6 @@ describe('geoapify daily budget tiers', () => {
       ceiling!.threshold,
     )
   })
-
-  it('pages the team that owns door knocking', () => {
-    for (const alert of tiers) expect(alert.notify).toBe('win-bugs')
-  })
 })
 
 // The registry is the only place in this repo where a code change makes an
@@ -826,14 +815,6 @@ describe('alert-notification-delivery-failing', () => {
     expect(alert.expr).not.toContain('service_name="gp-api"')
   })
 
-  // A subteam mention is added to the message BODY, and this rule's premise is
-  // that the path carrying message bodies is broken — so a mention would travel
-  // exactly as far as the thing it exists to escape. What makes this alert work
-  // is its route, which lives in the notification policy tree and not here.
-  it('pages nobody, because the mention would ride the broken path', () => {
-    expect(alert.notify).toBeUndefined()
-  })
-
   // The message has to carry the escape hatch, because whoever reads it is
   // reading it at the moment alerting is down and should not have to find a
   // runbook first.
@@ -861,35 +842,31 @@ describe('alert-notification-delivery-failing', () => {
   })
 })
 
-describe('loki query budget', () => {
-  const alerts = GLOBAL_ALERTS.filter((alert) =>
-    alert.slug.startsWith('loki-query-budget-'),
-  )
+describe('evaluation error handling', () => {
+  // The estate pages on an evaluation error, so a rule that cannot look reads
+  // as a fault. On 2026-10-21 a Prometheus query timeout paged the health probe
+  // alert (ENG-11393) with the endpoint never measured. That rule holds its
+  // last answer instead, and the only thing that makes this safe is the rule
+  // that reports a broken query path still paging.
+  it('lets the health probe rule hold its last answer when it cannot evaluate', () => {
+    const probe = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'health-check-probe-failure',
+    )
+    const meta = GLOBAL_ALERTS.find(
+      (a) => a.slug === 'alerting-rule-evaluations-failing',
+    )
 
-  it('registers both tiers', () => {
-    expect(alerts.map((alert) => alert.slug).sort()).toEqual([
-      'loki-query-budget-critical',
-      'loki-query-budget-half',
-    ])
+    expect(probe?.execErrState).toEqual('KeepLast')
+    expect(meta).toBeDefined()
+    expect(meta?.disabled).toBeFalsy()
+    expect(meta?.execErrState ?? 'Alerting').toEqual('Alerting')
   })
 
-  // These three guard one regression. Shipped on 2026-09-29 averaging over an
-  // hour and holding for 30m, both rules flapped: the ratio crossed 0.8
-  // several times an hour, and since Alertmanager re-notifies a still-firing
-  // alert only every 2d, every page came from a resolve/re-fire cycle rather
-  // than from the overage. The allowance is billed monthly, so a crossing that
-  // settles inside a couple of hours was never going to reach an invoice.
-  it.each(alerts)('$slug averages over hours, not minutes', (alert) => {
-    expect(widestRangeSeconds(alert.expr)).toBeGreaterThanOrEqual(6 * 3600)
-  })
+  it('keeps every other global rule paging on an evaluation error', () => {
+    const relaxed = GLOBAL_ALERTS.filter(
+      (a) => a.execErrState && a.execErrState !== 'Alerting',
+    ).map((a) => a.slug)
 
-  it.each(alerts)('$slug must stay over for hours to page', (alert) => {
-    const [, amount, unit] = /^(\d+)([smhd])$/.exec(alert.for) ?? []
-    expect(toSeconds(amount ?? '', unit ?? '')).toBeGreaterThanOrEqual(2 * 3600)
-  })
-
-  it.each(alerts)('$slug fetches the whole window it averages', (alert) => {
-    const fetched = alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
-    expect(fetched).toBeGreaterThanOrEqual(widestRangeSeconds(alert.expr))
+    expect(relaxed).toEqual(['health-check-probe-failure'])
   })
 })

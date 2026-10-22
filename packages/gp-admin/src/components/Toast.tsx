@@ -50,18 +50,27 @@ export function ToastProvider({ children }: ToastProviderProps) {
     <ToastContext.Provider value={{ showToast }}>
       <ToastPrimitive.Provider swipeDirection="right" duration={TOAST_DURATION}>
         {children}
-        <ToastPrimitive.Root open={open} onOpenChange={setOpen}>
+        <ToastPrimitive.Root
+          open={open}
+          onOpenChange={setOpen}
+          className="flex items-center gap-3 rounded-[var(--radius-3)] bg-[var(--color-panel-solid)] p-3 text-sm text-[var(--gray-12)] shadow-[var(--shadow-5)]"
+        >
           {variant === 'error' ? (
-            <HiExclamationCircle color="var(--red-9)" />
+            <HiExclamationCircle color="var(--red-9)" className="shrink-0" />
           ) : (
-            <HiCheck />
+            <HiCheck className="shrink-0" />
           )}
-          <ToastPrimitive.Description>{message}</ToastPrimitive.Description>
-          <ToastPrimitive.Close aria-label="Close">
+          <ToastPrimitive.Description className="flex-1">
+            {message}
+          </ToastPrimitive.Description>
+          <ToastPrimitive.Close aria-label="Close" className="shrink-0">
             <HiX />
           </ToastPrimitive.Close>
         </ToastPrimitive.Root>
-        <ToastPrimitive.Viewport />
+        {/* Fixed and above everything: Radix dialogs portal to the end of
+            <body> with no z-index, so an in-flow viewport sits behind an
+            open dialog's overlay (or below the fold) and nobody sees it. */}
+        <ToastPrimitive.Viewport className="fixed right-4 bottom-4 z-[2147483647] m-0 flex w-96 max-w-[calc(100vw-2rem)] list-none flex-col gap-2 p-0 outline-none" />
       </ToastPrimitive.Provider>
     </ToastContext.Provider>
   )

@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { ElectedOffice } from '../../generated/prisma'
 import { SERVE_PHONE_BANKING_VOICE } from '../services/outreachPhoneBankingGeneration.service'
@@ -22,6 +23,10 @@ let electedOffice: ElectedOffice
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'isFeatureEnabled',
+  ).mockResolvedValue(true)
 
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   eoOrgSlug = `eo-${suffix}`
@@ -103,6 +108,9 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
     expect(systemPrompt).toContain(SERVE_PHONE_BANKING_VOICE.openerRule)
     expect(systemPrompt).toContain('[your name]')
+    expect(systemPrompt).toContain(
+      "official's full name given below, never the first name alone",
+    )
     expect(systemPrompt).toContain(CONSTITUENT_NAME_TOKEN)
     expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
   })
@@ -323,5 +331,34 @@ describe('Public Profile grounding (ENG-10982)', () => {
         'Write the call script.',
       ].join('\n'),
     )
+  })
+
+  // The civic panel invite asks the closing question the caller records.
+  it('drafts the civic panel invite around the join question', async () => {
+    mockDraft('You: Hi. Constituent: Hello.')
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
+    expect(userPrompt).toContain('whether they want to join the civic panel')
+    expect(userPrompt).toContain('Never call the panel representative')
+  })
+
+  it('hides the civic panel invite with the panel flag off', async () => {
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+
+    const res = await postDraft({
+      purpose: 'build_citizens_panel',
+      tone: 'warm',
+    })
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(jsonCompletion).not.toHaveBeenCalled()
   })
 })

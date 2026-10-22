@@ -4,9 +4,14 @@ import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import type {
+  OutreachFlowSource,
+  OutreachLaunchSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ProposalLinkSchema } from '@goodparty_org/contracts'
 import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import { parseWalkableAreaParam } from './native/walkableAreaParam'
+import { SERVE_DOOR_KNOCKING_PURPOSE_VALUES } from './native/createFlow/serveDoorKnockingPurposes'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
@@ -15,6 +20,16 @@ const CREATE_SOURCES: OutreachFlowSource[] = [
   'outreach_page',
   'voter_data',
   'campaign_plan',
+  'campaign_manager',
+]
+
+// The agent surfaces that open this page's create flow. Allowlisted for the
+// same reason as the sources above.
+const LAUNCH_SOURCES: OutreachLaunchSource[] = [
+  'expand_panel',
+  'priorities',
+  'civic_panel',
+  'chief_of_staff',
   'campaign_manager',
 ]
 
@@ -42,6 +57,9 @@ interface PageParams {
     side?: string
     trackerTaskId?: string
     phase?: string
+    purpose?: string
+    area?: string
+    launchSource?: string
   }>
 }
 
@@ -65,6 +83,9 @@ export default async function Page({
       side,
       trackerTaskId,
       phase,
+      purpose,
+      area,
+      launchSource,
     },
     campaign,
   ] = await Promise.all([searchParams, fetchUserCampaign()])
@@ -121,6 +142,16 @@ export default async function Page({
     // The campaign-plan task whose button opened the flow, so the task is
     // marked done once the walk is created. Dropped unless both halves parse.
     trackerTaskId: parseTrackerOrigin(trackerTaskId, phase)?.trackerTaskId,
+    // A civic panel plan's door step: the purpose it already answered, and
+    // the walkable area it drew, which becomes the turf's boundary. A Serve
+    // purpose the flow does not know, or an area that is not a box, is
+    // dropped, and the flow asks as usual.
+    initialPurpose: SERVE_DOOR_KNOCKING_PURPOSE_VALUES.find(
+      (value) => value === purpose,
+    ),
+    prefillArea: parseWalkableAreaParam(area),
+    // The agent surface that sent the official here, for the Outreach events.
+    launchSource: LAUNCH_SOURCES.find((value) => value === launchSource),
   }
 
   return <DoorKnockingPageGate {...childProps} />

@@ -1,14 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
+  CIVIC_PANEL_LEAVE_LINE,
   deriveSmsProtectedParts,
   SOCIAL_TONE_VALUES,
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 import {
+  addGreetingBack,
+  addIdentificationBack,
+  addOptOutBack,
+  addPaidForByBack,
   composeScript,
+  IMAGE_MAX_BYTES,
+  profilePhotoFile,
   ensureSmsIdentification,
   identificationIntro,
   openWithSmsIdentification,
@@ -20,6 +27,8 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   withCivicPanelJoin,
+  withCivicPanelLeave,
+  withCivicPanelLines,
   composeServeScript,
 } from './smsCompose.util'
 
@@ -31,18 +40,18 @@ import {
 
 describe('serveIdentificationIntro', () => {
   const cases: Record<SocialTone, string> = {
-    warm: 'this is Jane, your City Council Member.',
-    direct: 'Jane here, your City Council Member.',
-    friendly: "it's Jane, your City Council Member.",
+    warm: 'this is Jane Doe, your City Council Member.',
+    direct: 'Jane Doe here, your City Council Member.',
+    friendly: "it's Jane Doe, your City Council Member.",
     // Converges with direct on purpose: "running for" is what set urgent
     // apart on Win, and an elected official is not running for anything.
-    urgent: 'Jane here, your City Council Member.',
+    urgent: 'Jane Doe here, your City Council Member.',
   }
 
   it.each(SOCIAL_TONE_VALUES)('states the office held (%s)', (tone) => {
-    expect(serveIdentificationIntro(tone, 'Jane', 'City Council Member')).toBe(
-      cases[tone],
-    )
+    expect(
+      serveIdentificationIntro(tone, 'Jane Doe', 'City Council Member'),
+    ).toBe(cases[tone])
   })
 
   it.each(SOCIAL_TONE_VALUES)('never says "candidate for" (%s)', (tone) => {
@@ -62,10 +71,10 @@ describe('serveIdentificationIntro', () => {
     expect(
       serveIdentificationIntro(
         'warm',
-        'Jane',
+        'Jane Doe',
         grammarizeOfficeName('City Council - District 3'),
       ),
-    ).toBe('this is Jane, your City Council Member.')
+    ).toBe('this is Jane Doe, your City Council Member.')
   })
 
   it('degrades to a sentence when a part is missing', () => {
@@ -78,17 +87,22 @@ describe('serveIdentificationIntro', () => {
   })
 })
 
-describe('identificationIntro (Win, unchanged)', () => {
+describe('identificationIntro (Win)', () => {
   const cases: Record<SocialTone, string> = {
-    warm: 'this is Jane, candidate for City Council.',
-    direct: 'Jane here, candidate for City Council.',
-    friendly: "it's Jane, running for City Council.",
-    urgent: 'Jane here, running for City Council.',
+    warm: 'this is Jane Doe, candidate for City Council.',
+    direct: 'Jane Doe here, candidate for City Council.',
+    friendly: "it's Jane Doe, running for City Council.",
+    urgent: 'Jane Doe here, running for City Council.',
   }
 
-  it.each(SOCIAL_TONE_VALUES)('still frames a candidacy (%s)', (tone) => {
-    expect(identificationIntro(tone, 'Jane', 'City Council')).toBe(cases[tone])
-  })
+  it.each(SOCIAL_TONE_VALUES)(
+    'frames a candidacy under the full name (%s)',
+    (tone) => {
+      expect(identificationIntro(tone, 'Jane Doe', 'City Council')).toBe(
+        cases[tone],
+      )
+    },
+  )
 })
 
 // A build-mode draft is composed with no committee, and resume carries the
@@ -176,10 +190,10 @@ describe('provisionalCommitteeName', () => {
 })
 
 describe('ensureSmsIdentification', () => {
-  const serveIntro = 'this is Bryan, your Asheville City Council Member.'
+  const serveIntro = 'this is Bryan Levine, your Asheville City Council Member.'
   const serve = {
     intro: serveIntro,
-    firstName: 'Bryan',
+    senderName: 'Bryan Levine',
     candidateNames: ['Bryan Levine'],
   }
 
@@ -214,13 +228,23 @@ describe('ensureSmsIdentification', () => {
   it('prepends the intro to a body with no introduction, dropping its own greeting', () => {
     expect(
       ensureSmsIdentification('Hi! Early voting starts Monday.', {
-        intro: identificationIntro('warm', 'Jane', 'City Council'),
-        firstName: 'Jane',
+        intro: identificationIntro('warm', 'Jane Doe', 'City Council'),
+        senderName: 'Jane Doe',
         candidateNames: ['Jane Doe'],
       }),
     ).toBe(
-      'this is Jane, candidate for City Council. Early voting starts Monday.',
+      'this is Jane Doe, candidate for City Council. Early voting starts Monday.',
     )
+  })
+
+  it("fills a Win sender placeholder with the candidate's full name", () => {
+    expect(
+      ensureSmsIdentification('Vote Tuesday. [Your Name]', {
+        intro: identificationIntro('warm', 'Jane Doe', 'City Council'),
+        senderName: 'Jane Doe',
+        candidateNames: ['Jane Doe'],
+      }),
+    ).toBe('Vote Tuesday. Jane Doe')
   })
 
   it('keeps a sentence that only looks like an opener', () => {
@@ -238,7 +262,7 @@ describe('ensureSmsIdentification', () => {
         `${serveIntro} Reply to reach me. [your name]`,
         serve,
       ),
-    ).toBe(`${serveIntro} Reply to reach me. Bryan`)
+    ).toBe(`${serveIntro} Reply to reach me. Bryan Levine`)
   })
 
   it('reads a bare [Name] as the sender only beside a self-introduction', () => {
@@ -281,23 +305,69 @@ describe('unfilledBrackets', () => {
 
 describe('openWithSmsIdentification', () => {
   const win = {
-    intro: identificationIntro('direct', 'Jane', 'City Council'),
-    firstName: 'Jane',
+    intro: identificationIntro('direct', 'Jane Doe', 'City Council'),
+    senderName: 'Jane Doe',
     candidateNames: ['Jane Doe'],
   }
 
-  it("replaces the model's own introduction instead of stacking under it", () => {
-    expect(
-      openWithSmsIdentification(
-        'Hi, this is Jane, running for City Council. Vote early.',
-        win,
-      ),
-    ).toBe('Jane here, candidate for City Council. Vote early.')
+  // The model is told not to introduce the candidate, but when it does it
+  // tends to use the first name; the full-name intro replaces it.
+  it.each([
+    'Hi, this is Jane, running for City Council. Vote early.',
+    'Jane here, candidate for City Council. Vote early.',
+    'this is Jane Doe, candidate for City Council. Vote early.',
+    'Jane Doe here, running for City Council. Vote early.',
+  ])("replaces the model's own introduction: %s", (body) => {
+    expect(openWithSmsIdentification(body, win)).toBe(
+      'Jane Doe here, candidate for City Council. Vote early.',
+    )
   })
 
   it('opens a plain body on the intro', () => {
     expect(openWithSmsIdentification('Vote early.', win)).toBe(
-      'Jane here, candidate for City Council. Vote early.',
+      'Jane Doe here, candidate for City Council. Vote early.',
+    )
+  })
+
+  it.each(SOCIAL_TONE_VALUES)(
+    'never stacks a second full-name intro on a repeat pass (%s)',
+    (tone) => {
+      const context = {
+        ...win,
+        intro: identificationIntro(tone, 'Jane Doe', 'City Council'),
+      }
+      const once = openWithSmsIdentification('Vote early.', context)
+      expect(openWithSmsIdentification(once, context)).toBe(once)
+      expect(ensureSmsIdentification(once, context)).toBe(once)
+    },
+  )
+
+  describe('with a name longer than two words', () => {
+    const long = {
+      intro: identificationIntro('direct', 'Mary Ann Smith', 'City Council'),
+      senderName: 'Mary Ann Smith',
+      candidateNames: ['Mary Ann Smith'],
+    }
+
+    it("replaces the model's own name-first introduction", () => {
+      expect(
+        openWithSmsIdentification(
+          'Mary Ann Smith here, running for City Council. Vote early.',
+          long,
+        ),
+      ).toBe('Mary Ann Smith here, candidate for City Council. Vote early.')
+    })
+
+    it.each(SOCIAL_TONE_VALUES)(
+      'never stacks a second intro on a repeat pass (%s)',
+      (tone) => {
+        const context = {
+          ...long,
+          intro: identificationIntro(tone, 'Mary Ann Smith', 'City Council'),
+        }
+        const once = openWithSmsIdentification('Vote early.', context)
+        expect(openWithSmsIdentification(once, context)).toBe(once)
+      },
     )
   })
 })
@@ -422,5 +492,357 @@ describe('withCivicPanelJoin', () => {
       text: CIVIC_PANEL_JOIN_LINE,
       start: asked.indexOf(CIVIC_PANEL_JOIN_LINE),
     })
+  })
+})
+
+describe('withCivicPanelLeave', () => {
+  const base = composeServeScript('What do you think about the park?')
+
+  it('puts the LEAVE line in its own paragraph, above the opt-out', () => {
+    expect(withCivicPanelLeave(base, true)).toBe(
+      `Hello {{first_name}}, What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('takes it back out and leaves the message as it was', () => {
+    expect(withCivicPanelLeave(withCivicPanelLeave(base, true), false)).toBe(
+      base,
+    )
+    const offered = withCivicPanelLeave(base, true)
+    expect(withCivicPanelLeave(offered, true)).toBe(offered)
+  })
+
+  it('never leaves both lines in a message', () => {
+    const asked = withCivicPanelJoin(base, true)
+    const offered = withCivicPanelLeave(asked, true)
+    expect(offered).not.toContain(CIVIC_PANEL_JOIN_LINE)
+    expect(offered).toContain(CIVIC_PANEL_LEAVE_LINE)
+    const backToJoin = withCivicPanelLines(offered, {
+      join: true,
+      leave: false,
+    })
+    expect(backToJoin).toBe(asked)
+    expect(withCivicPanelLines(offered, { join: true, leave: true })).toBe(
+      offered,
+    )
+  })
+
+  it('locks the line and counts it in the length', () => {
+    const offered = withCivicPanelLeave(base, true)
+    expect(
+      deriveSmsProtectedParts(offered, { channel: 'serve' }).find(
+        (candidate) => candidate.rule === 'civic_panel_leave',
+      ),
+    ).toMatchObject({
+      text: CIVIC_PANEL_LEAVE_LINE,
+      start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
+    })
+    expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
+  })
+})
+
+// Every path that rewrites a panel text ends in withCivicPanelLines, so its
+// output must hold exactly one panel line, above one opt-out, whatever the
+// model or an earlier bug left in the message.
+describe('the civic panel line after a rewrite', () => {
+  const body = 'Hello {{first_name}}, tell me what you think.'
+  const asked = `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
+  const join = { join: true, leave: false }
+  const leave = { join: false, leave: true }
+
+  it('collapses a JOIN line sent twice into one, above the opt-out', () => {
+    expect(
+      withCivicPanelLines(
+        `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('moves a JOIN line the model left in the body down above the opt-out', () => {
+    expect(
+      withCivicPanelLines(
+        `Hello {{first_name}}, tell me what you think. ${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('drops a partial echo of the ask', () => {
+    expect(
+      withCivicPanelLines(
+        `${body} Reply JOIN to join my civic panel!\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
+    'replaces an earlier wording sitting beside the current one: %s',
+    (legacy) => {
+      expect(
+        withCivicPanelLines(
+          `${body}\n\n${legacy}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+          join,
+        ),
+      ).toBe(asked)
+    },
+  )
+
+  it('swaps every JOIN copy for one LEAVE line on a panel-only list', () => {
+    expect(
+      withCivicPanelLines(
+        `${body} ${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        leave,
+      ),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('collapses a LEAVE line sent twice', () => {
+    expect(
+      withCivicPanelLines(
+        `${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
+        leave,
+      ),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('composes a fresh body that echoed the JOIN and STOP lines once each', () => {
+    expect(
+      withCivicPanelLines(
+        composeServeScript(
+          `tell me what you think.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        ),
+        join,
+      ),
+    ).toBe(asked)
+  })
+
+  it('composes a Win body that echoed its footer with one footer', () => {
+    const footer = 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.'
+    expect(
+      composeScript(`Vote Tuesday.\n\n${footer}`, 'Friends of Sarah Chen'),
+    ).toBe(`Hello {first_name}, Vote Tuesday.\n\n${footer}`)
+  })
+
+  // The reported bug: an Improve reply comes back whole, JOIN line included.
+  // Restored against the footer alone and then given its panel line, it
+  // keeps one ask and its opt-out.
+  it('restores a whole polish of a panel text with one ask and its opt-out', () => {
+    const reply = `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
+    const restored = restoreSmsSystemRegions(reply, {
+      greeting: 'Hello {{first_name}},',
+      footer: OPT_OUT_FOOTER,
+      token: '{{first_name}}',
+    })
+    expect(restored).not.toContain(CIVIC_PANEL_JOIN_LINE)
+    expect(withCivicPanelLines(restored, join)).toBe(reply)
+  })
+
+  it('restores a polish that dropped the opt-out but kept the ask', () => {
+    const restored = restoreSmsSystemRegions(
+      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}`,
+      {
+        greeting: 'Hello {{first_name}},',
+        footer: OPT_OUT_FOOTER,
+        token: '{{first_name}}',
+      },
+    )
+    expect(withCivicPanelLines(restored, join)).toBe(
+      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+})
+
+describe('a retyped opt-out with STOP in quotes', () => {
+  const quoted = 'Reply "STOP" to opt out.'
+  const body = 'Hello {{first_name}}, tell me what you think.'
+
+  it('takes the panel line above it, not below', () => {
+    expect(
+      withCivicPanelLines(`${body}\n\n${quoted}`, {
+        join: true,
+        leave: false,
+      }),
+    ).toBe(`${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${quoted}`)
+  })
+
+  it('is read as the footer of a polish, so no second opt-out is added', () => {
+    expect(
+      restoreSmsSystemRegions(`${body}\n\n${quoted}`, {
+        greeting: 'Hello {{first_name}},',
+        footer: OPT_OUT_FOOTER,
+        token: '{{first_name}}',
+      }),
+    ).toBe(`${body}\n\n${OPT_OUT_FOOTER}`)
+  })
+
+  it('is dropped from a drafted body like the exact line', () => {
+    expect(composeServeScript(`tell me what you think. ${quoted}`)).toBe(
+      `${body}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+})
+
+describe('add it back', () => {
+  it('puts the opt-out back as the last line, after the panel line', () => {
+    expect(
+      addOptOutBack(`Hello {{first_name}}, hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n`),
+    ).toBe(
+      `Hello {{first_name}}, hi.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the opt-out back on a closing "Paid for by" line', () => {
+    expect(
+      addOptOutBack('Hello {first_name}, hi.\n\nPaid for by Friends of Sarah.'),
+    ).toBe(
+      `Hello {first_name}, hi.\n\nPaid for by Friends of Sarah. ${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the greeting back at the start', () => {
+    expect(addGreetingBack('  this is Jane.', 'Hello {{first_name}},')).toBe(
+      'Hello {{first_name}}, this is Jane.',
+    )
+  })
+
+  it('puts the disclaimer back just before the opt-out', () => {
+    expect(
+      addPaidForByBack(
+        `Hello {first_name}, hi.\n\n${OPT_OUT_FOOTER}`,
+        'Friends of Sarah',
+      ),
+    ).toBe(
+      `Hello {first_name}, hi.\n\nPaid for by Friends of Sarah. ${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('puts the disclaimer back as the last line when there is no opt-out', () => {
+    expect(
+      addPaidForByBack('Hello {first_name}, hi.', 'Friends of Sarah'),
+    ).toBe('Hello {first_name}, hi.\n\nPaid for by Friends of Sarah.')
+  })
+
+  it('puts the name back right after the greeting', () => {
+    const regions = {
+      greeting: 'Hello {{first_name}},',
+      intro: 'this is Jane, your Mayor.',
+    }
+    expect(
+      addIdentificationBack('Hello {{first_name}}, the park opens.', regions),
+    ).toBe('Hello {{first_name}}, this is Jane, your Mayor. the park opens.')
+    expect(addIdentificationBack('The park opens.', regions)).toBe(
+      'this is Jane, your Mayor. The park opens.',
+    )
+  })
+})
+
+describe('profilePhotoFile', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const stubOversizedPhoto = (type = 'image/jpeg') => {
+    const photo = new Blob([new Uint8Array(IMAGE_MAX_BYTES + 1)], { type })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+    const bitmap = { width: 3000, height: 1500, close: vi.fn() }
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap))
+    return bitmap
+  }
+
+  // Each toBlob call answers with the next size, recording the canvas it
+  // drew from and the quality it was asked for.
+  const stubJpegSizes = (sizes: number[]) => {
+    const calls: { width: number; height: number; quality?: number }[] = []
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+      function (this: HTMLCanvasElement, callback, _type, quality) {
+        calls.push({ width: this.width, height: this.height, quality })
+        const size = sizes[calls.length - 1] ?? 0
+        callback(new Blob([new Uint8Array(size)], { type: 'image/jpeg' }))
+      },
+    )
+    return calls
+  }
+
+  it('redraws an oversized photo as a JPEG under the cap', async () => {
+    const bitmap = stubOversizedPhoto()
+    const calls = stubJpegSizes([IMAGE_MAX_BYTES + 1, 400_000])
+
+    const file = await profilePhotoFile('https://assets.example/large.jpg')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(file?.size).toBe(400_000)
+    expect(calls).toEqual([
+      { width: 1024, height: 512, quality: 0.85 },
+      { width: 1024, height: 512, quality: 0.7 },
+    ])
+    expect(bitmap.close).toHaveBeenCalled()
+  })
+
+  it('redraws a photo in a format texts cannot carry', async () => {
+    const photo = new Blob(['webp-bytes'], { type: 'image/webp' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn().mockResolvedValue({ width: 400, height: 300, close: vi.fn() }),
+    )
+    const calls = stubJpegSizes([50_000])
+
+    const file = await profilePhotoFile('https://assets.example/avatar.webp')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(calls).toEqual([{ width: 400, height: 300, quality: 0.85 }])
+  })
+
+  it('leaves the image blank when no quality fits under the cap', async () => {
+    stubOversizedPhoto()
+    const calls = stubJpegSizes([
+      IMAGE_MAX_BYTES + 1,
+      IMAGE_MAX_BYTES + 1,
+      IMAGE_MAX_BYTES + 1,
+    ])
+
+    expect(
+      await profilePhotoFile('https://assets.example/large.jpg'),
+    ).toBeNull()
+    expect(calls.map((call) => call.quality)).toEqual([0.85, 0.7, 0.5])
+  })
+
+  it('attaches a photo that already fits as-is', async () => {
+    const photo = new Blob(['jpeg-bytes'], { type: 'image/jpeg' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: async () => photo }),
+    )
+
+    const file = await profilePhotoFile('https://assets.example/avatar.jpg')
+
+    expect(file?.type).toBe('image/jpeg')
+    expect(file?.size).toBe(photo.size)
+    expect(file?.size).toBeLessThanOrEqual(IMAGE_MAX_BYTES)
+  })
+
+  it('leaves the image blank when the photo cannot be loaded', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
+  })
+
+  it('leaves the image blank when the request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('CORS')))
+
+    expect(
+      await profilePhotoFile('https://assets.example/avatar.jpg'),
+    ).toBeNull()
   })
 })

@@ -75,8 +75,8 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
     const contacts = items.find((i) => i.id === 'contacts-dashboard')
     expect(contacts).toBeDefined()
     expect(contacts?.v2Category).toBe('elected-office')
-    // Serve reads "Constituent Data" in the sidebar (ENG-10448).
-    expect(contacts?.v2Name).toBe('Constituent Data')
+    // Serve reads "Constituents" in the sidebar (ENG-10448).
+    expect(contacts?.v2Name).toBe('Constituents')
     // The Win-specific item must never appear on the Serve path.
     expect(items.some((i) => i.id === 'win-contacts-dashboard')).toBe(false)
   })
@@ -233,7 +233,7 @@ describe('getDashboardMenuItems — Priorities tab gating', () => {
   })
 })
 
-describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
+describe('getDashboardMenuItems — Outreach nav gating', () => {
   it('shows the item for an elected office', () => {
     const items = links({
       isElectedOffice: true,

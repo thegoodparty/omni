@@ -23,6 +23,8 @@ interface BarProps {
   chat: AssistantChatBinding
   onSubmit: (message: string) => void
   onOpenConversation: (conversationId: string) => void
+  onOpen: () => void
+  onAttachFile: (file: File) => void
 }
 let lastBarProps: BarProps | null = null
 vi.mock('./AssistantBar', () => ({
@@ -42,12 +44,13 @@ interface SurfaceProps {
   openerKey?: string | null
   initialConversationId?: string | null
   pendingMessage?: string
+  pendingFile?: File
   title?: string
   subtitle?: string
   chatApi?: unknown
   historyKey?: readonly unknown[]
   scope?: string
-  onMessageSent?: () => void
+  analyticsSurface?: string
 }
 let lastSurfaceProps: SurfaceProps | null = null
 vi.mock(
@@ -168,6 +171,20 @@ describe('CrmAssistant', () => {
     expect(lastSurfaceProps?.pendingMessage).toBeUndefined()
   })
 
+  // The file is a one-shot like the message: a later open from the mic would
+  // otherwise remount the body and upload it again into a new chat.
+  it('opens with a picked file and drops it on the next open', () => {
+    setContext(false)
+    render(<CrmAssistant />)
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+    act(() => lastBarProps?.onAttachFile(file))
+    expect(lastSurfaceProps?.open).toBe(true)
+    expect(lastSurfaceProps?.pendingFile).toBe(file)
+
+    act(() => lastBarProps?.onOpen())
+    expect(lastSurfaceProps?.pendingFile).toBeUndefined()
+  })
+
   // ENG-10767: chat opened + message sent, so open-to-send drop-off is
   // visible in Amplitude.
   it('fires Assistant Chat Opened on a bar submit (Win)', async () => {
@@ -192,35 +209,23 @@ describe('CrmAssistant', () => {
       { context: 'serve', source: 'history' },
     )
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
   })
 
-  // Every message is counted once, by the surface — including the bar's first
-  // one, which now rides the surface's own visible send path. CrmAssistant
-  // firing Sent itself would double-count it.
-  it('counts each message once, through the surface callback', async () => {
+  // Every message is counted once, by the chat body — including the bar's
+  // first one, which rides the body's own visible send path. CrmAssistant
+  // firing it itself would double-count it.
+  it('leaves message counting to the chat body, tagged as the contacts assistant', async () => {
     const user = userEvent.setup()
     setContext(true)
     render(<CrmAssistant />)
     await user.click(screen.getByText('submit assistant'))
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
+      EVENTS.AIChat.MessageSent,
       expect.anything(),
     )
-
-    lastSurfaceProps?.onMessageSent?.()
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
-      { context: 'win' },
-    )
-    expect(
-      vi
-        .mocked(trackEvent)
-        .mock.calls.filter(
-          (c) => c[0] === EVENTS.Contacts.AssistantMessageSent,
-        ),
-    ).toHaveLength(1)
+    expect(lastSurfaceProps?.analyticsSurface).toBe('contacts_assistant')
   })
 })

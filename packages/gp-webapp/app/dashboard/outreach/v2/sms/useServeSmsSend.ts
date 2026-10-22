@@ -1,5 +1,6 @@
 import { useEffect, type MutableRefObject } from 'react'
 import { format } from 'date-fns'
+import { findCivicPanelJoinLine } from '@goodparty_org/contracts'
 import type {
   ProposalLink,
   RecommendedList,
@@ -11,6 +12,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
+  type OutreachLaunchSource,
   type OutreachTrackerOrigin,
 } from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
@@ -75,11 +77,11 @@ export type ServeSmsCreateFn = (
 // Council Member", " - District 3" stripped). Reused, never re-derived, so
 // the two Serve products cannot disagree about how an office is named.
 export const useServeSmsIdentification = (
-  firstName: string,
+  fullName: string,
 ): ((tone: SocialTone) => string) => {
   const positionName = usePositionName()
   const office = grammarizeOfficeName(positionName)
-  return (tone: SocialTone) => serveIdentificationIntro(tone, firstName, office)
+  return (tone: SocialTone) => serveIdentificationIntro(tone, fullName, office)
 }
 
 // --- Send sequence -------------------------------------------------------
@@ -118,8 +120,13 @@ export interface UseServeSmsSendInput {
   // event unjoinable to its task the moment the hub wires one up, and
   // `trackerTaskId`/`phase` travel together or not at all.
   tracker?: OutreachTrackerOrigin
+  purpose: string | null
   proposalLink?: ProposalLink
   reportBackForOutreachId?: number
+  // A priority text's follow-up: how many more texts the card holds for
+  // later, from the same criteria. The server settles the count and date.
+  roundTwoSize?: number
+  launchSource?: OutreachLaunchSource
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'compose') => void
   setDraftOutreachId: (id: number) => void
@@ -129,6 +136,7 @@ export interface UseServeSmsSendInput {
   // screen). Serve fills it from the create response instead of from a
   // Peerly phone-list poll, which is what lets those lines stay untouched.
   setRecipientCounts: (counts: PhoneListStatusResponse) => void
+  setFollowUp: (followUp: ServeSmsCreateResponse['followUp'] | null) => void
   isDraftCreatingRef: MutableRefObject<boolean>
   draftGenerationRef: MutableRefObject<number>
 }
@@ -154,13 +162,17 @@ export const useServeSmsSend = ({
   draftOutreachId,
   audience,
   tracker,
+  purpose,
   proposalLink,
   reportBackForOutreachId,
+  roundTwoSize,
+  launchSource,
   create,
   setStepId,
   setDraftOutreachId,
   setDraftCreateError,
   setRecipientCounts,
+  setFollowUp,
   isDraftCreatingRef,
   draftGenerationRef,
 }: UseServeSmsSendInput): ServeSmsSend => {
@@ -239,6 +251,7 @@ export const useServeSmsSend = ({
           ...(reportBackForOutreachId !== undefined && {
             reportBackForOutreachId,
           }),
+          ...(roundTwoSize !== undefined && { roundTwoSize }),
         })
         // A create that started before the draft was discarded (Back off
         // review) must not resurrect its id — checkout would then charge for
@@ -248,10 +261,13 @@ export const useServeSmsSend = ({
           // Never read on this path: the only reader is the flow's Win create
           // effect, which returns at its own guard before it gets here.
           phoneListId: 0,
-          leadsLoaded: result.recipientCount,
+          // Both rounds of one purchase: what review prices and quotes.
+          leadsLoaded:
+            result.recipientCount + (result.followUp?.recipientCount ?? 0),
           excludedOptedOutCount: result.excludedOptedOutCount,
           excludedDuplicatePhoneCount: result.excludedDuplicateCount,
         })
+        setFollowUp(result.followUp ?? null)
         setDraftOutreachId(result.outreachId)
         // Serve's own create, the sibling of the Win draft effect in
         // SmsFlow. Always the Serve name: this path is only ever reached
@@ -273,6 +289,13 @@ export const useServeSmsSend = ({
             // the same way on both products.
             audienceSource: 'savedList',
             ...(tracker ? { tracker } : {}),
+            ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
+            asksToJoinCivicPanel:
+              findCivicPanelJoinLine(composedMessage) !== null,
+            ...(launchSource ? { launchSource } : {}),
           }),
         })
       } catch {
@@ -299,6 +322,7 @@ export const useServeSmsSend = ({
     composedMessage,
     name,
     image,
+    purpose,
     create,
     setDraftOutreachId,
     setDraftCreateError,

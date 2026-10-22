@@ -5,6 +5,7 @@ import {
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  isCivicPanelOnlyList,
   NotAVoterReason,
   RoutePayloadAddress,
   RoutePayloadRepresenting,
@@ -13,6 +14,7 @@ import {
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { CIVIC_PANEL_ONLY_SELECT } from '@/voters/util/civicPanelOnlySelect.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
@@ -47,6 +49,7 @@ const TURF_INCLUDE = {
   },
   outreach: { select: { id: true, script: true } },
   route: true,
+  voterFileFilter: { select: CIVIC_PANEL_ONLY_SELECT },
 } as const satisfies Prisma.DoorKnockingTurfInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
@@ -204,7 +207,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       this.status.notAVoterReasons(organization.slug, targetPersonIds),
       this.activity.historyByPersonId(organization.slug, targetPersonIds),
       // Every target's notes in one query, alongside the other live reads
-      // rather than per target inside the map below — see ADR 0011.
+      // rather than per target inside the map below.
       this.notes.notesByPersonId(organization.slug, targetPersonIds),
       this.resolveRepresenting(organization),
     ])
@@ -260,6 +263,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       // static card on both, so absent and empty must not be distinguishable
       // — see the field's note on the payload schema.
       ...(turf.outreach.script ? { talkingPoints: turf.outreach.script } : {}),
+      civicPanelOnly: isServe && isCivicPanelOnlyList(turf.voterFileFilter),
     }
   }
 
@@ -378,12 +382,12 @@ export class DoorKnockingServeService extends createPrismaBase(
             mayHaveMoved: !livePerson,
             doNotKnock: doNotKnockPersonIds.has(target.personId),
             notAVoterReason: notAVoterReasons.get(target.personId),
-            // ADR 0009. Keyed by personId, so it is this resident's history
+            // Keyed by personId, so it is this resident's history
             // and not the household's — the two people behind one door often
             // answered differently, and merging them at the door attributes a
             // neighbor's refusal to whoever opens it.
             history: historyByPersonId.get(target.personId) ?? [],
-            // ADR 0011. Per-resident like the feed above, and always present
+            // Notes. Per-resident like the feed above, and always present
             // even when empty: a resident nobody has written anything about is
             // a fact the sheet states, and it has to read differently from a
             // payload snapshotted before this field existed, where the key is

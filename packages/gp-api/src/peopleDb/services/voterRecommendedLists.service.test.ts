@@ -48,9 +48,14 @@ describe('VoterRecommendedListsService', () => {
     )
   })
 
-  it('logs the count under rec-count and passes idOverrides', async () => {
+  it('logs the count under rec-count and passes idOverrides and the affinity column', async () => {
     await expect(
-      service.countForFilter(district, filters, idOverrides),
+      service.countForFilter(
+        district,
+        filters,
+        idOverrides,
+        'Indep_Openness_Haystaq',
+      ),
     ).resolves.toBe(400)
 
     expect(measure).toHaveBeenCalledWith(
@@ -60,11 +65,21 @@ describe('VoterRecommendedListsService', () => {
         dataset: 'constituents',
       }),
     )
-    expect(countForFilter).toHaveBeenCalledWith(district, filters, idOverrides)
+    expect(countForFilter).toHaveBeenCalledWith(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
   })
 
   it('logs the ranking under rec-rank-precincts', async () => {
-    await service.rankPrecincts(district, filters, idOverrides)
+    await service.rankPrecincts(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
 
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -73,10 +88,15 @@ describe('VoterRecommendedListsService', () => {
         dataset: 'constituents',
       }),
     )
-    expect(rankPrecincts).toHaveBeenCalledWith(district, filters, idOverrides)
+    expect(rankPrecincts).toHaveBeenCalledWith(
+      district,
+      filters,
+      idOverrides,
+      'Indep_Openness_Haystaq',
+    )
   })
 
-  // District resolution is an election-api hop, not a warehouse read, so it
+  // District resolution hits the election database, not the warehouse, so it
   // deliberately emits no line — asserting that keeps a future "wrap
   // everything" edit from inventing a voter read that never touched the
   // warehouse and skewing the latency attribution.

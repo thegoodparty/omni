@@ -5,7 +5,11 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
-import { checkSmsStandards } from '@goodparty_org/contracts'
+import {
+  checkSmsStandards,
+  CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_LEAVE_LINE,
+} from '@goodparty_org/contracts'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
@@ -16,6 +20,17 @@ import {
   SMS_GREETING,
   withSampleFirstName,
 } from './smsCompose.util'
+
+const deleteLine = (editor: Editor, line: string) => {
+  let from = -1
+  editor.state.doc.descendants((node, pos) => {
+    const index = node.isText ? (node.text?.indexOf(line) ?? -1) : -1
+    if (from === -1 && index !== -1) from = pos + index
+  })
+  act(() => {
+    editor.view.dispatch(editor.state.tr.delete(from, from + line.length))
+  })
+}
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: vi.fn(),
@@ -92,6 +107,21 @@ const openServeFlow = () => {
     />,
   )
   return { onClose, onScheduled }
+}
+
+// Ops schedules every Serve text by hand: today (Tuesday the 1st, labeled
+// Today) and the next 2 business days stay closed, and the 3rd is open.
+const expectStandardServeGate = () => {
+  for (const day of [
+    /Tuesday, September 1(?!\d)/,
+    /^Wednesday, September 2(?!\d)/,
+    /^Thursday, September 3(?!\d)/,
+  ]) {
+    expect(screen.getByRole('button', { name: day })).toBeDisabled()
+  }
+  expect(
+    screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+  ).toBeEnabled()
 }
 
 describe('SmsFlow (Serve surface)', () => {
@@ -253,6 +283,119 @@ describe('SmsFlow (Serve surface)', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps the name in step with the send date, even after an edit', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/drafted body/)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const nameField = await screen.findByLabelText('Campaign name')
+    expect(nameField).toHaveValue('Northside residents')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    )
+    expect(nameField).toHaveValue('Northside residents, Sep 4')
+
+    await userEvent.clear(nameField)
+    await userEvent.type(nameField, 'Northside budget, Sep 4')
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
+    )
+    expect(nameField).toHaveValue('Northside budget, Sep 7')
+
+    // The calendar sits flush left under the name field, not centered.
+    const calendarColumn = screen.getByRole('grid').closest('.items-start')
+    expect(calendarColumn).not.toBeNull()
+    expect(calendarColumn).not.toHaveClass('items-center')
+  })
+
+  // The standard Serve gate already leaves staff 3 business days to set up
+  // both rounds, so a two-round priority text adds no day of its own.
+  it('gives a two-round priority text the standard Serve date gate', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    render(
+      <SmsFlow
+        source="outreach_page"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        roundTwoSize={1_000}
+      />,
+    )
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await screen.findByText(/drafted body/)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/All messages are sent at 11am local time\./)
+
+    expectStandardServeGate()
+  })
+
+  // A panel invite step made later is a new campaign staff schedule by
+  // hand, so it gets the same gate from the day it is created.
+  it('gives a civic panel invite step the standard Serve date gate', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. Join my civic panel."
+        launchSource="civic_panel"
+      />,
+    )
+
+    await screen.findByText(/Join my civic panel\./)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/All messages are sent at 11am local time\./)
+
+    expectStandardServeGate()
+  })
+
   it('keeps the opt-out footer and appends no paid-for-by line', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
@@ -353,6 +496,113 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).not.toBeDisabled()
   })
 
+  // A text to the civic panel alone offers members a way off it, in place of
+  // the JOIN ask: required like the JOIN line, and never beside it.
+  const panelOnlyLists = () =>
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 41, name: 'Northside residents' },
+        { id: 42, name: 'Panel not asked lately', civicPanelMember: true },
+      ],
+    })
+
+  it('offers LEAVE on a text to panel members alone, and offers it back once deleted', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    panelOnlyLists()
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Panel not asked lately'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(
+      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
+    ).toBeNull()
+
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const editor = (box as HTMLElement & { editor: Editor }).editor
+    deleteLine(editor, CIVIC_PANEL_LEAVE_LINE)
+    expect(
+      await screen.findByText(
+        /Your text needs the line for leaving your civic panel\./,
+      ),
+    ).toBeInTheDocument()
+    expect(editor.getText()).not.toContain('Reply LEAVE')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add the civic panel line back' }),
+    )
+    await waitFor(() =>
+      expect(editor.getText()).toContain(CIVIC_PANEL_LEAVE_LINE),
+    )
+    expect(
+      screen.queryByText(/Your text needs the line for leaving/),
+    ).toBeNull()
+  })
+
+  it("swaps a card's JOIN ask for LEAVE when its list is the panel alone", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    panelOnlyLists()
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        initialScript="Has flooding damaged your home?"
+        initialAsksToJoinCivicPanel
+        preselectedListId={42}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(
+      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+  })
+
+  it('offers no LEAVE line with serve-citizen-panels off', async () => {
+    panelOnlyLists()
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Panel not asked lately'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+
+    expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
+    expect(screen.queryByText(/Reply LEAVE/)).toBeNull()
+  })
+
   // A report back goes to the people already asked: with the panel on, it
   // still never carries the join line or offers the box.
   it('keeps the join ask off a report back, whatever the card asked', async () => {
@@ -418,7 +668,7 @@ describe('SmsFlow (Serve surface)', () => {
 
   // The card already answered the purpose, and a panel text is its ask, so
   // the box is ticked and cannot be unticked.
-  it('opens on the civic panel purpose with the JOIN ask locked on', async () => {
+  it('opens on the civic panel purpose with the JOIN ask ticked for good', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -456,20 +706,13 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).toBeChecked()
     expect(ask).toBeDisabled()
 
-    // Locked on, the line cannot be unchecked, so the reason does not say to.
+    // The line itself is editable: deleting it says what the text needs.
     const box = screen.getByRole('textbox', { name: 'Message body' })
     const editor = (box as HTMLElement & { editor: Editor }).editor
-    let at = -1
-    editor.state.doc.descendants((node, pos) => {
-      const index = node.isText ? (node.text?.indexOf('Reply JOIN') ?? -1) : -1
-      if (at === -1 && index !== -1) at = pos + index + 'Reply JOIN'.length
-    })
-    act(() => {
-      editor.view.dispatch(editor.state.tr.delete(at - 1, at))
-    })
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'This is how people join your civic panel, but you can write around it.',
-    )
+    deleteLine(editor, CIVIC_PANEL_JOIN_LINE)
+    expect(
+      await screen.findByText(/Your text needs its civic panel ask\./),
+    ).toBeInTheDocument()
   })
 
   // The Chief of Staff's invite card carries its own words and the build
@@ -567,6 +810,49 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute(
       'aria-valuetext',
       'Step 1 of 5',
+    )
+  })
+
+  // A civic panel plan's text step settles the purpose and its frozen list,
+  // so the flow opens on the message with the invite drafting, and Back
+  // still walks to the list and the purpose.
+  it("opens a plan step's text on the message, drafting the invite", async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    const draftCalls: ServeSmsDraftRequest[] = []
+    api.mock('POST /v1/outreach/serve/sms/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted body' } }
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialPurpose="build_citizens_panel"
+      />,
+    )
+
+    expect(
+      await screen.findByText(/Reply JOIN to join my civic panel/),
+    ).toBeInTheDocument()
+    expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 3 of 5',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByText('Northside residents')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Step 2 of 5',
     )
   })
 

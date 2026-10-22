@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { Button } from '@styleguide'
+import type { Priority } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface Props {
   issueId: string
-  onPrioritized: () => void
+  onPrioritized: (priority: Priority) => void
 }
 
 const PrioritizeButton = ({
@@ -22,10 +23,12 @@ const PrioritizeButton = ({
     setLoading(true)
     setError(null)
     try {
-      await clientRequest('POST /v1/community-issues/:id/prioritize', {
-        id: issueId,
-      })
-      onPrioritized()
+      const res = await clientRequest(
+        'POST /v1/community-issues/:id/prioritize',
+        { id: issueId },
+      )
+      if (!res.ok) throw new Error('prioritize failed')
+      onPrioritized(res.data)
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {

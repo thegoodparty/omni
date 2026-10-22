@@ -74,7 +74,7 @@ export interface NormalizedCase {
 // all are reported apart from a real verdict. `identicalConfig` is the odd
 // one out: nothing failed, but both arms of that pair hashed to the same
 // config, so the agent saw no difference and there was nothing to compare.
-export type ExclusionReason = 'toolError' | 'infraError' | 'identicalConfig'
+export type ExclusionReason = 'infraError' | 'identicalConfig'
 
 export interface ExcludedCase {
   agentId: string
@@ -498,16 +498,7 @@ const exclusionFor = (
   const infra: Arm[] = []
   if (base.status === 'infraError') infra.push('base')
   if (candidate.status === 'infraError') infra.push('candidate')
-  // infraError first: a run that died never got far enough for a tool
-  // error to mean anything about it.
-  if (infra.length > 0) return { reason: 'infraError', arms: infra }
-  // Only a chat pair gets this far: isComparable never fails a background
-  // record for a tool error, because its verdict is on the final artifact
-  // and a run that hit a failing Bash snippet and recovered still made one.
-  const tool: Arm[] = []
-  if (base.telemetry.toolErrors > 0) tool.push('base')
-  if (candidate.telemetry.toolErrors > 0) tool.push('candidate')
-  return { reason: 'toolError', arms: tool }
+  return { reason: 'infraError', arms: infra }
 }
 
 // Pairs one agent's records by case and attempt, and blinds every pair that
@@ -638,7 +629,7 @@ export const normalizeAgent = (
   }
 }
 
-// A background case's authored condition, added to the shared input AFTER
+// A case's authored condition, added to the shared input AFTER
 // blinding. Not through `renderPayload`, because the condition is not in
 // either record: it comes from the judging checkout's case list, so it is one
 // string by construction and there is no second copy for `blindCase` to

@@ -32,6 +32,8 @@ describe('useOutreachAudience reset paths', () => {
     'setBuilderPrecincts([])',
     "setBuilderName('')",
     'setBuilderSample(undefined)',
+    'setBuilderUnreachedArea(undefined)',
+    'setBuilderCivicPanelInvite(undefined)',
   ]
 
   it.each(RESETTERS.flatMap((fn) => BUILDER_CLEARS.map((c) => [fn, c])))(
@@ -58,6 +60,8 @@ describe('useOutreachAudience reset paths', () => {
       'setBuilderPrecincts(proposed?.precincts ?? [])',
       "setBuilderName(proposed?.name ?? '')",
       'setBuilderSample(proposed?.sample)',
+      'setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)',
+      'setBuilderCivicPanelInvite(proposed?.civicPanelInvite)',
     ]) {
       expect(body).toContain(call)
     }

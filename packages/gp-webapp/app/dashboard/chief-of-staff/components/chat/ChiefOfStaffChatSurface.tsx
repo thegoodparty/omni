@@ -16,6 +16,7 @@ import type {
   AgentChatClient,
   ChatScope,
 } from '../../../shared/agent-chat/chatClient'
+import type { ChatSurface } from '../../../shared/agent-chat/chatAnalytics'
 
 interface Props {
   open: boolean
@@ -38,6 +39,8 @@ interface Props {
   suggestions?: ChatSuggestion[]
   /** Show the chips alongside a seeded greeting, not only on empty. */
   showSuggestionsWithGreeting?: boolean
+  /** Show the chips under the kickoff's reply instead of on empty. */
+  showSuggestionsAfterKickoff?: boolean
   /** Quick-prompt pills threaded to the body (below the suggestions). */
   quickPrompts?: string[]
   /** Composer placeholder threaded to the body. */
@@ -50,8 +53,10 @@ interface Props {
    * bar). Don't pass it together with `pendingKickoff`.
    */
   pendingMessage?: string
-  /** Fires once per visible message the user sends. */
-  onMessageSent?: () => void
+  /** One-shot file to attach on open, picked from a chat bar's paperclip. */
+  pendingFile?: File
+  /** Where this chat is mounted, for `AI Chat - Message Sent`. */
+  analyticsSurface: ChatSurface
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -97,11 +102,13 @@ export default function ChiefOfStaffChatSurface({
   defaultIntro,
   suggestions,
   showSuggestionsWithGreeting,
+  showSuggestionsAfterKickoff,
   quickPrompts,
   composerPlaceholder,
   pendingKickoff,
   pendingMessage,
-  onMessageSent,
+  pendingFile,
+  analyticsSurface,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
@@ -183,6 +190,7 @@ export default function ChiefOfStaffChatSurface({
           defaultIntro={defaultIntro}
           suggestions={suggestions}
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
+          showSuggestionsAfterKickoff={showSuggestionsAfterKickoff}
           quickPrompts={quickPrompts}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
@@ -193,7 +201,10 @@ export default function ChiefOfStaffChatSurface({
           // the caller's original request a second time, into a thread the
           // viewer merely navigated to.
           pendingMessage={selectedId ? undefined : pendingMessage}
-          onMessageSent={onMessageSent}
+          // Not gated like `pendingMessage`: a bar that resumes a past
+          // conversation attaches the file to it, the way its paperclip would.
+          pendingFile={pendingFile}
+          analyticsSurface={analyticsSurface}
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}

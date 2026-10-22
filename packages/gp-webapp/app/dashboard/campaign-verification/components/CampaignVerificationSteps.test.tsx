@@ -43,8 +43,11 @@ vi.mock(
   }),
 )
 
+const mockCampaign = vi.hoisted(() => ({
+  current: { id: 7 } as Record<string, unknown>,
+}))
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ id: 7 }],
+  useCampaign: () => [mockCampaign.current],
 }))
 
 const SUBMITTED_TITLE = 'Submitted for verification'
@@ -63,6 +66,7 @@ describe('CampaignVerificationSteps', () => {
     onExit = vi.fn<() => void>()
     onComplete = vi.fn<() => void>()
     window.localStorage.clear()
+    mockCampaign.current = { id: 7 }
   })
 
   it('reopens on the form when this browser holds a draft', () => {
@@ -216,6 +220,52 @@ describe('CampaignVerificationSteps', () => {
     expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Done' }))
     expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('confirms saved details without a PIN promise once texting has closed', async () => {
+    mockCampaign.current = {
+      id: 7,
+      smsCompliance: 'closed',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    const user = userEvent.setup()
+    render(
+      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByText('mock-submit'))
+
+    expect(screen.getByText('Your details are saved')).toBeInTheDocument()
+    expect(screen.queryByText(SUBMITTED_TITLE)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Your campaign has been submitted for verification.'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('A PIN is on its way')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts the cutoff date on the intro while closing', () => {
+    mockCampaign.current = {
+      id: 7,
+      smsCompliance: 'closing',
+      smsCutoffDate: '2026-10-15',
+      generalElectionDate: '2026-11-03',
+    }
+    render(
+      <CampaignVerificationSteps
+        initialStep="intro"
+        onExit={onExit}
+        onComplete={onComplete}
+      />,
+    )
+
+    expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
+    expect(
+      screen.getByText('Get verified to send SMS by the Oct. 15 deadline'),
+    ).toBeInTheDocument()
   })
 
   it('uses the caller-provided complete label', () => {

@@ -11,7 +11,9 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   outreachProduct,
+  rememberLaunchSource,
   type OutreachFlowSource,
+  type OutreachLaunchSource,
 } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
@@ -23,7 +25,9 @@ import { useLockedAtOpen } from 'app/dashboard/outreach/v2/gate/useLockedAtOpen'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
+import { outreachLandingStep } from 'app/dashboard/outreach/v2/landingStep'
 import type { OutreachEventDetails } from '@goodparty_org/contracts'
+import { BUILD_CITIZENS_PANEL_PURPOSE } from '@goodparty_org/contracts'
 import { EventDetailsStep } from 'app/dashboard/outreach/v2/EventDetailsStep'
 import {
   EVENT_DETAILS_TITLE,
@@ -32,7 +36,7 @@ import {
 } from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
-import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -205,7 +209,7 @@ interface CreateListFlowProps {
   // gp-api's answer for the shape the candidate asked about — the addresses
   // themselves, and the exact counts that come with them. Non-null only while
   // it describes the ring currently on screen, and when it is non-null it is
-  // what this step reports (ADR 0010): the estimate above becomes the loading
+  // what this step reports: the estimate above becomes the loading
   // state for it rather than a second figure beside it.
   addressPreview: DoorKnockingAddressPreviewResponse | null
   previewPending: boolean
@@ -277,6 +281,10 @@ interface CreateListFlowProps {
   // its card would; reported the same way the list above is.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
+  // The purpose a civic panel plan's door step answered. With its list
+  // (`preselectedListId`) the flow lands on the talking points, drafted for
+  // it, the way a text from a chat card lands on its message.
+  initialPurpose?: ServeDoorKnockingPurpose
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -321,6 +329,8 @@ interface CreateListFlowProps {
   // a new campaign's anchor turf only: whole on Serve, so the walk puts that
   // card's check out, and the key alone on Win.
   proposalLink?: ProposalLink
+  // The agent surface that opened the flow, for the Outreach events.
+  launchSource?: OutreachLaunchSource
   // The turfs cut in this sitting, in the order they were cut. One campaign
   // holds all of them, and the route step's press buys a route for each.
   //
@@ -431,6 +441,7 @@ export default function CreateListFlow({
   onPreselectApplied,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
+  initialPurpose,
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
@@ -438,6 +449,7 @@ export default function CreateListFlow({
   joinSaveRequest = 0,
   onJoinSaveStateChange,
   proposalLink,
+  launchSource,
   turfDrafts,
   draftStats,
   onSelectDraft,
@@ -491,9 +503,11 @@ export default function CreateListFlow({
   // card. Initial state, not an effect — this component mounts fresh on
   // every open, and Serve never carries one (the endpoint refuses it).
   const carriedPurpose =
-    preselectedRecommendedVariant !== undefined && !serveMode
-      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
-      : null
+    initialPurpose && serveMode
+      ? initialPurpose
+      : preselectedRecommendedVariant !== undefined && !serveMode
+        ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+        : null
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
     carriedPurpose
       ? isEventInvite(carriedPurpose)
@@ -513,13 +527,13 @@ export default function CreateListFlow({
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
-  // The question-asking card is offered only where issue capture is on. The
-  // filter is here, not in the vocabulary, so a campaign already on that goal
-  // keeps its labels and its question step when the flag goes off.
-  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
+  // The civic panel invite is offered behind the panel's flag, as on texts.
+  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
   const purposes = (
     serveMode ? SERVE_DOOR_KNOCKING_PURPOSES : DOOR_KNOCKING_PURPOSES
-  ).filter(({ id }) => issueCaptureOn || !purposeAsksQuestion(id))
+  ).filter(
+    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
+  )
   const purposeNameSuggestion = serveMode
     ? serveDoorKnockingPurposeNameSuggestion
     : doorKnockingPurposeNameSuggestion
@@ -739,7 +753,27 @@ export default function CreateListFlow({
     preselectApplied.current = true
     selectList(preselectedListId)
     onPreselectApplied?.()
-  }, [preselectedListId, savedLists, selectList, onPreselectApplied])
+    // With the purpose answered too, the talking points are next. A purpose
+    // that asks something first (an event's details, a question) still asks.
+    const landing = outreachLandingStep({
+      purposeSettled:
+        initialPurpose !== undefined &&
+        serveMode &&
+        !isEventInvite(initialPurpose) &&
+        !purposeAsksQuestion(initialPurpose),
+      audienceSettled: true,
+      messageSettled: false,
+    })
+    if (landing === 'message') onStepChange('points')
+  }, [
+    preselectedListId,
+    savedLists,
+    selectList,
+    onPreselectApplied,
+    initialPurpose,
+    serveMode,
+    onStepChange,
+  ])
 
   // Reported from the state rather than from each of the three places that
   // writes it — the picker, the preselect, and the two ways of leaving a list
@@ -1440,8 +1474,14 @@ export default function CreateListFlow({
             // an inline build persists as an ordinary saved filter.
             audienceSource:
               recommendedMeta !== null ? 'recommended' : 'savedList',
+            ...(purpose ? { purpose } : {}),
+            ...(proposalLink?.priorityId
+              ? { priorityId: proposalLink.priorityId }
+              : {}),
+            launchSource,
           }),
         )
+        rememberLaunchSource('doorKnocking', row.turf.id, launchSource)
       }
       // Dropped here rather than in the mutation body so a draft is only
       // ever forgotten once its route is real. What is left in the list is

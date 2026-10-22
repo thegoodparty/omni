@@ -182,8 +182,10 @@ succeeded).
 **Accept never trusts the request.** It reads `request.user` (never
 `effectiveUser` — that resolves to an impersonating admin under
 impersonation, the wrong Clerk record) and fetches that user's own Clerk
-`publicMetadata` server-side. When that metadata is absent — an invitee who
-signed up organically instead of through the ticket never receives Clerk's
+`publicMetadata` server-side, retrying that read once on a Clerk timeout
+(it is idempotent, and a single 2s stall otherwise 502s the lookup). When
+that metadata is absent — an invitee who signed up organically instead of
+through the ticket never receives Clerk's
 copy (ENG-11027) — both accept and `GET team/invites/mine` fall back to the
 pending invitation addressed to one of the user's Clerk-**verified** emails
 (matches that all point to one org redeem; matches spanning several orgs

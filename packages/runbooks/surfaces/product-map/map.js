@@ -401,15 +401,6 @@ var ProductMap = (function () {
     },
     tail: [
       {
-        id: 'constituents',
-        t: 'Know your constituents',
-        state: 'ok',
-        evs: [
-          'Serve Onboarding - Know Your Constituents Viewed',
-          'Serve Onboarding - Know Your Constituents Completed',
-        ],
-      },
-      {
         id: 'pledge',
         t: 'Take the pledge',
         state: 'ok',
@@ -781,8 +772,8 @@ var ProductMap = (function () {
         evs: [
           'Ordinances - Draft Details Viewed',
           'Ordinances - Draft Chat Opened',
-          'Ordinances - Draft Chat Message Sent',
         ],
+        shared: [['AI Chat - Message Sent', 'ordinance_draft', 'surface']],
         note: [
           'warn',
           'A different page',

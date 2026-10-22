@@ -9,6 +9,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { reportQueryKey } from '../queries'
+import { useSearchParams } from 'next/navigation'
 import WhatWeHeardPage from './WhatWeHeardPage'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -17,12 +18,40 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+// A disabled Summarize says why in its tooltip, which opens on the focusable
+// wrapper the styleguide's disabled-tooltip pattern puts around it.
+const expectReason = async (text: string) => {
+  const trigger = await waitFor(() => {
+    const wrapper = screen
+      .getByRole('button', { name: 'Summarize notes' })
+      .closest('[data-slot="tooltip-trigger"]')
+    expect(wrapper).not.toBeNull()
+    return wrapper as HTMLElement
+  })
+  fireEvent.focus(trigger)
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(text)
+}
+
 // The real layout pulls in the user, the campaign and the nav, none of which
 // this page's states depend on.
+// The note cards' Voter info sheet reads the org for its person query.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-slug' }),
+}))
+
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <div data-testid="nav-header">{navHeader?.label}</div>
+      {children}
+    </div>
   ),
 }))
 
@@ -47,6 +76,7 @@ const memo = (
   ],
   actorName: 'Kamal Al Sawafi',
   confirmedAt: new Date('2026-09-25T18:01:00.000Z'),
+  extractionStatus: 'extracted',
   ...fields,
 })
 
@@ -144,36 +174,6 @@ const FLOODING_TAG = {
   status: 'proposed',
 } as const
 
-const proposal = (id: string, name: string, proposedByRunId: string) => ({
-  id,
-  name,
-  status: 'proposed' as const,
-  source: 'synthesis' as const,
-  declaredTopIssueId: null,
-  mergedIntoId: null,
-  proposedByRunId,
-  feedbackCount: 3,
-})
-
-// The org's proposals: the page's own completed run's flooding tag, and
-// one from an unrelated effort's run.
-const mockProposals = () =>
-  api.mock('GET /v1/constituent-feedback/tags', {
-    status: 200,
-    data: {
-      tags: [
-        proposal('tag-1', 'Street flooding', 'run-1'),
-        proposal('tag-2', 'Snow removal', 'run-other'),
-      ],
-    },
-  })
-
-const mockNoProposals = () =>
-  api.mock('GET /v1/constituent-feedback/tags', {
-    status: 200,
-    data: { tags: [] },
-  })
-
 const renderPage = (isServe = false) =>
   render(<WhatWeHeardPage outreachId={OUTREACH_ID} isServe={isServe} />)
 
@@ -182,7 +182,6 @@ const FORBIDDEN = /poll|survey|representative|statistically significant/i
 beforeEach(() => {
   testQueryClient.clear()
   vi.mocked(trackEvent).mockClear()
-  mockNoProposals()
 })
 
 afterEach(() => {
@@ -199,45 +198,54 @@ describe('WhatWeHeardPage', () => {
         name: 'What should the city fix first?',
       }),
     ).toBeInTheDocument()
+    const counts = screen.getByRole('list', { name: 'Notes so far' })
     expect(
-      screen.getByText(
-        (_content, element) =>
-          element?.tagName === 'P' &&
-          element.textContent ===
-            '84 people answered. 61 left a note. 54 confirmed, 7 waiting for review.',
-      ),
-    ).toBeInTheDocument()
+      within(counts)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual(['People answered84', 'Left a note61'])
   })
 
-  // The waiting notes are confirmed from the review list, so the clause
-  // that counts them is the way there.
-  it('links the waiting notes to the review list', async () => {
+  it('names the outreach in the title bar, the way the hub names it', async () => {
     mockReport(report())
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: OUTREACH_ID,
+        createdAt: new Date('2026-08-10T00:00:00Z'),
+        updatedAt: new Date('2026-08-10T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'nativePhoneBanking',
+        projectId: null,
+        name: 'Introduction calls',
+        status: null,
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+      },
+    })
     renderPage()
 
-    expect(
-      await screen.findByRole('link', { name: '7 waiting for review' }),
-    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}/review`)
-  })
-
-  it('drops the review clause when nothing is waiting', async () => {
-    mockReport(
-      report({
-        denominators: {
-          conversations: 84,
-          memos: 61,
-          confirmed: 61,
-          pending: 0,
-        },
-      }),
-    )
-    renderPage()
-
-    expect(
-      await screen.findByText(
-        '84 people answered. 61 left a note. 61 confirmed.',
+    await waitFor(() =>
+      expect(screen.getByTestId('nav-header')).toHaveTextContent(
+        'Introduction calls',
       ),
-    ).toBeInTheDocument()
+    )
   })
 
   it('links back to the outreach hub with this effort open', async () => {
@@ -253,12 +261,49 @@ describe('WhatWeHeardPage', () => {
     )
   })
 
-  it('links a Serve official back to Constituent Outreach', async () => {
+  // Opened from a phone list or a turf, Back returns there rather than to
+  // the hub; a path off this dashboard is ignored.
+  afterEach(() => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams() as ReturnType<typeof useSearchParams>,
+    )
+  })
+
+  it('goes back to the page the report was opened from', async () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams({
+        from: '/dashboard/outreach/phone-banking/42?outreachId=41',
+      }) as ReturnType<typeof useSearchParams>,
+    )
+    mockReport(report())
+    renderPage()
+
+    expect(await screen.findByRole('link', { name: 'Back' })).toHaveAttribute(
+      'href',
+      '/dashboard/outreach/phone-banking/42?outreachId=41',
+    )
+  })
+
+  it('ignores a return path off the dashboard', async () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams({
+        from: 'https://example.com',
+      }) as ReturnType<typeof useSearchParams>,
+    )
+    mockReport(report())
+    renderPage()
+
+    expect(
+      await screen.findByRole('link', { name: 'Back to Voter Outreach' }),
+    ).toBeInTheDocument()
+  })
+
+  it('links a Serve official back to Outreach', async () => {
     mockReport(report())
     renderPage(true)
 
     const back = await screen.findByRole('link', {
-      name: 'Back to Constituent Outreach',
+      name: 'Back to Outreach',
     })
     expect(back).toHaveAttribute('href', '/dashboard/constituent-outreach')
   })
@@ -291,7 +336,7 @@ describe('WhatWeHeardPage', () => {
         screen.getByText('He thinks the new bike lanes slow down deliveries.'),
       ).toBeInTheDocument()
       expect(
-        screen.queryByRole('button', { name: 'Summarize what we heard' }),
+        screen.queryByRole('button', { name: 'Summarize notes' }),
       ).toBeNull()
     })
 
@@ -355,9 +400,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByRole('heading', { name: 'What people said so far' }),
       ).toBeInTheDocument()
-      expect(
-        screen.getByText('Themes appear after 5 confirmed notes.'),
-      ).toBeInTheDocument()
+      await expectReason('Themes appear after 5 confirmed notes.')
       expect(
         screen.getByText(
           'She wants the storm drains on Elm cleared before winter.',
@@ -365,9 +408,9 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
       expect(screen.queryByRole('link', { name: /see details/i })).toBeNull()
       expect(screen.queryByText('Street flooding')).toBeNull()
-      // Pressing it could only come back with the line above.
+      // Pressing it could only come back with the reason above.
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -385,27 +428,7 @@ describe('WhatWeHeardPage', () => {
       )
       renderPage()
 
-      expect(
-        await screen.findByText('Themes appear after 8 confirmed notes.'),
-      ).toBeInTheDocument()
-    })
-
-    it('marks a note nobody has reviewed', async () => {
-      mockReport(
-        report({
-          denominators: {
-            conversations: 6,
-            memos: 2,
-            confirmed: 1,
-            pending: 1,
-          },
-        }),
-      )
-      renderPage()
-
-      expect(await screen.findByText(/Not yet reviewed/)).toBeInTheDocument()
-      expect(screen.getAllByText(/Not yet reviewed/)).toHaveLength(1)
-      expect(screen.getByText(/Summary by Kamal Al Sawafi/)).toBeInTheDocument()
+      await expectReason('Themes appear after 8 confirmed notes.')
     })
   })
 
@@ -427,7 +450,7 @@ describe('WhatWeHeardPage', () => {
       expect(links[0]).toHaveAccessibleName('See details for Bike lanes')
       expect(screen.getByText('9 conversations')).toBeInTheDocument()
       expect(
-        screen.getByRole('heading', { name: 'Every note' }),
+        screen.getByRole('heading', { name: 'All notes' }),
       ).toBeInTheDocument()
       expect(
         screen.getByText(
@@ -436,31 +459,80 @@ describe('WhatWeHeardPage', () => {
       ).toBeInTheDocument()
     })
 
-    // The strip is the page's themes' own proposals, not every proposal in
-    // the org: another effort's never appear.
-    it('reviews the proposed tags of the themes on the page', async () => {
+    // The themes most people raised lead; the long tail waits behind Show
+    // more rather than pushing them down.
+    it('shows the top three themes and the rest behind Show more', async () => {
       mockReport(
         report({
           run: run('completed'),
-          themes: [
-            theme({ tag: FLOODING_TAG }),
+          themes: [5, 4, 3, 2, 1].map((conversations) =>
             theme({
-              id: 'theme-b',
-              title: 'Bike lanes',
-              tag: { id: 'tag-4', name: 'Bike lanes', status: 'accepted' },
+              id: `theme-${conversations}`,
+              rank: 6 - conversations,
+              title: `Theme ${conversations}`,
+              conversationCount: conversations,
             }),
-          ],
+          ),
         }),
       )
-      mockProposals()
       renderPage()
 
-      const strip = await screen.findByRole('region', {
-        name: 'New tags to review',
-      })
-      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
-      expect(within(strip).queryByText('Snow removal')).toBeNull()
-      expect(within(strip).queryByText('Bike lanes')).toBeNull()
+      await screen.findByText('Theme 5')
+      expect(screen.getByText('Theme 3')).toBeInTheDocument()
+      expect(screen.queryByText('Theme 2')).toBeNull()
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Show 2 more themes' }),
+      )
+
+      expect(screen.getByText('Theme 2')).toBeInTheDocument()
+      expect(screen.getByText('Theme 1')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /more theme/ })).toBeNull()
+    })
+
+    // The newest ten notes show; the rest wait behind Show more.
+    it('shows the first ten notes and the rest behind Show more', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [theme()],
+          memos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) =>
+            memo({
+              id: `memo-${n}`,
+              personId: `person-${n}`,
+              transcript: `Note number ${n}.`,
+            }),
+          ),
+        }),
+      )
+      renderPage()
+
+      await screen.findByText('Note number 1.')
+      expect(screen.getByText('Note number 10.')).toBeInTheDocument()
+      expect(screen.queryByText('Note number 11.')).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show 2 more notes' }))
+
+      expect(screen.getByText('Note number 12.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /more note/ })).toBeNull()
+    })
+
+    // Tags are kept and reused behind the scenes; the page only ever shows
+    // themes, so a theme's proposed tag is never put to the reader.
+    it('shows themes and never their tags', async () => {
+      mockReport(
+        report({
+          run: run('completed'),
+          themes: [theme({ tag: FLOODING_TAG })],
+        }),
+      )
+      renderPage()
+
+      await screen.findByText('Street flooding')
+      expect(
+        screen.queryByRole('region', { name: 'New tags to review' }),
+      ).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
     })
 
     it('splits each card by where people stand', async () => {
@@ -496,28 +568,9 @@ describe('WhatWeHeardPage', () => {
         await screen.findByText("We couldn't summarize this time."),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeEnabled()
       expect(screen.getByText('Street flooding')).toBeInTheDocument()
-    })
-
-    // The themes on the page are the last completed run's, while the
-    // report's run is the failed one, which proposed nothing.
-    it('still reviews the proposed tags of the themes it keeps up', async () => {
-      mockReport(
-        report({
-          run: { ...run('failed'), id: 'run-2' },
-          themes: [theme({ tag: FLOODING_TAG })],
-        }),
-      )
-      mockProposals()
-      renderPage()
-
-      const strip = await screen.findByRole('region', {
-        name: 'New tags to review',
-      })
-      expect(within(strip).getByText('Street flooding')).toBeInTheDocument()
-      expect(within(strip).queryByText('Snow removal')).toBeNull()
     })
   })
 
@@ -537,7 +590,7 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
       expect(
@@ -570,14 +623,12 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
+      await expectReason('Themes appear after 5 confirmed notes.')
       expect(
-        await screen.findByText('Themes appear after 5 confirmed notes.'),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -590,16 +641,14 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
 
+      await expectReason(
+        'This was summarized a few minutes ago. Try again later.',
+      )
       expect(
-        await screen.findByText(
-          'This was summarized a few minutes ago. Try again later.',
-        ),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
     })
 
@@ -621,9 +670,9 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
-      await screen.findByText(
+      await expectReason(
         'This was summarized a few minutes ago. Try again later.',
       )
       // A refusal changes nothing on the report, so it is not re-read.
@@ -637,7 +686,7 @@ describe('WhatWeHeardPage', () => {
 
       await waitFor(() =>
         expect(
-          screen.getByRole('button', { name: 'Summarize what we heard' }),
+          screen.getByRole('button', { name: 'Summarize notes' }),
         ).toBeEnabled(),
       )
       expect(reads).toBe(2)
@@ -675,12 +724,12 @@ describe('WhatWeHeardPage', () => {
       renderPage()
 
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Summarize what we heard' }),
+        await screen.findByRole('button', { name: 'Summarize notes' }),
       )
-      await screen.findByText('Themes appear after 5 confirmed notes.')
+      await expectReason('Themes appear after 5 confirmed notes.')
       await waitFor(() => expect(reads).toBe(2))
       expect(
-        screen.getByRole('button', { name: 'Summarize what we heard' }),
+        screen.getByRole('button', { name: 'Summarize notes' }),
       ).toBeDisabled()
 
       await act(async () => {
@@ -691,7 +740,7 @@ describe('WhatWeHeardPage', () => {
 
       await waitFor(() =>
         expect(
-          screen.getByRole('button', { name: 'Summarize what we heard' }),
+          screen.getByRole('button', { name: 'Summarize notes' }),
         ).toBeEnabled(),
       )
       expect(
@@ -762,7 +811,7 @@ describe('WhatWeHeardPage', () => {
       expect(screen.getByText(/By text/)).toBeInTheDocument()
       expect(screen.queryByText(/Summary by/)).toBeNull()
       expect(screen.queryByText(/waiting for review/)).toBeNull()
-      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
       expect(container.textContent).not.toMatch(/voter/i)
       expect(container.textContent).not.toMatch(FORBIDDEN)
     })
@@ -777,7 +826,7 @@ describe('WhatWeHeardPage', () => {
       expect(
         await screen.findByText('Themes appear after 5 replies.'),
       ).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: 'Download notes' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Download' })).toBeNull()
     })
 
     it('shows a theme of replies without a stance split', async () => {
@@ -853,7 +902,7 @@ describe('WhatWeHeardPage', () => {
           testQueryClient.clear()
           mockReport(data)
           const { container, unmount } = renderPage(isServe)
-          await screen.findByText(/people answered|person answered/)
+          await screen.findByText('People answered')
           expect(container.textContent).not.toMatch(FORBIDDEN)
           unmount()
         }
@@ -866,14 +915,14 @@ describe('WhatWeHeardPage', () => {
         testQueryClient.clear()
         mockReport(data)
         const win = renderPage(false)
-        await screen.findByText(/people answered|person answered/)
+        await screen.findByText('People answered')
         expect(win.container.textContent).not.toMatch(/constituent/i)
         win.unmount()
 
         testQueryClient.clear()
         mockReport(data)
         const serve = renderPage(true)
-        await screen.findByText(/people answered|person answered/)
+        await screen.findByText('People answered')
         expect(serve.container.textContent).not.toMatch(/voter/i)
         serve.unmount()
       },

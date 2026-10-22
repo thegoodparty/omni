@@ -44,6 +44,7 @@ const makeService = () => {
         .mockResolvedValue({ id: 99, type: 'text', quantity: 5 }),
     },
     campaignStory: { findUnique: vi.fn().mockResolvedValue(null) },
+    tcrCompliance: { findUnique: vi.fn().mockResolvedValue(null) },
     website: { findUnique: vi.fn().mockResolvedValue(null) },
     campaignStrategy: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -500,6 +501,11 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
   })
 
   it('dates outreach off a future primary when the general election has passed', async () => {
+    // A passed general reads as texting closed unless they already filed.
+    h.prisma.tcrCompliance.findUnique.mockResolvedValueOnce({
+      kickoffSentAt: new Date(),
+      internalTestingAt: null,
+    })
     await h.service.bootstrapForCampaign(
       campaign({
         details: {
@@ -1002,6 +1008,7 @@ describe('CampaignTrackerTasksService.completeTask', () => {
       completed: false,
     })
     await h.service.completeTask(caller, 't1')
+    expect(h.prisma.$transaction).not.toHaveBeenCalled()
     expect(h.prisma.campaignUpdateHistory.create).not.toHaveBeenCalled()
     expect(h.prisma.campaignTrackerTask.update).toHaveBeenCalledWith({
       where: { id: 't1' },
@@ -1018,6 +1025,10 @@ describe('CampaignTrackerTasksService.completeTask', () => {
       type: 'text',
       quantity: 5,
     } as never)
+    expect(h.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      maxWait: 10_000,
+      timeout: 15_000,
+    })
     expect(h.prisma.$executeRaw).toHaveBeenCalled()
     expect(h.prisma.campaignUpdateHistory.create).toHaveBeenCalled()
     expect(h.prisma.campaign.update).toHaveBeenCalled()

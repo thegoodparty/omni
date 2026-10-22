@@ -3,7 +3,7 @@ import { useTestService } from '@/test-service'
 import { isChatCase } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
-import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
+import { chatArmRuntimeFor } from './runners/httpChatRuntime'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
 import { restoreRealModelKey } from './modelKey'
 import { judgeAwsClientConfig } from './awsCredentials'
@@ -21,6 +21,7 @@ import {
   armDeps,
   backgroundRunInputFor,
   capturableAgents,
+  withRuntimeRefusals,
 } from './runners/backgroundDispatch'
 import { findAgent } from './agents'
 import {
@@ -94,13 +95,26 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
   it(
     'captures this arm of every selected agent and writes its manifest',
     async () => {
-      const env = parseArmEnv()
+      const parsed = parseArmEnv()
       // The budget this arm walks with — the sweep's, when the workflow
       // resolved one, so both arms agree. Handed to captureArm (attempts)
       // AND the case loader (the cap) from this one value.
-      const config = armConfigFor(env)
-      const store = storeFromEnv(env)
+      const config = armConfigFor(parsed)
+      const store = storeFromEnv(parsed)
       const ci = ciContextFromEnv()
+      // ONE RUNTIME FOR THE ARM. Which one is JUDGE_ARM_RUNTIME's whole job:
+      // unset or `inprocess` hands back the booted app this suite already
+      // owns, and `http` builds a client for the deployed target out of the
+      // origin and the Clerk session the mint step published. parseArmEnv
+      // has already refused every combination neither can serve.
+      const chatRuntime = chatArmRuntimeFor(parsed, service)
+      // AND THEN WHAT IT CANNOT DRIVE, decided here and once, so the loader
+      // and the final check below read one answer. Without it an HTTP arm
+      // that selected briefing_annotation refused every case correctly,
+      // skipped the agent, and then failed its own assertion because the
+      // capturable set still named it. The in-process runtime refuses
+      // nothing, so this returns the same env it was given.
+      const env = withRuntimeRefusals(parsed, chatRuntime)
 
       // ONE PAIR OF CLIENTS FOR THE ARM, not one per case. Built lazily so a
       // chat-only sweep never constructs them, and memoised so a 24-case
@@ -160,24 +174,25 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // render the same system prompt and the identical-config refusal
             // stays armed.
             //
-            // The case's account state is applied HERE, because this is
-            // where the Prisma client is. `seedOptionsFor` refuses a state
-            // the scope has no row for, before anything is seeded; the
-            // runner reads the three rows back and refuses a state the seed
-            // does not match, before a conversation is opened. Two checks
-            // rather than one because this wiring is the only uncovered
-            // hop in the chain: the suite it lives in is skipped unless
-            // JUDGE_ARM is set.
-            const seeded = await seedChatOrg(
-              service.prisma,
-              service.user.id,
-              request.agent.agentId,
-              `${request.case.caseId}-${request.attempt}`,
-              seedOptionsFor(request.agent.agentId, request.case.accountState),
-            )
-            return runChatCase(
-              { service },
-              {
+            // The case's account state is applied HERE, through the
+            // runtime, because the in-process arm applies it with a Prisma
+            // client and the HTTP arm asks the target's fixture route for
+            // it. `seedOptionsFor` refuses a state the scope has no row
+            // for, before anything is seeded; the runner reads the three
+            // rows back and refuses a state the seed does not match, before
+            // a conversation is opened. Two checks rather than one because
+            // this wiring is the only uncovered hop in the chain: the suite
+            // it lives in is skipped unless JUDGE_ARM is set.
+            const seeded = await chatRuntime.stageCase({
+              agentId: request.agent.agentId,
+              sweepId: request.sweepId,
+              slugKey: `${request.case.caseId}-${request.attempt}`,
+              ...(request.case.accountState && {
+                accountState: request.case.accountState,
+              }),
+            })
+            try {
+              return await runChatCase(chatRuntime, {
                 agentId: request.agent.agentId,
                 case: request.case,
                 sweepId: request.sweepId,
@@ -202,8 +217,23 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
                   dataVersion: env.dataVersion,
                 }),
                 ...(ci && { ci }),
-              },
-            )
+              })
+            } finally {
+              // SWALLOWED, AND NAMED. The in-process runtime removes
+              // nothing — its database is thrown away with the suite — and
+              // the HTTP one is deleting from a preview that outlives the
+              // sweep. Either way a failed teardown must not throw away a
+              // paid turn whose record is already built, so the slug goes
+              // to stderr for a human to clean up and the run stands.
+              await chatRuntime
+                .tearDownCase(seeded.organizationSlug)
+                .catch((err: unknown) => {
+                  process.stderr.write(
+                    `[judge] could not remove ${seeded.organizationSlug}: ` +
+                      `${err instanceof Error ? err.message : String(err)}\n`,
+                  )
+                })
+            }
           },
         },
         env,

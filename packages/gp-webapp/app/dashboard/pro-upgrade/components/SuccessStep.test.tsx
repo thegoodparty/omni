@@ -13,6 +13,8 @@ import {
   ProUpgradeWizardContext,
   type ProUpgradeWizardContextValue,
 } from './proUpgradeWizardContext'
+import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { formatSmsCutoffDate } from 'app/dashboard/campaign-verification/verificationCopy'
 import SuccessStep from './SuccessStep'
 
 // The confetti overlay paints to a <canvas>, which jsdom can't render — stub it
@@ -39,6 +41,11 @@ vi.mock(
     getTcrCompliance: () => mockGetTcrCompliance(),
   }),
 )
+
+vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
+  useSmsCompliance: vi.fn(),
+}))
+const mockUseSmsCompliance = vi.mocked(useSmsCompliance)
 
 const submittedTcr = { status: 'submitted' } as TcrCompliance
 
@@ -87,6 +94,11 @@ describe('SuccessStep', () => {
       data: {},
     })
     mockGetTcrCompliance.mockResolvedValue(null)
+    mockUseSmsCompliance.mockReturnValue({
+      smsCompliance: 'open',
+      smsCutoffDate: null,
+      generalElectionDate: null,
+    })
   })
 
   it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
@@ -129,7 +141,7 @@ describe('SuccessStep', () => {
     // Reproduces the bug: the candidate lands here with a stale cached campaign
     // (isPro=false) while the Stripe webhook is still in flight. The first fetch
     // is still not-Pro; a later poll catches the flip. The shared cache must end
-    // up Pro so the dashboard's ProUpgradeBanner hides on arrival.
+    // up Pro so the sidebar's Pro pitch is gone on arrival.
     testQueryClient.setQueryData(CAMPAIGN_QUERY_KEY, campaign(false))
     api.mockOrdered('GET /v1/campaigns/mine', [
       { status: 200, data: campaign(false) },
@@ -430,6 +442,86 @@ describe('SuccessStep', () => {
         screen.getByText('Still to do: build your walk list'),
       ).toBeInTheDocument()
       expect(mockGetTcrCompliance).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('with the SMS compliance window closed', () => {
+    beforeEach(() => {
+      mockUseSmsCompliance.mockReturnValue({
+        smsCompliance: 'closed',
+        smsCutoffDate: '2026-10-15',
+        generalElectionDate: '2026-11-03',
+      })
+    })
+
+    // Closed wins over the filing: saved details without a kickoff never
+    // started verification, so there is no PIN coming either.
+    it.each([
+      ['no filing', null],
+      ['a saved filing', submittedTcr],
+    ])(
+      'swaps verification for a closed banner and goes to the dashboard (%s)',
+      async (_label, tcr) => {
+        api.mock('GET /v1/campaigns/mine', {
+          status: 200,
+          data: campaign(true),
+        })
+        mockGetTcrCompliance.mockResolvedValue(tcr)
+
+        render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+        expect(
+          screen.getByText('Your payment went through.'),
+        ).toBeInTheDocument()
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          `The ${formatSmsCutoffDate('2026-10-15')} deadline to get verified for texting has passed.`,
+        )
+        expect(
+          screen.queryByText('Still to do: verification'),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByText('A PIN is on its way'),
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Start verification' }),
+        ).not.toBeInTheDocument()
+        expect(mockGetTcrCompliance).not.toHaveBeenCalled()
+
+        const goToDashboard = screen.getByRole('button', {
+          name: 'Go to dashboard',
+        })
+        await waitFor(() => expect(goToDashboard).toBeEnabled())
+        goToDashboard.click()
+
+        expect(complete).toHaveBeenCalledTimes(1)
+        expect(exit).not.toHaveBeenCalled()
+      },
+    )
+
+    it('drops the PIN promise from the default-order screen too', () => {
+      render(withWizard(<SuccessStep />))
+
+      expect(
+        screen.getByRole('heading', { name: 'Welcome to Pro' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/your PIN will be sent/i),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+
+    it('keeps a robocall launch on its next outreach step', () => {
+      render(
+        withWizard(<SuccessStep />, {
+          purchaseOnly: true,
+          channel: 'robocall',
+        }),
+      )
+
+      expect(
+        screen.getByText('Still to do: schedule your robocall'),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
 })

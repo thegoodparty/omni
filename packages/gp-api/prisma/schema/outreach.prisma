@@ -12,6 +12,9 @@ enum OutreachType {
   socialMedia
   robocall
   p2p
+  // Serve self-serve poll: the question lives in `message`, the rest on
+  // the OutreachPoll satellite.
+  poll
 }
 
 enum OutreachStatus {
@@ -51,12 +54,22 @@ model Outreach {
   // Set at create when the message carries the civic panel JOIN line, so the
   // reply ingest reads JOIN replies off this send and nothing else.
   asksToJoinCivicPanel              Boolean                            @default(false) @map("asks_to_join_civic_panel")
+  // Set at create when the message carries the civic panel LEAVE line, which
+  // only a send to panel members alone carries, never beside the JOIN line.
+  // A LEAVE reply is honored on any Serve send; this records the offer.
+  offersCivicPanelLeave             Boolean                            @default(false) @map("offers_civic_panel_leave")
   // Set on a Serve text that reports back to the people an earlier text
   // asked. It marks the send as not itself an ask (no report back is owed on
   // it) and completes the earlier send's "Report back" card once it goes out.
   reportBackForOutreachId           Int?                               @map("report_back_for_outreach_id")
   reportBackFor                     Outreach?                          @relation("OutreachReportBack", fields: [reportBackForOutreachId], references: [id], onDelete: SetNull)
   reportBacks                       Outreach[]                         @relation("OutreachReportBack")
+  // Set on a priority text's follow-up: the second half of one purchase,
+  // held until its draw, pointing at the first half sent right away. One
+  // follow-up per first round, paid for in the same checkout.
+  roundOneOutreachId                Int?                               @unique @map("round_one_outreach_id")
+  roundOne                          Outreach?                          @relation("OutreachRounds", fields: [roundOneOutreachId], references: [id], onDelete: Cascade)
+  roundTwo                          Outreach?                          @relation("OutreachRounds")
   // The campaign plan task this outreach was launched from, when it was. The
   // task list marks that task done once the outreach is scheduled, then
   // clears this, so a later "Mark not done" on the task sticks.
@@ -174,7 +187,9 @@ model Outreach {
   campaignSiblings                  Outreach[]                         @relation("OutreachCampaign")
   social                            OutreachSocial?
   robocall                          OutreachRobocall?
+  pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]
@@ -186,6 +201,8 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
+  civicPanelBuildSteps              CivicPanelBuildStep[]
+  priorityAnswers                   PriorityAnswer[]
 
   @@index([campaignId])
   @@index([organizationSlug])

@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
+import { WIN_SMS_HOLD_MIN_CENTS } from '@/shared/util/winSmsHold.util'
 import { PRICE_PER_TEXT_TENTH_CENTS } from '@goodparty_org/contracts'
 import {
   calcTextAmountInCents,
@@ -336,6 +337,83 @@ describe('OutreachPurchaseHandlerService', () => {
       })
 
       expect(amount).toBe(0)
+    })
+
+    it('forgives a sub-Stripe-minimum remainder just over the free allowance (1 text over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 1
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      // Sanity: the undiscounted remainder really is non-zero and sub-floor,
+      // otherwise this test would pass without the fix.
+      expect(calcTextAmountInCents(1)).toBeGreaterThan(0)
+      expect(calcTextAmountInCents(1)).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
+      expect(amount).toBe(0)
+    })
+
+    it('forgives a sub-Stripe-minimum remainder at the top of the forgiven range (14 texts over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 14
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      expect(calcTextAmountInCents(14)).toBeGreaterThan(0)
+      expect(calcTextAmountInCents(14)).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
+      expect(amount).toBe(0)
+    })
+
+    it('still bills normally once the remainder reaches the Stripe minimum (15 texts over)', async () => {
+      const contactCount = FREE_TEXTS_OFFER.COUNT + 15
+      mockServerLeadsLoaded(contactCount)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount,
+        campaignId: 1,
+      })
+
+      expect(calcTextAmountInCents(15)).toBeGreaterThanOrEqual(
+        WIN_SMS_HOLD_MIN_CENTS,
+      )
+      expect(amount).toBe(calcTextAmountInCents(15))
+    })
+
+    it('does not forgive a no-offer campaign priced below the Stripe minimum', async () => {
+      // No offer: a tiny send is priced (and billed) at its real sub-floor
+      // amount — forgiveness is a free-texts-only concession, not a general
+      // sub-50c waiver.
+      mockServerLeadsLoaded(1)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 1,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(1))
+      expect(amount).toBeGreaterThan(0)
+      expect(amount).toBeLessThan(WIN_SMS_HOLD_MIN_CENTS)
     })
 
     it('charges full price when campaign has no offer', async () => {
@@ -1063,10 +1141,11 @@ describe('OutreachPurchaseHandlerService', () => {
     // non-hold-model test below overrides it per-call.
     vi.mocked(mockP2pSmsHold.recordHold).mockResolvedValue(true)
 
-    it('prices the UNDISCOUNTED amount, skipping the free-texts discount', async () => {
+    it('partial coverage: prices the UNDISCOUNTED amount over FREE_TEXTS_OFFER.COUNT', async () => {
       mockServerLeadsLoaded(6000)
-      // Eligible for the offer, which the flag-on hold deliberately ignores so
-      // the hold covers the full count; the discount is applied at capture.
+      // Eligible for the offer, but it only covers part of this send — the
+      // hold still covers the full undiscounted count; the discount is
+      // applied at capture, clamped to this hold.
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValue(true)
@@ -1080,15 +1159,49 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(amount).not.toBe(
         calcTextAmountInCents(6000 - FREE_TEXTS_OFFER.COUNT),
       )
-      expect(
-        mockCampaignsService.checkFreeTextsEligibility,
-      ).not.toHaveBeenCalled()
+      expect(mockCampaignsService.checkFreeTextsEligibility).toHaveBeenCalled()
       // HARD send cap (D2b): persisted onto the build at session creation so the
       // upload caps to the paid count regardless of the hold-link timing.
       expect(mockPeerlyPhoneListCapture.persistSendCap).toHaveBeenCalledWith(
         CAPTURED_LIST_FIXTURE.id,
         maxTextsForAmountInCents(amount),
       )
+    })
+
+    it('PROD BUG REPRO: fully covered by the free-texts offer on a READY build returns 0 and places no hold', async () => {
+      // Real prod failures: contactCounts like 1992/3951/1074/2895/2034, each
+      // under FREE_TEXTS_OFFER.COUNT, on a build already ready — the client
+      // showed "Free" and called complete-free-purchase, which 400'd because
+      // this path priced the undiscounted amount. It must return 0.
+      vi.mocked(mockPeerlyPhoneListCapture.persistSendCap).mockClear()
+      mockServerLeadsLoaded(1992)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(true)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: 1992,
+      })
+
+      expect(amount).toBe(0)
+      expect(mockCampaignsService.checkFreeTextsEligibility).toHaveBeenCalled()
+      // Free path: no hold placed, so no send cap to persist.
+      expect(mockPeerlyPhoneListCapture.persistSendCap).not.toHaveBeenCalled()
+    })
+
+    it('fully covered at exactly FREE_TEXTS_OFFER.COUNT on a READY build returns 0', async () => {
+      mockServerLeadsLoaded(FREE_TEXTS_OFFER.COUNT)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValue(true)
+
+      const amount = await service.calculateAmount({
+        ...purchaseMetadata,
+        contactCount: FREE_TEXTS_OFFER.COUNT,
+      })
+
+      expect(amount).toBe(0)
     })
 
     it('flag ON: does NOT persist a send cap for a forgiven ($0) amount (no hold, nothing to cap)', async () => {

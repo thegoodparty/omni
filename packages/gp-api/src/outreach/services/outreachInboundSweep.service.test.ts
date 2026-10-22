@@ -1,8 +1,17 @@
-import { BadGatewayException } from '@nestjs/common'
-import { addDays, set, subDays } from 'date-fns'
+import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common'
+import {
+  addDays,
+  addHours,
+  addMilliseconds,
+  set,
+  subDays,
+  subHours,
+  subSeconds,
+} from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
 import {
   PeerlyCdrCsvRow,
@@ -11,17 +20,24 @@ import {
 import {
   PeerlyJobResultsService,
   PeerlyReportDateWindow,
+  PeerlyReportRequestOptions,
 } from '@/vendors/peerly/services/peerlyJobResults.service'
 import { Campaign, OutreachType } from '../../generated/prisma'
 import {
   INBOUND_SWEEP_AGED_HOUR_INTERVAL,
   INBOUND_SWEEP_FRESH_WINDOW_DAYS,
+  OPT_OUT_RECONCILE_BUDGET_MS,
+  OPT_OUT_RECONCILE_CONCURRENCY,
+  OPT_OUT_RECONCILE_INTERVAL_HOURS,
+  OPT_OUT_RECONCILE_WINDOW_DAYS,
+  OUTREACH_INBOUND_SWEEP_JOB,
+  OUTREACH_OPT_OUT_RECONCILE_JOB,
   OutreachInboundSweepService,
 } from './outreachInboundSweep.service'
 
 const service = useTestService()
 
-const fetchCdrRows =
+const fetchInboundCdrRows =
   vi.fn<
     (
       jobId: string,
@@ -33,6 +49,7 @@ const fetchQuestionResponseRows =
     (
       jobId: string,
       window: PeerlyReportDateWindow,
+      request?: PeerlyReportRequestOptions,
     ) => Promise<PeerlyQuestionResponsesCsvRow[]>
   >()
 
@@ -111,18 +128,15 @@ const BASE_QR_ROW: PeerlyQuestionResponsesCsvRow = {
   optout: '',
 }
 
-const replyRow = (fromPhone: string): PeerlyCdrCsvRow => ({
+const replyRow = (
+  fromPhone: string,
+  content = 'Who is this?',
+): PeerlyCdrCsvRow => ({
   ...BASE_CDR_ROW,
   Direction: 'received',
   From: fromPhone,
   To: OUR_DID,
-})
-
-const sentRow = (toPhone: string): PeerlyCdrCsvRow => ({
-  ...BASE_CDR_ROW,
-  Direction: 'sent',
-  From: OUR_DID,
-  To: toPhone,
+  Content: content,
 })
 
 const optOutRow = (
@@ -194,14 +208,36 @@ const findInteraction = (outreachId: number, personId: string) =>
     where: { outreachId_personId: { outreachId, personId } },
   })
 
+const loggerInfoSpy = () =>
+  vi.spyOn((sweepService as unknown as { logger: PinoLogger }).logger, 'info')
+
+const setOutreachDate = (outreachId: number, date: Date) =>
+  service.prisma.$executeRaw`
+    UPDATE outreach SET date = ${date} WHERE id = ${outreachId}
+  `
+
+// Raw so Prisma's @updatedAt doesn't overwrite the value being set.
+const setOutreachUpdatedAt = (outreachId: number, updatedAt: Date) =>
+  service.prisma.$executeRaw`
+    UPDATE outreach SET "updatedAt" = ${updatedAt} WHERE id = ${outreachId}
+  `
+
 beforeEach(async () => {
-  fetchCdrRows.mockReset().mockResolvedValue([])
+  vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+  fetchInboundCdrRows.mockReset().mockResolvedValue([])
   fetchQuestionResponseRows.mockReset().mockResolvedValue([])
   const resultsService = service.app.get(PeerlyJobResultsService)
-  vi.spyOn(resultsService, 'fetchCdrRows').mockImplementation(fetchCdrRows)
+  vi.spyOn(resultsService, 'fetchInboundCdrRows').mockImplementation(
+    fetchInboundCdrRows,
+  )
   vi.spyOn(resultsService, 'fetchQuestionResponseRows').mockImplementation(
     fetchQuestionResponseRows,
   )
+  // Most tests run a pass several times inside one hour; the lock itself is
+  // covered by its own describe below with the real service.
+  const cronLock = service.app.get(CronLockService)
+  vi.spyOn(cronLock, 'tryClaimHourlyRun').mockResolvedValue(true)
+  vi.spyOn(cronLock, 'markHourlyCompleted').mockResolvedValue(undefined)
 
   sweepService = service.app.get(OutreachInboundSweepService)
 
@@ -220,25 +256,20 @@ beforeEach(async () => {
   })
 })
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('OutreachInboundSweepService.sweepInboundEvents', () => {
-  it('applies replies and opt-outs to exactly the matching rows, skipping duplicates, unknown phones, and non-opt-out flags', async () => {
+  it('applies replies and reply-text opt-outs to exactly the matching rows, skipping duplicates and unknown phones', async () => {
     const outreach = await createSweepableOutreach()
-    fetchCdrRows.mockResolvedValue([
-      sentRow('13035550101'),
+    fetchInboundCdrRows.mockResolvedValue([
       replyRow('13035550101'),
       // Same lead phone again — same synthetic event, applied once.
       replyRow('13035550101'),
       // A phone Peerly reports that was never on the captured list.
-      replyRow('19995550999'),
-    ])
-    fetchQuestionResponseRows.mockResolvedValue([
-      optOutRow('3035550102'),
-      optOutRow('3035550101', '0'),
-      // Common negations must read as NOT opted out even though the
-      // vendor vocabulary is unverified — 'no' mass-writing optedOutAt
-      // would corrupt the whole recipient list.
-      optOutRow('3035550103', 'no'),
-      optOutRow('3035550104', 'N'),
+      replyRow('19995550999', 'STOP'),
+      replyRow('13035550102', 'STOP'),
     ])
 
     await sweepService.sweepInboundEvents()
@@ -249,9 +280,8 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     expect(person1.sourceEventId).toBe(`peerly:${JOB_ID}:3035550101:reply`)
 
     const person2 = await findInteraction(outreach.id, 'person-2')
-    expect(person2.optedOutAt).not.toBeNull()
-    expect(person2.respondedAt).toBeNull()
-    expect(person2.sourceEventId).toBe(`peerly:${JOB_ID}:3035550102:optout`)
+    expect(person2.respondedAt).toEqual(new Date('2026-07-17T10:23:46'))
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-17T10:23:46'))
 
     // Nobody else was touched, and no rows were invented for the unknown
     // phone.
@@ -267,13 +297,68 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     }
   })
 
+  it('records an opt-out for a revocation phrase with no stop keyword on its own', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('13035550101', 'Please stop texting me, thanks'),
+    ])
+
+    await sweepService.sweepInboundEvents()
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).not.toBeNull()
+    expect(person1.optedOutAt).not.toBeNull()
+  })
+
+  it('records no opt-out for an ordinary reply, even one using the word stop', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('13035550101', 'Can you stop by the town hall on Friday?'),
+    ])
+
+    await sweepService.sweepInboundEvents()
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).not.toBeNull()
+    expect(person1.optedOutAt).toBeNull()
+  })
+
+  it('records no opt-out from a row whose Direction is neither sent nor received, and counts it', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([
+      {
+        ...replyRow('13035550101', 'Reply STOP to opt out'),
+        Direction: 'queued',
+      },
+    ])
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.sweepInboundEvents()
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).not.toBeNull()
+    expect(person1.optedOutAt).toBeNull()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ unexpectedDirectionRows: 1 }),
+      expect.any(String),
+    )
+  })
+
+  it('never requests the question-responses report', async () => {
+    await createSweepableOutreach()
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101', 'STOP')])
+
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
+    expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
+  })
+
   it('stores midnight when a Peerly timestamp is date-only (yyyy-MM-dd)', async () => {
     const outreach = await createSweepableOutreach()
-    fetchCdrRows.mockResolvedValue([
+    fetchInboundCdrRows.mockResolvedValue([
       { ...replyRow('13035550101'), Timestamp: '2026-07-17' },
-    ])
-    fetchQuestionResponseRows.mockResolvedValue([
-      { ...optOutRow('3035550102'), date: '2026-07-16' },
+      { ...replyRow('13035550102', 'STOP'), Timestamp: '2026-07-16' },
     ])
 
     await sweepService.sweepInboundEvents()
@@ -294,7 +379,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       },
       data: { respondedAt: firstReplyAt },
     })
-    fetchCdrRows.mockResolvedValue([replyRow('13035550101')])
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 
     await sweepService.sweepInboundEvents()
 
@@ -304,8 +389,10 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
   it('changes nothing when the sweep runs twice over the same events', async () => {
     const outreach = await createSweepableOutreach()
-    fetchCdrRows.mockResolvedValue([replyRow('13035550101')])
-    fetchQuestionResponseRows.mockResolvedValue([optOutRow('3035550102')])
+    fetchInboundCdrRows.mockResolvedValue([
+      replyRow('13035550101'),
+      replyRow('13035550102', 'STOP'),
+    ])
 
     await sweepService.sweepInboundEvents()
     const afterFirst = await service.prisma.contactInteractionText.findMany({
@@ -324,8 +411,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
   it('records both a reply and an opt-out for the same person', async () => {
     const outreach = await createSweepableOutreach()
-    fetchCdrRows.mockResolvedValue([replyRow('13035550101')])
-    fetchQuestionResponseRows.mockResolvedValue([optOutRow('3035550101')])
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101', 'STOP')])
 
     await sweepService.sweepInboundEvents()
 
@@ -343,7 +429,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
   it('applies a reply to every captured recipient sharing the phone, stamping the event id on exactly one row', async () => {
     const outreach = await createSweepableOutreach()
-    fetchCdrRows.mockResolvedValue([replyRow('13035550103')])
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550103')])
 
     await sweepService.sweepInboundEvents()
 
@@ -361,7 +447,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     const outreach = await createSweepableOutreach({
       interactionPersonIds: ['person-2'],
     })
-    fetchCdrRows.mockResolvedValue([replyRow('13035550101')])
+    fetchInboundCdrRows.mockResolvedValue([replyRow('13035550101')])
 
     await expect(sweepService.sweepInboundEvents()).resolves.toBeUndefined()
 
@@ -384,7 +470,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
       peerlyListId: 2222,
       recipients: [PERSON_2],
     })
-    fetchCdrRows.mockImplementation((jobId) =>
+    fetchInboundCdrRows.mockImplementation((jobId) =>
       jobId === 'job-fail'
         ? Promise.reject(new BadGatewayException('Peerly 5xx'))
         : Promise.resolve([replyRow('13035550102')]),
@@ -406,7 +492,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
   })
 
@@ -415,7 +501,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).toHaveBeenCalledWith(
+    expect(fetchInboundCdrRows).toHaveBeenCalledWith(
       JOB_ID,
       expect.objectContaining({
         startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -429,7 +515,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
 
     await expect(sweepService.sweepInboundEvents()).resolves.toBeUndefined()
 
-    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
   })
 
@@ -476,14 +562,6 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
   const atHour = (date: Date, hours: number) =>
     set(date, { hours, minutes: 0, seconds: 0, milliseconds: 0 })
 
-  const setOutreachDate = (outreachId: number, date: Date) =>
-    service.prisma.$executeRaw`
-      UPDATE outreach SET date = ${date} WHERE id = ${outreachId}
-    `
-
-  const loggerInfoSpy = () =>
-    vi.spyOn((sweepService as unknown as { logger: PinoLogger }).logger, 'info')
-
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -498,7 +576,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsSkippedFuture: 1 }),
       expect.any(String),
@@ -515,7 +593,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
+    expect(fetchInboundCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
   })
 
   it('skips an aged job outside its reduced-cadence hour, and sweeps it once that hour arrives', async () => {
@@ -529,7 +607,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsSkippedAgedCadence: 1 }),
       expect.any(String),
@@ -540,7 +618,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
 
     await sweepService.sweepInboundEvents()
 
-    expect(fetchCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
+    expect(fetchInboundCdrRows).toHaveBeenCalledWith(JOB_ID, expect.anything())
   })
 
   it('skips a job whose previous fetch is still in flight, and sweeps it again once that fetch resolves', async () => {
@@ -549,16 +627,16 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
     const firstFetch = new Promise<PeerlyCdrCsvRow[]>((resolve) => {
       resolveFirstFetch = resolve
     })
-    fetchCdrRows.mockReturnValueOnce(firstFetch)
+    fetchInboundCdrRows.mockReturnValueOnce(firstFetch)
     const logSpy = loggerInfoSpy()
 
     const firstPass = sweepService.sweepInboundEvents()
-    await vi.waitFor(() => expect(fetchCdrRows).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1))
 
     // A second pass fires while the first job's fetch is still outstanding
     // — it must not issue a second concurrent report request for the job.
     await sweepService.sweepInboundEvents()
-    expect(fetchCdrRows).toHaveBeenCalledTimes(1)
+    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
     expect(logSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ jobsSkippedInFlight: 1 }),
       expect.any(String),
@@ -570,6 +648,433 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
     // The first pass's fetch has now resolved, so the job is no longer in
     // flight and the next pass polls it again.
     await sweepService.sweepInboundEvents()
-    expect(fetchCdrRows).toHaveBeenCalledTimes(2)
+    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
+  const NOW = new Date('2026-07-10T13:20:00.000Z')
+
+  beforeEach(() => {
+    const cronLock = service.app.get(CronLockService)
+    vi.mocked(cronLock.tryClaimHourlyRun).mockRestore()
+    vi.mocked(cronLock.markHourlyCompleted).mockRestore()
+    // Only Date is faked so the claim and Prisma's own timers stay real.
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('runs the hourly sweep once when two invocations land in the same slot', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, subHours(NOW, 1))
+
+    await sweepService.sweepInboundEvents()
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchInboundCdrRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs the opt-out reconcile once when two invocations land in the same slot', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, subHours(NOW, 1))
+
+    await sweepService.reconcileOptOutFlags()
+    await sweepService.reconcileOptOutFlags()
+
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing on a deploy outside dev and prod', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, subHours(NOW, 1))
+
+    await sweepService.sweepInboundEvents()
+    await sweepService.reconcileOptOutFlags()
+
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
+    expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
+    // Scoped to these two jobs: the suite's app runs every other @Cron on
+    // real timers, and one that claims an hourly slot (the poll-review sweep
+    // at :33) can land a row mid-test.
+    expect(
+      await service.prisma.cronRun.count({
+        where: {
+          jobName: {
+            in: [OUTREACH_INBOUND_SWEEP_JOB, OUTREACH_OPT_OUT_RECONCILE_JOB],
+          },
+        },
+      }),
+    ).toBe(0)
+  })
+})
+
+describe('OutreachInboundSweepService.reconcileOptOutFlags', () => {
+  it("applies Peerly's opt-out flags with one un-retried, long-timeout request per job", async () => {
+    const outreach = await createSweepableOutreach()
+    fetchQuestionResponseRows.mockResolvedValue([
+      optOutRow('3035550102'),
+      optOutRow('3035550101', '0'),
+      // Common negations must read as NOT opted out even though the
+      // vendor vocabulary is unverified — 'no' mass-writing optedOutAt
+      // would corrupt the whole recipient list.
+      optOutRow('3035550103', 'no'),
+      optOutRow('3035550104', 'N'),
+    ])
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+    expect(fetchQuestionResponseRows).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({
+        startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      }),
+      { timeoutMs: 300000, retry: false },
+    )
+    expect(fetchInboundCdrRows).not.toHaveBeenCalled()
+
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-17T10:25:00'))
+    expect(person2.respondedAt).toBeNull()
+    expect(person2.sourceEventId).toBe(`peerly:${JOB_ID}:3035550102:optout`)
+
+    for (const personId of ['person-1', 'person-3', 'person-4']) {
+      const untouched = await findInteraction(outreach.id, personId)
+      expect(untouched.optedOutAt).toBeNull()
+    }
+  })
+
+  it('skips a flag already recorded from the reply text', async () => {
+    const outreach = await createSweepableOutreach()
+    // person-2 already replied, so the STOP reply cannot claim the row's one
+    // sourceEventId slot and the opt-out id is stamped instead: the backup
+    // pass then meets one opt-out by its id and the other by its timestamp.
+    await service.prisma.contactInteractionText.update({
+      where: {
+        outreachId_personId: { outreachId: outreach.id, personId: 'person-2' },
+      },
+      data: { respondedAt: new Date('2026-07-16T00:00:00Z') },
+    })
+    fetchInboundCdrRows.mockResolvedValue([
+      { ...replyRow('13035550101', 'STOP'), Timestamp: '2026-07-17 09:00:00' },
+      { ...replyRow('13035550102', 'STOP'), Timestamp: '2026-07-17 09:05:00' },
+    ])
+    await sweepService.sweepInboundEvents()
+    fetchQuestionResponseRows.mockResolvedValue([
+      optOutRow('3035550101'),
+      optOutRow('3035550102'),
+    ])
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        optOutsApplied: 0,
+        skippedDuplicate: 1,
+        skippedAlreadyApplied: 1,
+      }),
+      expect.any(String),
+    )
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.optedOutAt).toEqual(new Date('2026-07-17T09:00:00'))
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-17T09:05:00'))
+  })
+
+  it('moves on to the next job when one job times out', async () => {
+    const SEND = new Date('2026-07-01T12:00:00.000Z')
+    const older = await createSweepableOutreach({
+      projectId: 'job-old',
+      peerlyListId: 1111,
+      recipients: [PERSON_1],
+    })
+    await setOutreachDate(older.id, SEND)
+    const newer = await createSweepableOutreach({
+      projectId: 'job-new',
+      peerlyListId: 2222,
+      recipients: [PERSON_2],
+    })
+    await setOutreachDate(newer.id, addDays(SEND, 1))
+    fetchQuestionResponseRows.mockImplementation((jobId) =>
+      jobId === 'job-new'
+        ? Promise.reject(
+            new GatewayTimeoutException('Timed out fetching Peerly report'),
+          )
+        : Promise.resolve([optOutRow('3035550101')]),
+    )
+    const logSpy = loggerInfoSpy()
+
+    await expect(sweepService.reconcileOptOutFlags()).resolves.toBeUndefined()
+
+    expect(
+      fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId).sort(),
+    ).toEqual(['job-new', 'job-old'])
+    const person1 = await findInteraction(older.id, 'person-1')
+    expect(person1.optedOutAt).not.toBeNull()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        jobsPolled: 1,
+        jobsTimedOut: 1,
+        jobsFailed: 0,
+        optOutsApplied: 1,
+      }),
+      expect.any(String),
+    )
+  })
+
+  it('records the exact instant from a report timestamp that carries an offset', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchQuestionResponseRows.mockResolvedValue([
+      { ...optOutRow('3035550102'), date: '2026-07-17 10:25:00 -0400' },
+    ])
+
+    await sweepService.reconcileOptOutFlags()
+
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-17T14:25:00.000Z'))
+  })
+
+  it('stamps every attempt, a timed-out one included, without moving outreach.updatedAt', async () => {
+    const answered = await createSweepableOutreach({
+      projectId: 'job-answered',
+      peerlyListId: 1111,
+      recipients: [PERSON_1],
+    })
+    const slow = await createSweepableOutreach({
+      projectId: 'job-slow',
+      peerlyListId: 2222,
+      recipients: [PERSON_2],
+    })
+    const updatedAtBefore = await service.prisma.outreach.findMany({
+      where: { id: { in: [answered.id, slow.id] } },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    })
+    fetchQuestionResponseRows.mockImplementation((jobId) =>
+      jobId === 'job-slow'
+        ? Promise.reject(
+            new GatewayTimeoutException('Timed out fetching Peerly report'),
+          )
+        : Promise.resolve([]),
+    )
+
+    await sweepService.reconcileOptOutFlags()
+
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
+      orderBy: { outreachId: 'asc' },
+    })
+    expect(stamps.map(({ outreachId }) => outreachId)).toEqual([
+      answered.id,
+      slow.id,
+    ])
+    const updatedAtAfter = await service.prisma.outreach.findMany({
+      where: { id: { in: [answered.id, slow.id] } },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    })
+    expect(updatedAtAfter).toEqual(updatedAtBefore)
+  })
+})
+
+describe('OutreachInboundSweepService.reconcileOptOutFlags — interval, window and budget', () => {
+  const NOW = new Date('2026-07-10T13:45:00.000Z')
+
+  beforeEach(() => {
+    // Only Date is faked so p-map, Prisma and vi.waitFor keep real timers.
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const createJob = async (projectId: string, peerlyListId: number) =>
+    createSweepableOutreach({
+      projectId,
+      peerlyListId,
+      recipients: [PERSON_1],
+    })
+
+  const calledJobIds = () =>
+    fetchQuestionResponseRows.mock.calls.map(([jobId]) => jobId)
+
+  it('reads a job again only once the interval has passed', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, subHours(NOW, 1))
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+
+    vi.setSystemTime(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS - 1))
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 0, jobsSkippedRecent: 1 }),
+      expect.any(String),
+    )
+
+    // The sixth pass after, starting a moment earlier in its hour than the
+    // pass that stamped the job.
+    vi.setSystemTime(
+      subSeconds(addHours(NOW, OPT_OUT_RECONCILE_INTERVAL_HOURS), 1),
+    )
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(2)
+  })
+
+  it('stamps a failed job and one with no captured list, so neither is retried before the interval', async () => {
+    const failing = await createJob('job-failing', 1111)
+    await setOutreachDate(failing.id, subHours(NOW, 1))
+    const uncaptured = await createSweepableOutreach({
+      projectId: 'job-uncaptured',
+      peerlyListId: 2222,
+      captureList: false,
+    })
+    await setOutreachDate(uncaptured.id, subHours(NOW, 1))
+    fetchQuestionResponseRows.mockRejectedValue(
+      new BadGatewayException('Failed to fetch Peerly report link'),
+    )
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-failing'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsFailed: 1, jobsWithoutCapture: 1 }),
+      expect.any(String),
+    )
+    const stamps = await service.prisma.outreachOptOutReconcile.findMany({
+      orderBy: { outreachId: 'asc' },
+    })
+    expect(stamps).toEqual([
+      { outreachId: failing.id, attemptedAt: NOW },
+      { outreachId: uncaptured.id, attemptedAt: NOW },
+    ])
+
+    vi.setSystemTime(addHours(NOW, 1))
+    await sweepService.reconcileOptOutFlags()
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads only sends inside the window, counting a recent update as inside', async () => {
+    const outsideWindow = subDays(NOW, OPT_OUT_RECONCILE_WINDOW_DAYS + 1)
+    const stale = await createJob('job-stale', 1111)
+    await setOutreachDate(stale.id, outsideWindow)
+    await setOutreachUpdatedAt(stale.id, outsideWindow)
+    // A long send marked complete yesterday: its date is old, but people
+    // were still being texted until it finished.
+    const finishedLate = await createJob('job-finished-late', 2222)
+    await setOutreachDate(finishedLate.id, outsideWindow)
+    await setOutreachUpdatedAt(finishedLate.id, subDays(NOW, 1))
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-finished-late'])
+  })
+
+  it('starts no report once the budget is spent, and the next pass begins with the jobs it left', async () => {
+    const newest = await createJob('job-newest', 1111)
+    await setOutreachDate(newest.id, subHours(NOW, 1))
+    const middle = await createJob('job-middle', 2222)
+    await setOutreachDate(middle.id, subHours(NOW, 2))
+    const oldest = await createJob('job-oldest', 3333)
+    await setOutreachDate(oldest.id, subHours(NOW, 3))
+    // Each report takes the whole budget: the two that start together both
+    // run, and nothing starts after them.
+    fetchQuestionResponseRows.mockImplementation(async () => {
+      vi.setSystemTime(addMilliseconds(new Date(), OPT_OUT_RECONCILE_BUDGET_MS))
+      return []
+    })
+    const logSpy = loggerInfoSpy()
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds().sort()).toEqual(['job-middle', 'job-newest'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsDue: 3, jobsPolled: 2, jobsDeferred: 1 }),
+      expect.any(String),
+    )
+    expect(
+      await service.prisma.outreachOptOutReconcile.findUnique({
+        where: { outreachId: oldest.id },
+      }),
+    ).toBeNull()
+
+    fetchQuestionResponseRows.mockClear()
+    vi.setSystemTime(addHours(NOW, 1))
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds()).toEqual(['job-oldest'])
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsPolled: 1, jobsSkippedRecent: 2 }),
+      expect.any(String),
+    )
+  })
+
+  it('reads a job no pass has reached before the one read longest ago', async () => {
+    const neverRead = await createJob('job-never-read', 1111)
+    await setOutreachDate(neverRead.id, subDays(NOW, 2))
+    const readLongestAgo = await createJob('job-read-longest-ago', 2222)
+    await setOutreachDate(readLongestAgo.id, subHours(NOW, 1))
+    const readLater = await createJob('job-read-later', 3333)
+    await setOutreachDate(readLater.id, subHours(NOW, 1))
+    await service.prisma.outreachOptOutReconcile.createMany({
+      data: [
+        { outreachId: readLongestAgo.id, attemptedAt: subHours(NOW, 9) },
+        { outreachId: readLater.id, attemptedAt: subHours(NOW, 7) },
+      ],
+    })
+    fetchQuestionResponseRows.mockImplementation(async () => {
+      vi.setSystemTime(addMilliseconds(new Date(), OPT_OUT_RECONCILE_BUDGET_MS))
+      return []
+    })
+
+    await sweepService.reconcileOptOutFlags()
+
+    expect(calledJobIds().sort()).toEqual([
+      'job-never-read',
+      'job-read-longest-ago',
+    ])
+  })
+
+  it(`never has more than ${OPT_OUT_RECONCILE_CONCURRENCY} reports building at once`, async () => {
+    for (const [index, projectId] of ['job-a', 'job-b', 'job-c'].entries()) {
+      const outreach = await createJob(projectId, 1111 + index)
+      await setOutreachDate(outreach.id, subHours(NOW, index + 1))
+    }
+    const pending: (() => void)[] = []
+    fetchQuestionResponseRows.mockImplementation(
+      () =>
+        new Promise<PeerlyQuestionResponsesCsvRow[]>((resolve) => {
+          pending.push(() => resolve([]))
+        }),
+    )
+
+    const pass = sweepService.reconcileOptOutFlags()
+    await vi.waitFor(
+      () =>
+        expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(
+          OPT_OUT_RECONCILE_CONCURRENCY,
+        ),
+      { timeout: 5000 },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(
+      OPT_OUT_RECONCILE_CONCURRENCY,
+    )
+
+    pending.shift()?.()
+    await vi.waitFor(
+      () => expect(fetchQuestionResponseRows).toHaveBeenCalledTimes(3),
+      { timeout: 5000 },
+    )
+    while (pending.length > 0) pending.shift()?.()
+    await pass
   })
 })

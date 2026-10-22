@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import VoterFileStep from './VoterFileStep'
@@ -209,6 +209,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Prior contacts made',
       'Support status',
       'Voter likelihood',
+      'Early vote likelihood',
       'Political party',
       'Age',
       'Marital status',
@@ -257,6 +258,9 @@ describe('VoterFileStep — prototype filter order', () => {
     // contacts made sit.
     expect(headings).toEqual([
       'Civic panel',
+      'How they joined',
+      'When they joined',
+      'Last asked',
       'Support status',
       'Age',
       'Marital status',
@@ -270,7 +274,6 @@ describe('VoterFileStep — prototype filter order', () => {
       'Gender',
       'Cell phone',
       'Landline',
-      'Contact history',
     ])
   })
 
@@ -299,7 +302,87 @@ describe('VoterFileStep — prototype filter order', () => {
       .map((heading) => heading.textContent)
 
     expect(headings).not.toContain('Civic panel')
+    expect(headings).not.toContain('How they joined')
+    expect(headings).not.toContain('When they joined')
+    expect(headings).not.toContain('Last asked')
     expect(headings).not.toContain('Contact history')
+    expect(screen.queryByLabelText('When they joined from')).toBeNull()
+  })
+})
+
+// The civic panel's history as filters: status, how and when members
+// joined, and when the office last asked anyone.
+describe('VoterFileStep — civic panel history groups', () => {
+  const renderServe = (
+    filters: Record<string, boolean | string>,
+    onFiltersChange = vi.fn(),
+  ) =>
+    render(
+      <VoterFileStep
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        onSupportStatusChange={vi.fn()}
+        isElectedOfficial
+        showCitizenPanelFilters
+      />,
+    )
+
+  it('offers member, left and never invited, which select together', async () => {
+    const onFiltersChange = vi.fn()
+    const user = userEvent.setup()
+    renderServe({ civicPanelMember: true }, onFiltersChange)
+
+    await user.click(screen.getByText('Never invited'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        civicPanelMember: true,
+        civicPanelLeft: false,
+        civicPanelNeverInvited: true,
+      }),
+    )
+  })
+
+  it('offers how they joined', async () => {
+    const onFiltersChange = vi.fn()
+    const user = userEvent.setup()
+    renderServe({}, onFiltersChange)
+
+    await user.click(screen.getByText('At the door'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ civicPanelJoinedByDoor: true }),
+    )
+  })
+
+  it('writes a picked day into the joined range', () => {
+    const onFiltersChange = vi.fn()
+    renderServe({}, onFiltersChange)
+
+    fireEvent.change(screen.getByLabelText('When they joined from'), {
+      target: { value: '2026-10-01' },
+    })
+
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      civicPanelJoinedFrom: '2026-10-01',
+    })
+  })
+
+  it('puts the 30-day window and a range under Last asked', () => {
+    renderServe({ lastReachedTo: '2026-09-30' })
+
+    expect(screen.getByText('Not in the last 30 days')).toBeInTheDocument()
+    expect(screen.getByLabelText('Last asked to')).toHaveValue('2026-09-30')
   })
 })
 
@@ -659,8 +742,8 @@ describe('VoterFileStep — per-group Select all', () => {
 describe('VoterFileStep — recommended-list filter groups', () => {
   const renderStep = (
     props: Partial<{
-      filters: Record<string, boolean>
-      onFiltersChange: (filters: Record<string, boolean>) => void
+      filters: Record<string, boolean | string>
+      onFiltersChange: (filters: Record<string, boolean | string>) => void
       isElectedOfficial: boolean
       showRecommendedListFilters: boolean
     }> = {},
@@ -810,5 +893,42 @@ describe('VoterFileStep — Precinct group', () => {
     await user.click(screen.getByText('Laramie — 14'))
 
     expect(onPrecinctsChange).toHaveBeenCalledWith(['LARAMIE|14'])
+  })
+})
+
+// renderField takes an optional `below` node, so passing it straight to
+// .map() rendered each group's array index ("0", "1", ...) under its pills.
+describe('VoterFileStep — no stray text under filter groups', () => {
+  it('renders nothing but the header and pills in each group below Support status', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    for (const label of ['Voter likelihood', 'Political party', 'Age']) {
+      const group = screen.getByRole('heading', {
+        name: new RegExp(`^${label}$`, 'i'),
+      }).parentElement?.parentElement
+      if (!group) throw new Error(`${label} group not rendered`)
+
+      const strayText = Array.from(group.childNodes).filter(
+        (node) => node.nodeType === Node.TEXT_NODE,
+      )
+      expect(strayText).toEqual([])
+    }
   })
 })

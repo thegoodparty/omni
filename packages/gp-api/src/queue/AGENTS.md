@@ -2,7 +2,7 @@
 
 Single FIFO SQS queue with a strict producer/consumer split. Anything that needs async work goes through here.
 
-The architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new queue for a new message type — add a `QueueType` enum value and a handler. ADR: `docs/adr/0003-fifo-sqs-single-queue.md`.
+The architecture is fixed: **one queue, switch on `QueueType` enum.** Don't create a new queue for a new message type — add a `QueueType` enum value and a handler.
 
 A short overview also lives in `README.md`.
 

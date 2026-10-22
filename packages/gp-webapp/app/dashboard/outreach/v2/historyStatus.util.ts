@@ -1,5 +1,6 @@
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
 
 // The two legacy status vocabularies the unified history has to keep
 // rendering. One DELIBERATE divergence from the legacy table's vocabulary:
@@ -78,6 +79,7 @@ export const DRAFT_LABELS = {
   inReview: 'Verification in review',
   pin: 'PIN needed',
   ready: 'Ready to schedule',
+  closed: SMS_CUTOFF_COPY.closedLabel,
 } as const
 
 export const draftLabelFor = (
@@ -85,10 +87,13 @@ export const draftLabelFor = (
   membership: MembershipState | null,
 ): string | null => {
   if (!membership) return null
-  if (membership.tier === 'free') return DRAFT_LABELS.pro
   // Only the texting channels gate on TCR/CV verification — a robocall or
   // other Pro-only draft has nothing left to clear but the send itself.
   const texting = row.outreachType === 'p2p' || row.outreachType === 'text'
+  // Closed texting outranks the tier, as it does in useOutreachGate: Pro
+  // would not get this draft sent.
+  if (texting && membership.texting === 'closed') return DRAFT_LABELS.closed
+  if (membership.tier === 'free') return DRAFT_LABELS.pro
   if (!texting) return DRAFT_LABELS.ready
   switch (membership.texting) {
     case 'needs_verification':
@@ -99,6 +104,8 @@ export const draftLabelFor = (
       return DRAFT_LABELS.pin
     case 'cleared':
       return DRAFT_LABELS.ready
+    case 'closed':
+      return DRAFT_LABELS.closed
   }
 }
 
@@ -122,6 +129,28 @@ export const draftLabelFor = (
 // true on its own terms rather than on its caller's ordering.
 const isServeSmsRow = (row: HistoryRow, isServe: boolean): boolean =>
   isServe && row.outreachType === 'text' && row.phoneListId == null
+
+// A priority text's follow-up reads Draft until its recipients are picked
+// and Scheduled once they are. Only a follow-up still waiting on its send
+// comes through here; the rest read from their status as any text does.
+export const isFollowUpRow = (row: HistoryRow): boolean =>
+  row.roundOneOutreachId != null
+
+export const followUpPickedAt = (row: HistoryRow): string | Date | null =>
+  isFollowUpRow(row) ? (row.voterFileFilter?.sampledAt ?? null) : null
+
+// Set by gp-api when a follow-up's draw finds nobody left to text.
+export const FOLLOW_UP_DREW_NOBODY = 'round_two_drew_nobody'
+
+export const followUpDrewNobody = (row: HistoryRow): boolean =>
+  isFollowUpRow(row) &&
+  row.status === 'canceled' &&
+  row.canceledBy === FOLLOW_UP_DREW_NOBODY
+
+const getFollowUpLabel = (row: HistoryRow): string | null => {
+  if (!isFollowUpRow(row) || row.status !== 'pending') return null
+  return followUpPickedAt(row) === null ? 'Draft' : 'Scheduled'
+}
 
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
   const { status } = row
@@ -248,12 +277,20 @@ export const getHistoryStatusLabel = (
   // because this state spans the send AND the days of replies after it —
   // "Sending" would name only its first half.
   if (isServeSmsRow(row, isServe)) {
+    const followUp = getFollowUpLabel(row)
+    if (followUp) return followUp
     if (status === 'pending') {
       return 'Scheduled'
     }
     if (status === 'in_progress') {
       return 'In progress'
     }
+  }
+  // A paid poll is HELD for staff approval, so `pending` stays "In review" (the
+  // map's word, and what the official was told at checkout). Once approved it
+  // is delivered and collecting replies, which "Scheduled" would misname.
+  if (row.outreachType === 'poll' && status === 'in_progress') {
+    return 'In progress'
   }
   return nonP2pStatusLabels[status]
 }

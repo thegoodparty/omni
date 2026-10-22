@@ -6,7 +6,10 @@ import {
   type MergeTagChannel,
   type MergeTagId,
 } from './MergeTag.const'
-import { findCivicPanelJoinLine } from './CivicPanelJoin'
+import {
+  findCivicPanelJoinLine,
+  findCivicPanelLeaveLine,
+} from './CivicPanelJoin'
 
 // The CAS SMS console (gp-admin): approval queue, per-campaign monitor,
 // and the message-standards verdict. gp-admin consumes these through the
@@ -127,18 +130,19 @@ export const checkSmsStandards = (
   const failures: SmsStandardsRule[] = []
   const lower = script.toLowerCase()
 
-  // Whole word, as the composer's lock matches it (deriveSmsProtectedParts):
-  // "reply stoppage" must fail here rather than pass with nothing locked,
-  // where the opt-out instruction could then be deleted before the send.
-  if (!/reply\s+stop\b/i.test(script)) {
+  // Whole word, as deriveSmsProtectedParts matches it: "reply stoppage"
+  // must fail here rather than pass with nothing for Improve to keep.
+  // A quoted STOP ("Reply "STOP" to opt out") is the same instruction, so a
+  // person retyping the line is not held to our exact punctuation.
+  if (!/reply\s+["'“”‘’]?stop\b/i.test(script)) {
     failures.push('opt_out_line')
   }
   if (!script.includes('{first_name}')) {
     failures.push('first_name_token')
   }
-  // Whole words, as the composer's lock finds the name: "chen" inside
+  // Whole words, as deriveSmsProtectedParts finds the name: "chen" inside
   // "kitchen" is not an identification, and a verdict that accepted it
-  // would show the rule met with nothing locked to keep it met.
+  // would show the rule met with nothing for Improve to keep.
   // The full name first, then its words of 3+ letters, exactly as the lock
   // looks for it. A short name ("Al Bo") has no such words, so it must
   // appear in full: before, it passed this rule with no name in the script.
@@ -170,10 +174,11 @@ export const checkSmsStandards = (
   return { passed: failures.length === 0, failures }
 }
 
-// What a composer locks so a message cannot be edited out of compliance:
-// for each rule above, the exact text in `script` that satisfies it. It
-// lives beside `checkSmsStandards`, takes the same inputs and finds text the
-// same way, so a rule change moves the lock and the verdict together.
+// What Improve keeps word for word so a rewrite cannot take a message out of
+// compliance: for each rule above, the exact text in `script` that
+// satisfies it. It lives beside `checkSmsStandards`, takes the same inputs
+// and finds text the same way, so a rule change moves the lock and the
+// verdict together.
 //
 // Each part is the minimum its rule tests for, with one exception: the
 // paid-for-by disclaimer is the phrase AND the committee as one unit. A gap
@@ -194,10 +199,13 @@ export type SmsProtectedPart =
   | {
       // civic_panel_join is not a standards rule: no send fails for lacking
       // it. It is locked because the reply reader only recognizes JOIN on a
-      // send that carries the exact sentence.
+      // send that carries the exact sentence. civic_panel_leave is locked
+      // for the same reason one step removed: the create stamps the send as
+      // offering LEAVE only when the exact sentence is in it.
       rule:
         | Exclude<SmsStandardsRule, 'first_name_token' | 'length'>
         | 'civic_panel_join'
+        | 'civic_panel_leave'
       kind: 'phrase'
       text: string
       // Where the locked copy starts in the script. The same words can
@@ -280,7 +288,7 @@ export const deriveSmsProtectedParts = (
       // in it included ("St. Louis"). It stops short of an opt-out on the
       // same line, which is a part of its own.
       const line = /^[^\n]*/.exec(after)?.[0] ?? ''
-      const optOutAt = line.search(/\s+reply\s+stop\b/i)
+      const optOutAt = line.search(/\s+reply\s+["'“”‘’]?stop\b/i)
       const rest = (optOutAt === -1 ? line : line.slice(0, optOutAt)).trimEnd()
       return { start: index, text: phrase[0] + rest }
     }
@@ -360,11 +368,25 @@ export const deriveSmsProtectedParts = (
     }
   }
 
+  {
+    const leave = findCivicPanelLeaveLine(script)
+    if (leave) {
+      parts.push({
+        rule: 'civic_panel_leave',
+        kind: 'phrase',
+        text: leave.text,
+        start: leave.start,
+      })
+    }
+  }
+
   if (!ignored.has('opt_out_line')) {
     // The last one: the composed opt-out line closes the message, and a body
     // that mentions replying STOP earlier must not take the lock from it.
     const optOut = [
-      ...script.matchAll(/reply\s+stop\b(?:\s+to\s+opt[\s-]?out)?\.?/gi),
+      ...script.matchAll(
+        /reply\s+["'“”‘’]?stop\b["'“”‘’]?(?:\s+to\s+opt[\s-]?out)?\.?/gi,
+      ),
     ].pop()
     if (optOut) {
       parts.push({

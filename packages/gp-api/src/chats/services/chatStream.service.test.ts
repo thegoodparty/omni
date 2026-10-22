@@ -31,6 +31,7 @@ import type { ChatStoreService, PersistedSegment } from './chatStore.prisma'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import type { ChatAttachmentsService } from './chatAttachments.service'
 import type { S3Service } from '@/vendors/aws/services/s3.service'
+import type { JudgeTurnTelemetryService } from '@/judge/services/judgeTurnTelemetry.service'
 
 const DEFAULT_SYS = 'sys'
 const SAMPLE_USER = 'q'
@@ -182,6 +183,10 @@ class FakeChatStore {
   }
 
   softDeleteConversation(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  recordAssistantUsage(): Promise<void> {
     return Promise.resolve()
   }
 
@@ -383,6 +388,7 @@ const baseStreamArgs = (
     maxSteps: number
     attachmentIds: string[]
     scope: ChatScope
+    judgeSweepId: string
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -399,6 +405,9 @@ const baseStreamArgs = (
     attachmentIds: overrides.attachmentIds,
   }),
   ...(overrides.scope !== undefined && { scope: overrides.scope }),
+  ...(overrides.judgeSweepId !== undefined && {
+    judgeSweepId: overrides.judgeSweepId,
+  }),
 })
 
 const expectErrorChunk = (chunks: ChatStreamChunk[]) => {
@@ -1083,6 +1092,26 @@ describe('ChatStreamService', () => {
 
       expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
         '[Card you showed: ask_clarify_question {"question":"Which first?"}]',
+      )
+    })
+
+    it("replays the Chief of Staff's weekly time question, which has no args", async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'A plan mixes texts.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'ask_panel_weekly_time',
+            payload: {},
+          },
+        ],
+        'A plan mixes texts.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        'A plan mixes texts.\n\n[Card you showed: ask_panel_weekly_time {}]',
       )
     })
 
@@ -2933,6 +2962,138 @@ describe('ChatStreamService', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+  })
+  describe('judge turn telemetry', () => {
+    const SWEEP_ID = 'chief-of-staff-case-1-abcd1234'
+    let telemetry: { recordTurn: ReturnType<typeof vi.fn> }
+    let judged: ChatStreamService
+
+    const buildService = () =>
+      new ChatStreamService(
+        store.asService(),
+        llm as unknown as LlmService,
+        createMockLogger(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        telemetry as unknown as JudgeTurnTelemetryService,
+      )
+
+    beforeEach(() => {
+      telemetry = { recordTurn: vi.fn().mockResolvedValue(undefined) }
+      judged = buildService()
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'hello' }])
+    })
+
+    it('writes nothing for a conversation no judge owns', async () => {
+      await collect(judged.stream(baseStreamArgs()))
+
+      expect(telemetry.recordTurn).not.toHaveBeenCalled()
+    })
+
+    it('writes one row for a judge turn, naming the assistant row', async () => {
+      const chunks = await collect(
+        judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })),
+      )
+
+      const done = chunks.find((c) => c.type === 'done')
+      expect(telemetry.recordTurn).toHaveBeenCalledTimes(1)
+      expect(telemetry.recordTurn.mock.calls[0]![0]).toMatchObject({
+        sweepId: SWEEP_ID,
+        conversationId: CONVERSATION_ID,
+        assistantMessageId:
+          done?.type === 'done' ? done.assistantMessageId : undefined,
+      })
+    })
+
+    // The prompt the provider was handed, which is not args.systemPrompt: a
+    // leading assistant greeting is folded into the system message by
+    // toLlmMessages, and effectiveSystemPrompt only picks that up on a turn
+    // that also had an attachment. Hashing the handler's string would digest
+    // a prompt the model never saw.
+    it('records the system prompt as sent, greeting fold included', async () => {
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: 'I am your chief of staff.',
+      })
+
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      const recorded = telemetry.recordTurn.mock.calls[0]![0] as {
+        systemPrompt: string
+      }
+      const sent = llm.calls[0]!.options.messages[0]!
+      expect(recorded.systemPrompt).toBe(sent.content)
+      expect(recorded.systemPrompt).toContain('I am your chief of staff.')
+      expect(recorded.systemPrompt).not.toBe(DEFAULT_SYS)
+    })
+
+    it('hands over the turn tool events for the tool columns', async () => {
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'query_constituent_data',
+          input: { sql: 'SELECT 1' },
+          output: { rows: [] },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      expect(telemetry.recordTurn.mock.calls[0]![0]).toMatchObject({
+        toolEvents: [
+          expect.objectContaining({ name: 'query_constituent_data' }),
+        ],
+      })
+    })
+
+    // The index has to move between turns or the upsert overwrites, and the
+    // judge compares one arm's second turn against the other's first.
+    it('advances turnIndex as the conversation grows', async () => {
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+      await collect(judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })))
+
+      const [first, second] = telemetry.recordTurn.mock.calls.map(
+        (call) => (call[0] as { turnIndex: number }).turnIndex,
+      )
+      expect(second).toBeGreaterThan(first!)
+    })
+
+    it('writes nothing when the turn was interrupted', async () => {
+      const controller = new AbortController()
+      llm.setScript([
+        { kind: 'text', delta: 'partial' },
+        { kind: 'abortCheck' },
+      ])
+      const stream = judged.stream(
+        baseStreamArgs({
+          judgeSweepId: SWEEP_ID,
+          signal: controller.signal,
+        }),
+      )
+      const iterator = stream[Symbol.asyncIterator]()
+      await iterator.next()
+      controller.abort()
+      await iterator.return?.()
+
+      expect(telemetry.recordTurn).not.toHaveBeenCalled()
+    })
+
+    // A judge observation must never cost a user their turn.
+    it('a failed write does not fail the turn', async () => {
+      telemetry.recordTurn.mockRejectedValue(new Error('telemetry is down'))
+
+      const chunks = await collect(
+        judged.stream(baseStreamArgs({ judgeSweepId: SWEEP_ID })),
+      )
+
+      expect(chunks.some((c) => c.type === 'error')).toBe(false)
+      expect(chunks[chunks.length - 1]?.type).toBe('done')
     })
   })
 })

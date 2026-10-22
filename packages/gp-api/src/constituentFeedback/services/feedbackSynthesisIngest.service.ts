@@ -19,6 +19,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { cleanTagName, normalizeTagName } from '../util/issueTagName.util'
+import { FeedbackThemeIssueMatchService } from './feedbackThemeIssueMatch.service'
 
 type Issue = FeedbackSynthesisCompleteEvent['data']['issues'][number]
 
@@ -36,6 +37,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly analytics: AnalyticsService,
+    private readonly issueMatch: FeedbackThemeIssueMatchService,
   ) {
     super()
   }
@@ -118,6 +120,15 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       })
       if (claim.count === 0) return false
 
+      // A poll's results page reads this to say what arrived since. Any
+      // other send has no OutreachPoll row, so this matches nothing.
+      if (run.scope === SynthesisScope.effort && run.outreachId !== null) {
+        await tx.outreachPoll.updateMany({
+          where: { outreachId: run.outreachId },
+          data: { lastAnalysisAt: completedAt },
+        })
+      }
+
       const applied: Array<{ feedbackId: string; tagId: string }> = []
       const pooled = run.scope === SynthesisScope.priority
       for (const { issue, members } of themes) {
@@ -181,6 +192,24 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
       'Feedback synthesis completed',
     )
     if (written) this.trackCompleted(run, issues.length)
+    // A priority run's themes are read for their people, never their
+    // stances, so only an effort's run is matched.
+    if (written && run.scope === SynthesisScope.effort) this.matchIssues(run)
+  }
+
+  // After the commit and not awaited: the queue consumer awaits handle(),
+  // and a model call there would hold up every message behind this one.
+  // A failure leaves the run unmatched, and the report counts every issue
+  // in each theme's notes; it never fails or rolls back the run.
+  private matchIssues(run: FeedbackSynthesisRun): void {
+    void this.issueMatch
+      .matchRun(run.id)
+      .catch((err: Error) =>
+        this.logger.warn(
+          { err, runId: run.id },
+          "Theme issue matching failed; counting every issue in each theme's notes",
+        ),
+      )
   }
 
   // Attributed to whoever pressed the button, or to the org's owner when
@@ -295,7 +324,25 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
   ): Promise<string> {
     const name = cleanTagName(issue.theme)
     const normalizedName = normalizeTagName(issue.theme)
-    const existing = await tx.issueTag.findUnique({
+    // Equal timestamps mark a proposal no human has touched, which is
+    // what lets a superseding run delete it. Skipping a duplicate rather
+    // than reading first: another run in the org can insert the same name
+    // between a read and this write, and the conflict would abort the run.
+    const now = new Date()
+    const { count } = await tx.issueTag.createMany({
+      data: {
+        organizationSlug: run.organizationSlug,
+        name,
+        normalizedName,
+        status: IssueTagStatus.proposed,
+        source: IssueTagSource.synthesis,
+        proposedByRunId: run.id,
+        createdAt: now,
+        updatedAt: now,
+      },
+      skipDuplicates: true,
+    })
+    const existing = await tx.issueTag.findUniqueOrThrow({
       where: {
         organizationSlug_normalizedName: {
           organizationSlug: run.organizationSlug,
@@ -303,25 +350,7 @@ export class FeedbackSynthesisIngestService extends createPrismaBase(
         },
       },
     })
-
-    if (existing === null) {
-      // Equal timestamps mark a proposal no human has touched, which is
-      // what lets a superseding run delete it.
-      const now = new Date()
-      const created = await tx.issueTag.create({
-        data: {
-          organizationSlug: run.organizationSlug,
-          name,
-          normalizedName,
-          status: IssueTagStatus.proposed,
-          source: IssueTagSource.synthesis,
-          proposedByRunId: run.id,
-          createdAt: now,
-          updatedAt: now,
-        },
-      })
-      return created.id
-    }
+    if (count === 1) return existing.id
 
     // A person merged this name into another tag. The theme follows that
     // decision rather than reviving the merged-away name. A merge re-points

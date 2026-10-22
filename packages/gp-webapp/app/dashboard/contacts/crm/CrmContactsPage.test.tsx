@@ -263,14 +263,12 @@ describe('CrmContactsPage — data-title nav header (ENG-10747)', () => {
     expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
   })
 
-  it('reads "Constituent Data" for the Serve/elected-office path', () => {
+  it('reads "Constituents" for the Serve/elected-office path', () => {
     setContext({ isWinContext: false })
 
     render(<CrmContactsPage />)
 
-    expect(screen.getByTestId('nav-header')).toHaveTextContent(
-      'Constituent Data',
-    )
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Constituents')
   })
 
   it('renders no header until the Win/Serve context is ready (no mode-copy flash)', () => {

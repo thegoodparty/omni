@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { requireAgent } from './agents'
 import { caseDimensionsOf, loadBackgroundCases, loadCaseList } from './cases'
+import { DEFAULT_JUDGE_CONFIG } from './config'
 import { JsonValueSchema, type JsonValue } from './record'
 
 // The registry-wide check that every named list is really on disk has to span
@@ -40,6 +41,14 @@ const AUTHORED = [
 // One baseline plus seven variations. Well under gates.minCases, which is
 // deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
+
+// How many of the cases in a core-check list's CI window (its first
+// config.background.maxCases scored cases) must carry a check. All of them,
+// except opposition_research, which keeps only the one that held still
+// between identical runs.
+const CI_CHECKED_CASES: Readonly<Record<string, number>> = {
+  opposition_research: 1,
+}
 
 // THESE LISTS ARE NOT PLACEHOLDERS. Melecia's background benches, taken
 // verbatim and authored to test the agent rather than to exercise the
@@ -198,11 +207,19 @@ describe('the authored background case lists', () => {
         expect(caseDimensionsOf(one).length, one.caseId).toBeGreaterThan(0)
       }
     } else {
-      // A verdict from a list nobody has dispatched is a claim about the
-      // pipeline, not about the agent, and this flag is what carries that.
-      expect(list.placeholder).toBe(true)
-      expect(list.note).toContain('PLACEHOLDER')
+      // Synthetic inputs with core checks: not a placeholder, because the
+      // cases CI walks test the agent. Those are the first maxCases scored
+      // cases, so each of them must carry its check.
+      expect(list.placeholder).toBe(false)
+      expect(list.note).toContain('CORE CHECKS')
       expect(list.cases).toHaveLength(CASES_PER_LIST)
+      const window = loadBackgroundCases(agent)
+        .filter((c) => c.scored !== false)
+        .slice(0, DEFAULT_JUDGE_CONFIG.background.maxCases)
+      expect(window).toHaveLength(DEFAULT_JUDGE_CONFIG.background.maxCases ?? 0)
+      expect(window.filter((c) => c.handledWhen).length).toBe(
+        CI_CHECKED_CASES[agentId] ?? window.length,
+      )
     }
 
     // Ids name stored records, so a duplicate would overwrite rather than

@@ -25,6 +25,14 @@
 //     <outDir>/device-<pkg>.env for each. Exits 1, writes nothing, and never
 //     prints the token or any vended value if any step fails.
 //
+//     With ELECTION_SEED_OUT set, also downloads the local election seed to
+//     that path on the same token (best-effort: a failure only warns).
+//
+//   npx tsx scripts/setup/lib/cli.ts election-seed <clientId> <apiUrl> <outPath>
+//     Walk the device flow and download the local election seed (the slice
+//     of the dev election database `electiondb` is loaded from) to outPath.
+//     Exits 1 if no seed was fetched. Never prints the token or the URL.
+//
 //   npx tsx scripts/setup/lib/cli.ts get-var <envFilePath> <varName>
 //     Print <varName>'s parsed value from <envFilePath> (empty line if the
 //     file or the var is absent). Reuses parseEnvFile so bash never
@@ -42,6 +50,16 @@
 //     caller (setup.sh) decides how to react. Never writes anything else to
 //     stdout/stderr, so a credential can only ever reach the one line a
 //     caller explicitly captures.
+//
+//   npx tsx scripts/setup/lib/cli.ts seed-activity --org <slug>
+//   npx tsx scripts/setup/lib/cli.ts seed-activity --fixture <userState>
+//     [--answers <n>] [--split lean|even]
+//     Behind `npm run seed:activity`. Fills a local org with outreach,
+//     memos and synthesis, or mints a fresh fixture user that already has
+//     them and prints its login. --answers sets how many residents answer
+//     a Serve org's seeded priority (all of them by default) and --split
+//     even splits those answers half yes, half no. The machine secret comes from the env var
+//     above, else from packages/gp-api/.env, where setup writes it.
 import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
@@ -66,7 +84,11 @@ import {
   serializeEnvFile,
   type EnvMap,
 } from './env'
-import { runSeedLogin } from './seedLogin'
+import {
+  runSeedActivity,
+  runSeedLogin,
+  type SeedPriorityOptions,
+} from './seedLogin'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -225,6 +247,64 @@ const runSeedLoginCommand = async (
   }
 }
 
+const parseSeedPriorityOptions = (
+  args: string[],
+): SeedPriorityOptions | null => {
+  const options: SeedPriorityOptions = {}
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i]
+    const value = args[i + 1]
+    if (flag === '--answers' && value !== undefined && /^\d+$/.test(value)) {
+      options.answers = Number(value)
+    } else if (flag === '--split' && (value === 'lean' || value === 'even')) {
+      options.split = value
+    } else {
+      return null
+    }
+  }
+  return options
+}
+
+const runSeedActivityCommand = async (
+  flag: string,
+  value: string,
+  options: SeedPriorityOptions,
+) => {
+  const machineSecret =
+    process.env.LOCAL_SETUP_CLERK_MACHINE_SECRET ||
+    (readEnvFile(resolve(REPO_ROOT, 'packages/gp-api/.env'))
+      .LOCAL_SETUP_CLERK_MACHINE_SECRET ??
+      '')
+  if (flag === '--org') {
+    const result = await runSeedActivity(machineSecret, value, fetch, options)
+    if (result.kind !== 'seeded') {
+      return fail(`Seeding ${value} ${result.kind}: ${result.reason}`)
+    }
+    process.stdout.write(
+      `Seeded ${value}: ${result.efforts} efforts, ${result.memos} memos ` +
+        `across ${result.people} people. Synthesis is running.\n`,
+    )
+    return
+  }
+  const result = await runSeedLogin(machineSecret, value, fetch, true, options)
+  if (result.kind !== 'minted') {
+    return fail(`Seeded fixture ${result.kind}: ${result.reason}`)
+  }
+  // Same rule as setup.sh's login step: credentials only ever reach a
+  // terminal, never a redirected file or a CI log.
+  process.stdout.write(
+    process.stdout.isTTY
+      ? [
+          `Seeded ${value} fixture ${result.orgSlug ?? ''}`,
+          '  url       http://localhost:4000',
+          `  email     ${result.email}`,
+          `  password  ${result.password}`,
+          '',
+        ].join('\n')
+      : `Seeded ${value} fixture (credentials suppressed, non-interactive)\n`,
+  )
+}
+
 // Best-effort only: a headless runner, a Linux box, or a sandboxed `open`
 // must never fail the flow — the human can still follow the printed URL.
 const tryOpen = (uri: string): void => {
@@ -236,12 +316,10 @@ const tryOpen = (uri: string): void => {
   }
 }
 
-export const runDeviceFlow = async (
-  clientId: string,
-  apiUrl: string,
-  outDir: string,
-  packages: string[],
-) => {
+// Walks the GitHub OAuth device flow (read:org) and returns the user token,
+// or exits through fail(). The token is only ever handed to gp-api's
+// dev-env routes and is never printed or persisted.
+const acquireGithubToken = async (clientId: string): Promise<string> => {
   if (!clientId) {
     return fail(
       'GitHub OAuth App not registered yet — use --from <path>, or see ' +
@@ -263,9 +341,8 @@ export const runDeviceFlow = async (
   tryOpen(device.verification_uri)
   console.log('Waiting for you to authorize in the browser...')
 
-  let token: string
   try {
-    token = await awaitAccessToken(clientId, device, { sleep })
+    return await awaitAccessToken(clientId, device, { sleep })
   } catch (err) {
     if (err instanceof DeviceFlowExpiredError) {
       return fail(
@@ -277,6 +354,53 @@ export const runDeviceFlow = async (
     }
     return fail(`GitHub device flow failed: ${(err as Error).message}`)
   }
+}
+
+// Fetches the local election seed into outPath. Never fatal on the device
+// flow path: a missing seed costs local election data, not the rest of setup,
+// and scripts/setup/election-db.sh says how to fetch it later.
+const fetchElectionSeed = async (
+  apiUrl: string,
+  token: string,
+  outPath: string,
+): Promise<boolean> => {
+  try {
+    const { fetchElectionSeedUrl, downloadElectionSeed } =
+      await import('./devEnvBundle')
+    const url = await fetchElectionSeedUrl(apiUrl, token)
+    await downloadElectionSeed(url, outPath)
+    console.log('Fetched the local election seed')
+    return true
+  } catch (err) {
+    console.warn(
+      `Could not fetch the local election seed: ${(err as Error).message}`,
+    )
+    return false
+  }
+}
+
+export const runElectionSeedFetch = async (
+  clientId: string,
+  apiUrl: string,
+  outPath: string,
+) => {
+  let token = await acquireGithubToken(clientId)
+  try {
+    if (!(await fetchElectionSeed(apiUrl, token, outPath))) {
+      fail('No local election seed was fetched.')
+    }
+  } finally {
+    token = ''
+  }
+}
+
+export const runDeviceFlow = async (
+  clientId: string,
+  apiUrl: string,
+  outDir: string,
+  packages: string[],
+) => {
+  let token = await acquireGithubToken(clientId)
 
   try {
     const { fetchDevEnvBundles } = await import('./devEnvBundle')
@@ -313,6 +437,13 @@ export const runDeviceFlow = async (
       )
     }
     console.log(`Fetched dev env bundle for: ${packages.join(', ')}`)
+
+    // Rides along on the same token so setup never prompts twice. Set by
+    // setup.sh; absent when a caller only wants the env bundles.
+    const seedOut = process.env.ELECTION_SEED_OUT
+    if (seedOut) {
+      await fetchElectionSeed(apiUrl, token, seedOut)
+    }
   } catch (err) {
     return fail(`Could not fetch dev env bundles: ${(err as Error).message}`)
   } finally {
@@ -346,6 +477,15 @@ const main = async () => {
     await runDeviceFlow(argv[1], argv[2], argv[3], argv.slice(4))
     return
   }
+  if (
+    command === 'election-seed' &&
+    argv[1] !== undefined &&
+    argv[2] !== undefined &&
+    argv[3]
+  ) {
+    await runElectionSeedFetch(argv[1], argv[2], argv[3])
+    return
+  }
   if (command === 'get-var' && argv[1] && argv[2]) {
     runGetVar(argv[1], argv[2])
     return
@@ -360,6 +500,17 @@ const main = async () => {
     )
     return
   }
+  if (
+    command === 'seed-activity' &&
+    (argv[1] === '--org' || argv[1] === '--fixture') &&
+    argv[2]
+  ) {
+    const options = parseSeedPriorityOptions(argv.slice(3))
+    if (options !== null) {
+      await runSeedActivityCommand(argv[1], argv[2], options)
+      return
+    }
+  }
 
   fail(
     [
@@ -367,9 +518,12 @@ const main = async () => {
       '  cli.ts check <pkg> <envFilePath>',
       '  cli.ts build <pkg> <copiedEnvPath|-> <outPath> [<underEnvPath>]',
       '  cli.ts device-flow <clientId> <apiUrl> <outDir> <pkg...>',
+      '  cli.ts election-seed <clientId> <apiUrl> <outPath>',
       '  cli.ts get-var <envFilePath> <varName>',
       '  cli.ts seed-login <userState>   (secret via env var',
       '    LOCAL_SETUP_CLERK_MACHINE_SECRET; empty/unset = skip)',
+      '  cli.ts seed-activity --org <slug> | --fixture <userState>',
+      '    [--answers <n>] [--split lean|even]',
     ].join('\n'),
   )
 }

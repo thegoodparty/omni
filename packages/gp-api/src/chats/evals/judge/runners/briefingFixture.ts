@@ -1,8 +1,22 @@
 import { BriefingSchema } from '@/chats/briefing-chats/types/briefing.schema'
-import type { BriefingChatAnchor } from '@/chats/briefing-chats/services/briefingChatCreate.service'
+import {
+  JUDGE_MEETING_DATE,
+  JUDGE_MEETING_TIME,
+  STR_RECOMMENDATION,
+  WATER_WHY_IT_MATTERS,
+} from '@/testFixtures/judgeChatFixture/briefingRows'
 
-// THE BRIEFING A briefing_annotation CASE IS ASKED ABOUT, and every value
-// around it that reaches the system prompt.
+// THE BRIEFING A briefing_annotation CASE IS ASKED ABOUT — the artifact
+// itself, which is the half of the fixture that never leaves this process.
+//
+// Production reads it from S3 by the bucket and key on the MeetingBriefing
+// row; the artifact seam in chatSeam.ts serves this instead, and that seam
+// only ever runs in-process. The ROWS that name it, and the anchors that
+// point into it, are in @/testFixtures/judgeChatFixture/briefingRows, where
+// a deployed arm's seeder can reach them — src/chats/evals/** is excluded
+// from the production build. The two passage strings are imported from there
+// for the same reason the anchors are measured against them: one source, so
+// an edit cannot move the text out from under an offset.
 //
 // The meeting is the Hendersonville council meeting the briefing chat's own
 // prompt evals use (briefing-chats/evals/fixtures/hendersonvilleBriefing
@@ -16,31 +30,12 @@ import type { BriefingChatAnchor } from '@/chats/briefing-chats/services/briefin
 // same system prompt when the branch changed nothing the agent can see, or
 // every configDigest differs and the identical-config refusal is disarmed.
 
-// A bucket nothing in any deployment writes to. The artifact seam in
-// chatSeam.ts answers reads of it, and only of it.
-export const JUDGE_BRIEFING_BUCKET = 'judge-fixture-briefings'
-
-export const judgeBriefingKey = (organizationSlug: string): string =>
-  `judge-fixture/${organizationSlug}/briefing.json`
-
-export const JUDGE_MEETING_DATE = '2026-05-19'
-export const JUDGE_MEETING_TIME = '6:30 PM'
-export const JUDGE_MEETING_TIMEZONE = 'America/New_York'
-
 // THE PINNED `today`. Production renders todayInTimezone(meetingTimezone), so
 // two arms captured either side of midnight in New York would render two
 // prompts for one branch. Five days before the meeting, which is the moment
 // the prompt evals' fixture describes, and in the yyyy-MM-dd form
 // todayInTimezone returns.
 export const JUDGE_BRIEFING_TODAY = '2026-05-14'
-
-const STR_RECOMMENDATION =
-  'Approve with the sunset clause. Gets the political win and bakes in an ' +
-  'off-ramp if enforcement falters.'
-
-const WATER_WHY_IT_MATTERS =
-  'Without the study, the council will be setting rates blind during the ' +
-  'FY2027 budget. Deferring also delays a $24M revenue bond rating review.'
 
 const artifact = BriefingSchema.parse({
   version: '1.0',
@@ -225,46 +220,3 @@ const artifact = BriefingSchema.parse({
 // What the artifact seam serves. Serialized once so both arms read the same
 // bytes, which is what the prompt embeds.
 export const JUDGE_BRIEFING_ARTIFACT = JSON.stringify(artifact)
-
-// A passage anchor, located by searching rather than hand-counted, so an
-// edit to the text above moves the offsets with it instead of silently
-// highlighting the wrong words.
-const anchorOn = (
-  jsonPath: string,
-  node: string,
-  phrase: string,
-): BriefingChatAnchor => {
-  const start = node.indexOf(phrase)
-  if (start < 0) {
-    throw new Error(`"${phrase}" is not in the text at ${jsonPath}`)
-  }
-  return { jsonPath, start, end: start + phrase.length }
-}
-
-export const TOP_LEVEL_ANCHOR: BriefingChatAnchor = {
-  jsonPath: null,
-  start: null,
-  end: null,
-}
-
-// The passage a `briefingHighlight` case opens its chat on: the
-// recommendation on the short-term-rental vote.
-export const JUDGE_HIGHLIGHT_ANCHOR = anchorOn(
-  '/priorityIssues/0/detail/recommendation',
-  STR_RECOMMENDATION,
-  'Approve with the sunset clause.',
-)
-
-// The one note the seeded official has written on this briefing. A note on
-// the briefing is what registers get_my_notes, so without it a recall
-// question would measure an agent that was never given the tool.
-export const JUDGE_NOTE = {
-  anchor: anchorOn(
-    '/priorityIssues/1/detail/whyItMatters',
-    WATER_WHY_IT_MATTERS,
-    '$24M revenue bond rating review',
-  ),
-  body:
-    'Ask Pat whether deferring pushes the bond rating review past the ' +
-    'FY2027 budget vote. Leaning toward approving the study.',
-}

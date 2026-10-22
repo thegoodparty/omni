@@ -6,8 +6,16 @@ import {
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager'
 import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  NotFound,
+  S3Client,
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import {
   DEV_ENV_PACKAGE_VALUES,
   DevEnvBundleResponse,
+  DevEnvElectionSeedResponse,
   DevEnvPackage,
 } from '@goodparty_org/contracts'
 import {
@@ -27,16 +35,74 @@ const VENDING_UNAVAILABLE =
 
 const { AWS_REGION: region = 'us-west-2' } = process.env
 
+const ELECTION_SEED_UNAVAILABLE =
+  'The local election seed is not available in this environment.'
+// Written by packages/gp-api/prisma-election/seed/refresh.sh.
+export const ELECTION_SEED_KEY = 'election-seed.sql.gz'
+// Long enough to download ~50 MB on a slow connection, short enough that a
+// URL pasted somewhere it should not be is dead by the time anyone reads it.
+const ELECTION_SEED_URL_TTL_SECONDS = 15 * 60
+
 const SecretBlobSchema = z.record(z.string(), z.record(z.string(), z.string()))
 type SecretBlob = z.infer<typeof SecretBlobSchema>
 
 @Injectable()
 export class DevEnvService extends AwsService {
   private readonly secrets: SecretsManagerClient
+  private readonly s3: S3Client
 
   constructor(protected readonly logger: PinoLogger) {
     super(logger)
     this.secrets = new SecretsManagerClient({ region })
+    this.s3 = new S3Client({ region })
+  }
+
+  // The seed is restricted data (BallotReady and L2-derived aggregates), so
+  // it lives in a private dev bucket rather than this public repo, and only a
+  // verified org member gets a URL to it — the same gate as the env bundle.
+  async getElectionSeedUrl(
+    githubLogin: string | undefined,
+  ): Promise<DevEnvElectionSeedResponse> {
+    const bucket = getEnv('LOCAL_ELECTION_SEED_BUCKET')
+    if (!bucket) {
+      throw new ServiceUnavailableException(ELECTION_SEED_UNAVAILABLE)
+    }
+
+    await this.executeAwsOperation(async () => {
+      try {
+        await this.s3.send(
+          new HeadObjectCommand({ Bucket: bucket, Key: ELECTION_SEED_KEY }),
+        )
+      } catch (err) {
+        if (err instanceof NotFound) {
+          this.logger.error(
+            { bucket },
+            'Local election seed has not been uploaded',
+          )
+          throw new ServiceUnavailableException(ELECTION_SEED_UNAVAILABLE)
+        }
+        throw err
+      }
+    }, 'local election seed head')
+
+    const url = await this.executeAwsOperation(
+      () =>
+        getSignedUrl(
+          this.s3,
+          new GetObjectCommand({ Bucket: bucket, Key: ELECTION_SEED_KEY }),
+          { expiresIn: ELECTION_SEED_URL_TTL_SECONDS },
+        ),
+      'local election seed presign',
+    )
+
+    this.logger.info({ githubLogin }, 'Vended local election seed URL')
+
+    return {
+      url,
+      expiresAt: new Date(
+        Date.now() + ELECTION_SEED_URL_TTL_SECONDS * 1000,
+      ).toISOString(),
+    }
   }
 
   async getBundles(

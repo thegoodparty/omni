@@ -1,9 +1,8 @@
-import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
-
 // The one way a Serve text asks a constituent onto the official's civic
 // panel. A fixed sentence rather than composed copy, because two readers
-// depend on its exact words: the composer locks it so the ask cannot be
-// edited into something the reply reader would not recognize, and gp-api
+// depend on its exact words: the composer will not continue without it and
+// Improve keeps it word for word, so the ask cannot become something the
+// reply reader would not recognize, and gp-api
 // marks a send as asking (and so reads JOIN replies off it) only when the
 // sentence is in the message it stored.
 export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
@@ -15,7 +14,7 @@ export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join 
 
 // Every line a stored send may carry, newest first. Sends written before a
 // rewrite carry an older wording (the panel's earlier name among them), so
-// the reader and the composer's lock still recognize them; the composer only
+// the reader and Improve's masking still recognize them; the composer only
 // ever writes CIVIC_PANEL_JOIN_LINE. Never drop or edit a legacy line.
 export const CIVIC_PANEL_JOIN_LINES = [
   CIVIC_PANEL_JOIN_LINE,
@@ -36,6 +35,33 @@ export const findCivicPanelJoinLine = (
   return found
 }
 
+// The way off the panel that is not STOP. STOP ends every text from the
+// office; a member who only wants off the panel replies LEAVE and still gets
+// the office's other texts. Carried by a send that goes only to
+// panel members (isCivicPanelOnlyList), and never beside the JOIN line. The
+// reply ingest honors LEAVE from a member on any Serve send, so this line is
+// an offer, not the only door: the words matter to the composer's check and
+// to the stamp the create reads off the stored message.
+export const CIVIC_PANEL_LEAVE_KEYWORD = 'LEAVE'
+
+export const CIVIC_PANEL_LEAVE_LINE = `Reply ${CIVIC_PANEL_LEAVE_KEYWORD} to leave my civic panel.`
+
+export const findCivicPanelLeaveLine = (
+  message: string,
+): { text: string; start: number } | null => {
+  const start = message.lastIndexOf(CIVIC_PANEL_LEAVE_LINE)
+  return start === -1 ? null : { text: CIVIC_PANEL_LEAVE_LINE, start }
+}
+
+// How many civic panel lines (JOIN in any wording, or LEAVE) a message
+// carries. A send carries at most one: a second is a composer or model echo,
+// and gp-api refuses it rather than text people the same ask twice.
+export const countCivicPanelLines = (message: string): number =>
+  [...CIVIC_PANEL_JOIN_LINES, CIVIC_PANEL_LEAVE_LINE].reduce(
+    (count, line) => count + message.split(line).length - 1,
+    0,
+  )
+
 // A panelist said yes to being asked, so far more of them answer than a cold
 // text gets. The panel brief cites 40 to 52 percent on UK council panels; this
 // is the low end, until an office's own panel asks give it a measured rate.
@@ -45,24 +71,19 @@ export const PANEL_ASSUMED_REPLY_RATE = 0.4
 // brief's rotation, so the most eager members are not asked about everything.
 export const CONTACT_REST_DAYS = 30
 
-// The panel an office starts with: enough members for a read on a priority.
-export const PANEL_SEED_TARGET_MEMBERS = 100
-
 // The share of a cold text to the district that replies JOIN. An assumption
 // until offices' own seed sends give it a measured rate.
 export const PANEL_SEED_ASSUMED_JOIN_RATE = 0.03
 
-// How many residents the first panel text goes to, drawn at random from the
-// district's cell phones: 3,334, under the sampler's ceiling. A district
-// with fewer cell phones than this is texted whole.
-export const PANEL_SEED_SAMPLE_SIZE = Math.min(
-  Math.ceil(PANEL_SEED_TARGET_MEMBERS / PANEL_SEED_ASSUMED_JOIN_RATE),
-  MAX_LIST_SAMPLE_SIZE,
-)
-
-// The hidden turn the Chief of Staff home sends when the official presses Get
-// started on the build card, so the agent starts building the panel and the
+// The hidden turn the Chief of Staff home sends when the official presses Build
+// my panel on the build card, so the agent starts building the panel and the
 // transcript can leave the turn out. A fixed string: the chat hides it on
 // reload by its exact words, and gp-api titles the conversation off it.
 export const BUILD_CITIZENS_PANEL_MARKER = '[Build civic panel]'
 export const BUILD_CITIZENS_PANEL_MESSAGE = `${BUILD_CITIZENS_PANEL_MARKER} Help me build my civic panel.`
+
+// The hidden turn the home sends when the official presses What's a civic
+// panel? on the build card: the agent explains the panel and builds nothing
+// unless they say yes. Fixed for the same reasons as the build turn.
+export const EXPLAIN_CIVIC_PANEL_MARKER = '[Explain civic panel]'
+export const EXPLAIN_CIVIC_PANEL_MESSAGE = `${EXPLAIN_CIVIC_PANEL_MARKER} What is a civic panel?`

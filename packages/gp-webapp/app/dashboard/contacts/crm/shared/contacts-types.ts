@@ -7,6 +7,9 @@ import type {
   ContactStatuses,
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,
@@ -64,6 +67,9 @@ export interface SegmentResponse {
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null
+  // Serve: a list our code saved as a civic panel invite's audience. The
+  // lists index leaves it out; the built-in Civic panel row is the panel's.
+  civicPanelInvite?: boolean
   [key: string]: unknown
 }
 
@@ -119,6 +125,9 @@ export type GetConstituentIssuesResponse = {
 export type {
   ConstituentActivity,
   ConstituentActivityEvent,
+  ConstituentPriorityAnswer,
+  GetPersonPriorityAnswersResponse,
+  PersonPriorityAnswer,
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,

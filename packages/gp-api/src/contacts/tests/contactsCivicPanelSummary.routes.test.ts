@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { subDays } from 'date-fns'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import type {
-  CivicPanelRepresentation,
-  CivicPanelSummary,
-} from '@goodparty_org/contracts'
+import type { CivicPanelSummary } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
   CivicPanelStatus,
@@ -14,7 +11,6 @@ import {
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
-import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 
 const service = useTestService()
@@ -67,9 +63,6 @@ const get = <T>(path: string, slug: string) =>
 const summary = (slug: string) =>
   get<CivicPanelSummary>('/v1/contacts/civic-panel', slug)
 
-const representation = (slug: string) =>
-  get<CivicPanelRepresentation>('/v1/contacts/civic-panel/representation', slug)
-
 const flagOff = () => {
   const flag = vi
     .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
@@ -84,7 +77,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 0, reachedRecently: 0, askableNow: 0 })
+    expect(res.data).toEqual({
+      members: 0,
+      reachedRecently: 0,
+      askableNow: 0,
+      lastOutreachAt: null,
+    })
   })
 
   it('counts a member reached 10 days ago as reached and 40 days ago as askable', async () => {
@@ -106,7 +104,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 3, reachedRecently: 1, askableNow: 2 })
+    expect(res.data).toEqual({
+      members: 3,
+      reachedRecently: 1,
+      askableNow: 2,
+      lastOutreachAt: null,
+    })
   })
 
   it("does not count another office's outreach as reaching a member", async () => {
@@ -118,7 +121,12 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     const res = await summary(slug)
 
-    expect(res.data).toEqual({ members: 1, reachedRecently: 0, askableNow: 1 })
+    expect(res.data).toEqual({
+      members: 1,
+      reachedRecently: 0,
+      askableNow: 1,
+      lastOutreachAt: null,
+    })
   })
 
   it("still counts when the office's contacted set is past the list filter's cap", async () => {
@@ -141,7 +149,12 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({ members: 2, reachedRecently: 1, askableNow: 1 })
+    expect(res.data).toEqual({
+      members: 2,
+      reachedRecently: 1,
+      askableNow: 1,
+      lastOutreachAt: null,
+    })
   })
 
   it('400s for a Win org', async () => {
@@ -166,87 +179,6 @@ describe('GET /v1/contacts/civic-panel', () => {
     flagOff()
 
     const res = await summary(slug)
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-  })
-})
-
-describe('GET /v1/contacts/civic-panel/representation', () => {
-  const stubPoints = () =>
-    vi
-      .spyOn(service.app.get(ContactsService), 'pointsForPeople')
-      .mockImplementation(async (ids) => ({
-        points: ids.map((id, index) => ({
-          id,
-          lat: 35.59 + index * 0.0101234,
-          lng: -82.55 - index * 0.0101234,
-        })),
-        truncated: false,
-      }))
-
-  it('compares the members with the district', async () => {
-    const slug = await seedOrg('eo')
-    const points = stubPoints()
-    const members = Array.from({ length: 12 }, () => randomUUID())
-    for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
-    const left = randomUUID()
-    await setPanel(slug, left, CivicPanelStatus.member)
-    await setPanel(slug, left, CivicPanelStatus.left)
-
-    const res = await representation(slug)
-
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(points.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(members))
-    expect(points.mock.calls[0]?.[0]).not.toContain(left)
-    expect(res.data.representation).toMatchObject({
-      source: 'sample',
-      respondentCount: 12,
-    })
-    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
-  })
-
-  it('draws a truncated map read from the members it returned', async () => {
-    const slug = await seedOrg('eo')
-    const members = Array.from({ length: 15 }, () => randomUUID())
-    for (const id of members) await setPanel(slug, id, CivicPanelStatus.member)
-    const points = vi
-      .spyOn(service.app.get(ContactsService), 'pointsForPeople')
-      .mockImplementation(async (ids) => ({
-        points: ids.slice(0, 11).map((id, index) => ({
-          id,
-          lat: 35.59 + index * 0.0101234,
-          lng: -82.55 - index * 0.0101234,
-        })),
-        truncated: true,
-      }))
-    onTestFinished(() => points.mockRestore())
-
-    const res = await representation(slug)
-
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation?.respondentCount).toBe(11)
-    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
-  })
-
-  it('withholds the comparison below the minimum number of members', async () => {
-    const slug = await seedOrg('eo')
-    const points = stubPoints()
-    for (let i = 0; i < 3; i++) {
-      await setPanel(slug, randomUUID(), CivicPanelStatus.member)
-    }
-
-    const res = await representation(slug)
-
-    expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation).toBeNull()
-    expect(points).not.toHaveBeenCalled()
-  })
-
-  it('404s with serve-citizen-panels off', async () => {
-    const slug = await seedOrg('eo')
-    flagOff()
-
-    const res = await representation(slug)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })

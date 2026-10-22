@@ -45,7 +45,9 @@ test.describe('Navigation Menu by Org Type', () => {
 
     // The Website tab was retired with the new compliance flow (ENG-10505).
     await expect(sidebar.getByText('Website')).not.toBeVisible()
-    await expect(sidebar.getByText('Constituent Data')).not.toBeVisible()
+    await expect(
+      sidebar.getByText('Constituents', { exact: true }),
+    ).not.toBeVisible()
     await expect(sidebar.getByText('Polls')).not.toBeVisible()
   })
 
@@ -56,10 +58,13 @@ test.describe('Navigation Menu by Org Type', () => {
 
     const sidebar = page.locator('[data-sidebar="content"]')
 
-    await expect(sidebar.getByText('Constituent Data')).toBeVisible({
+    await expect(
+      sidebar.getByText('Constituents', { exact: true }),
+    ).toBeVisible({
       timeout: 10000,
     })
-    await expect(sidebar.getByText('Polls')).toBeVisible()
+    await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible()
+    await expect(sidebar.getByText('Polls', { exact: true })).not.toBeVisible()
 
     await expect(sidebar.getByText('Campaign Manager')).not.toBeVisible()
     await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()

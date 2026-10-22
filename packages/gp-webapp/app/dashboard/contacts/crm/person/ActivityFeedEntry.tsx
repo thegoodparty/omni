@@ -11,6 +11,7 @@ import {
   type WillVoteAnswer,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
+import { PriorityAnswerLine } from './PriorityAnswerLine'
 import type {
   ContactStatusField,
   DoorKnockConstituentActivity,
@@ -72,8 +73,8 @@ const FOLLOW_UP_ANSWER_LABELS: Record<FollowUpAnswer, string> = {
 // The field's own display name — a fixed title per field, not part of what
 // resolveContactStatusLabel resolves server-side (that's the fromValue/
 // toValue vocabulary, a different and larger axis). Do Not Knock is written
-// from the door rather than edited here (ADR 0007), as is Not A Voter (ADR
-// 0008), but both land in the same event log, so the feed has to name them.
+// from the door rather than edited here, as is Not A Voter, but both land
+// in the same event log, so the feed has to name them.
 const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   voter_likelihood: 'Voter Likelihood',
   support_status: 'Support Status',
@@ -135,6 +136,7 @@ export const DoorKnockActivityRow: React.FC<{
           activity.data.followUp}
       </p>
     ) : null}
+    <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
     <ActivityNote note={activity.data.note} />
     <p className="text-sm font-normal text-muted-foreground">
       {formatDateTime(activity.date)}
@@ -163,6 +165,7 @@ export const TextActivityRow: React.FC<{
         <p>Opted out {formatDateTime(activity.data.optedOutAt)}</p>
       ) : null}
     </div>
+    <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
     <ActivityNote note={activity.data.note} />
     <p className="text-sm font-normal text-muted-foreground">
       {formatDateTime(activity.date)}
@@ -254,6 +257,7 @@ export const PhoneBankingActivityRow: React.FC<{
             activity.data.followUp}
         </p>
       ) : null}
+      <PriorityAnswerLine priorityAnswer={activity.data.priorityAnswer} />
       <ActivityNote note={activity.data.note} />
       {actor ? (
         <p className="text-sm font-normal text-muted-foreground">
@@ -293,7 +297,7 @@ export const StatusChangeActivityRow: React.FC<{
     activity.data.field === 'civic_panel' && activity.data.source === 'sms'
       ? activity.data.toLabel === CIVIC_PANEL_STATUS_LABELS.member
         ? 'Joined by replying JOIN to a text'
-        : 'Left by replying STOP to a text'
+        : 'Left by replying LEAVE or STOP to a text'
       : `${actor} ${verb} ${fieldLabel} ${valueClause}`
 
   return (

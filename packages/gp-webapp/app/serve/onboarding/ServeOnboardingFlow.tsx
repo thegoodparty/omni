@@ -3,22 +3,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
-import { Check, LoaderCircle, Pencil } from 'lucide-react'
+import { LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
-import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
+import type {
+  ElectedOffice,
+  MyElectedOffice,
+  Organization,
+} from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
-import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
+import { RadioCardGroup } from 'app/onboarding/components/RadioCardGroup'
 import { WhyThisMatters } from 'app/onboarding/components/WhyThisMatters'
 import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import ServeOfficePicker from './ServeOfficePicker'
+import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
 import {
   buildDisabledRanges,
   CALENDAR_END,
@@ -36,9 +41,12 @@ import {
   buildBrSuggestionChangedPayload,
   trackServeOnboarding,
   SERVE_ONBOARDING_EVENTS,
+  SERVE_STORY_EVENTS,
   type BrPrefillSnapshot,
 } from './serveOnboardingAnalytics'
 import {
+  firstStepAfterTerm,
+  isServeStoryStep,
   resolveConfirmEntryStep,
   resolveServeBranch,
   resolveServeResumeStep,
@@ -47,30 +55,25 @@ import {
   isServeMajorParty,
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
+  SERVE_CITIZEN_PANELS_PLEDGE_BUTTON,
   SERVE_CITIZEN_PANELS_STEP_COPY,
   SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
   SERVE_STEP_COPY,
   SERVE_WELCOME_VALUE_PROPS,
   type InOfficeStatus,
+  SERVE_STORY_STEPS,
   type ServeBranch,
   type ServeStepId,
 } from './serveOnboardingConfig'
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
 
-// Steps that come after the office is saved. Leaving for one of them is when
-// community issues can start, since they need the office to search.
-const STEPS_AFTER_OFFICE: ServeStepId[] = [
-  'confirm',
-  'term-dates',
-  'constituents',
-  'priorities',
-]
-
 // The priorities step waits this long for starter issues, then shows what it
-// has. The search usually finishes while the official is on earlier steps.
-const STARTER_ISSUES_WAIT_MS = 30_000
+// has and keeps checking in the background so late issues still appear.
+const STARTER_ISSUES_WAIT_MS = 10_000
+const STARTER_ISSUES_POLL_MS = 4_000
+const STARTER_ISSUES_POLL_LIMIT_MS = 120_000
 
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
@@ -80,8 +83,12 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
   confirm: SERVE_ONBOARDING_EVENTS.ConfirmViewed,
   'term-dates': SERVE_ONBOARDING_EVENTS.TermDatesViewed,
-  constituents: SERVE_ONBOARDING_EVENTS.KnowYourConstituentsViewed,
   pledge: SERVE_ONBOARDING_EVENTS.PledgeViewed,
+  'story-represent': SERVE_STORY_EVENTS['story-represent'].viewed,
+  'story-loudest': SERVE_STORY_EVENTS['story-loudest'].viewed,
+  'story-sample': SERVE_STORY_EVENTS['story-sample'].viewed,
+  'story-grow': SERVE_STORY_EVENTS['story-grow'].viewed,
+  priorities: SERVE_ONBOARDING_EVENTS.PrioritiesViewed,
 }
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
@@ -100,6 +107,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // advancing through the net-new order.
   const [returnToConfirm, setReturnToConfirm] = useState(false)
   const [switchToCampaign, setSwitchToCampaign] = useState(false)
+  // The district story's intro plays once a session, not on every visit.
+  const [storyIntroPlayed, setStoryIntroPlayed] = useState(false)
 
   const [currentEO, setCurrentEO] = useState<ElectedOffice | null>(null)
   // Mirror of `currentEO` for synchronous reads inside async save handlers, so
@@ -119,7 +128,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [orgPositionId, setOrgPositionId] = useState<string | undefined>(
     undefined,
   )
-  const [orgState, setOrgState] = useState<string | undefined>(undefined)
+  // True once the office is on the EO org server-side, which is what the
+  // community issues search reads. A pick that is not saved yet does not count.
+  const [officeOnOrg, setOfficeOnOrg] = useState(false)
+  // The issues they ran on, carried over from their Win campaign, already give
+  // the priorities step something to offer.
+  const [hasWinIssues, setHasWinIssues] = useState(false)
   const [zip, setZip] = useState<string | undefined>(undefined)
   const [manualEntry, setManualEntry] = useState(false)
 
@@ -139,6 +153,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     new Set(),
   )
   const [otherPrioritySelected, setOtherPrioritySelected] = useState(false)
+  // When the priorities step stops checking for late starter issues.
+  const starterIssuesPollUntilRef = useRef(0)
   const [otherPriorityTitle, setOtherPriorityTitle] = useState('')
   const [otherPriorityDescription, setOtherPriorityDescription] = useState('')
   const otherPriorityComplete =
@@ -152,6 +168,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // event report `hadBrPrefill: false`. Used to diff the BR suggestion against
   // the user's final pick so we can measure how inaccurate BallotReady data is.
   const [brPrefill, setBrPrefill] = useState<BrPrefillSnapshot | null>(null)
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step, loading, switchToCampaign])
 
   useEffect(() => {
     if (!flagReady) return
@@ -173,7 +193,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         const currentEOData = currentRes.ok
           ? (currentRes.data as ElectedOffice)
           : null
-        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+        const mine = mineRes.ok ? (mineRes.data as MyElectedOffice[]) : []
         // `current` resolves only the active-slug org's office, so it 404s when
         // a campaign org is the active org. Fall back to the user's own offices
         // (preferring one whose onboarding is unfinished) before treating them
@@ -186,6 +206,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           null
         setCurrentEO(eo)
         currentEORef.current = eo
+        setHasWinIssues(
+          !!eo && !!mine.find((office) => office.id === eo.id)?.hasWinIssues,
+        )
 
         let officePrefilled = false
         let prefillPositionId: string | undefined = undefined
@@ -218,9 +241,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               prefillPositionId = org.position.brPositionId
               officePrefilled = true
             }
-            if (org.position?.state) setOrgState(org.position.state)
           }
         }
+        if (officePrefilled) setOfficeOnOrg(true)
 
         const disabledRanges = buildDisabledRanges(mine, eo?.id)
         setOtherRanges(disabledRanges)
@@ -360,6 +383,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     })
   }, [loading, step, branch, currentEO?.id])
 
+  // Research is paid. Without issues they ran on, it starts as early as it
+  // can so the priorities step has something to offer. With them, it waits
+  // until the official has said they are in office, so nobody who is still
+  // campaigning or just testing spends it.
+  const researchAllowed =
+    !hasWinIssues ||
+    (inOffice === 'in-office' && step !== 'welcome' && step !== 'inOffice')
+
   useEffect(() => {
     if (
       loading ||
@@ -370,11 +401,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       return
     }
     let cancelled = false
+    starterIssuesPollUntilRef.current =
+      Date.now() + STARTER_ISSUES_POLL_LIMIT_MS
     void (async () => {
       try {
         await ensureElectedOffice()
         const starting =
-          communityIssuesStartRef.current ?? startCommunityIssues()
+          communityIssuesStartRef.current ??
+          (researchAllowed ? startCommunityIssues() : Promise.resolve())
         await Promise.race([
           starting,
           new Promise((resolve) => setTimeout(resolve, STARTER_ISSUES_WAIT_MS)),
@@ -395,6 +429,60 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
   }, [loading, step, priorityOptions, priorityLoadFailed])
 
+  // Starter issues can land after the list first loads. Keep checking until
+  // they do, then add them without touching what the official already picked.
+  const priorityOptionsLoaded = priorityOptions !== null
+  const hasCommunityOptions =
+    priorityOptions?.some((option) => option.kind === 'community') ?? false
+  useEffect(() => {
+    if (
+      step !== 'priorities' ||
+      !priorityOptionsLoaded ||
+      hasCommunityOptions
+    ) {
+      return
+    }
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = async () => {
+      if (cancelled || Date.now() >= starterIssuesPollUntilRef.current) return
+      try {
+        const res = await clientRequest('GET /v1/priorities/onboarding', {})
+        if (cancelled) return
+        const community = res.data.options.filter(
+          (option) => option.kind === 'community',
+        )
+        if (community.length > 0) {
+          setPriorityOptions((prev) => {
+            const shown = new Set((prev ?? []).map((option) => option.key))
+            return [
+              ...(prev ?? []),
+              ...community.filter((option) => !shown.has(option.key)),
+            ]
+          })
+          setSelectedPriorityKeys((prev) => {
+            const next = new Set(prev)
+            for (const option of community) {
+              if (option.selected) next.add(option.key)
+            }
+            return next
+          })
+          return
+        }
+      } catch (err) {
+        reportErrorToSentry(err, {
+          context: 'serveOnboarding.pollStarterIssues',
+        })
+      }
+      timer = setTimeout(check, STARTER_ISSUES_POLL_MS)
+    }
+    timer = setTimeout(check, STARTER_ISSUES_POLL_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [step, priorityOptionsLoaded, hasCommunityOptions])
+
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
   // after a Back doesn't double-count them.
@@ -409,20 +497,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     (branch === 'prefill' && officeLabel !== DEFAULT_OFFICE_LABEL),
   )
 
-  // A resumed official's office is already on the org, so the search starts
-  // as soon as they land past the office step, not only after a fresh pick.
-  const officeKnown = officeIsChosen || !!orgPositionId
+  // Start the search the moment the office is on the org and research is
+  // allowed: on load for a prefill or resumed official, right after the
+  // office is saved for a net-new one.
   useEffect(() => {
-    if (
-      loading ||
-      !citizenPanels ||
-      !officeKnown ||
-      !STEPS_AFTER_OFFICE.includes(step)
-    ) {
-      return
-    }
+    if (loading || !citizenPanels || !officeOnOrg || !researchAllowed) return
     void startCommunityIssues()
-  }, [loading, citizenPanels, officeKnown, step])
+  }, [loading, citizenPanels, officeOnOrg, researchAllowed])
 
   const datesValid =
     !!termStartDate &&
@@ -442,17 +523,17 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       : officeLabel
 
   // Both the freshly-picked office id and the prefilled org position id are
-  // BallotReady position ids. The constituents step routes exclusively through
-  // orgPositionId so voter-issues / contacts-stats derive the L2 district from
-  // the EO org's position pointer (param-less) — the same path the Win flow
-  // uses — instead of campaign-scoped resolution an EO has no campaign for.
-  const constituentsPositionId = office?.positionId ?? orgPositionId
+  // BallotReady position ids. The district story routes exclusively through
+  // orgPositionId so contacts-stats derives the L2 district from the EO org's
+  // position pointer (param-less) — the same path the Win flow uses — instead
+  // of campaign-scoped resolution an EO has no campaign for.
+  const storyPositionId = office?.positionId ?? orgPositionId
 
   const progress = getServeProgress(branch, step, citizenPanels)
-  const afterConstituents: ServeStepId = citizenPanels ? 'priorities' : 'pledge'
+  const afterTerm = firstStepAfterTerm(citizenPanels)
 
   // Tracks which BR position id we've already written to the EO org so a
-  // back-and-forth through the constituents step doesn't re-PATCH needlessly.
+  // back-and-forth through the district story doesn't re-PATCH needlessly.
   const patchedOfficeRef = useRef<string | undefined>(undefined)
 
   // Create-on-first-answer: a truly net-new user has no ElectedOffice to write
@@ -551,6 +632,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           customPositionName: officeToPatch.customPositionName,
         })
         patchedOfficeRef.current = patchKey
+        setOfficeOnOrg(true)
       }
     }
     await clientRequest('PUT /v1/elected-office/:id', {
@@ -584,7 +666,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // failed save keeps the user here to retry instead of advancing silently.
   const savePrioritiesAndAdvance = async (): Promise<void> => {
     if (priorityOptions === null) return
+    const trackCompleted = () =>
+      trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PrioritiesCompleted, {
+        branch,
+        electedOfficeId: currentEO?.id,
+        shownCount: priorityOptions.length,
+        selectedCount: selectedPriorityKeys.size,
+        wroteOwn: otherPriorityComplete,
+      })
     if (priorityOptions.length === 0 && !otherPriorityComplete) {
+      trackCompleted()
       await persistAndAdvance(
         { targetStep: 'pledge' },
         () => setStep('pledge'),
@@ -614,6 +705,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       setSaving(false)
       return
     }
+    trackCompleted()
     await persistAndAdvance(
       { targetStep: 'pledge' },
       () => setStep('pledge'),
@@ -734,9 +826,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       if (electedOfficeId) {
         setCookie(ORG_SLUG_COOKIE, `eo-${electedOfficeId}`)
       }
-      window.location.href = `/post-auth-redirect?next=${encodeURIComponent(
-        '/dashboard/chief-of-staff',
-      )}`
+      const handoff = new URLSearchParams({
+        next: '/dashboard/chief-of-staff',
+      })
+      if (electedOfficeId) handoff.set('org', `eo-${electedOfficeId}`)
+      window.location.href = `/post-auth-redirect?${handoff.toString()}`
     } catch (err) {
       reportErrorToSentry(err, { context: 'serveOnboarding.persist' })
       errorSnackbar('We couldn’t save your office. Please try again.')
@@ -879,7 +973,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       }
       case 'term-dates': {
-        const target = returnToConfirm ? 'confirm' : 'constituents'
+        const target = returnToConfirm ? 'confirm' : afterTerm
         void persistAndAdvance(
           {
             targetStep: target,
@@ -888,36 +982,46 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               termEndDate: toApiDate(termEndDate),
             },
             // Carry the office pointer forward to the EO org before the
-            // constituents step (idempotent if already patched) so its
-            // org-derived voter sections can resolve a district. Skipped on the
-            // confirm detour, which only edits dates.
-            ...(target === 'constituents' ? { office: officePayload() } : {}),
+            // district story (idempotent if already patched) so its
+            // org-derived district data can resolve. Skipped on the confirm
+            // detour, which only edits dates.
+            ...(returnToConfirm ? {} : { office: officePayload() }),
           },
           // Continue is gated on valid dates here, so the confirm detour returns
           // straight to the (now satisfiable) hub via enterConfirmHub.
-          returnToConfirm ? enterConfirmHub : () => setStep('constituents'),
+          returnToConfirm ? enterConfirmHub : () => setStep(afterTerm),
           'serveOnboarding.persistTermDatesProgress',
         )
         return
       }
       case 'confirm':
         void persistAndAdvance(
-          { targetStep: 'constituents', office: officePayload() },
-          () => setStep('constituents'),
+          { targetStep: afterTerm, office: officePayload() },
+          () => setStep(afterTerm),
           'serveOnboarding.persistOfficeProgress',
         )
         return
-      case 'constituents':
-        trackServeOnboarding(
-          SERVE_ONBOARDING_EVENTS.KnowYourConstituentsCompleted,
-          { branch, electedOfficeId: currentEO?.id },
-        )
-        void persistAndAdvance(
-          { targetStep: afterConstituents },
-          () => setStep(afterConstituents),
-          'serveOnboarding.checkpoint.constituents',
+      case 'story-represent':
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow': {
+        // The story collects nothing, so it moves on at once and saves the
+        // checkpoint behind it: waiting on the save would hold the next
+        // step's motion.
+        const next =
+          SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) + 1] ?? 'priorities'
+        trackServeOnboarding(SERVE_STORY_EVENTS[step].completed, {
+          branch,
+          electedOfficeId: currentEO?.id,
+        })
+        setStep(next)
+        saveProgress({ targetStep: next }).catch((err: Error) =>
+          reportErrorToSentry(err, {
+            context: 'serveOnboarding.checkpoint.story',
+          }),
         )
         return
+      }
       case 'priorities':
         void savePrioritiesAndAdvance()
         return
@@ -960,11 +1064,16 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       case 'confirm':
         setStep('party')
         return
-      case 'constituents':
+      case 'story-represent':
         setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         return
+      case 'story-loudest':
+      case 'story-sample':
+      case 'story-grow':
+        setStep(SERVE_STORY_STEPS[SERVE_STORY_STEPS.indexOf(step) - 1]!)
+        return
       case 'priorities':
-        setStep('constituents')
+        setStep('story-grow')
         return
       case 'pledge':
         if (citizenPanels) {
@@ -974,7 +1083,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           setOtherPriorityDescription('')
           setStep('priorities')
         } else {
-          setStep('constituents')
+          setStep(branch === 'prefill' ? 'confirm' : 'term-dates')
         }
         return
       default:
@@ -1043,7 +1152,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // The current step's explainer copy. When present it renders in the right
   // rail on wide viewports and stacks below the content on narrow ones — the
   // same responsive treatment as the Win flow's "Why this matters" aside.
-  const whyThisMatters = SERVE_STEP_COPY[step].whyWeAsk
+  const whyThisMatters = isServeStoryStep(step)
+    ? undefined
+    : SERVE_STEP_COPY[step].whyWeAsk
 
   return (
     <div className="min-h-screen bg-base-surface pb-28 text-foreground">
@@ -1109,12 +1220,14 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 onChangeDates={goToDatesFromConfirm}
               />
             )}
-            {step === 'constituents' && (
-              <ConstituentsStep
-                orgPositionId={constituentsPositionId}
-                office={officeDisplayLabel}
-                city={office?.city}
-                state={office?.state ?? orgState}
+            {isServeStoryStep(step) && (
+              <DistrictStoryStep
+                step={step}
+                eoId={currentEO?.id}
+                positionId={storyPositionId}
+                place={office?.city}
+                introPlayed={storyIntroPlayed}
+                onIntroPlayed={() => setStoryIntroPlayed(true)}
               />
             )}
             {citizenPanels && step === 'priorities' && (
@@ -1167,7 +1280,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             disabled={!canContinue || saving}
             loading={saving}
           >
-            {step === 'pledge' ? 'Agree & Continue' : 'Continue'}
+            {step !== 'pledge'
+              ? 'Continue'
+              : citizenPanels
+                ? SERVE_CITIZEN_PANELS_PLEDGE_BUTTON
+                : 'Agree & Continue'}
           </Button>
         </div>
       </div>
@@ -1202,12 +1319,7 @@ const StepHeading = ({
   center?: boolean
 }): React.JSX.Element => (
   <div className={center ? 'text-center' : undefined}>
-    <h1
-      className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-      style={{ fontFamily: 'var(--font-geist)' }}
-    >
-      {title}
-    </h1>
+    <h1 className="text-4xl font-bold text-foreground sm:text-5xl">{title}</h1>
     <p className="mt-4 text-base leading-relaxed text-muted-foreground">
       {description}
     </p>
@@ -1227,13 +1339,10 @@ const WelcomeStep = ({
     : SERVE_WELCOME_VALUE_PROPS
   return (
     <div>
-      <h1
-        className="text-4xl leading-tight font-semibold tracking-tight text-foreground md:text-5xl"
-        style={{ fontFamily: 'var(--font-geist)' }}
-      >
+      <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
         {copy.title}
       </h1>
-      <p className="mt-4 text-base leading-relaxed text-muted-foreground md:text-lg">
+      <p className="mt-4 text-base leading-relaxed text-muted-foreground">
         {copy.description}
       </p>
 
@@ -1255,53 +1364,9 @@ const WelcomeStep = ({
           )
         })}
       </div>
-
-      <p className="mt-8 text-sm text-muted-foreground">
-        Ready? Hit{' '}
-        <span className="font-semibold text-foreground">Continue</span> to get
-        started.
-      </p>
     </div>
   )
 }
-
-const OptionCard = ({
-  selected,
-  title,
-  desc,
-  onClick,
-}: {
-  selected: boolean
-  title: string
-  desc: string
-  onClick: () => void
-}): React.JSX.Element => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'w-full rounded-xl border border-base-border bg-card p-5 text-left transition-all hover:border-primary/50',
-      selected && 'border-primary bg-primary/5 ring-2 ring-primary/20',
-    )}
-  >
-    <div className="flex items-start gap-3">
-      <span
-        className={cn(
-          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2',
-          selected
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-muted-foreground/40',
-        )}
-      >
-        {selected && <Check className="h-3 w-3" />}
-      </span>
-      <div>
-        <div className="font-semibold text-foreground">{title}</div>
-        <div className="mt-1 text-sm text-muted-foreground">{desc}</div>
-      </div>
-    </div>
-  </button>
-)
 
 const InOfficeStep = ({
   value,
@@ -1314,16 +1379,17 @@ const InOfficeStep = ({
   return (
     <div>
       <StepHeading title={copy.title} description={copy.description} />
-      <div className="mt-8 space-y-3">
-        {SERVE_IN_OFFICE_OPTIONS.map((option) => (
-          <OptionCard
-            key={option.value}
-            selected={value === option.value}
-            title={option.title}
-            desc={option.desc}
-            onClick={() => onChange(option.value)}
-          />
-        ))}
+      <div className="mt-8">
+        <RadioCardGroup
+          name="serve-in-office"
+          value={value ?? undefined}
+          onChange={onChange}
+          options={SERVE_IN_OFFICE_OPTIONS.map((option) => ({
+            value: option.value,
+            title: option.title,
+            description: option.desc,
+          }))}
+        />
       </div>
     </div>
   )
@@ -1345,16 +1411,17 @@ const PartyStep = ({
           <MajorPartyBlockedAlert />
         </div>
       )}
-      <div className="mt-8 space-y-3">
-        {SERVE_PARTY_OPTIONS.map((option) => (
-          <OptionCard
-            key={option.value}
-            selected={value === option.value}
-            title={option.title}
-            desc={option.desc}
-            onClick={() => onChange(option.value)}
-          />
-        ))}
+      <div className="mt-8">
+        <RadioCardGroup
+          name="serve-party"
+          value={value ?? undefined}
+          onChange={onChange}
+          options={SERVE_PARTY_OPTIONS.map((option) => ({
+            value: option.value,
+            title: option.title,
+            description: option.desc,
+          }))}
+        />
       </div>
     </div>
   )
@@ -1390,20 +1457,20 @@ const OfficeStep = ({
         {manualEntry ? (
           <div className="space-y-2">
             <Label htmlFor="custom-office">Office name</Label>
-            <input
+            <Input
               id="custom-office"
-              className="w-full rounded-md border border-base-border px-3 py-2"
               placeholder="e.g. Springfield City Council, Ward 3"
               value={customOfficeName}
               onChange={(event) => onCustomOfficeNameChange(event.target.value)}
             />
-            <button
+            <Button
               type="button"
-              className="text-sm font-medium text-primary hover:underline"
+              variant="link"
+              size="small"
               onClick={onDisableManual}
             >
               Search for my office instead
-            </button>
+            </Button>
           </div>
         ) : (
           <ServeOfficePicker
@@ -1479,14 +1546,10 @@ const ConfirmRow = ({
         {value}
       </div>
     </div>
-    <button
-      type="button"
-      onClick={onChange}
-      className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-    >
-      <Pencil className="h-3.5 w-3.5" />
+    <Button type="button" variant="link" size="small" onClick={onChange}>
+      <Pencil />
       {changeLabel}
-    </button>
+    </Button>
   </div>
 )
 
@@ -1529,57 +1592,6 @@ const ConfirmStep = ({
           />
         </div>
       </Panel>
-    </div>
-  )
-}
-
-const ConstituentsStep = ({
-  orgPositionId,
-  office,
-  city,
-  state,
-}: {
-  orgPositionId?: string
-  office: string
-  city?: string
-  state?: string
-}): React.JSX.Element => {
-  const copy = SERVE_STEP_COPY.constituents
-  // The local-news endpoint requires a 2-letter state code (the query schema
-  // rejects anything else with a 400). Only enable the section when we have a
-  // valid code so a missing/full-name state never fires a doomed request.
-  const hasValidState = /^[A-Za-z]{2}$/.test(state ?? '')
-  return (
-    <div>
-      <h1
-        className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-        style={{ fontFamily: 'var(--font-geist)' }}
-      >
-        {copy.title}
-      </h1>
-      <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-        We crunch constituent data and local news to prioritize the most
-        important issues for{' '}
-        <span className="font-semibold text-foreground">{office}</span>.
-      </p>
-
-      <div className="mt-8">
-        {/* Reuse the Win flow's demographics step, but override its
-            candidate-facing "voter" copy with constituent wording for the
-            elected-official audience. Defaults keep the Win flow unchanged. */}
-        <VoterDemographicsStep
-          orgPositionId={orgPositionId}
-          office={office}
-          city={city}
-          state={state}
-          showLocalNewsSources={hasValidState}
-          demographicsHeading="Constituent Demographics"
-          totalLabel="Total Constituents"
-          ageDistributionDescription="We'll help you tailor your outreach mix to each age group — leaning into SMS and social for younger constituents, and prioritizing mail and door-knocks for older ones."
-          topIssuesHeading="Top issues for your constituents"
-          topIssuesDescription="The issues constituents in your district care about most right now."
-        />
-      </div>
     </div>
   )
 }
@@ -1754,10 +1766,7 @@ const PledgeStep = ({
       <StepHeading title={copy.title} description={copy.description} />
 
       <Panel className="mt-8 p-6 sm:p-8">
-        <h2
-          className="mb-6 text-xl font-semibold text-foreground"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
+        <h2 className="mb-6 text-2xl leading-[1.08] font-bold text-foreground sm:text-3xl">
           I pledge to be...
         </h2>
         <div className="space-y-6">
@@ -1767,10 +1776,7 @@ const PledgeStep = ({
               <div key={commitment.title}>
                 <div className="flex items-center gap-2">
                   <Icon className="h-5 w-5 text-foreground" />
-                  <h3
-                    className="text-lg font-semibold text-foreground"
-                    style={{ fontFamily: 'var(--font-geist)' }}
-                  >
+                  <h3 className="text-xl font-semibold text-foreground">
                     {commitment.title}
                   </h3>
                 </div>
@@ -1819,16 +1825,12 @@ const SwitchToCampaignStep = ({
   return (
     <>
       <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
-        <h1
-          className="text-3xl leading-tight font-semibold tracking-tight text-foreground md:text-4xl"
-          style={{ fontFamily: 'var(--font-geist)' }}
-        >
-          Let&apos;s switch you to campaign mode
+        <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
+          Let&apos;s get you set up for your campaign
         </h1>
         <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-          The elected-official experience is built for sitting officials. Since
-          you&apos;re still campaigning, we&apos;ll set you up with a winning
-          campaign plan instead.
+          This part of GoodParty.org is for officials already in office, so
+          we&apos;ll take you to the campaign tools.
         </p>
       </main>
 

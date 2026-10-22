@@ -208,9 +208,10 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
-      voterStatus: ['Super', 'Likely'],
       independentAffinity: true,
       hasCellPhone: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
     })
   })
 
@@ -233,9 +234,10 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
-      voterStatus: ['Super', 'Likely'],
       ideologyConservative: true,
       hasCellPhone: true,
+      earlyVoteVeryLikely: true,
+      earlyVoteLikely: true,
     })
   })
 
@@ -277,8 +279,6 @@ describe('buildVariantFilter propensity band by electorate', () => {
     'persuadeAffinity',
     'persuadeIdeology',
     'persuadeUndecided',
-    'earlyVoteAffinity',
-    'earlyVoteIdeology',
   ] as const
 
   const OFF_CYCLE = [

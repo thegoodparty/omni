@@ -1,6 +1,6 @@
 # Contracts package (`@goodparty_org/contracts`)
 
-Shared Zod schemas and TypeScript types consumed by `gp-api`, `gp-sdk`, and other clients. Source lives in `packages/contracts` as an npm workspace. Builds via `tsup`.
+Shared Zod schemas and TypeScript types consumed by `gp-api`, `gp-webapp`, `gp-admin`, and other clients. Source lives in `packages/contracts` as an npm workspace. Builds via `tsup`.
 
 ## When you change a contract
 
@@ -19,15 +19,6 @@ Enums are re-exported from `packages/contracts/src/generated/enums.ts`. After ed
 npm run generate:prisma:gp-api
 npm run build -w packages/contracts
 ```
-
-## Local linking against gp-sdk
-
-```bash
-npm run build -w packages/contracts
-npm run build -w packages/gp-sdk
-```
-
-The monorepo links `@goodparty_org/contracts` into `gp-sdk` automatically through npm workspaces.
 
 ## Known gap
 

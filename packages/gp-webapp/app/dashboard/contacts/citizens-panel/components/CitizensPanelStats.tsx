@@ -3,7 +3,7 @@ import type { CivicPanelSummary } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { numberFormatter } from 'helpers/numberHelper'
 import {
-  CHIEF_OF_STAFF_PATH,
+  civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 
@@ -50,7 +50,7 @@ export const CitizensPanelEmpty = () => (
       <span className="text-muted-foreground">{COPY.emptyAction}</span>
     </p>
     <Button asChild size="small" variant="outline">
-      <Link href={CHIEF_OF_STAFF_PATH}>{COPY.buildPanel}</Link>
+      <Link href={civicPanelHref('contacts')}>{COPY.buildPanel}</Link>
     </Button>
   </Card>
 )

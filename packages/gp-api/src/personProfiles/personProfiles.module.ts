@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
-import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { PersonsModule } from '@/electionDb/persons/persons.module'
+import { PersonMergesModule } from '@/electionDb/personMerges/personMerges.module'
 import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectionsModule } from '@/elections/elections.module'
@@ -19,6 +20,7 @@ import { VoterDensityProxyService } from './services/voter-density-proxy.service
 import { PersonIdBackfillService } from './services/person-id-backfill.service'
 import { PersonIdReconcileService } from './services/person-id-reconcile.service'
 import { PersonLookupService } from './services/person-lookup.service'
+import { PublicProfileAddressService } from './services/public-profile-address.service'
 import { VoterDensityRateLimitGuard } from './guards/voterDensityRateLimit.guard'
 import { PERSON_PROFILES_DATABRICKS } from './personProfiles.constants'
 
@@ -43,9 +45,11 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
 // CronModule provides the daily-run lock for the reconcile backstop; CrmModule
 // provides the HubSpot client for the claim-request counter; SegmentModule
 // provides the track() that carries a claim request to the CRM as an event;
-// ClerkModule provides ElectionApiTokenService so VoterDensityProxyService and
-// PersonLookupService can authenticate their election-api reads. UsersService is
-// global, so no explicit UsersModule import is needed for the User write.
+// PersonsModule provides the election-db PersonsService that VoterDensityProxy
+// and PersonLookup read the civics spine through, and PersonMergesModule the
+// merge records the drift sweep falls back on (ElectionDbModule is global,
+// but feature modules are not). UsersService is global, so no explicit
+// UsersModule import is needed for the User write.
 @Module({
   imports: [
     HttpModule,
@@ -54,7 +58,8 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     CronModule,
     CrmModule,
     ElectionsModule,
-    ClerkModule,
+    PersonsModule,
+    PersonMergesModule,
     SegmentModule,
   ],
   controllers: [PublicPersonProfilesController, PersonProfilesController],
@@ -66,12 +71,17 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     PersonIdBackfillService,
     PersonIdReconcileService,
     PersonLookupService,
+    PublicProfileAddressService,
     VoterDensityRateLimitGuard,
     {
       provide: PERSON_PROFILES_DATABRICKS,
       useFactory: serveDatabricksProviderFactory,
     },
   ],
-  exports: [PersonProfilesService, MarketingRevalidationService],
+  exports: [
+    PersonProfilesService,
+    MarketingRevalidationService,
+    PublicProfileAddressService,
+  ],
 })
 export class PersonProfilesModule {}

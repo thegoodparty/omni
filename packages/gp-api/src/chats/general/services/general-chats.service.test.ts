@@ -1,7 +1,10 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
-import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import type {
   ChatStreamChunk,
   FinalizeTurn,
@@ -309,40 +312,43 @@ describe('GeneralChatsService', () => {
     },
   )
 
-  it("titles the build card's hidden turn by what it does, not its marker", async () => {
-    store = buildStore({
-      findOwnedConversation: vi.fn(() =>
-        Promise.resolve({ id: 'c1', title: null }),
-      ) as never,
-    })
-    const chatStream = {
-      stream: vi.fn(() => ({
-        [Symbol.asyncIterator]: async function* () {
-          yield { type: 'done' } as ChatStreamChunk
-        },
-      })),
-    }
-    const service = new GeneralChatsService(
-      buildRegistry(handler),
-      store,
-      {} as never,
-      chatStream as never,
-      {} as never,
-    )
-    await collect(
-      service.sendMessage({
-        conversationId: 'c1',
-        scope: SCOPE,
-        userId: USER_ID,
-        organizationSlug: ORG,
-        userMessage: BUILD_CITIZENS_PANEL_MESSAGE,
-      }),
-    )
-    expect(store.setTitleIfUnset).toHaveBeenCalledWith(
-      'c1',
-      'Build your civic panel',
-    )
-  })
+  it.each([
+    [BUILD_CITIZENS_PANEL_MESSAGE, 'Build your civic panel'],
+    [EXPLAIN_CIVIC_PANEL_MESSAGE, "What's a civic panel?"],
+  ])(
+    "titles the build card's hidden turn %s by what it does",
+    async (userMessage, title) => {
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const chatStream = {
+        stream: vi.fn(() => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        })),
+      }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        {} as never,
+        chatStream as never,
+        {} as never,
+      )
+      await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage,
+        }),
+      )
+      expect(store.setTitleIfUnset).toHaveBeenCalledWith('c1', title)
+    },
+  )
 
   it('adds what the handler says about the page, for that turn only', async () => {
     const describePage = vi.fn((path: string) =>
@@ -647,6 +653,8 @@ describe('GeneralChatsService', () => {
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
       expect(chatStream.stream).not.toHaveBeenCalled()
       expect(store.setTitleIfUnset).not.toHaveBeenCalled()
@@ -709,12 +717,16 @@ describe('GeneralChatsService', () => {
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
       expect(chatStore.appendMessage).toHaveBeenNthCalledWith(2, {
         conversationId: 'c1',
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
         clientMessageId: 'client-1:assistant',
+        inputTokens: 0,
+        outputTokens: 0,
       })
     },
   )

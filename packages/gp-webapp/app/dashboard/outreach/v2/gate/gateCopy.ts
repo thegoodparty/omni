@@ -1,3 +1,5 @@
+import { SMS_CUTOFF_COPY } from 'app/dashboard/campaign-verification/verificationCopy'
+
 // Shared copy for the Pro-and-verification "gate" that blocks an outreach
 // channel until the candidate upgrades (and, for texting, also verifies their
 // campaign). Verbatim from the 2026-09-21 design export; do not rewrite the
@@ -49,6 +51,20 @@ export const PRO_COPY: Record<
       'A script for every call, and a place to log the answer',
     ],
   },
+}
+
+// The sms pitch once texting has closed for the race: Pro can no longer
+// unlock texting, so it sells the channels that still reach voters.
+export const PRO_COPY_SMS_CLOSED: {
+  headline: string
+  bullets: [string, string, string]
+} = {
+  headline: 'Unlock voter data, robocalls and door knocking',
+  bullets: [
+    '$10 per month, cancel anytime',
+    'Voter data to find the voters who matter most',
+    'Robocalls, phone banking and door knocking',
+  ],
 }
 
 // The collapsible verification card inside ProPitchPanel (design:
@@ -106,13 +122,14 @@ export const RESUME_COPY: Record<
 // keeps no dependency on the hook; indexing it with a requirement is what
 // catches drift.
 export const REVIEW_GATE_CTA: Record<
-  'pro' | 'verify' | 'in_review' | 'pin',
+  'pro' | 'verify' | 'in_review' | 'pin' | 'closed',
   string
 > = {
   pro: 'Save draft',
   verify: 'Start verification',
   in_review: 'Save draft',
   pin: 'Enter your PIN',
+  closed: SMS_CUTOFF_COPY.closedLabel,
 }
 
 export const BANNER_COPY = {
@@ -126,6 +143,7 @@ export const BANNER_COPY = {
   door: 'Pro is needed to see voter names and addresses on this route.',
   phoneBank: 'Pro is needed to see voter names and phone numbers on this list.',
   robocall: 'Pro is needed before this call can go out.',
+  closed: SMS_CUTOFF_COPY.closedLabel,
 }
 
 export const EXPLAINER_COPY = {

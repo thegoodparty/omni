@@ -4,6 +4,7 @@ import { ServeSmsPurposeSchema } from './OutreachPurpose.schema'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
 import { ProposalLinkSchema } from '../chats/ChatCard.schema'
+import { MAX_LIST_SAMPLE_SIZE } from '../people/ListSample.schema'
 
 // Serve SMS: texting for elected officials. Fulfilled by the shared delivery
 // layer (CSV to Slack today, a vendor later), never by Peerly — an elected
@@ -33,13 +34,41 @@ export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
 // --- Create --------------------------------------------------------------
 
 // Draft-first, like the Win p2p flow: the row is persisted `pending_payment`
-// before checkout, because the composed message can reach 1000 characters and
+// before checkout, because the composed message can reach 2000 characters and
 // Stripe metadata caps a value at 500, so the poll pattern of carrying content
 // through checkout metadata cannot work here.
 //
 // No scheduledLocalTime. Serve sends at a fixed 11am local, matching what
 // polls already ships, so the time is a constant rather than a choice — see
 // docs/features/serve-sms.md, "Send timing".
+// A priority's round 2 is drawn this many business days before its send
+// date: the last day a Serve text for that date can still be booked (more
+// than 2 business days out), so staff keep their usual lead. Its send date
+// has to be later than this from today.
+export const ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS = 3
+
+// A priority's text is one purchase sent in two rounds: this share goes out
+// at random on the chosen date, and the rest is held as a follow-up, drawn
+// once replies are in toward the groups heard from least. Half keeps round 1
+// large enough to show which groups lag and round 2 large enough to steer;
+// the gain is flat across 40 to 60%, so tune it once answer rates are in.
+export const ROUND_ONE_TEXT_SHARE = 0.5
+// The follow-up goes out this many business days (two weeks) after round 1:
+// replies come in over three, and its draw is three before it sends.
+export const FOLLOW_UP_BUSINESS_DAYS = 10
+// Neither round goes below a Serve text's own minimum, so a small purchase
+// goes out whole in round 1.
+export const MIN_TEXTS_PER_ROUND = 25
+
+export const splitPriorityText = (
+  total: number,
+): { now: number; followUp: number } => {
+  const now = Math.ceil(total * ROUND_ONE_TEXT_SHARE)
+  return total - now < MIN_TEXTS_PER_ROUND || now < MIN_TEXTS_PER_ROUND
+    ? { now: total, followUp: 0 }
+    : { now, followUp: total - now }
+}
+
 export const ServeSmsCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
@@ -55,6 +84,16 @@ export const ServeSmsCreateRequestSchema = z
     // The earlier text this one reports back on. It marks the send as a
     // report back rather than a new ask, and is how its card is completed.
     reportBackForOutreachId: z.number().int().positive().optional(),
+    // A priority's follow-up: this many more texts paid for in the same
+    // checkout, sent FOLLOW_UP_BUSINESS_DAYS after this one and drawn a few
+    // business days before, from the same criteria, toward the groups the
+    // priority's answers say least about. Needs the priority it belongs to.
+    roundTwoSize: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_LIST_SAMPLE_SIZE)
+      .optional(),
   })
   .extend(ProposalLinkSchema.shape)
 export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>
@@ -66,6 +105,15 @@ export const ServeSmsCreateResponseSchema = z.object({
   recipientCount: z.number().int().nonnegative(),
   excludedOptedOutCount: z.number().int().nonnegative(),
   excludedDuplicateCount: z.number().int().nonnegative(),
+  // The follow-up held from the same purchase, priced with this one. Absent
+  // when none was asked for or the pool left too few to send one.
+  followUp: z
+    .object({
+      outreachId: z.number().int().positive(),
+      recipientCount: z.number().int().nonnegative(),
+      scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })
+    .optional(),
 })
 export type ServeSmsCreateResponse = z.infer<
   typeof ServeSmsCreateResponseSchema

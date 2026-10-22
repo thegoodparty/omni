@@ -4,6 +4,7 @@ import { DomainsController } from './controllers/domains.controller'
 import { DomainsService } from './services/domains.service'
 import { WebsitesService } from './services/websites.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { VercelModule } from 'src/vendors/vercel/vercel.module'
 import { WebsitesController } from './controllers/websites.controller'
 import { PaymentsModule } from 'src/payments/payments.module'
@@ -26,6 +27,7 @@ import { WebsiteTrackViewRateLimitGuard } from './guards/websiteTrackViewRateLim
     HttpModule,
     AwsModule,
     VercelModule,
+    VendorMocksModule,
     ForwardEmailModule,
     PaymentsModule,
     UsersModule,

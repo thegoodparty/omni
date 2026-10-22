@@ -94,6 +94,41 @@ describe('getHistoryStatusLabel — draft rows read the next step from membershi
     ).toBe('Ready to schedule')
   })
 
+  it('labels a texting draft Texting closed once the window closes, free or Pro', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'free', texting: 'closed' }),
+      ),
+    ).toBe('Texting closed')
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'closed' }),
+      ),
+    ).toBe('Texting closed')
+  })
+
+  it('keeps a robocall draft on its own label when texting is closed', () => {
+    const draftRobocallRow = {
+      id: 2,
+      outreachType: 'robocall',
+      status: 'draft',
+    } as HistoryRow
+    expect(
+      getHistoryStatusLabel(
+        draftRobocallRow,
+        membership({ tier: 'free', texting: 'closed' }),
+      ),
+    ).toBe('Pro needed')
+    expect(
+      getHistoryStatusLabel(
+        draftRobocallRow,
+        membership({ tier: 'pro', texting: 'closed' }),
+      ),
+    ).toBe('Ready to schedule')
+  })
+
   it('does not assume Pro needed when no membership is passed', () => {
     expect(getHistoryStatusLabel(draftP2pRow, null)).toBeNull()
     expect(getHistoryStatusLabel(draftP2pRow)).toBeNull()
@@ -330,5 +365,63 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
         true,
       ),
     ).toBe('Canceled')
+  })
+})
+
+describe('getHistoryStatusLabel — a Serve poll', () => {
+  const pollRow = (status: HistoryRow['status']): HistoryRow =>
+    ({ id: 9, outreachType: 'poll', status }) as HistoryRow
+
+  it('reads In review while held, In progress once delivering', () => {
+    expect(getHistoryStatusLabel(pollRow('pending'), null, true)).toBe(
+      'In review',
+    )
+    expect(getHistoryStatusLabel(pollRow('in_progress'), null, true)).toBe(
+      'In progress',
+    )
+  })
+})
+
+describe('getHistoryStatusLabel — a priority text follow-up', () => {
+  const followUp = (
+    status: HistoryRow['status'],
+    sampledAt: string | null,
+  ): HistoryRow =>
+    ({
+      id: 9,
+      outreachType: 'text',
+      phoneListId: null,
+      status,
+      roundOneOutreachId: 4,
+      voterFileFilter: { sampleSize: 300, sampledAt },
+    }) as HistoryRow
+
+  it('is a Draft until its recipients are picked, never In review', () => {
+    expect(getHistoryStatusLabel(followUp('pending', null), null, true)).toBe(
+      'Draft',
+    )
+  })
+
+  it('is Scheduled once its recipients are picked', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('pending', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('reads from its own status after that, like any Serve text', () => {
+    expect(
+      getHistoryStatusLabel(
+        followUp('in_progress', '2026-11-04T11:00:00.000Z'),
+        null,
+        true,
+      ),
+    ).toBe('In progress')
+    expect(getHistoryStatusLabel(followUp('canceled', null), null, true)).toBe(
+      'Canceled',
+    )
   })
 })

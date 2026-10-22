@@ -47,9 +47,9 @@ test.describe('Chief of Staff', () => {
 
     // A fresh elected office has no briefing yet, so the only cards present are
     // the static get-started onboarding cards (briefing task cards need the
-    // async pipeline). The "meet" card is active until the user chats, which
-    // this isolated user has not done.
-    const cardTitle = 'Meet your virtual chief of staff'
+    // async pipeline). The "meet" card leads the stack until the user opens
+    // or skips it, which this isolated user has not done.
+    const cardTitle = 'Get the staff your office never had'
     const homeCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: cardTitle })
@@ -74,6 +74,7 @@ test.describe('Chief of Staff', () => {
     // reports itself on.
     const skippedPill = page.locator('[data-value="skipped"]')
     await expect(async () => {
+      if ((await skippedPill.getAttribute('data-state')) === 'on') return
       await skippedPill.click()
       await expect(skippedPill).toHaveAttribute('data-state', 'on', {
         timeout: 2_000,
@@ -211,6 +212,7 @@ test.describe('Chief of Staff', () => {
       // is a no-op, and nothing about the DOM says whether it has.
       const composer = page.getByRole('textbox', { name: 'Ask a question' })
       await expect(async () => {
+        if (await composer.isVisible()) return
         await page
           .getByRole('button', { name: 'Open Chief of Staff chat' })
           .click({ timeout: 5_000 })

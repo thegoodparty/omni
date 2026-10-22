@@ -8,6 +8,7 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 |------|------|
 | `page.tsx` | Polls list — `PollsPage` + `PollsTable` |
 | `create/` | Multi-step poll creation flow |
+| `results/[outreachId]/` | Results page for a self-serve poll (an outreach row, not a legacy `Poll`). The UI lives in `outreach/v2/poll/results/`; Gather more feedback in `outreach/v2/poll/gather/`. Polls-list rows for outreach polls link here |
 | `[id]/` | Poll detail + extension flows (`expand/`, `expand-payment/`, `expand-payment-success/`, `expand-review/`, `issue/`) |
 | `components/` | List-page widgets (`PollPreview`, `PollImageUpload`, `StatusBadge`, scheduled-date selector) |
 | `shared/components/` + `shared/hooks/` | Reused across create + detail (form fields, validation hooks) |
@@ -34,3 +35,5 @@ Custom polling. Campaigns commission AI-assisted polls of their district, pay (S
 
 - `app/polls/` — public poll-share pages.
 - `app/shared/inputs/` — generic form inputs the create flow uses.
+- **The results page never recomputes anything the server owns.** Confidence, the 20-response floor and theme ranking arrive from `poll-results`. It refetches every 15s only while the poll is in progress or a run is in flight (`pollRefetchInterval`). A reply is marked read only when opened, never on render.
+- **Gather more feedback has no Back off review.** The expansion row is written when the official leaves "when", and an unpaid one holds the next off (gp-api answers 409), so editing the size after that would meet its own leftover.

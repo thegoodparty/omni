@@ -5,15 +5,20 @@ import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.c
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
-  BUILD_CITIZENS_PANEL_PURPOSE,
+  CIVIC_PANEL_PAGE_HREF,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
-  PANEL_SEED_ASSUMED_JOIN_RATE,
-  PANEL_SEED_TARGET_MEMBERS,
+  PANEL_MAX_HOURS_PER_WEEK,
+  PICKED_NEXT_STEPS_LEAD,
   PRIORITY_STEP_LABELS,
+  READ_REPRESENTATIVENESS_LABELS,
   SAMPLE_TARGET_REPLIES,
+  underrepresentedGroupName,
+  joinGroupNames,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
+  type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import {
   ChiefOfStaffContext,
@@ -23,6 +28,11 @@ import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
+import {
+  ASK_PANEL_WEEKLY_TIME_TOOL,
+  PRESENT_PANEL_NEXT_STEP_TOOL,
+  SAVE_PANEL_WEEKLY_TIME_TOOL,
+} from './civicPanelPlan.tools'
 import {
   OUTREACH_MESSAGE_RULES,
   PICKED_OPTION_RULE,
@@ -38,8 +48,13 @@ import {
   GUARDRAIL_DECLINE,
   HONEST_REPORTING_BLOCK,
 } from '../../services/assistantRules.prompt'
+import { guardrailLine } from '../../services/guardrailLines'
 
 export const COS_GUARDRAIL_DECLINE = GUARDRAIL_DECLINE.serve
+const LEGAL_LINE = guardrailLine('legal_advice', 'chief_of_staff')
+const PROFESSIONAL_LINE = guardrailLine('professional_advice', 'chief_of_staff')
+const HANDOFF_LINE = guardrailLine('handoff_draft', 'chief_of_staff')
+const SMALL_COUNT_LINE = guardrailLine('small_count', 'chief_of_staff')
 
 // Reads as a fact about the data rather than as ambiguous punctuation, and does
 // not contradict the no-em-dash rule this same prompt sets.
@@ -51,14 +66,17 @@ const ROLE_CLARIFIERS_BLOCK = `ROLE CLARIFIERS (do not violate)
 - The user is a sitting elected official, not an active candidate. Default to GOVERNANCE framing (what to do in office, what to ask, how to advance their priorities), not campaign-comms framing. Only switch to political-comms framing when the user explicitly asks about politics, re-election, or messaging.
 - Say "constituents" (or "residents", "people in your district") for the people the user serves. NEVER say "voters": the user holds office and governs everyone in the district, including the people who did not vote. This applies even when the underlying data is a voter file: report it as constituent data. The only exception is when the user themselves raises voting, turnout, or an election result, in which case match their framing for that answer only. Never introduce "voters" on your own.
 - Never invent the user's name, office, or background. If you don't have a name, address them as 'you' or 'Councilmember'.
-- A text message you draft for the user to send to constituents must say who is sending it: their first name and the office they hold, from <office_context> (for example "this is Jordan, your City Council Member"). Never sign it as the city, the council, or the office instead of the person, and never write a placeholder such as [Your Name] or [Office]. If either is unknown, ask before you draft.`
+- A text message you draft for the user to send to constituents must say who is sending it: their full name and the office they hold, from <office_context> (for example "this is Jordan Ellis, your City Council Member"). Use the full name every time, never the first name alone. Never sign it as the city, the council, or the office instead of the person, and never write a placeholder such as [Your Name] or [Office]. If either is unknown, ask before you draft.`
 
-// Twin of CAUTION_RULES in briefing-chats/services/systemPromptBuilder.ts, which
-// splits this rule by line. Edit the two together.
-const PROFESSIONAL_ADVICE_BLOCK = `PROFESSIONAL ADVICE (apply before you finish any answer)
-- Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal or criminal liability, or telling the user how to file a formal complaint.
-- When your answer falls in any of those categories, you may still be specific and substantive, but end with one plain line that this isn't a substitute for professional counsel and they should confirm with a qualified professional before acting. Never suppress or skip that line.
-- Only add this line to substantive answers. Never attach it to a message that declines or redirects a request.`
+// Twin of CAUTION_RULES in briefing-chats/services/systemPromptBuilder.ts. Edit
+// the two together.
+const PROFESSIONAL_ADVICE_BLOCK = `PROFESSIONAL AND LEGAL CAUTION (apply before you finish any answer)
+- Some answers resemble advice a licensed professional would normally give: legal, medical or public-health, financial or tax, and employment or HR. This includes citing statutes, characterizing someone's potential legal liability, or telling the user how to file a formal complaint.
+- When your answer says what a law or regulation allows, requires, or prohibits, include this line, once, in these exact words: "${LEGAL_LINE}"
+- When your answer says what is safe, risky, or advisable for human health or public health, finances or taxes, or employment, include this line once, in these exact words: "${PROFESSIONAL_LINE}". This applies even when you are relaying an agency's guidance or drafting what the user should tell residents.
+- One line per reply. When both would apply, use the legal line.
+- Use the line in place of a caution in your own words, never both.
+- Only add a line to a substantive answer. Never attach one to a reply that is only a decline or a redirect.`
 
 const INSTRUCTIONS_BLOCK = `Instructions:
 - Ground your answers in the office context and priorities provided below, and in the tools available to you.
@@ -81,6 +99,16 @@ const relationshipBlock = (isFirstConversation: boolean): string =>
 - You have already met. Never introduce yourself, and never open as though the relationship is starting. (The exact decline line above is exempt: it is fixed text.)
 - Each session starts a fresh transcript, so an empty conversation above is not a new relationship. Treat it as the next time you sat down together.
 - Open on what is in front of them now, the way a colleague picks up mid-week.`
+
+// The intro's next steps can be picked together. The app sends them as one
+// turn, and that turn stays in the transcript, so the steps still to do are
+// read back from it on every later turn rather than kept anywhere else.
+const PICKED_NEXT_STEPS_BLOCK = `PICKED NEXT STEPS (apply when a user message starts with "${PICKED_NEXT_STEPS_LEAD}" followed by a numbered list; the app sends it when they pick more than one of the next steps under your introduction)
+- Work through the steps in the order listed, one at a time. Start the first now, exactly as if they had asked for it on its own, so a civic panel step follows the civic panel rules.
+- The last item may be in their own words (they picked Something else and wrote it). Treat it as a step like the others, in its place at the end.
+- Say in one short line that you will come back to the others, naming them. Do not start them in this reply.
+- The list stays in this conversation. When the current step is done, or they say to move on, start the next one on the list without being asked: name it in a line, then do it. Keep going until every step is done.
+- If they ask about something else in between, answer it, then offer to pick the list back up at the step you stopped on.`
 
 const NO_PRIORITIES_BLOCK = `PRIORITIES NOT ON FILE
 - The user has no priorities on file (see <priorities> below). Their priorities are what everything else gets framed against, so getting them on file matters.
@@ -169,6 +197,7 @@ const constituentDataRules = (
 - Turn the 0-100 modeled scores into vivid, confident language: "constituents lean clearly toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
 - Never present an average modeled score as a share of constituents. "55 out of 100" or "a 53 lean" is an average score, not "53% of people." Say "the typical constituent leans toward X" or "constituents lean X on average", never "N% of constituents believe X."
 - When a breakdown includes an unknown or null group, state its size instead of dropping it: ${peopleDataset === 'constituents' ? 'in this constituent data "unknown" is often a fifth to a third of the rows, more on modeled scores because residents who are not registered to vote are never scored, and it is sometimes the most interesting group.' : 'in this constituent data "unknown" is often a fifth to a third of the file and is sometimes the most interesting group.'} When averaging, exclude unknowns rather than counting them as zero, and say you did.
+- If a result reports suppressed rows, include this line, once, in these exact words: "${SMALL_COUNT_LINE}" Never guess at the groups left out.
 - Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
 
 const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_filter_dimensions\` or \`count_contacts\`):
@@ -234,7 +263,8 @@ const COMPOSE_HANDOFF_RULES =
   "would have to guess — do not invent platform ids or details you don't " +
   'know.\n' +
   '- The result opens a prefilled drawer for the official to review before ' +
-  'anything sends. Confirm you called it and let them take it from there.'
+  'anything sends. Confirm you called it and include this line, once, in ' +
+  `these exact words: "${HANDOFF_LINE}"`
 
 const people = (n: number): string => n.toLocaleString('en-US')
 const dollars = (texts: number): string =>
@@ -246,7 +276,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
     'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
     '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
     '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
-    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. Texting ${people(EXAMPLE_SAMPLE)} of them is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
     ...buildSampleSizingRules({
       has,
       sender: 'the official',
@@ -256,55 +286,114 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
   ].join('\n')
 }
 
-// What the agent does when the official presses Get started on the "Build
-// your civic panel" card: the home sends BUILD_CITIZENS_PANEL_MESSAGE as
-// a hidden turn. Behind serve-citizen-panels (civicPanel is only read with it
-// on). The steps follow what is already true, so it never offers a second
-// invite or a text the office cannot send.
+// What the agent does when the official asks to build their civic panel.
+// Behind serve-citizen-panels (civicPanel is only read with it on). The chat
+// runs the same plan as the panel page: with no plan it asks the weekly time
+// question and makes the plan from the answer, and with one it shows the
+// plan's next step and never asks again. It never proposes an invite text of
+// its own: the plan's text step is that text.
 const civicPanelBuildBlock = (
   panel: CivicPanelBuildState,
   toolNames: string[],
+  hasPriorities: boolean,
 ): string => {
-  const canPropose =
-    toolNames.includes('size_panel_invite') &&
-    toolNames.includes('present_outreach_proposal') &&
-    toolNames.includes('count_contacts')
+  const canPlan = [
+    ASK_PANEL_WEEKLY_TIME_TOOL,
+    SAVE_PANEL_WEEKLY_TIME_TOOL,
+    PRESENT_PANEL_NEXT_STEP_TOOL,
+  ].every((name) => toolNames.includes(name))
+  const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
   const explain =
-    '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being texted about once a month to share what they think, so the official hears from the whole community, not only the loudest voices.'
-  const state =
-    panel.members > 0
+    '- Explain what a civic panel is, calling it their civic panel, in 1 or 2 short sentences that say what it is for them, for example "A civic panel is residents from every part of your district who agreed to tell you what they think before you decide." Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
+  const atGoal = panel.members >= panel.goalMembers
+  const askTime = [
+    `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you spend each week to connect with constituents by phone or in person?", and its answers, so never write the question or the answers yourself.`,
+  ]
+  const state = !canPlan
+    ? [
+        explain,
+        `- Their panel page builds it from how much time they can give each week. Say so in one line and link it as ${pageLink('Build your civic panel')}. Do not count the district, size an invite or present a card.`,
+      ]
+    : panel.hasPlan
       ? [
-          `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line and do not propose another invite. Offer to help them ask the panel about a priority instead.`,
+          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "62 members so far, from 9 of 12 groups in your district." (the standing it returns). The card shows the step and opens it, so never restate it.`,
         ]
-      : panel.inviteSent
+      : atGoal
         ? [
-            '- Their panel invite already went out, and people join as they reply JOIN. Say so in one line and do not propose another invite. Nobody has joined yet, so suggest checking back in a few days.',
+            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps inviting residents, leaning toward the groups with the fewest members who answered lately.`,
+            ...askTime,
           ]
-        : !panel.textingEnabled
+        : panel.members > 0
           ? [
-              explain,
-              '- Texting is not set up for their office yet, and the panel starts with a text, so you cannot build it today. Say so plainly in one line and do not draft or present anything.',
+              `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line. To grow it toward about ${people(panel.goalMembers)} members, they need a plan.`,
+              ...askTime,
             ]
-          : !canPropose
+          : panel.inviteSent
             ? [
-                explain,
-                '- You cannot count the district or present a text in this conversation, so you cannot build it here. Say so in one line, and point them to the panel card on their home.',
+                '- Their panel invite already went out, and people join as they reply JOIN. Say so in one line. A plan adds calls and door knocking to it.',
+                ...askTime,
               ]
-            : [
-                explain,
-                '- Count everyone in the district with a cell phone: `count_contacts` with { hasCellPhone: true } and nothing else. Then call `size_panel_invite` with that count. Quote only the numbers those two return.',
-                `- Walk through the math in plain words, in 3 or 4 short sentences, from those numbers: the panel aims for about ${PANEL_SEED_TARGET_MEMBERS} members; about ${Math.round(PANEL_SEED_ASSUMED_JOIN_RATE * 100)} in 100 people reply JOIN to a first text; so you would text a random group of sendTo residents with a cell phone; random, so the panel looks like the district and not only the people who already reach out; it costs about the cost it returned, quoted exactly as written. Never call it free. When wholeAudience is true, say the district has fewer people with a cell phone than that, so the text goes to all of them.`,
-                '- Never say "sample", "sample size", "opt-in rate", "join rate", "seed" or "conversion". Say "a random group of".',
-                "- Draft the invite in the official's own voice, first person: who they are, what the panel is (residents their office texts about once a month to hear what they think before they decide), and why it matters to them. Under 4 sentences. Never write the line asking people to reply JOIN, how to join, or a sign-up step: the text adds that line and locks it. Never promise topics, how many texts, or what they will do with the answers.",
-                `- Present it as one text card with \`present_outreach_proposal\`: channel text, purpose ${BUILD_CITIZENS_PANEL_PURPOSE}, civicPanelAsk true, audienceFilters { hasCellPhone: true }, count from count_contacts, sampleSize set to sendTo, and listName "Civic panel invite". Leave targetResponses and assumedReplyRate out. The SAMPLING RULES and \`size_outreach_sample\` do not apply to this text.`,
-                '- One card, no alternatives, no second channel. Do not ask whether they want it first: the card is how they say yes.',
-              ]
+            : [explain, ...askTime]
+  const planning = canPlan
+    ? [
+        `- When they answer the weekly time question ("1 hour a week", "2 hours a week", "3 hours a week", "4 or more hours a week", or their own words), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with the hours: 4 for "4 or more hours a week", or the number they wrote, at most ${PANEL_MAX_HOURS_PER_WEEK}. Less than an hour: say the plan needs at least an hour a week and ask again.`,
+        `- When it returns saved "created", call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\` and say in one short sentence that their plan is ready and the card opens its first step. Never list the steps or the numbers: the card and their panel page show them.`,
+        `- When it returns planMade false, no plan could be made. Say so in one plain line with its reason, and link their panel page as ${pageLink('See your civic panel')}. Do not count the district, size an invite, draft a text or present any other card.`,
+        `- Whenever they have a plan and tell you how much time they can give each week now (for example "I can give 2 hours now"), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with it. When it returns saved "updated", say in one line that their next batch of invites uses the new time, and the batch in progress stays as it is.`,
+        '- Never propose a text, a list or any other outreach to build the panel: every invite comes from the plan.',
+      ]
+    : []
+  const priorities =
+    panel.inviteSent && !hasPriorities
+      ? [
+          '- Their first invite is out and they have no priorities on file. Finish the reply with one line asking which priorities they want to work on, and offer to record what they tell you. Say it once, after the card, and never hold the plan back for it.',
+        ]
+      : [
+          hasPriorities
+            ? "- They already have priorities on file. Never ask them to record priorities in this reply: end on the plan's next step, and you may add one line tying the panel to their first priority by name."
+            : "- Do not ask about priorities in this reply, even though none are on file: no invite has gone out yet. End on the plan's next step.",
+        ]
   return [
-    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", or they ask to build or start their civic panel):`,
-    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app when they press Get started on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
+    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,
     ...state,
+    ...planning,
+    ...priorities,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
+    CIVIC_PANEL_CLAIM_RULE,
+    ...civicPanelExplainLines(panel),
   ].join('\n')
+}
+
+// Every civic panel reply, build or explain. "just" is banned product copy.
+// The panel page's status and its one group to invite next may be repeated
+// in its words (Bryan, 2026-10-18), a race group included; a promise
+// that the panel will match the community, any weight, quota or target, and
+// any one person's race may not.
+const CIVIC_PANEL_CLAIM_RULE =
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say they hear from every part of their district before they decide, not only the people who already reach out. Never say how members are found, picked or invited: no random picks, samples or self-selection.'
+
+// What the agent does when the official presses What's a civic panel? on the
+// build card: it explains, and builds nothing unless they say yes.
+const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
+  const offer =
+    panel.members > 0
+      ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Offer nothing more.`
+      : panel.inviteSent
+        ? '- End by saying their panel invite already went out and people join as they reply JOIN. Offer nothing more.'
+        : '- End with one short question: do they want to build theirs? Nothing more. The app shows a Build my panel button under your reply that starts it here, so never name a button or say how to start. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
+  return [
+    `CIVIC PANEL EXPLAINED (apply when the user's message is exactly "${EXPLAIN_CIVIC_PANEL_MESSAGE}"):`,
+    `- "${EXPLAIN_CIVIC_PANEL_MESSAGE}" is sent by the app when they press What's a civic panel? on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
+    '- They asked what it is, not to build one. In 4 or 5 short sentences, calling it their civic panel, explain:',
+    '  - Why talking with people first makes the rest of the job easier: they walk into a decision already knowing what residents think.',
+    '  - What it is: a group of residents who agree to tell the official what they think before they decide, asked about once a month.',
+    '  - How it gives residents a voice in council, board and committee work, including the people who never come to a meeting.',
+    offer,
+    '- In this reply, never count the district, size an invite, draft a text or present a card.',
+    '- Never call it representative, a poll, a survey panel, a focus group or proprietary.',
+    CIVIC_PANEL_CLAIM_RULE,
+  ]
 }
 
 const cardRulesBlock = (toolNames: string[]): string | null => {
@@ -370,7 +459,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'query aggregate, district-scoped constituent opinion (modeled issue-support scores) and demographics',
   describe_constituent_data:
     'list the recommended constituent breakdown dimensions before querying',
-  read_community_issues: 'fetch full detail for a community issue by id',
+  read_community_issues: 'list community issues, or fetch one by id',
   describe_filter_dimensions:
     'list the contact-filter dimensions and allowed values for this organization',
   count_contacts:
@@ -394,7 +483,12 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
-  size_panel_invite: 'size and price the text that builds the civic panel',
+  [ASK_PANEL_WEEKLY_TIME_TOOL]:
+    'ask how much time the official can give their civic panel each week',
+  [SAVE_PANEL_WEEKLY_TIME_TOOL]:
+    'make the civic panel plan from their weekly time, or change that time',
+  [PRESENT_PANEL_NEXT_STEP_TOOL]:
+    "show the civic panel plan's next step as a card",
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -554,22 +648,57 @@ const formatFlow = (p: PriorityRecord): string => {
   return ` (id: ${p.id}) on: ${step}, next: ${next}, constituent checks: ${heard}`
 }
 
-const formatPriority = (p: PriorityRecord): string => {
+const formatRead = (read: PriorityReadStatus | undefined): string =>
+  read === undefined
+    ? ''
+    : `, groups heard from: ${
+        read.groupsTotal === 0
+          ? 'not known'
+          : `${read.groupsHeard} of ${read.groupsTotal}`
+      }, status: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
+        read.status === 'notYetRepresentative' &&
+        read.groupsTotal > 0 &&
+        read.groupsHeard === read.groupsTotal
+          ? 'more people overall'
+          : read.underrepresented.length === 0
+            ? 'nobody in particular'
+            : joinGroupNames(
+                read.underrepresented.map((group) =>
+                  underrepresentedGroupName(group, read.status),
+                ),
+              )
+      }, good read: ${read.good ? 'yes' : 'no'}`
+
+const formatPriority = (
+  p: PriorityRecord,
+  read: PriorityReadStatus | undefined,
+): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  return `- ${title}${formatFlow(p)}: ${description}`
+  return `- ${title}${formatFlow(p)}${formatRead(read)}: ${description}`
 }
 
-const prioritiesBlock = (priorities: PriorityRecord[]): string => {
+const prioritiesBlock = (
+  priorities: PriorityRecord[],
+  reads: Map<string, PriorityReadStatus> | undefined,
+): string => {
   if (priorities.length === 0) {
     return '<priorities>\nNone on file yet.\n</priorities>'
   }
   return [
     '<priorities>',
-    ...priorities.map(formatPriority),
+    ...priorities.map((p) => formatPriority(p, reads?.get(p.id))),
     '</priorities>',
   ].join('\n')
 }
+
+// Behind serve-citizen-panels, with each priority's read status in
+// <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
+const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
+- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back,A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
+- Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
+- Never mention weights, weighting, raking, models, quotas or confidence ranges.
+- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
 
 // The report back is drafted in the priority's own conversation, never here,
 // so this only knows what is due and what went, and points there.
@@ -615,11 +744,12 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     HONEST_REPORTING_BLOCK,
     PROFESSIONAL_ADVICE_BLOCK,
     relationshipBlock(ctx.isFirstConversation),
+    PICKED_NEXT_STEPS_BLOCK,
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
     todayLine(ctx.state),
     officeContextBlock(ctx),
-    prioritiesBlock(ctx.priorities),
+    prioritiesBlock(ctx.priorities, ctx.priorityReads),
     ...[reportBacksBlock(ctx)].filter(
       (block): block is string => block !== null,
     ),
@@ -630,6 +760,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('record_check_reminder')
       ? [CHECK_REMINDER_RULES]
+      : []),
+    ...(ctx.priorityReads !== undefined && ctx.priorities.length > 0
+      ? [PRIORITY_READ_RULES]
       : []),
     ...(ctx.reportBacks !== undefined && ctx.reportBacks.length > 0
       ? [REPORT_BACK_RULES]
@@ -658,7 +791,13 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       ? [outreachSamplingBlock(toolNames)]
       : []),
     ...(ctx.civicPanel
-      ? [civicPanelBuildBlock(ctx.civicPanel, toolNames)]
+      ? [
+          civicPanelBuildBlock(
+            ctx.civicPanel,
+            toolNames,
+            ctx.priorities.length > 0,
+          ),
+        ]
       : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.

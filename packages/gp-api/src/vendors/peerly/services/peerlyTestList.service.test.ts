@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -70,6 +70,20 @@ describe('PeerlyTestListService', () => {
         phone: '5551234567',
       }),
     ).resolves.toBe(169614)
+  })
+
+  it('stops when Peerly says the number is not a cell', async () => {
+    phoneLists.listPhoneLists.mockResolvedValue([activeTestList])
+    phoneLists.addContactToPhoneList.mockRejectedValue(
+      new BadRequestException('not a cell'),
+    )
+
+    await expect(
+      service.resolveTestListId({
+        identityId: 'identity-1',
+        phone: '5551234567',
+      }),
+    ).rejects.toThrow(BadRequestException)
   })
 
   it('creates the identity first test list and waits for it', async () => {
