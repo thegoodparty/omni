@@ -3,7 +3,7 @@ title: The managed panel wave job derives each step from the rows, and makes its
 status: active
 decided_by: [agent]
 date: 2026-10-22
-code: ['#PR']
+code: ['#3168']
 scope:
   - packages/gp-api/src/managedPanelWaves/**
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
