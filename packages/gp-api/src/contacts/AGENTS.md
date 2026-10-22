@@ -1204,8 +1204,29 @@ replacing the do-it-yourself build plan above
 (`docs/adr/2026-10-22-managed-civic-panel-replaces-build-plan.md`). The
 official approves once, in their own name; GoodParty then sends free,
 texts-only waves of that one invite until members reach the district goal.
-Only the model and the routes exist so far: no wave, job, free send or UI
-reads them yet.
+
+**The Chief of Staff is the only way in.** With the flag on, the card sync
+(`DashboardCardsService.syncManagedCivicPanelCard`) gives every office with
+no enrollment one card (`sourceExternalId` from contracts'
+`managedCivicPanelCardSourceId`, `managed-panel:<electedOfficeId>`), stored
+with the placeless words (`managedCivicPanelCardContent(null)`, Build my
+civic panel); the home draws it with the office's place. It has no Mark done,
+does not lapse, and is done once any enrollment exists. Its button, and the
+intro's Build my civic panel, send the hidden
+`START_MANAGED_CIVIC_PANEL_MESSAGE`; the chat (`managedCivicPanel.tools.ts`,
+`managedCivicPanelBlock` in the Chief of Staff prompt) explains, offers the
+invite (`offer_managed_panel_invite`), shows it
+(`present_managed_panel_invite`), and the webapp's text flow approves it
+(POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
+close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
+`MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
+`read_managed_panel` (status, members, goal, the first send date,
+`earliestServeSmsSendDate` from the approval, and the week it should be
+ready, two weeks of waves later) and shows `present_managed_panel`. The
+do-it-yourself build card and the plan tools stay only for an office with a
+plan active or completed: the sync deletes an open build card otherwise, and
+the chat registers the plan tools only with a plan. No wave, job or free
+send reads the enrollment yet.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)

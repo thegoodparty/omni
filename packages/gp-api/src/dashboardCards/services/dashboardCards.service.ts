@@ -17,7 +17,11 @@ import {
   CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
   CIVIC_PANEL_BUILD_CARD_PLAN_CTA,
+  CIVIC_PANEL_PAGE_HREF,
   CIVIC_PANEL_STEP_CARD_PREFIX,
+  MANAGED_CIVIC_PANEL_CARD_CTA,
+  managedCivicPanelCardContent,
+  managedCivicPanelCardSourceId,
   civicPanelBuildCardSourceId,
   civicPanelOpenStepDetail,
   civicPanelStepAction,
@@ -146,6 +150,14 @@ export const civicPanelStepCardContent = (
     ctaLabel,
     ctaHref: next.href,
   }
+}
+
+// The managed panel's card. Stored without the place: the home draws its
+// words with the office's place, which it knows and this sync does not.
+export const MANAGED_CIVIC_PANEL_CARD_CONTENT: CardWords = {
+  ...managedCivicPanelCardContent(null),
+  ctaLabel: MANAGED_CIVIC_PANEL_CARD_CTA,
+  ctaHref: CIVIC_PANEL_PAGE_HREF,
 }
 
 const differsFrom = (card: CardWords, words: CardWords): boolean =>
@@ -402,7 +414,24 @@ export class DashboardCardsService extends createPrismaBase(
       // second insert.
       const lockKey = `civic_panel_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
-      await this.syncCivicPanelBuildCard(tx, electedOffice, panel)
+      await this.syncManagedCivicPanelCard(tx, electedOffice)
+      // GoodParty builds the panel now, so the do-it-yourself build card
+      // only stays for an office with a plan under way or finished; its
+      // start words would begin a new one. An unreadable plan leaves it as
+      // it is.
+      const planStatus = panel?.plan?.status
+      if (planStatus === 'active' || planStatus === 'completed') {
+        await this.syncCivicPanelBuildCard(tx, electedOffice, panel)
+      } else if (panel !== null) {
+        await tx.dashboardCard.deleteMany({
+          where: {
+            electedOfficeId: electedOffice.id,
+            type: DashboardCardType.civic_panel,
+            sourceExternalId: civicPanelBuildCardSourceId(electedOffice.id),
+            completedAt: null,
+          },
+        })
+      }
       await this.syncCivicPanelStepCard(tx, electedOffice.id, panel)
       await this.syncPriorityPanelCards(tx, electedOffice.id)
     })
@@ -428,6 +457,61 @@ export class DashboardCardsService extends createPrismaBase(
         'dashboard card sync: civic panel plan read failed',
       )
       return null
+    }
+  }
+
+  // The card that offers the managed panel: open until the office approves
+  // one, then done for good (a stopped enrollment keeps its row). No Mark done, and it does not lapse
+  // into missed while it is open. Old words are rewritten on the next read.
+  private async syncManagedCivicPanelCard(
+    tx: Prisma.TransactionClient,
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
+  ): Promise<void> {
+    const where = {
+      electedOfficeId: electedOffice.id,
+      type: DashboardCardType.civic_panel,
+      sourceExternalId: managedCivicPanelCardSourceId(electedOffice.id),
+      sourceItemId: null,
+    }
+    const now = new Date()
+    const content = MANAGED_CIVIC_PANEL_CARD_CONTENT
+    const [enrollment, card] = await Promise.all([
+      tx.managedCivicPanel.findUnique({
+        where: { organizationSlug: electedOffice.organizationSlug },
+        select: { id: true },
+      }),
+      tx.dashboardCard.findFirst({ where }),
+    ])
+    if (enrollment) {
+      if (card && !card.completedAt) {
+        await tx.dashboardCard.update({
+          where: { id: card.id },
+          data: { completedAt: now, dismissedAt: null, snoozedUntil: null },
+        })
+      }
+      return
+    }
+    if (!card) {
+      await tx.dashboardCard.create({
+        data: {
+          ...where,
+          ...content,
+          dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
+        },
+      })
+      return
+    }
+    if (card.completedAt) return
+    const stale = differsFrom(card, content)
+    const lapsed = !card.dismissedAt && card.dueDate < now
+    if (stale || lapsed) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: {
+          ...content,
+          ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
+        },
+      })
     }
   }
 
@@ -613,7 +697,11 @@ export class DashboardCardsService extends createPrismaBase(
         electedOfficeId,
         type: DashboardCardType.civic_panel,
         sourceExternalId: {
-          notIn: [...openIds, civicPanelBuildCardSourceId(electedOfficeId)],
+          notIn: [
+            ...openIds,
+            civicPanelBuildCardSourceId(electedOfficeId),
+            managedCivicPanelCardSourceId(electedOfficeId),
+          ],
         },
         NOT: {
           sourceExternalId: { startsWith: CIVIC_PANEL_STEP_CARD_PREFIX },

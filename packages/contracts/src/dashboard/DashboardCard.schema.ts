@@ -99,6 +99,35 @@ export const civicPanelBuildCardOpensPlan = (
   isCivicPanelBuildCard(card) &&
   card.ctaLabel === CIVIC_PANEL_BUILD_CARD_PLAN_CTA
 
+const MANAGED_CIVIC_PANEL_CARD_PREFIX = 'managed-panel:'
+
+// The office's one card that offers to have GoodParty build its civic panel
+// (the managed panel), shown until the official approves it. Its source is
+// the office, like the build card's.
+export const managedCivicPanelCardSourceId = (
+  electedOfficeId: string,
+): string => `${MANAGED_CIVIC_PANEL_CARD_PREFIX}${electedOfficeId}`
+
+export const isManagedCivicPanelCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId'>,
+): boolean =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(MANAGED_CIVIC_PANEL_CARD_PREFIX)
+
+// The home opens the Chief of Staff on the managed setup from this button
+// rather than following the card's link.
+export const MANAGED_CIVIC_PANEL_CARD_CTA = 'Build my civic panel'
+
+// The card's words, naming the place the office serves where the app knows
+// it. gp-api stores the placeless words; the home draws them with the place.
+export const managedCivicPanelCardContent = (place: string | null) => {
+  const where = place?.trim() || 'your district'
+  return {
+    title: `Know what ${where} thinks before you vote`,
+    summary: `Residents from every part of ${where}, matched by age, gender and race. Free in early access.`,
+  }
+}
+
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,
   cards: z.array(DashboardCardSchema),

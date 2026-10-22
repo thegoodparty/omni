@@ -109,7 +109,7 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
     expect(statusOf(res.data.cards, 'meet')).toBe('active')
   })
 
-  it('shows a just-onboarded office meet, with the build card behind it', async () => {
+  it('shows a just-onboarded office meet, with the managed panel card behind it', async () => {
     const orgSlug = 'eo-onboarding-just-onboarded'
     vi.spyOn(
       service.app.get(FeaturesService),
@@ -131,7 +131,7 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
       orgHeader(orgSlug),
     )
     expect(cards.data.cards.map((card) => card.ctaLabel)).toContain(
-      'Build your panel',
+      'Build my civic panel',
     )
   })
 })
