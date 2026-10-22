@@ -561,4 +561,19 @@ describe('PollFlow bias check', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
+
+  it('lets the official continue when the bias check is down', async () => {
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', () =>
+        HttpResponse.json({ message: 'down' }, { status: 500 }),
+      ),
+    )
+    await writeLeadingQuestion()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    ).toBeInTheDocument()
+  })
 })
