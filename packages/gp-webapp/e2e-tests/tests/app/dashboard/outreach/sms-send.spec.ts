@@ -188,15 +188,15 @@ test.describe('Win SMS send', () => {
     })
 
     // Pick a date 4 days out (clear of the 48h floor). The calendar opens on
-    // the current month and tags each day with the browser's
-    // toLocaleDateString (M/D/YYYY in en-US).
+    // the current month; each day button (not its cell, which carries the ISO
+    // form) is tagged with the browser's toLocaleDateString (M/D/YYYY in en-US).
     await page.getByRole('button', { name: 'Pick a date' }).click()
     const targetDay = addDays(new Date(), 4)
     if (targetDay.getMonth() !== new Date().getMonth()) {
       await page.getByRole('button', { name: 'Go to the next month' }).click()
     }
     await page
-      .locator(`td[data-day="${format(targetDay, 'M/d/yyyy')}"] button`)
+      .locator(`button[data-day="${format(targetDay, 'M/d/yyyy')}"]`)
       .click()
 
     // Pick the 10:00 AM start from the time select.
