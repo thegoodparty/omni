@@ -190,6 +190,7 @@ model Outreach {
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
   optOutReconcile                   OutreachOptOutReconcile?
+  inboundSweep                      OutreachInboundSweep?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]

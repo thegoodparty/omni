@@ -652,6 +652,61 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
   })
 })
 
+describe('OutreachInboundSweepService.sweepInboundEvents — reads only since the last sweep', () => {
+  // Local times: the aged cadence keys off the local hour, and 12:00 and
+  // 18:00 are both hours an aged job is swept.
+  const SEND_TIME = new Date(2026, 6, 1, 12)
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reads from the send date on the first sweep, then from the last completed sweep', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, SEND_TIME)
+
+    const firstSweep = new Date(2026, 6, 6, 12)
+    vi.useFakeTimers({ now: firstSweep })
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchInboundCdrRows).toHaveBeenLastCalledWith(
+      JOB_ID,
+      expect.objectContaining({ startDate: '2026-06-30' }),
+    )
+    await expect(
+      service.prisma.outreachInboundSweep.findUniqueOrThrow({
+        where: { outreachId: outreach.id },
+      }),
+    ).resolves.toMatchObject({ sweptAt: firstSweep })
+
+    vi.setSystemTime(new Date(2026, 6, 7, 18))
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchInboundCdrRows).toHaveBeenLastCalledWith(
+      JOB_ID,
+      expect.objectContaining({ startDate: '2026-07-05' }),
+    )
+  })
+
+  it('keeps the previous read point when a sweep of the job fails', async () => {
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, SEND_TIME)
+    const firstSweep = new Date(2026, 6, 6, 12)
+    vi.useFakeTimers({ now: firstSweep })
+    await sweepService.sweepInboundEvents()
+
+    fetchInboundCdrRows.mockRejectedValueOnce(new Error('Peerly down'))
+    vi.setSystemTime(new Date(2026, 6, 7, 18))
+    await sweepService.sweepInboundEvents()
+
+    await expect(
+      service.prisma.outreachInboundSweep.findUniqueOrThrow({
+        where: { outreachId: outreach.id },
+      }),
+    ).resolves.toMatchObject({ sweptAt: firstSweep })
+  })
+})
+
 describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
   const NOW = new Date('2026-07-10T13:20:00.000Z')
 

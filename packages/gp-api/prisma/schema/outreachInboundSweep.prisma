@@ -1,0 +1,12 @@
+// When the inbound sweep last finished reading a send's message report, so
+// the next pass asks Peerly only for the days since rather than the whole
+// send again. Kept off the outreach row for the same reason as
+// OutreachOptOutReconcile: a write there bumps outreach.updatedAt, which is
+// what keeps a send inside the sweep's window.
+model OutreachInboundSweep {
+  outreachId Int      @id @map("outreach_id")
+  outreach   Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  sweptAt    DateTime @map("swept_at")
+
+  @@map("outreach_inbound_sweep")
+}
