@@ -1,5 +1,6 @@
 import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
+import { pushSignUpToDataLayer } from './gtmDataLayer'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
 import type { OrganizationRole } from '@goodparty_org/contracts'
@@ -992,6 +993,10 @@ export const trackRegistrationCompleted = async ({
     signUpMethod,
     ...attributionTraits,
   })
+
+  // GA4 only sees what GTM can observe; the Segment event above never
+  // reaches it. See helpers/gtmDataLayer.ts.
+  pushSignUpToDataLayer({ userId, method: signUpMethod })
 }
 
 export const persistUtmsOnce = (): void => {

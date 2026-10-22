@@ -16,6 +16,7 @@ import { identifyUser } from '@shared/utils/analytics'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { User } from 'helpers/types'
 import { useOrganizationRole } from '@shared/organization-picker'
+import { setDataLayerUserId } from 'helpers/gtmDataLayer'
 
 const identify = async (
   user: User | null,
@@ -65,6 +66,13 @@ const SegmentIdentify = (): null => {
     setActorUserId(user?.id)
     setActorRole(organizationRole ?? null)
   }, [user?.id, organizationRole])
+
+  // GA4's User-ID is read from the GTM dataLayer, not from Segment, so the id
+  // is mirrored there whenever it resolves (and cleared on sign-out). See
+  // helpers/gtmDataLayer.ts.
+  useEffect(() => {
+    setDataLayerUserId(user?.id)
+  }, [user?.id])
 
   return null
 }
