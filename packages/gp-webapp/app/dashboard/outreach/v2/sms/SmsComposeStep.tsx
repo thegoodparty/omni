@@ -100,6 +100,9 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   standardsFailures: SmsRequiredPart[]
+  // The restricted words the message actually contains, so the error names
+  // only those.
+  restrictedWords?: string[]
   unfilledBrackets: string[]
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
@@ -167,7 +170,12 @@ export const standardsFailureCopy = (
   {
     identificationExample,
     paidForByText,
-  }: { identificationExample: string; paidForByText: string | null },
+    restrictedWords = [],
+  }: {
+    identificationExample: string
+    paidForByText: string | null
+    restrictedWords?: readonly string[]
+  },
 ): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
     return {
@@ -226,9 +234,11 @@ export const standardsFailureCopy = (
     }
   }
   if (rule === 'restricted_word') {
+    const words =
+      restrictedWords.length > 0 ? restrictedWords : SMS_RESTRICTED_WORDS
     return {
       problem: 'Your text has a word our texting provider won\u2019t send.',
-      fix: `Reword it without ${SMS_RESTRICTED_WORDS.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
+      fix: `Reword it without ${words.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
     }
   }
   return {
@@ -242,6 +252,7 @@ export const SmsComposeStep = ({
   tone,
   onToneChange,
   standardsFailures,
+  restrictedWords,
   unfilledBrackets,
   identificationExample,
   paidForByText,
@@ -563,6 +574,7 @@ export const SmsComposeStep = ({
               const copy = standardsFailureCopy(rule, {
                 identificationExample,
                 paidForByText,
+                restrictedWords,
               })
               return (
                 <div

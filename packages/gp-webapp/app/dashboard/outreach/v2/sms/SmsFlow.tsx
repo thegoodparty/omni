@@ -24,6 +24,7 @@ import type { TcrCompliance } from 'helpers/types'
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
+  findSmsRestrictedWords,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
@@ -2440,6 +2441,7 @@ export const SmsFlow = ({
           tone={tone}
           onToneChange={handleToneChange}
           standardsFailures={standards.failures}
+          restrictedWords={findSmsRestrictedWords(composedMessage)}
           unfilledBrackets={bracketsToFill}
           identificationExample={introFor(tone)}
           paidForByText={

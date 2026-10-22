@@ -87,6 +87,17 @@ describe('standardsFailureCopy', () => {
     }
   })
 
+  it('names only the restricted words the message contains', () => {
+    const copy = standardsFailureCopy('restricted_word', {
+      identificationExample: INTRO,
+      paidForByText: null,
+      restrictedWords: ['transfer'],
+    })
+    expect(copy.fix).toContain('\u201ctransfer\u201d')
+    expect(copy.fix).not.toContain('sexual')
+    expect(copy.fix).not.toContain('stop2end')
+  })
+
   it('offers no disclaimer to add back when there is no committee to name', () => {
     const copy = standardsFailureCopy('paid_for_by', {
       identificationExample: INTRO,
