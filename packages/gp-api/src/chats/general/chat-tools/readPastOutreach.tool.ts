@@ -23,14 +23,18 @@ export const buildReadPastOutreachTool = (deps: {
   organizationSlug: string
 }): LlmStreamTool<typeof readPastOutreachInput> => ({
   description:
-    'Read what has already gone out from the office: audience, how many ' +
-    'people, channel, when it went, and how many replied. When the ' +
-    "conversation is about one priority, that priority's own sends come " +
-    "back under priority and the office's other recent sends under office, " +
-    'for comparison. Otherwise priority is empty and office holds every ' +
-    'recent send. Call it before proposing outreach so you can say what ' +
-    'came back last time instead of guessing, and quote the numbers you ' +
-    'get back rather than describing them vaguely.',
+    'Read what has already gone out from the office: its name, audience, ' +
+    'how many people, channel, when it went, and how many replied. When ' +
+    "the conversation is about one priority, that priority's own sends " +
+    "come back under priority and the office's other recent sends under " +
+    'office, for comparison. Otherwise priority is empty and office holds ' +
+    'every recent send. When the official names a walk, call list or send, ' +
+    'find it here by its name. replies counts text replies only, so a door ' +
+    'knocking walk or phone banking list always shows none: what people ' +
+    'said there is in its notes, never in this count. Call it before ' +
+    'proposing outreach so you can say what came back last time instead of ' +
+    'guessing, and quote the numbers you get back rather than describing ' +
+    'them vaguely.',
   inputSchema: readPastOutreachInput,
   execute: async ({ channel }): Promise<ReadPastOutreachOutput> => ({
     priority:
@@ -52,11 +56,14 @@ export const buildCampaignManagerReadPastOutreachTool = (deps: {
   campaignId: number
 }): LlmStreamTool<typeof readPastOutreachInput> => ({
   description:
-    "Read the campaign's recent outreach: audience, how many voters, " +
-    'channel, when it went, and how many replied. Call it before proposing ' +
-    'a text so you can say what came back last time instead of guessing, ' +
-    'and quote the numbers you get back rather than describing them ' +
-    'vaguely.',
+    "Read the campaign's recent outreach: its name, audience, how many " +
+    'voters, channel, when it went, and how many replied. When the ' +
+    'candidate names a walk, call list or send, find it here by its name. ' +
+    'replies counts text replies only, so a door knocking walk or phone ' +
+    'banking list always shows none: what voters said there is in its ' +
+    'notes, never in this count. Call it before proposing a text so you ' +
+    'can say what came back last time instead of guessing, and quote the ' +
+    'numbers you get back rather than describing them vaguely.',
   inputSchema: readPastOutreachInput,
   execute: async ({ channel }): Promise<{ sends: PastOutreachRow[] }> => ({
     sends: await deps.outreach.forCampaign(deps.campaignId, channel),

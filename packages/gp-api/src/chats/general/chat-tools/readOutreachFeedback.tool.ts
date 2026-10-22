@@ -72,9 +72,13 @@ const readEverything = (deps: {
     'Read what came back from the office’s sends in people’s own words: ' +
     'each text reply (opt-outs left out), each door or call note with the ' +
     'issues and stances pulled from it, and the themes the latest summary ' +
-    'found. ' +
+    'found. This is where door knocking and phone banking results are; ' +
+    'read_past_outreach counts text replies only. ' +
     (deps.priorityId === null
-      ? 'Without an outreachId it reads the office’s most recent sends. '
+      ? 'Without an outreachId it reads the office’s most recent sends, ' +
+        'every walk, list and text together. When the official names one, ' +
+        'or asks about one channel, find each outreachId by name or ' +
+        'channel with read_past_outreach and read only those. '
       : 'Without an outreachId it reads every send for this priority, and ' +
         'priorityThemes are the themes across all of them, texts, calls ' +
         'and doors together; lead with those. ') +
@@ -113,10 +117,14 @@ export const buildCampaignManagerReadOutreachFeedbackTool = (deps: {
   description:
     'Read what voters told the campaign at the door or on a call: each ' +
     'note the canvasser or caller took, with the issues and stances pulled ' +
-    'from it, and the themes the latest summary found. Without an ' +
-    "outreachId it reads the campaign's most recent door knocking and " +
-    'phone banking. Texts are not here: their replies come back as counts, ' +
-    'never words. Call it before you say anything about what voters said, ' +
+    'from it, and the themes the latest summary found. This is where door ' +
+    'knocking and phone banking results are; read_past_outreach counts ' +
+    "text replies only. Without an outreachId it reads the campaign's most " +
+    'recent door knocking and phone banking, every walk and list together. ' +
+    'When the candidate names one, or asks about one channel, find each ' +
+    'outreachId by name or channel with read_past_outreach and read only ' +
+    'those. Texts are not here: their replies come back as counts, never ' +
+    'words. Call it before you say anything about what voters said, ' +
     'and never ask the candidate what voters said: read it here. Quote ' +
     'voters’ words when they make the point, and say how many voters a ' +
     'theme covers. A note that is not confirmed is a volunteer’s account ' +

@@ -1114,6 +1114,44 @@ describe('ChiefOfStaffHandler', () => {
       )
     })
 
+    it('reads the walk or list the official names by its id', async () => {
+      const feedbackFor = vi.fn(() => Promise.resolve([]))
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { feedbackFor } as unknown as PriorityFlowOutreachService,
+        undefined,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
+      )
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      const read = tools.read_outreach_feedback
+      if (read === undefined || !('execute' in read)) {
+        throw new Error('expected an executable tool')
+      }
+
+      expect(await read.execute({ outreachId: 7 })).toEqual({
+        priorityThemes: [],
+        sends: [],
+      })
+      expect(feedbackFor).toHaveBeenCalledWith(ORG, {
+        priorityId: null,
+        outreachId: 7,
+      })
+      expect(descriptionOf(read)).toContain('with read_past_outreach')
+      expect(descriptionOf(tools.read_past_outreach)).toContain(
+        'text replies only',
+      )
+    })
+
     it('omits the past-outreach tools without the service', async () => {
       const handler = buildPastOutreachHandler(undefined)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
