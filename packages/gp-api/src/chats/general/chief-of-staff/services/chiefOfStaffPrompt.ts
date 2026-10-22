@@ -276,7 +276,7 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
     'SAMPLING RULES (apply whenever you propose a text with `present_outreach_proposal`):',
     '- Texting a whole audience costs real money, and most texts do not need everyone. Before you present a text, size a random sample with `size_outreach_sample` and offer it.',
     '- When the text asks people something (a question, a survey, what they think of a plan), propose the sample by default. When it tells people something they all need to know, propose the whole audience and mention the sample in one line as the cheaper option.',
-    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+    `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. Texting ${people(EXAMPLE_SAMPLE)} of them is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
     ...buildSampleSizingRules({
       has,
       sender: 'the official',
@@ -307,7 +307,7 @@ const civicPanelBuildBlock = (
     '- Explain what a civic panel is, calling it their civic panel, in 1 or 2 short sentences that say what it is for them, for example "A civic panel is residents from every part of your district who agreed to tell you what they think before you decide." Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
   const atGoal = panel.members >= panel.goalMembers
   const askTime = [
-    `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you give each week?", and its answers, so never write the question or the answers yourself.`,
+    `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you spend each week to connect with constituents by phone or in person?", and its answers, so never write the question or the answers yourself.`,
   ]
   const state = !canPlan
     ? [

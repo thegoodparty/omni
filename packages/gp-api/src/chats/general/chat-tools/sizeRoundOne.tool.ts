@@ -132,7 +132,7 @@ export const buildSizeRoundOneTool = (deps: {
   description:
     'Size the first round of a check: door knocking in one walkable area, ' +
     'a phone bank and a text, the calls and the text to residents across ' +
-    'the district picked at random. Counts who each channel can reach ' +
+    'the district. Counts who each channel can reach ' +
     'itself, so call it without counting first. Returns the cards to ' +
     'present: each with channel, audienceFilters and count; the door card ' +
     'with walkableArea and how many doors it knocks; the calls and the text ' +
@@ -146,8 +146,8 @@ export const buildSizeRoundOneTool = (deps: {
       return {
         error:
           'How much time they can give each week is not known yet. Ask it ' +
-          'with ask_clarify_question first: "How much time can you give ' +
-          'each week?", with 1 hour a week, 2 hours a week, 3 hours a week ' +
+          'with ask_clarify_question first: "How much time can you spend ' +
+          'each week to connect with constituents by phone or in person?", with 1 hour a week, 2 hours a week, 3 hours a week ' +
           'and 4 or more hours a week. Then call size_round_one again with ' +
           'their answer as hoursPerWeek.',
       }

@@ -236,7 +236,9 @@ describe('size_round_one', () => {
   it('asks for the weekly time when nobody has given it', async () => {
     const { tool, countByGroupWithin } = build({ planHoursPerWeek: null })
     expect(await tool.execute({})).toEqual({
-      error: expect.stringContaining('How much time can you give each week?'),
+      error: expect.stringContaining(
+        'How much time can you spend each week to connect with constituents by phone or in person?',
+      ),
     })
     expect(countByGroupWithin).not.toHaveBeenCalled()
   })

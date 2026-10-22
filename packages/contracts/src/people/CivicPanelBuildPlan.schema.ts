@@ -299,7 +299,7 @@ export const CIVIC_PANEL_STEP_COPY = {
         : `Knock on ${size} doors in a walkable area`,
   },
   stepDetail: {
-    text: 'Residents with a cell phone, picked at random.',
+    text: 'Residents with a cell phone, from every part of your district.',
     phone_banking: (time: string) =>
       `People a text can't reach, landlines first. ${time} of your time.`,
     door_knocking: (time: string) => `One walkable area. ${time} of your time.`,

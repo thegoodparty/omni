@@ -715,16 +715,20 @@ office's one build card (`sourceExternalId` from contracts'
 `civicPanelBuildCardSourceId`, `build:<electedOfficeId>`) carries contracts'
 `CIVIC_PANEL_BUILD_CARD_HREF`, the panel page (`CIVIC_PANEL_PAGE_HREF`), which
 asks the weekly time question or shows the plan already made (see "Building
-the panel across channels"). Its words never change, with or without a plan
+the panel across channels"). Its title and line never change
 (`CIVIC_PANEL_BUILD_CARD_CONTENT`): "Know what residents think before you
 decide", "A civic panel gives you residents from across your district who
-answer when you ask what they think.", and `CIVIC_PANEL_BUILD_CARD_CTA`
-(Build your panel). No step and no member count: the card's one job is to get
-the panel built. Its button does not follow that link on the home:
-`TaskStack` sends the hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the
-chat for the build card (`isCivicPanelBuildCard`, never the label), so every
-entry point starts the same conversation, which shows the plan's next step
-once there is one; the panel page keeps its own form. The Chief of
+answer when you ask what they think." Its button is `CIVIC_PANEL_BUILD_CARD_CTA`
+(Build your panel) until the office has an active plan, then
+`CIVIC_PANEL_BUILD_CARD_PLAN_CTA` (See your plan,
+`CIVIC_PANEL_BUILD_CARD_PLAN_CONTENT`); an unreadable plan leaves the button
+as it was, and a done card keeps Build your panel. No step and no member
+count. On the home, Build your panel does not follow the link: `TaskStack`
+sends the hidden `BUILD_CITIZENS_PANEL_MESSAGE` and opens the chat, so every
+entry point starts the same conversation. See your plan
+(`civicPanelBuildCardOpensPlan`) follows the link to the panel page, so a
+card with a plan never starts a second build; the panel page keeps its own
+form. The Chief of
 Staff chat runs that same plan (`chats/general/chief-of-staff`,
 `civicPanelPlan.tools.ts` and `civicPanelBuildBlock`). Asked to build the
 panel (the hidden `BUILD_CITIZENS_PANEL_MESSAGE` from the card's Build your

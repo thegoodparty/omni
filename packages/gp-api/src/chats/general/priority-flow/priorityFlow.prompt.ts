@@ -314,7 +314,7 @@ const ROUND_ONE_CARDS = [
 const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
   [
     'ROUND ONE',
-    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn.',
+    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district, offered together as cards in one turn.',
     hoursPerWeek === null
       ? '- How much time the official can give each week is not known yet. size_round_one says how to ask it.'
       : `- The official gives ${hoursPerWeek} ${hoursPerWeek === 1 ? 'hour' : 'hours'} a week. size_round_one already knows it.`,

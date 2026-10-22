@@ -636,7 +636,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).toContain('SAMPLING RULES')
       expect(prompt).toContain('propose the sample by default')
       expect(prompt).toContain(
-        'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+        'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
           'about $97 and should bring back about 83 replies.',
       )
       expect(prompt).toContain('never work out a sample or a cost yourself')

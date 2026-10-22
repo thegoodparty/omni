@@ -16,6 +16,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   CIVIC_PANEL_BUILD_CARD_CTA,
   CIVIC_PANEL_BUILD_CARD_HREF,
+  CIVIC_PANEL_BUILD_CARD_PLAN_CTA,
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelBuildCardSourceId,
   civicPanelOpenStepDetail,
@@ -109,9 +110,9 @@ const reportBackCardContent = (
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
-// The same words with or without a plan: until the first invite goes out the
-// card's job is to get the panel built, and the home opens the build chat
-// from it, which shows the plan's next step once there is one.
+// Until the first invite goes out the card's job is to get the panel built,
+// and the home opens the build chat from it. Once a plan is active the same
+// card opens that plan instead, so it never starts a second build.
 export const CIVIC_PANEL_BUILD_CARD_CONTENT = {
   title: 'Know what residents think before you decide',
   summary:
@@ -122,6 +123,11 @@ export const CIVIC_PANEL_BUILD_CARD_CONTENT = {
 }
 
 type CardWords = typeof CIVIC_PANEL_BUILD_CARD_CONTENT
+
+export const CIVIC_PANEL_BUILD_CARD_PLAN_CONTENT: CardWords = {
+  ...CIVIC_PANEL_BUILD_CARD_CONTENT,
+  ctaLabel: CIVIC_PANEL_BUILD_CARD_PLAN_CTA,
+}
 
 // The plan's next step as the panel page shows it: who to reach, one line on
 // who they are and how long it takes, and its button. Null when there is no
@@ -428,8 +434,10 @@ export class DashboardCardsService extends createPrismaBase(
   // The build card has no Mark done: it is done once any sent text asked
   // people to JOIN, whichever purpose it went out under (the purpose is not
   // stored on the row, and the ask is what puts people on the panel), or
-  // once the panel's plan reached its goal. Its words never change: a card
-  // made with older words is rewritten on the next read.
+  // once the panel's plan reached its goal. While it is open, its button
+  // opens the plan once one is active and builds one before that; an
+  // unreadable plan leaves those words alone. A done card keeps the build
+  // words. A card with other words is rewritten on the next read.
   private async syncCivicPanelBuildCard(
     tx: Prisma.TransactionClient,
     electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug'>,
@@ -490,11 +498,16 @@ export class DashboardCardsService extends createPrismaBase(
     // It has no date of its own to miss, so it does not lapse into missed
     // while it is still open.
     const lapsed = !card.dismissedAt && card.dueDate < now
-    if (stale || lapsed) {
+    const openWords =
+      panel?.plan?.status === 'active'
+        ? CIVIC_PANEL_BUILD_CARD_PLAN_CONTENT
+        : CIVIC_PANEL_BUILD_CARD_CONTENT
+    const openStale = panel !== null && differsFrom(card, openWords)
+    if (openStale || lapsed) {
       await tx.dashboardCard.update({
         where: { id: card.id },
         data: {
-          ...(stale && content),
+          ...(openStale && openWords),
           ...(lapsed && { dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS) }),
         },
       })

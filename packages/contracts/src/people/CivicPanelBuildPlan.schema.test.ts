@@ -81,7 +81,7 @@ describe('the words for a plan step', () => {
     const text = { ...step, channel: 'text' as const, targetSize: 8334 }
     expect(civicPanelStepTitle(text)).toBe('Text 8,334 residents')
     expect(civicPanelOpenStepDetail(text)).toBe(
-      'Residents with a cell phone, picked at random.',
+      'Residents with a cell phone, from every part of your district.',
     )
     expect(civicPanelStepAction({ ...text, status: 'in_progress' })).toBeNull()
   })

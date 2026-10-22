@@ -694,6 +694,11 @@ export const SmsFlow = ({
   const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
 
   const [name, setName] = useState('')
+  // What the auto-name last wrote, and the date it ended with. Cleared with
+  // the name and date on open, so a reopened or resumed flow never rewrites
+  // a name off a date picked in an earlier session.
+  const lastAutoName = useRef('')
+  const lastDatePart = useRef('')
   const [nameEdited, setNameEdited] = useState(false)
   const [date, setDate] = useState<Date | undefined>(undefined)
   const [timeSlot, setTimeSlot] = useState('10')
@@ -946,6 +951,8 @@ export const SmsFlow = ({
     setPhoneListBuildFailed(false)
     setName(resumeDraft?.name ?? '')
     setNameEdited(Boolean(resumeDraft?.name))
+    lastAutoName.current = ''
+    lastDatePart.current = ''
     setDate(undefined)
     setTimeSlot('10')
     setCustomTime('10:00')
@@ -1247,17 +1254,29 @@ export const SmsFlow = ({
     draftGenerationRef,
   })
 
-  // Auto-name from list + date until the user edits the name.
-  const lastAutoName = useRef('')
+  // Auto-name from list + date until the user edits the name. An edited
+  // name that still ends with the date we added keeps following the picker,
+  // so the name never names a different day than the one picked.
   useEffect(() => {
-    if (nameEdited) return
     // Purpose-independent on Win (the surface ignores the argument and
     // returns the same fallback), purpose-keyed on Serve.
     const listPart = selectedList?.name ?? surface.nameSuggestion(purpose ?? '')
     const datePart = date
       ? `, ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
       : ''
-    const auto = `${listPart} — SMS${datePart}`
+    const previousDatePart = lastDatePart.current
+    lastDatePart.current = datePart
+    if (nameEdited) {
+      if (
+        datePart !== previousDatePart &&
+        previousDatePart !== '' &&
+        name.endsWith(previousDatePart)
+      ) {
+        setName(`${name.slice(0, -previousDatePart.length)}${datePart}`)
+      }
+      return
+    }
+    const auto = `${listPart}${datePart}`
     if (name === '' || name === lastAutoName.current) {
       setName(auto)
       lastAutoName.current = auto
@@ -2389,7 +2408,7 @@ export const SmsFlow = ({
             name={name}
             onNameChange={(value) => {
               setName(value)
-              setNameEdited(true)
+              setNameEdited(value !== lastAutoName.current)
             }}
             date={date}
             onDateChange={setDate}
@@ -2400,7 +2419,7 @@ export const SmsFlow = ({
               name={name}
               onNameChange={(value) => {
                 setName(value)
-                setNameEdited(true)
+                setNameEdited(value !== lastAutoName.current)
               }}
               nameOnly={buildMode}
               date={date}

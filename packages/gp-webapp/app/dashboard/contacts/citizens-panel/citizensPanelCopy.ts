@@ -152,7 +152,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     hispanic: 'Hispanic or Latino',
     asian: 'Asian',
   } satisfies Record<UnderrepresentedGroup, string>,
-  weeklyQuestion: 'How much time can you give each week?',
+  weeklyQuestion:
+    'How much time can you spend each week to connect with constituents by phone or in person?',
   weeklyCaption:
     'Your own calls and door knocking reach the residents a text misses.',
   keepFreshTitle: 'Keep your panel fresh',
