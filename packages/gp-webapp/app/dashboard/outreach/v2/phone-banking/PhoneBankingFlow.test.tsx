@@ -280,6 +280,7 @@ describe('PhoneBankingFlow', () => {
         product: 'win',
         filtersApplied: true,
         listSize: createResponse.personCount,
+        purpose: 'introduce_myself',
       },
     )
 

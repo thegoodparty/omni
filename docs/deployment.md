@@ -166,6 +166,11 @@ prod. It is the whole post-merge deploy path — per-service workflows on `main`
 run only their checks and image builds; the train owns the shared-env deploys,
 the E2E, and the promotion.
 
+A push that only changes `docs/**` or root-level `*.md` files starts no
+release, because it deploys nothing. The next push that changes code releases
+everything since the last release. Markdown under `packages/` is not skipped:
+runbooks and prompts there are read at runtime.
+
 Serialization is the point. The `release-train` concurrency group runs one train
 at a time (`cancel-in-progress: false`) and GitHub keeps only the latest queued
 run, so a burst of merges queues to a single waiting run and the train always
@@ -175,25 +180,23 @@ one fixed SHA flows dev -> E2E -> prod. That is what removes the deploy/E2E/prom
 races the old per-push topology hit under load (a validated commit could be built
 and green on dev yet never promoted because it was no longer the tip).
 
-A failed run posts one alert to Slack `#bot-urgent`
-(`release-failure-alert.yml`, a `workflow_run` listener), naming the failed jobs
-and the phase that died. Read the phase line before triaging: a failed
-`Dev <service>` job **skips** the E2E shards, so the run's red gate job is named
-`E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
-a merge burst and do not alert.
-
-The first green run after a red one posts a recovery notice to the same channel.
-That half is edge-gated and the failure half is not: every red run alerts, so a
-multi-day outage stays visible, while a green run says nothing unless the run
-before it was red. Cancelled and skipped runs are transparent to that
-comparison rather than counting as green.
+Find the phase that died before triaging a red run: a failed `Dev <service>`
+job **skips** the E2E shards, so the run's red gate job is named `E2E` even when
+nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
+not failures.
 
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
    (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
-   for that SHA; a later merge forms the next train.
+   for that SHA; a later merge forms the next train. When `main` has already
+   moved past the SHA, the run first waits for the newer commit's runs of the
+   red checks. If they all pass there, the run cancels itself instead of
+   failing, because the newer commit fixed the problem and a merge burst
+   should not raise a false alert. If any fails there too, the run fails.
+   The cancel happens before any deploy starts, so it cannot strand a Pulumi
+   lock.
 2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
    push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
    Vercel and alias `dev.goodparty.org`).
@@ -314,6 +317,13 @@ they are never load-bearing on a hit.
 `~/.npm` is cached separately, and only saved by a job that actually ran
 `npm ci`. Cache keys are immutable, so a job that saves an empty `~/.npm` poisons
 that lockfile hash until the lockfile changes.
+
+`~/.cache/prisma` is cached per Prisma version and generate script, because
+`prisma generate` downloads the schemas' musl `binaryTargets` there whenever
+the restored `node_modules` lacks them, and a dropped connection mid-download
+crashes the CLI. It is saved only when a generate actually put a musl engine in
+it, for the same immutable-key reason. Generate itself retries three times with
+backoff for the cache-miss path.
 
 ## Dependency updates (Dependabot)
 

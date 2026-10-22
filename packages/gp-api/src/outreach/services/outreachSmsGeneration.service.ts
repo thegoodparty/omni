@@ -273,10 +273,18 @@ const countOptOutLines = (message: string): number =>
 const countPaidForBy = (message: string): number =>
   message.match(/paid\s+for\s+by/gi)?.length ?? 0
 
-// The masked message's closing run of markers and whitespace: the composer's
-// footer (paid-for-by, opt-out, a civic panel line), with no words of the
-// candidate's in it.
-const LOCKED_TAIL = /(?:\s*⟦\d+⟧)+\s*$/u
+const FOOTER_RULES: readonly string[] = [
+  'paid_for_by',
+  'opt_out_line',
+  'civic_panel_join',
+  'civic_panel_leave',
+]
+
+// The last `count` markers of the masked message, with the whitespace around
+// them. A body marker that ends the body (a name, a merge tag) is not one of
+// them: only the footer's own parts are counted.
+const markerTail = (count: number): RegExp =>
+  new RegExp(`(?:\\s*⟦\\d+⟧){${count}}\\s*$`, 'u')
 
 const DraftSchema = z.object({
   draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
@@ -400,14 +408,25 @@ export class OutreachSmsGenerationService {
         (rule) => !protection.ignoredRules.includes(rule),
       )
     const failingBefore = new Set(standards(currentDraft))
-    const { masked, locked } = maskProtectedParts(
-      currentDraft,
-      deriveSmsProtectedParts(currentDraft, protection),
-    )
+    const parts = deriveSmsProtectedParts(currentDraft, protection)
+    const { masked, locked } = maskProtectedParts(currentDraft, parts)
     // The footer is held back and put back after the reply. A polish has
     // nothing to change in it, and a reply that drops one of its markers
     // fails the whole request (ENG-11297).
-    const footer = masked.match(LOCKED_TAIL)?.[0] ?? ''
+    const footerTexts = new Set(
+      parts
+        .filter((part) => FOOTER_RULES.includes(part.rule))
+        .map((part) => part.text),
+    )
+    let footerCount = 0
+    while (
+      footerCount < locked.length &&
+      footerTexts.has(locked[locked.length - 1 - footerCount] ?? '')
+    ) {
+      footerCount++
+    }
+    const footer =
+      footerCount > 0 ? (masked.match(markerTail(footerCount))?.[0] ?? '') : ''
     const tail =
       masked.slice(0, masked.length - footer.length).trim() === '' ? '' : footer
     const body = masked.slice(0, masked.length - tail.length)
@@ -488,7 +507,8 @@ export class OutreachSmsGenerationService {
       if (
         countCivicPanelLines(restored) > countCivicPanelLines(currentDraft) ||
         countOptOutLines(restored) > countOptOutLines(currentDraft) ||
-        countPaidForBy(restored) > countPaidForBy(currentDraft)
+        (!protection.ignoredRules.includes('paid_for_by') &&
+          countPaidForBy(restored) > countPaidForBy(currentDraft))
       ) {
         this.logger.warn({ attempt }, 'SMS improve repeated a locked line')
         continue

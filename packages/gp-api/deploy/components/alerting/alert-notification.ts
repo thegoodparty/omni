@@ -1,4 +1,4 @@
-import { Alert, KnownCause, SlackGroup } from './alerts.types'
+import { Alert, KnownCause } from './alerts.types'
 
 /**
  * The annotation key the alert filter reads its registry from.
@@ -13,19 +13,14 @@ import { Alert, KnownCause, SlackGroup } from './alerts.types'
  */
 export const KNOWN_CAUSES_ANNOTATION = 'known_causes'
 
-const SLACK_GROUP_IDS: Record<SlackGroup, string> = {
-  'serve-bugs': 'S0AD54G9D3K',
-  'win-bugs': 'S0AE3NTCXM3',
-}
-
 const tag = (environment: string) => `[${environment.toUpperCase()}]`
 
 /**
  * Every environment provisions the same rules from the same definitions, and
  * a notification carries neither the rule's `environment` label nor its
- * folder. Without a tag the dev and prod pages for a route are identical down
- * to the group mention, and whoever is holding the pager cannot tell
- * production from dev without opening Grafana. That cost is not hypothetical:
+ * folder. Without a tag the dev and prod pages for a route are identical,
+ * and whoever is holding the pager cannot tell production from dev without
+ * opening Grafana. That cost is not hypothetical:
  * it is what happened on the 2026-08-20 door-knocking page.
  *
  * Both fields carry the tag because the two are read at different moments —
@@ -85,20 +80,8 @@ export const buildAlertDescription = (
   environment: string,
 ): string => {
   const message = alert.message.replace(/\$ENV/g, environment)
-  // `notify` takes one group or several. Normalising here rather than at each
-  // author site keeps the single-group spelling, which most alerts use, from
-  // having to become a one-element list.
-  const groups = alert.notify
-    ? [alert.notify].flat()
-    : ([] as readonly SlackGroup[])
 
-  const mention = groups
-    .map((group) => `<!subteam^${SLACK_GROUP_IDS[group]}>`)
-    .join(' ')
-
-  return [`${tag(environment)} ${message}`, EVALUATION_ERROR_NOTE, mention]
-    .filter(Boolean)
-    .join('\n\n')
+  return [`${tag(environment)} ${message}`, EVALUATION_ERROR_NOTE].join('\n\n')
 }
 
 /**

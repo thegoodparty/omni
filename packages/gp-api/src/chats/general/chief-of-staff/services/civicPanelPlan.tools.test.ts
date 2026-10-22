@@ -10,7 +10,15 @@ const organization = { slug: 'eo-1' } as Organization
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
-  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  progress: {
+    members: 4,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 2,
+    groupsCovered: 0,
+    groupsTotal: 12,
+  },
+  balance: null,
 }
 
 const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
@@ -18,6 +26,7 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     id: 'plan-1',
     status: 'active',
     goalMembers: 100,
+    keepFresh: false,
     hoursPerWeek,
     currentWave: 1,
     createdAt: new Date('2026-10-15T00:00:00Z'),
@@ -31,7 +40,15 @@ const withPlan = (hoursPerWeek: number): CivicPanelBuildPlanResponse => ({
     line: 'Invite residents to your civic panel by text',
     href: '/dashboard/contacts/citizens-panel?step=step-1',
   },
-  progress: { members: 4, goal: 240, answersNeeded: 96, expectedAnswers: 2 },
+  progress: {
+    members: 62,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 25,
+    groupsCovered: 9,
+    groupsTotal: 12,
+  },
+  balance: { status: 'missingGroups', inviteMore: 'age65plus' },
 })
 
 const buildPlans = (overrides: Partial<CivicPanelBuildPlanService> = {}) =>
@@ -68,16 +85,19 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(plans.updateHours).not.toHaveBeenCalled()
     expect(result).toEqual({
       saved: 'created',
-      members: 4,
-      goal: 240,
-      answersNeeded: 96,
-      expectedAnswers: 2,
+      members: 62,
+      groupsCovered: 9,
+      groupsTotal: 12,
+      standing: '62 members so far, from 9 of 12 groups in your district.',
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Missing some groups',
+      freshVoices: null,
+      inviteMoreNext: 'people 65 and over',
     })
     // Answered once, it is never asked again in the same turn.
     expect(await tools.ask_panel_weekly_time.execute({})).toHaveProperty(
@@ -92,7 +112,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 3,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 3)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      3,
+      'chief_of_staff',
+    )
     expect(plans.create).not.toHaveBeenCalled()
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 3 })
   })
@@ -111,7 +135,11 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 4,
     })
 
-    expect(plans.updateHours).toHaveBeenCalledWith(organization, 4)
+    expect(plans.updateHours).toHaveBeenCalledWith(
+      organization,
+      4,
+      'chief_of_staff',
+    )
     expect(result).toMatchObject({ saved: 'updated', hoursPerWeek: 4 })
   })
 
@@ -128,7 +156,7 @@ describe('the civic panel plan tools', () => {
       hoursPerWeek: 2,
     })
 
-    expect(plans.create).toHaveBeenCalledWith(organization, 2)
+    expect(plans.create).toHaveBeenCalledWith(organization, 2, 'chief_of_staff')
     expect(result).toMatchObject({ saved: 'created' })
   })
 
@@ -173,6 +201,31 @@ describe('the civic panel plan tools', () => {
     expect(inputSchema.safeParse({ hoursPerWeek: 20 }).success).toBe(true)
   })
 
+  it('says how many groups need fresh voices once the panel is past its goal', async () => {
+    const plans = buildPlans({
+      read: vi.fn(() =>
+        Promise.resolve({
+          ...withPlan(2),
+          progress: { ...withPlan(2).progress, members: 250 },
+          balance: {
+            status: 'everyGroup' as const,
+            inviteMore: 'age65plus' as const,
+            groupsNeedingFresh: 3,
+          },
+        }),
+      ),
+    })
+
+    expect(
+      await toolsFor(plans, true).present_panel_next_step.execute({}),
+    ).toMatchObject({
+      standing: '250 members. 3 groups need fresh voices.',
+      freshVoices: '3 groups need fresh voices',
+      panelStatus: 'Every group on your panel',
+      inviteMoreNext: 'people 65 and over',
+    })
+  })
+
   it("shows the plan's next step, and refuses before there is a plan", async () => {
     expect(
       await toolsFor(buildPlans(), false).present_panel_next_step.execute({}),
@@ -185,12 +238,15 @@ describe('the civic panel plan tools', () => {
       await toolsFor(plans, true).present_panel_next_step.execute({}),
     ).toEqual({
       shown: true,
-      members: 4,
-      goal: 240,
-      answersNeeded: 96,
-      expectedAnswers: 2,
+      members: 62,
+      groupsCovered: 9,
+      groupsTotal: 12,
+      standing: '62 members so far, from 9 of 12 groups in your district.',
       hoursPerWeek: 2,
       next: 'Invite residents to your civic panel by text',
+      panelStatus: 'Missing some groups',
+      freshVoices: null,
+      inviteMoreNext: 'people 65 and over',
     })
   })
 })

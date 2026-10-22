@@ -25,7 +25,7 @@ type SurfaceProps = React.ComponentProps<
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
-      <CampaignManagerHome tcrCompliance={null} />
+      <CampaignManagerHome />
     </CampaignManagerChatProvider>,
   )
 
@@ -108,32 +108,9 @@ vi.mock(
   }),
 )
 
-// The Pro banner + progress section are the legacy dashboard widgets (their own
-// campaign/voter-contact providers); this smoke test only covers the home's
-// composition, so stub them out.
-vi.mock('../../components/campaignManager/ProUpgradeBanner', () => ({
-  default: () => null,
-}))
-// Echo the prop so the composition test can assert the home passes the
-// server-fetched record through (the banner's own gating has its own tests).
-vi.mock('../../components/campaignManager/TextingSetupBanner', () => ({
-  default: ({
-    tcrCompliance,
-  }: {
-    tcrCompliance: { status: string } | null
-  }) => (
-    <div
-      data-testid="texting-setup-banner"
-      data-tcr-status={tcrCompliance?.status ?? 'none'}
-    />
-  ),
-}))
-// Rendered rather than nulled out: the composition test below is the guard
-// against this card going missing again, and its own Pro gating / status
-// branching is covered in ProUpgrade3ComplianceCard.test.tsx.
-vi.mock('../../components/campaignManager/ProUpgrade3ComplianceCard', () => ({
-  default: () => <div data-testid="pro-upgrade-3-compliance-card" />,
-}))
+// The progress section is a legacy dashboard widget (its own campaign/
+// voter-contact providers); this smoke test only covers the home's
+// composition, so stub it out.
 vi.mock('../../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
@@ -477,34 +454,11 @@ describe('CampaignManagerHome story auto-launch', () => {
     // A later re-render (e.g. a sibling state update) must not refire it.
     rerender(
       <CampaignManagerChatProvider>
-        <CampaignManagerHome tcrCompliance={null} />
+        <CampaignManagerHome />
       </CampaignManagerChatProvider>,
     )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders the texting-setup banner with the server-fetched record (ENG-10858)', () => {
-    renderHome()
-
-    // The story-cohort home must include the banner (the legacy CampaignManager
-    // home renders it too); tcrCompliance={null} flows through untouched.
-    expect(screen.getByTestId('texting-setup-banner')).toHaveAttribute(
-      'data-tcr-status',
-      'none',
-    )
-  })
-
-  it('renders the post-start compliance card alongside the banner (ENG-10866)', () => {
-    renderHome()
-
-    // The banner only covers "never started" — every post-start state (PIN
-    // entry, in review, approved, denied) lives in this card. Shipping the
-    // home without it left candidates awaiting a PIN with no compliance
-    // surface here at all, so PIN entry existed only in account settings.
-    expect(
-      screen.getByTestId('pro-upgrade-3-compliance-card'),
-    ).toBeInTheDocument()
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {

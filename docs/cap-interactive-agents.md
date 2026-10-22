@@ -184,9 +184,19 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
   Staff reads an office's by `organizationSlug` with `campaignId` null, per
   office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
-  by slug, since an org can hold a campaign and an office at once. The card
-  picks its detail route, results route and outreach hub from the surface's
-  mode.
+  by slug, since an org can hold a campaign and an office at once. A
+  `channel` reads its family (`channelWhere`): door knocking or phone banking
+  by either name returns the legacy rows and the native walks and call lists,
+  because the model asks for `doorKnocking` and a walk is stored as
+  `nativeDoorKnocking`. The card picks its detail route, results route and
+  outreach hub from the surface's mode.
+- **`read_outreach_feedback`** — what came back in people's own words: text
+  replies, door and call notes with their issues, and each send's themes
+  (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
+  the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
+  Manager reads the campaign's door knocking and phone banking by
+  `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
+  text's replies come back as timestamps, never words.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
@@ -226,6 +236,13 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   cannot resolve comes back as `planMade: false` with the reason. Ask refuses
   once a plan exists, so the question is never asked twice. See the contacts
   AGENTS.md, "Building the panel starts on the Chief of Staff home".
+- **`size_round_one`** — priority chat only, behind `serve-citizen-panels`
+  (`chat-tools/sizeRoundOne.tool.ts`). Counts who doors, calls and a text
+  can reach, group by group, picks the doors' one walkable area, and returns
+  the three cards of a check's first round already sized; the agent
+  presents them with `present_outreach_proposal` as given, and the handler
+  refuses a door card's `walkableArea` the tool did not return that turn. See the contacts AGENTS.md, "Round
+  1 sizing".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers

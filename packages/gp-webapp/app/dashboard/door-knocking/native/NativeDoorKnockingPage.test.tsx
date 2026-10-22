@@ -364,6 +364,7 @@ const turf: DoorKnockingTurf = {
   loggedCount: 0,
   knockedDoorCount: 0,
   routeSeconds: 1860,
+  priorityId: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),

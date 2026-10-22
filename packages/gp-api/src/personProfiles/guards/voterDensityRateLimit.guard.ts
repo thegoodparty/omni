@@ -12,9 +12,9 @@ import type { FastifyRequest } from 'fastify'
  * In-memory per-IP token bucket for the public
  * `GET /v1/public-person-profiles/voter-density` endpoint.
  *
- * A miss fans out to election-api, which resolves the person's district and
- * reads its precomputed cells, so the cost of the route is upstream rather
- * than local. The budget is sized for a person paging around the public
+ * A miss reads election-db, which resolves the person's district and its
+ * precomputed cells, so the cost of the route is a database read rather than
+ * local. The budget is sized for a person paging around the public
  * profile pages:
  *   - capacity = 30 → up to 30 back-to-back reads from a fresh IP.
  *   - refillPerMs = 30/60_000 → sustained 30 reads / 60s.

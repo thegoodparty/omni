@@ -25,8 +25,8 @@ export class PeerlyReportLinkResponseDto extends createZodDto(
 // One row of the cdrs CSV (headers verbatim, show_headers=true). Rows carry
 // no per-message id — Conversation_id is stable per lead conversation, so
 // ingestion needs a synthetic per-event key (see ENG-10727 findings).
-// Direction observed as 'sent'; the inbound literal is unverified in dev, so
-// it stays a plain string until a real reply is captured.
+// Direction reads 'sent' or 'received' in prod; it stays a plain string so
+// an unexpected value is kept as inbound rather than failing the report.
 export const peerlyCdrCsvRowSchema = z.object({
   Timestamp: z.string(),
   Direction: z.string(),

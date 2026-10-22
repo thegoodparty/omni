@@ -130,6 +130,28 @@ export const draftLabelFor = (
 const isServeSmsRow = (row: HistoryRow, isServe: boolean): boolean =>
   isServe && row.outreachType === 'text' && row.phoneListId == null
 
+// A priority text's follow-up reads Draft until its recipients are picked
+// and Scheduled once they are. Only a follow-up still waiting on its send
+// comes through here; the rest read from their status as any text does.
+export const isFollowUpRow = (row: HistoryRow): boolean =>
+  row.roundOneOutreachId != null
+
+export const followUpPickedAt = (row: HistoryRow): string | Date | null =>
+  isFollowUpRow(row) ? (row.voterFileFilter?.sampledAt ?? null) : null
+
+// Set by gp-api when a follow-up's draw finds nobody left to text.
+export const FOLLOW_UP_DREW_NOBODY = 'round_two_drew_nobody'
+
+export const followUpDrewNobody = (row: HistoryRow): boolean =>
+  isFollowUpRow(row) &&
+  row.status === 'canceled' &&
+  row.canceledBy === FOLLOW_UP_DREW_NOBODY
+
+const getFollowUpLabel = (row: HistoryRow): string | null => {
+  if (!isFollowUpRow(row) || row.status !== 'pending') return null
+  return followUpPickedAt(row) === null ? 'Draft' : 'Scheduled'
+}
+
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
   const { status } = row
   if (!status || !isStatusKey(status)) {
@@ -255,6 +277,8 @@ export const getHistoryStatusLabel = (
   // because this state spans the send AND the days of replies after it —
   // "Sending" would name only its first half.
   if (isServeSmsRow(row, isServe)) {
+    const followUp = getFollowUpLabel(row)
+    if (followUp) return followUp
     if (status === 'pending') {
       return 'Scheduled'
     }

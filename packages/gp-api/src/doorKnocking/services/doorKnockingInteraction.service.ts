@@ -113,7 +113,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     }
   }
 
-  // ADR 0007. Its own endpoint rather than a field on the knock payload: a
+  // Do-not-knock. Its own endpoint rather than a field on the knock payload: a
   // do-not-knock is recordable when there is no outcome worth logging, and it
   // has to be reversible on its own.
   //
@@ -158,7 +158,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     }
   }
 
-  // ADR 0008. The answer to "What happened?" behind a `not_a_voter` outcome.
+  // The answer to "What happened?" behind a `not_a_voter` outcome.
   // Recorded, never acted on destructively: no person is deleted, no address
   // is unlinked, and nothing is written back to the L2-derived voter data. The
   // consequence is suppression from future turf evaluation, which the knock

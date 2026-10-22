@@ -32,8 +32,8 @@ import { z } from 'zod'
  *
  * Filter Types:
  * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
- * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
- * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
+ * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-200000 uuids)
+ * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
  *   independentAffinity
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
@@ -64,6 +64,15 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'Likely',
     'Unreliable',
     'Unlikely',
+    'Unknown',
+  ] as const,
+  // Likelihood of voting before Election Day (early in person or by mail).
+  // Like voterStatus, a selection that includes 'Unknown' also matches NULL.
+  earlyVoteStatus: [
+    'Very Likely',
+    'Likely',
+    'Unlikely',
+    'Very Unlikely',
     'Unknown',
   ] as const,
   politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,
@@ -140,11 +149,11 @@ const rangeConditionSchema = z
   )
 
 // The id filter takes an id set (in/notIn), not eq/is, and caps the array —
-// id sets can arrive from arbitrarily large upstream resolutions. 100k is
+// id sets can arrive from arbitrarily large upstream resolutions. 200k is
 // safe only because people-api's buildIdFilter binds the set as a single
 // array parameter; per-value binding would hit PostgreSQL's 65,535
 // bind-parameter limit.
-const MAX_ID_FILTER_VALUES = 100_000
+const MAX_ID_FILTER_VALUES = 200_000
 
 export const createIdFilterSchema = () => {
   return z
@@ -164,7 +173,7 @@ export const createIdFilterSchema = () => {
 // sets from ContactStatusService overrides; people-api composes them as an OR
 // scoped to ONLY the voterStatus clause — never the whole filter conjunction,
 // so an override-included person still respects every other selected filter.
-// Reuses the id-filter's 100k cap and single-array-param bind rationale.
+// Reuses the id-filter's 200k cap and single-array-param bind rationale.
 export const IdOverridesSchema = z.object({
   include: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
   exclude: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
@@ -279,6 +288,9 @@ export const PeopleFiltersSchema = z.object({
   gender: createEnumFilterSchema(PEOPLE_FILTER_VALUE_ENUMS.gender).optional(),
   voterStatus: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.voterStatus,
+  ).optional(),
+  earlyVoteStatus: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.earlyVoteStatus,
   ).optional(),
   politicalParty: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.politicalParty,

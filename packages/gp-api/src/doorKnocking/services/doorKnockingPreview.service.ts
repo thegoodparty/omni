@@ -50,8 +50,8 @@ const EMPTY_COUNTS = {
 // route would freeze.
 //
 // Nothing here is persisted and no Geoapify credit is spent; the only cost is
-// one people-db scan per explicit request. See ADR 0010 for why that request
-// is explicit rather than debounced.
+// one people-db scan per request, and that cost is why the request is
+// explicit rather than debounced.
 // Reads one table, the saved list a draft was picked from, so a list's frozen
 // boundary and sample narrow the preview the way they narrow the create.
 @Injectable()
@@ -73,8 +73,8 @@ export class DoorKnockingPreviewService extends createPrismaBase(
     const { districtId, dataset } =
       await this.contacts.resolveEligibleDistrict(organization)
 
-    // ADR 0007 and ADR 0008, deduped into one exclusion list exactly as the
-    // knock builds it. A door whose every resident is flagged therefore has
+    // Do-not-knock and not-a-voter, deduped into one exclusion list exactly as
+    // the knock builds it. A door whose every resident is flagged therefore has
     // nobody left to evaluate and does not appear at all — which is not the
     // preview hiding it but the route not containing it, since a knock of
     // this shape would drop the same people.

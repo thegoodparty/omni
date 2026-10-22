@@ -284,6 +284,32 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
     )
   })
 
+  it('keeps a body marker that ends the body in front of the model', async () => {
+    const { service, jsonCompletion } = buildService()
+    jsonCompletion.mockResolvedValueOnce({
+      object: { draft: "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3, ⟦3⟧" },
+    })
+    const polished = await service.generateDraft(
+      {
+        purpose: 'custom',
+        tone: 'warm',
+        currentDraft:
+          "Hello {first_name}, it's Sarah Chen. Come vote Nov 3, {first_name}\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
+      },
+      'Sarah Chen',
+      'City Council',
+      '7',
+      [],
+      WIN_PROTECTION,
+    )
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('⟦3⟧')
+    expect(userPrompt).not.toContain('⟦4⟧')
+    expect(polished).toBe(
+      "Hi {first_name}, it's Sarah Chen! Vote Nov 3, {first_name}\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
+    )
+  })
+
   it('retries once when the reply drops a marker, telling the model which to keep', async () => {
     const { service, jsonCompletion } = replyWith(
       'Hi ⟦1⟧! Vote Nov 3.',
@@ -347,8 +373,8 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
   // a reply the response schema would then reject.
   it('treats a polish that restores past the length limit as a miss', async () => {
     const { service, jsonCompletion } = replyWith(
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}`,
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(80)}`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}`,
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
@@ -658,6 +684,15 @@ describe('OutreachSmsGenerationService — locked lines and style', () => {
     )
     return { service, jsonCompletion }
   }
+
+  it('lets a Serve polish say "paid for by" in the body', async () => {
+    const { service } = replyWith(
+      'Hello ⟦1⟧, this is ⟦2⟧. The playground was paid for by a federal grant.',
+    )
+    await expect(improvePanel(service)).resolves.toContain(
+      'paid for by a federal grant',
+    )
+  })
 
   it('masks the JOIN line in a polish and puts it back once', async () => {
     const { service, jsonCompletion } = replyWith(

@@ -69,18 +69,17 @@ const NEXT_STEP_BODY = {
 // Post-payment landing (Stripe embedded-checkout return_url + PaymentStep's
 // on-confirm nav). Purely presentational: it never gates its content on the
 // webhook-driven `isPro` flip, so it can't get stuck. It does refresh the shared
-// campaign cache in the background so the dashboard's "Get Pro" banner — which
-// reads the cached `isPro` — is already hidden when the candidate continues,
+// campaign cache in the background so the sidebar's Pro pitch — which reads
+// the cached `isPro` — has already moved on when the candidate continues,
 // instead of lingering until a manual page refresh. The purchase-only screen
 // does hold its Continue until `isPro` lands (or the poll gives up), because it
 // hands off to campaign verification, which reads the Pro state it asserts.
 const SuccessStep = (): React.JSX.Element => {
   // `complete` owns where the candidate goes next. On the standalone page that
-  // is the Campaign Manager dashboard, where `ProUpgrade3ComplianceCard`
-  // surfaces PIN entry (then review/approved/denied as the TCR record
-  // progresses) once `isPro` flips. The same card also lives on the profile
-  // page as a secondary location, but the dashboard is the primary
-  // post-upgrade destination (ENG-10361).
+  // is the Campaign Manager dashboard, where the sidebar's MembershipBanner
+  // surfaces PIN entry (then review and approval as the TCR record
+  // progresses) once `isPro` flips. The profile page's compliance card is a
+  // secondary location (ENG-10361).
   const { purchaseOnly, channel, complete, exit } = useProUpgradeWizard()
   const [pollExpired, setPollExpired] = useState(false)
 

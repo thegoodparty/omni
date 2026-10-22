@@ -132,6 +132,18 @@ describe('intersectIdFilterResolutions', () => {
     ).toThrow(BadRequestException)
   })
 
+  // ENG-11424: an org that had contacted 139,811 people got a 400 (shown as no
+  // count) for "Prior contacts made = 0" under the old 100k cap.
+  it('accepts a 139,811-person contacted set (ENG-11424)', () => {
+    const ids = Array.from({ length: 139_811 }, (_, i) => `p-${i}`)
+    const result = intersectIdFilterResolutions(
+      { kind: 'none' },
+      notInFilter(ids),
+    )
+    expect(result.kind).toBe('filter')
+    expect(MAX_RESOLVED_ID_SET_SIZE).toBeGreaterThanOrEqual(139_811)
+  })
+
   it('does not throw when the unioned notIn exclusions stay at or under the cap', () => {
     const ids = Array.from(
       { length: MAX_RESOLVED_ID_SET_SIZE },

@@ -68,8 +68,8 @@ A candidate's stance on an issue. Stored verbatim from Ballotready (`stanceState
 - **Relations:** `Issue` (required), `Candidacy?`
 
 ### `ZipToPosition` — `prisma/schema/zipToPosition.prisma`
-Denormalized ZIP → position rollup, sourced from a dbt mart in `gp-data-platform`. Lets API callers find positions by ZIP without joining `Position` + geographic tables.
-- **Unique:** `(zipCode, positionId, electionDate)`
+Denormalized ZIP → position rollup, sourced from a dbt mart in `gp-data-platform`. Lets API callers find positions by ZIP without joining `Position` + geographic tables. One row per (ZIP, position) for every district-matched position, whether or not it has a race. `electionDate` is the next known election and is null when none is known; `search` reads races from `Race` and applies the date window there.
+- **Unique:** `(zipCode, positionId, electionDate)` (one row per `(zipCode, positionId)` in practice)
 - **Indexed:** `zipCode`, `positionId`, `(zipCode, pctDistrictzipToZip)`
 - **Note:** Field names + `accepted_values` constraints are dictated by the upstream dbt model. The `brDatabaseId Int` choice intentionally diverges from `Position.brDatabaseId String` to match the mart and the rest of the schema.
 

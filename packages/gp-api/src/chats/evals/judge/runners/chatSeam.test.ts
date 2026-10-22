@@ -501,14 +501,25 @@ describe('buildTrace', () => {
     type: 'tool_call',
     toolName,
   })
+  const callEvent = (toolName: string, toolCallId: string): StreamEvent => ({
+    type: 'tool_call',
+    toolName,
+    toolCallId,
+  })
+  const resultEvent = (toolName: string, toolCallId: string): StreamEvent => ({
+    type: 'tool_result',
+    toolName,
+    toolCallId,
+  })
+  const doneEvent: StreamEvent = { type: 'done' }
 
   it('collapses a run of text deltas into one step', () => {
-    const trace = buildTrace([textEvent, textEvent, textEvent], [])
+    const trace = buildTrace([textEvent, textEvent, textEvent], [], true)
     expect(trace).toEqual([{ index: 0, kind: 'text' }])
   })
 
   it('does not let a keep-alive ping split a run of text', () => {
-    const trace = buildTrace([textEvent, { type: 'ping' }, textEvent], [])
+    const trace = buildTrace([textEvent, { type: 'ping' }, textEvent], [], true)
     expect(trace).toEqual([{ index: 0, kind: 'text' }])
   })
 
@@ -519,6 +530,7 @@ describe('buildTrace', () => {
     const trace = buildTrace(
       [textEvent, toolEvent('query_constituent_data'), textEvent],
       outcomes,
+      true,
     )
 
     expect(trace).toEqual([
@@ -541,6 +553,7 @@ describe('buildTrace', () => {
     const trace = buildTrace(
       [toolEvent('get_briefing'), toolEvent('get_briefing')],
       outcomes,
+      true,
     )
 
     expect(trace[0]?.error).toBeUndefined()
@@ -548,7 +561,11 @@ describe('buildTrace', () => {
   })
 
   it('keeps a failure the route never announced', () => {
-    const trace = buildTrace([textEvent], [{ tool: 'silent', error: 'boom' }])
+    const trace = buildTrace(
+      [textEvent],
+      [{ tool: 'silent', error: 'boom' }],
+      true,
+    )
     expect(trace).toEqual([
       { index: 0, kind: 'text' },
       { index: 1, kind: 'tool', tool: 'silent', error: 'boom' },
@@ -559,8 +576,97 @@ describe('buildTrace', () => {
     const trace = buildTrace(
       [{ type: 'error', code: 'upstream_unavailable', message: 'down' }],
       [],
+      true,
     )
     expect(trace).toEqual([{ index: 0, kind: 'error', error: 'down' }])
+  })
+
+  // The HTTP arm: no execute seam runs, so `outcomes` is empty and the
+  // frames are the only evidence a tool failed.
+  it('reads a call with no result frame as a failure', () => {
+    const trace = buildTrace(
+      [callEvent('get_briefing', 'call-1'), doneEvent],
+      [],
+      true,
+    )
+
+    expect(trace).toEqual([
+      {
+        index: 0,
+        kind: 'tool',
+        tool: 'get_briefing',
+        error: 'tool call produced no result',
+      },
+    ])
+  })
+
+  it('leaves a call whose result frame arrived clean', () => {
+    const trace = buildTrace(
+      [
+        callEvent('get_briefing', 'call-1'),
+        resultEvent('get_briefing', 'call-1'),
+        doneEvent,
+      ],
+      [],
+      true,
+    )
+
+    expect(trace).toEqual([{ index: 0, kind: 'tool', tool: 'get_briefing' }])
+  })
+
+  it('names the failed one of two concurrent calls to one tool', () => {
+    const trace = buildTrace(
+      [
+        callEvent('query_constituent_data', 'call-a'),
+        callEvent('query_constituent_data', 'call-b'),
+        resultEvent('query_constituent_data', 'call-b'),
+        doneEvent,
+      ],
+      [],
+      true,
+    )
+
+    expect(trace[0]?.error).toBe('tool call produced no result')
+    expect(trace[1]?.error).toBeUndefined()
+  })
+
+  // The case name-pairing got wrong: the failing call started first but
+  // finished second, so the errored outcome was queued behind the clean one
+  // and landed on the call that actually succeeded.
+  it('does not let a late outcome move the error onto a clean call', () => {
+    const outcomes: ToolOutcome[] = [
+      { tool: 'query_constituent_data' },
+      { tool: 'query_constituent_data', error: 'boom' },
+    ]
+    const trace = buildTrace(
+      [
+        callEvent('query_constituent_data', 'call-a'),
+        callEvent('query_constituent_data', 'call-b'),
+        resultEvent('query_constituent_data', 'call-b'),
+        doneEvent,
+      ],
+      outcomes,
+      true,
+    )
+
+    expect(trace[0]?.error).toBe('tool call produced no result')
+    expect(trace[1]?.error).toBeUndefined()
+  })
+
+  it('infers nothing from a stream that never reached done', () => {
+    const trace = buildTrace([callEvent('get_briefing', 'call-1')], [], false)
+    expect(trace).toEqual([{ index: 0, kind: 'tool', tool: 'get_briefing' }])
+  })
+
+  // Provider-run: the provider executes it, so there is no execute hook to
+  // fail and a missing result frame proves nothing.
+  it('never reads a web_search call as failed', () => {
+    const trace = buildTrace(
+      [callEvent('web_search', 'call-1'), doneEvent],
+      [],
+      true,
+    )
+    expect(trace).toEqual([{ index: 0, kind: 'tool', tool: 'web_search' }])
   })
 })
 

@@ -21,7 +21,6 @@ import {
   type UpdateFollowUpInput,
   CivicPanelStatusResponseSchema,
   CivicPanelSummarySchema,
-  CivicPanelRepresentationSchema,
   CivicPanelBuildPlanResponseSchema,
   CreateCivicPanelBuildPlanInputSchema,
   UpdateCivicPanelBuildPlanInputSchema,
@@ -175,16 +174,6 @@ export class ContactsController {
     return this.civicPanelSummary.summaryFor(organization)
   }
 
-  @Get('civic-panel/representation')
-  @ResponseSchema(CivicPanelRepresentationSchema)
-  async getCivicPanelRepresentation(
-    @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
-  ) {
-    await this.assertCivicPanelsOn(user)
-    return this.civicPanelSummary.representationFor(organization)
-  }
-
   @Get('civic-panel/plan')
   @ResponseSchema(CivicPanelBuildPlanResponseSchema)
   async getCivicPanelBuildPlan(
@@ -204,7 +193,11 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     await this.assertCivicPanelsOn(user)
-    return this.civicPanelBuildPlan.create(organization, body.hoursPerWeek)
+    return this.civicPanelBuildPlan.create(
+      organization,
+      body.hoursPerWeek,
+      'panel_page',
+    )
   }
 
   @Patch('civic-panel/plan')
@@ -216,7 +209,11 @@ export class ContactsController {
     @ReqUser() user: User,
   ) {
     await this.assertCivicPanelsOn(user)
-    return this.civicPanelBuildPlan.updateHours(organization, body.hoursPerWeek)
+    return this.civicPanelBuildPlan.updateHours(
+      organization,
+      body.hoursPerWeek,
+      'panel_page',
+    )
   }
 
   @Post('civic-panel/plan/steps/:id/skip')

@@ -47,6 +47,36 @@
         "include": "generated/prisma/package.json",
         "outDir": "dist",
         "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.node",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.wasm",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.mjs",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.js",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/**/*.prisma",
+        "outDir": "dist",
+        "watchAssets": false
+      },
+      {
+        "include": "generated/election-prisma/package.json",
+        "outDir": "dist",
+        "watchAssets": false
       }
     ],
     "watchAssets": true

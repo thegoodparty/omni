@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+import { PICKED_NEXT_STEPS_LEAD } from '@goodparty_org/contracts'
 
 // The segmentation method is held to non-prod deploys, so the suite drives
 // that gate directly rather than depending on the runner's environment.
@@ -132,19 +133,36 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         ctx: baseCtx({
           priorities: [priority],
           priorityReads: new Map([
-            ['pri-1', { answers: 54, needed: 96, good: false }],
+            [
+              'pri-1',
+              {
+                answers: 54,
+                needed: 96,
+                groupsHeard: 9,
+                groupsTotal: 12,
+                good: false,
+                status: 'gettingClose',
+                underrepresented: ['age65plus', 'unreachedAreas'],
+              },
+            ],
           ]),
         }),
         toolNames: TOOLS,
       })
       expect(prompt).toContain(
-        '- Downtown parking, answers: 54 of 96 needed for a good read, good read: no: Not enough spaces near Main.',
+        '- Downtown parking, groups heard from: 9 of 12, status: Still unsure what some groups think, hear more from: people 65 and over and people in a few neighborhoods, good read: no: Not enough spaces near Main.',
       )
       expect(prompt).toContain("A PRIORITY'S RESULTS BEFORE A GOOD READ")
       expect(prompt).toContain(
         "Before a good read, do not share that priority's results: no themes, no splits, no quotes",
       )
-      expect(prompt).toContain('Nudge toward getting more answers instead')
+      expect(prompt).toContain('Nudge toward a good read instead')
+      expect(prompt).toContain(
+        'you could not check which groups they came from, and never say every group was heard',
+      )
+      expect(prompt).toContain(
+        'Never mention weights, weighting, raking, models, quotas or confidence ranges',
+      )
       expect(prompt).toContain(
         'If they ask directly what people have said so far, answer honestly in one or two sentences',
       )
@@ -156,7 +174,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
         ctx: baseCtx({ priorities: [priority] }),
         toolNames: TOOLS,
       })
-      expect(prompt).not.toContain('needed for a good read')
+      expect(prompt).not.toContain('groups heard from')
       expect(prompt).not.toContain('BEFORE A GOOD READ')
     })
   })
@@ -394,6 +412,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Never introduce yourself')
     expect(prompt).not.toContain('introduce yourself as their Chief of Staff')
     expect(prompt).not.toContain('start of your working relationship')
+  })
+
+  it('works through several picked next steps in order, carrying the rest', () => {
+    for (const isFirstConversation of [true, false]) {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ isFirstConversation }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        `starts with "${PICKED_NEXT_STEPS_LEAD}" followed by a numbered list`,
+      )
+      expect(prompt).toContain('in the order listed, one at a time')
+      expect(prompt).toContain('The last item may be in their own words')
+      expect(prompt).toContain('you will come back to the others')
+      expect(prompt).toContain(
+        'start the next one on the list without being asked',
+      )
+    }
   })
 
   it('lists active priorities in the prompt', () => {

@@ -15,6 +15,8 @@ import { ContactsService } from './services/contacts.service'
 import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
+import { CensusTractNameService } from './services/censusTractName.service'
+import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 
 @Module({
   imports: [
@@ -29,6 +31,7 @@ import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.servi
     ContactNoteModule,
     PeopleQueryModule,
     CensusCompositionModule,
+    GeoapifyModule,
   ],
   controllers: [
     ContactsController,
@@ -39,6 +42,7 @@ import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.servi
     ContactsService,
     CivicPanelSummaryService,
     CivicPanelBuildPlanService,
+    CensusTractNameService,
     IndependentAffinityColumnService,
   ],
   exports: [

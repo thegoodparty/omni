@@ -124,12 +124,12 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
   })
 })
 
-// ADR 0010, for age. The door-knocking map shades from the pack's age buckets
-// while knock time sends the `ageInt` bounds above to people-api, so the two
-// have to select the same people for every key and every age — otherwise the
-// count under the map and the list it previews are two answers to one
-// question, which is worse than the honest "the map can't shade this" the
-// disclosure used to give for 65+.
+// One quantity, one number, for age. The door-knocking map shades from the
+// pack's age buckets while knock time sends the `ageInt` bounds above to
+// people-api, so the two have to select the same people for every key and
+// every age — otherwise the count under the map and the list it previews are
+// two answers to one question, which is worse than the honest "the map can't
+// shade this" the disclosure used to give for 65+.
 //
 // Both sides now read one table (contracts' AGE_FILTER_KEY_RANGES): this
 // conversion builds its ranges from it and PackAgeBuckets cuts the buckets
@@ -206,6 +206,35 @@ describe('convertVoterFileFilterToFilters voter status', () => {
     expect(
       convertVoterFileFilterToFilters({ voterStatus: ['Unreliable'] }),
     ).toEqual({ voterStatus: { eq: 'Unreliable' } })
+  })
+})
+
+describe('convertVoterFileFilterToFilters early vote status', () => {
+  it('maps a single selection with eq', () => {
+    expect(
+      convertVoterFileFilterToFilters({ earlyVoteVeryLikely: true }),
+    ).toEqual({ earlyVoteStatus: { eq: 'Very Likely' } })
+  })
+
+  it('maps several selections with in, Unknown included', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        earlyVoteVeryUnlikely: true,
+        earlyVoteUnknown: true,
+      }),
+    ).toEqual({ earlyVoteStatus: { in: ['Very Unlikely', 'Unknown'] } })
+  })
+
+  it('stays separate from voterStatus', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        audienceSuperVoters: true,
+        earlyVoteLikely: true,
+      }),
+    ).toEqual({
+      voterStatus: { eq: 'Super' },
+      earlyVoteStatus: { eq: 'Likely' },
+    })
   })
 })
 

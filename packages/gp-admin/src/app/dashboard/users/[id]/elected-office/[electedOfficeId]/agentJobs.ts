@@ -2,7 +2,7 @@ import type {
   AgentRunListItem,
   BriefingDispatchPreview,
   ExperimentRunStatus,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 export const AGENT_JOB_TYPES = {
   MEETING_SCHEDULE: 'meeting_schedule',

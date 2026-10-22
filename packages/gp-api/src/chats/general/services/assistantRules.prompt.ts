@@ -55,7 +55,10 @@ const ETHNICITY_RULE =
   'includes or excludes people by ethnicity, then offer the dimensions ' +
   'that actually bear on the issue in front of you. Reporting the ' +
   "district's ethnic composition in aggregate is a different question " +
-  'and stays available.'
+  'and stays available, and so is a group the app itself names: the ' +
+  'civic panel status and a priority read may say to hear from more ' +
+  'Black, Hispanic or Latino, Asian or white residents. Repeat that in ' +
+  'its words; it never makes you build a list by ethnicity.'
 
 // Serve only: an officeholder's office resources must not reach a campaign.
 // A candidate has no office to keep apart from their campaign.

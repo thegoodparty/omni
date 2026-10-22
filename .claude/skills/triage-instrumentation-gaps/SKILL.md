@@ -12,8 +12,9 @@ session, and one PR:
   the reason it fired, so a deploy that stranded twenty-two name constants is one ruling.
 - **Queue A — instrumentation gaps** (`instrumentation_gaps.py`): candidate product
   surfaces the weekly sweep thinks are missing an analytics event.
-- **Queue B — watchlist proposals** (`analytics_event_health.py`): catalog events in a
-  watched family that aren't yet on the curated watchlist.
+- **Queue B — watchlist proposals** (`analytics_event_health.py`): OKR legs in a watched
+  family that aren't yet on the curated watchlist, and watched rows whose event is retired
+  in code (DATA-2676).
 - **Queue C — registry vs semantic layer** (`anchor_alignment.py`): a behavior in
   `monitored_events.yaml` and the governed metric it points at disagree about which
   events count.
@@ -87,7 +88,7 @@ The reviewer never has to pre-load anything — this skill finds the run itself.
 3. `slack_read_thread(channel_id=<id>, message_ts=<parent ts>)` to pull the full
    thread — this carries the ranked gap table, the "Set disposition" / "Browse gaps"
    links, and the `🛠 Triage: /triage-instrumentation-gaps <run_date>` line (Queue A),
-   plus the "Watchlist proposals (self-healing)" section (Queue B).
+   plus the "Watchlist proposals" and "Watchlist removals" sections (Queue B).
 4. Extract `run_date` from the header or the triage line — both carry the same
    `YYYY-MM-DD`.
 
@@ -124,6 +125,9 @@ judgments: 12
 ## surface
 - accept: Profile - Running Against: Click Save
   reason: <why>
+- accept: Campaign Story - Rewrite Accepted
+  reason: <why>
+  area: Your Story
 ```
 
 Take `run_date` from the `run:` line and skip the Slack read. Everything downstream is
@@ -187,6 +191,7 @@ dismissal carrying a mangled qualifier silently matches nothing.
 | `dismiss`     | Silence this cause in every future digest      | Append a `cause:` row to `dismissed:` in `monitored_events.yaml` (below).                                                                                               |
 | `ticket`      | Hand it to the backlog                         | File a ClickUp ticket in the Data backlog. See the note below about re-nagging.                                                                                          |
 | `investigate` | Nothing is written yet                         | Drop into **Diagnose** with that cause's member events.                                                                                                                  |
+| `unwatch`     | Their silence is expected; stop watching them  | Only on `dormant` / `dormant_elevated`. Delete each member's `events:` row (as text). Never touch a behavior surface or an OKR leg: those are the question's and the semantic layer's. A member with no `events:` row is skipped. |
 
 **Dismissing a cause:**
 
@@ -240,6 +245,15 @@ each with `id`, `surface_type`, `location`, `rubric_rule`, `dashboard_question`,
 surface got instrumented, or the surface disappeared) never comes back as `new`, so
 neither ever appears in `--list-new`. They only show up in `coverage_stats`'s counts
 and the committed state file.
+
+Entries judged since DATA-2676 also carry `value` (`needed` | `low`), `answers_question`
+(the real question's id, or empty), and `fix` (`new_event` | `extend`, with
+`extend_event` / `extend_property`). Show them. A **low** gap is one no question anyone
+asked needs: the digest only counts it, and the console recommends nothing for it.
+**Leave a low gap unruled** unless the reviewer has a reason: `defer` writes `open`, which
+the sweep never re-judges, so a deferred low gap can never turn `needed` once someone asks
+its question. An **extend** gap is covered by adding the named property to an existing
+event; on accept, the ticket names that event and property, not a new event.
 
 Some entries also carry a `prior_ruling` field: `{id, disposition, reason, ruled_on}`
 from a resplit predecessor at the same location/surface_type. When present, show the
@@ -390,9 +404,11 @@ then later instrumented) is safe — it never clobbers a field with `None`.
 
 ## Queue B — watchlist proposals
 
-**Get the proposals** for this run, from the health monitor's result JSON (key
-`proposals`, each `{event_type, family, first_seen_date}` from
-`propose_watchlist_additions`). That JSON is written by `analytics_event_health.py
+**Get the proposals** for this run, from the health monitor's result JSON: key
+`proposals` (additions, each `{event_type, family, first_seen_date}`, only OKR legs not yet
+watched) and key `removal_proposals` (each `{event_type, reason: retired, retired_date}`,
+watched `events:` rows retired in code). `unneeded_proposal_count` is the number of other
+new events in watched families; it is information, not a queue. That JSON is written by `analytics_event_health.py
 --json instrumentation_data/analytics_event_health_report.json` in the scheduled
 governance workflow, but the file is **gitignored** (not committed) — it only exists
 locally as a CI artifact or a fresh local run:
@@ -411,7 +427,9 @@ locally as a CI artifact or a fresh local run:
      --json instrumentation_data/analytics_event_health_report.json
    ```
 
-Read the `proposals` array from whichever JSON you ended up with.
+Read the `proposals` and `removal_proposals` arrays from whichever JSON you ended up with.
+A console handoff names removals as `remove:<event_type>` with the verbs `remove`, `keep`
+or `defer`.
 
 - **Empty** → say so and move to write-back.
 - **Otherwise**, same interactive-vs-batch choice as Queue A (suggest batch past ~5).
@@ -443,6 +461,21 @@ section banners get stripped):
 - **defer** — leave the file untouched; the proposal reappears on the next run within
   its 90-day window. That's the point — "defer" means "ask me again," "dismiss" means
   "stop asking."
+
+**Removal verbs** (`removal_proposals`):
+
+- **remove** — delete the event's row from `events:`, as text. Removal is always this
+  human step; the monitor never edits the file. Never remove an OKR leg (the monitor does
+  not propose one) or a behavior surface.
+- **keep** — the retirement date is wrong or the row is still wanted. Ask for a reason,
+  then append to a top-level `kept:` list (create it at the end of the file if absent):
+  ```yaml
+  kept:
+    - {event: "<event_type>", reason: "<reason>", date: "<run_date>"}
+  ```
+  **Check membership first.** A kept event is never proposed for removal again.
+- **defer** — leave the file untouched; it is proposed again next run, but Slack only
+  counts it, since only a newly proposed removal posts.
 
 ## Queue C — registry vs semantic layer
 
@@ -835,7 +868,7 @@ earlier session, or a `relabels:` row a PR merged) need no ruling: go straight t
 
 | Verb      | What you do |
 | --------- | ----------- |
-| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. |
+| `accept`  | `uv run surface_drift.py dispose "<event>" --as accepted`, then apply it below. When the console handoff carries an `area:` line (the event fires from several areas and the reviewer picked one), add `--area "<area>"`. Without it the dispose refuses a multi-area row. |
 | `dismiss` | `uv run surface_drift.py dispose "<event>" --as dismissed --reason "<why>"`. It stays quiet until the event's areas change. |
 | `defer`   | `uv run surface_drift.py dispose "<event>" --as open`. |
 

@@ -7,7 +7,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useContactsTable } from '../../crm/ContactsTableProvider'
 import {
-  CITIZENS_PANEL_PATH,
+  civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import {
@@ -15,7 +15,7 @@ import {
   civicPanelSummaryQueryOptions,
 } from '../civicPanelSummary.query'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
-import { CivicPanelProgress } from './CivicPanelProgress'
+import { CivicPanelSeats } from './CivicPanelSeats'
 
 export const CitizensPanelSection = () => {
   const { isWinContext, isWinContextReady } = useContactsTable()
@@ -27,13 +27,18 @@ export const CitizensPanelSection = () => {
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
-  // Its own read, so a plan that cannot be read only drops the bar.
+  // Its own read, so a plan that cannot be read only drops the seats.
   const plan = useQuery({
     ...civicPanelPlanQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
 
   if (!show) return null
+
+  // The same seats the panel page draws, from the same plan read.
+  const composition = plan.data?.composition ?? null
+  // Like the panel page, no seats before anyone joins.
+  const hasMembers = (query.data?.members ?? 0) > 0
 
   const body =
     query.status === 'pending' ? (
@@ -49,7 +54,7 @@ export const CitizensPanelSection = () => {
       <>
         <CitizensPanelStats summary={query.data} />
         <Link
-          href={CITIZENS_PANEL_PATH}
+          href={civicPanelHref('contacts')}
           className="flex items-center gap-1 self-start text-sm font-semibold text-link no-underline hover:underline"
         >
           {COPY.seePanel}
@@ -66,7 +71,14 @@ export const CitizensPanelSection = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{COPY.caption}</p>
       </div>
-      {plan.data ? <CivicPanelProgress progress={plan.data.progress} /> : null}
+      {hasMembers && composition && composition.places.length > 0 ? (
+        <CivicPanelSeats
+          placeKind={composition.placeKind}
+          places={composition.places}
+          members={plan.data?.progress.members ?? 0}
+          goal={plan.data?.progress.goal ?? 0}
+        />
+      ) : null}
       {body}
     </section>
   )

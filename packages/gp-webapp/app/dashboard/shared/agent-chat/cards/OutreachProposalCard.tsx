@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
+import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
 import {
   CompactCardLink,
@@ -40,6 +41,9 @@ type OutreachProposalCardProps = {
   proposal: OutreachProposal
   // Absent outside a priority (Chief of Staff): the send links to no priority.
   priorityId?: string
+  // Set when the surface knows more than the flows' default, such as a
+  // priority card that answered Get answers.
+  launchSource?: OutreachLaunchSource
 }
 
 /**
@@ -51,7 +55,11 @@ type OutreachProposalCardProps = {
  * Still resolved by `proposalKey`, so a proposal already sent under its key
  * reads as sent and leads to that send.
  */
-const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
+const ProposalChip = ({
+  proposal,
+  priorityId,
+  launchSource,
+}: OutreachProposalCardProps) => {
   const flows = useProposalFlows()
   const mode = flows?.mode ?? 'serve'
   const {
@@ -123,7 +131,7 @@ const ProposalChip = ({ proposal, priorityId }: OutreachProposalCardProps) => {
                 ? flows.textResolved
                 : flows.winResolved))
           }
-          onClick={() => flows?.open(proposal, priorityId)}
+          onClick={() => flows?.open(proposal, priorityId, launchSource)}
         >
           {PROPOSAL_CTA[mode][proposal.channel]}
         </Button>

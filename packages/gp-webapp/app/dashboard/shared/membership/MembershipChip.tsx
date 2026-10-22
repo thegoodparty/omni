@@ -24,6 +24,7 @@ import { PinDialog } from './PinDialog'
 import {
   isMembershipSurfaceVisible,
   MEMBERSHIP_CLICK_EVENTS,
+  MEMBERSHIP_SCHEDULE_HREF,
   resolveMembershipAction,
 } from './MembershipBanner'
 
@@ -31,8 +32,7 @@ const CHIP_CLASS_NAME =
   'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-info-50 px-2.5 text-xs font-semibold text-primary'
 
 // Same shape as the banner's copy: a countdown while the window is closing,
-// and nothing for a cleared or closed Pro campaign, which never shows the
-// chip.
+// and nothing for a closed Pro campaign, which never shows the chip.
 const verificationLabel = (
   state: MembershipState,
   countdownCutoff: string | null,
@@ -46,8 +46,9 @@ const verificationLabel = (
       return MEMBERSHIP_COPY.chip.inReview
     case 'awaiting_pin':
       return MEMBERSHIP_COPY.chip.awaitingPin
-    case 'closed':
     case 'cleared':
+      return MEMBERSHIP_COPY.chip.cleared
+    case 'closed':
       return null
   }
 }
@@ -90,6 +91,7 @@ export const MembershipChip = (): React.JSX.Element | null => {
     if (action === 'pitch') setPitchOpen(true)
     else if (action === 'verify') router.push(CAMPAIGN_VERIFICATION_PATH)
     else if (action === 'pin') setPinOpen(true)
+    else if (action === 'schedule') router.push(MEMBERSHIP_SCHEDULE_HREF)
   }
 
   const body =

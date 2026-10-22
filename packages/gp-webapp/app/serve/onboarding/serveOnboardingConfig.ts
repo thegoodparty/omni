@@ -323,42 +323,37 @@ export const SERVE_STEP_COPY: Record<
     description:
       "We'll tailor your experience based on where you are in your journey.",
     whyWeAsk:
-      'Your status determines your timeline. We use this to tailor whether you see transition resources or governing tools.',
+      "If you've just been elected, you'll see help getting started. If you're already serving, you'll see tools for the job.",
   },
   party: {
     title: "What's your party designation?",
     description:
       'This is the party designation that you were elected under, not your personal voting history or party preference.',
     whyWeAsk:
-      'Your party designation determines how we approach solving the issues that are most important to your community.',
+      'We only work with officials who are independent of both major parties.',
   },
   office: {
     title: 'What office do you currently hold?',
-    description:
-      "We'll use this to analyze local constituent data, trends, & news.",
+    description: "We'll use this to find what's happening in your community.",
     whyWeAsk:
-      'Your office and location let us pull the right constituent data, legislation, meetings, and budgets to help you drive change.',
+      'This is how we find your meetings, budgets and the people you represent.',
   },
   'term-dates': {
     title: 'When does your term run?',
     description:
       'Tell us when your current term starts and ends so we can keep your briefings and timeline accurate.',
-    whyWeAsk:
-      'Your term dates let us schedule the right briefings at the right time, and make sure your offices never overlap.',
+    whyWeAsk: 'These dates tell us how much time you have left in this term.',
   },
   confirm: {
     title: 'Does this look right?',
     description:
-      'We pulled this from public records. Confirm your office and term dates, or change anything that looks off.',
-    whyWeAsk:
-      'These details ensure we pull the right information and data to help you serve your community',
+      "Is this your office and term? Change anything that's not right.",
+    whyWeAsk: 'This keeps your briefings and meetings accurate.',
   },
   priorities: {
     title: 'Turn what you ran on into what you work on',
-    description:
-      'Your priorities, shaped by what residents tell you. Your Chief of Staff keeps each one moving.',
-    whyWeAsk:
-      'Your priorities shape your briefings and the questions we suggest asking your constituents.',
+    description: 'Pick a few to start with. You can change them any time.',
+    whyWeAsk: 'We use these to help you plan and decide what to ask residents.',
   },
   pledge: {
     title: 'Take our pledge to get your chief of staff',
@@ -374,9 +369,10 @@ export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
   'welcome' | 'pledge'
 > = {
   welcome: {
-    title: 'Hear from your whole community, not only the loudest voices',
+    title:
+      'Hear from everyone in your community, not only the people who show up',
     description:
-      "Tell us what office you hold and where. We'll help you listen, act, and report back.",
+      "Tell us what office you hold and where, and we'll take it from there.",
   },
   pledge: {
     title: 'Take our pledge to get started',
@@ -403,9 +399,9 @@ export const SERVE_STORY_COPY = {
     }),
     titleWithoutCount: 'You represent every resident of your district',
     description: (perDot: string, place: string): string =>
-      `Every dot is about ${perDot} residents of ${place}. Each of them counts on you to speak for them.`,
+      `Each dot is about ${perDot} people in ${place}, and you speak for all of them.`,
     descriptionWithoutCount: (place: string): string =>
-      `Every dot is a group of residents of ${place}. Each of them counts on you to speak for them.`,
+      `Each dot is a group of people in ${place}, and you speak for all of them.`,
     defaultPlace: 'your district',
   },
   loudest: {
@@ -415,33 +411,33 @@ export const SERVE_STORY_COPY = {
       tail: 'only',
     } satisfies ServeStoryTitle,
     description:
-      'The people who make it to a meeting or send an email. Most residents never do.',
+      "That's the people who come to meetings or send you emails, and most residents never get the chance.",
     heardFrom: 'Heard from',
     notHeardFrom: 'Not heard from yet',
   },
   sample: {
-    title: (answers: number): ServeStoryTitle => ({
-      lead: 'With about',
-      accent: `${answers} answers`,
-      tail: ", you'll know where your community stands",
-    }),
+    title: {
+      lead: 'A few voices from',
+      accent: 'every group',
+      tail: 'tell you where your community stands',
+    } satisfies ServeStoryTitle,
     description:
-      'Picked at random from every corner of your district, they tell you a lot about what everyone thinks.',
-    howWeGotIt: 'How we got this number',
-    explanation: (answers: number): string =>
-      `We picked ${answers} so that when residents split close to evenly, you know their view within about 10 points either way. Accuracy depends on how many people answer, not how many live in your district.`,
+      'We reach people in every part of your district, so you hear what everyone thinks.',
+    howWeGotIt: 'How we aim for this',
+    explanation:
+      'We aim to hear from every age group, neighborhood, race and gender in your district.',
   },
   grow: {
-    title: "We'll help you build and grow the list of people you hear from",
+    title: "We'll help you hear from more of your community over time",
     description:
-      'Listen to the people first. Then prioritize, act, and tell them what you did.',
+      'Ask residents, see what matters, act on it, and tell them what you did.',
     loop: [
-      { title: 'Listen', desc: 'Text, call or knock' },
-      { title: 'Prioritize', desc: 'See what matters most' },
-      { title: 'Act', desc: 'Bring it to your vote' },
-      { title: 'Communicate', desc: 'Tell them what you did' },
+      'Ask residents',
+      'See what matters most',
+      'Vote with what you learned',
+      'Tell them what you did',
     ],
-    again: 'Then listen again. Each round, your panel grows.',
+    again: 'Each time you ask, you hear from more people.',
   },
 }
 
@@ -478,21 +474,21 @@ export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
     icon: UsersRoundIcon,
     title: 'Ask residents before you vote',
-    desc: "We'll help you build and grow the list of people you hear from, picked from every corner of your district.",
+    desc: "We'll help you ask a mix of residents what they think, so you know before you vote.",
   },
   {
     icon: MegaphoneIcon,
     title: 'Know what your community is talking about',
-    desc: 'We track local news, meetings, and constituent data to surface the issues residents raise most.',
+    desc: 'We keep an eye on local news and meetings, and tell you what residents care about most.',
   },
   {
     icon: ListChecksIcon,
     title: 'Follow through on the issues you were elected to solve',
-    desc: 'Get a plan for each priority, draft ordinances that work, and report back on what you did.',
+    desc: 'Get a plan for each priority, craft solutions that work, and report back on what you did.',
   },
   {
     icon: CalendarCheckIcon,
-    title: 'Walk into every meeting prepared',
+    title: 'Be ready for your next meeting',
     desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
   },
 ]
@@ -507,12 +503,12 @@ export const SERVE_IN_OFFICE_OPTIONS: ServeOption<InOfficeStatus>[] = [
   {
     value: 'in-office',
     title: "I'm an elected official",
-    desc: 'I currently hold an elected position, or am about to be sworn in.',
+    desc: "I hold an elected office, or I'm about to be sworn in.",
   },
   {
     value: 'campaigning',
     title: "I'm still campaigning",
-    desc: 'Running in an upcoming or active election.',
+    desc: "I'm running for office.",
   },
   {
     value: 'testing',

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
@@ -53,6 +53,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { reportQueryOptions } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { VoterFileFilters } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
@@ -71,7 +73,12 @@ import {
 } from 'app/dashboard/door-knocking/native/campaignLifecycle'
 import { MarkDoneDialog } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
-import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import {
+  followUpDrewNobody,
+  followUpPickedAt,
+  getHistoryStatusLabel,
+  type HistoryRow,
+} from './historyStatus.util'
 import {
   SMS_CUTOFF_COPY,
   formatSmsCutoffDate,
@@ -102,6 +109,7 @@ import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
 import { CampaignTurfList } from './CampaignTurfList'
+import { getOutreachHistoryCopy } from './outreachHistoryCopy'
 import {
   DetailsSection,
   FilterGroup,
@@ -203,7 +211,11 @@ interface OutreachDetailsDrawerProps {
 interface DetailRow extends HistoryRow {
   // The list endpoint joins the whole VoterFileFilter row, so the saved list's
   // name rides along with its criteria flags.
-  voterFileFilter?: VoterFileFilters & { name?: string | null }
+  voterFileFilter?: VoterFileFilters & {
+    name?: string | null
+    sampleSize?: number | null
+    sampledAt?: Date | string | null
+  }
 }
 
 export const OutreachDetailsDrawer = ({
@@ -216,6 +228,7 @@ export const OutreachDetailsDrawer = ({
   isServe = false,
   onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
+  const copy = getOutreachHistoryCopy(isServe)
   const { smsCutoffDate } = useSmsCompliance()
   const textingClosedReason = SMS_CUTOFF_COPY.closedReason(
     smsCutoffDate ? formatSmsCutoffDate(smsCutoffDate) : null,
@@ -416,11 +429,23 @@ export const OutreachDetailsDrawer = ({
   // report is per turf, so a door-knocking campaign gets the drawer-level
   // link only when it IS one turf; with several, the row's id names just
   // the anchor's, and each turf card below carries its own link instead.
+  // Issue capture's flag, read without exposure: the capture card is the
+  // treatment. It also decides the footer's shape, so with it off the footer
+  // is the one main shipped.
+  const { enabled: issueCaptureOn } = useIssueCaptureFlag(false)
   const reportOutreachId = isPhoneBanking
     ? (row?.id ?? null)
     : isDoorKnocking && campaignTurfs.length === 1
       ? (campaignTurfs[0]?.outreachId ?? null)
       : null
+  // What we heard waits for the first note: before one, the report has
+  // nothing to say. The report's own counts, without its polling.
+  const reportQuery = useQuery({
+    ...reportQueryOptions(reportOutreachId ?? 0),
+    enabled: issueCaptureOn && reportOutreachId !== null,
+    refetchInterval: false,
+  })
+  const hasNotes = (reportQuery.data?.denominators.memos ?? 0) > 0
   // Archive and complete for the WHOLE campaign, one server-side transaction
   // each. This is what replaced `canArchiveFromDrawer`: the write used to
   // take a turf id, so on a campaign it shelved the anchor and left every
@@ -470,11 +495,7 @@ export const OutreachDetailsDrawer = ({
     },
     onSuccess: ({ data }) => applyArchivedAt(data.archivedAt),
     onError: () =>
-      errorSnackbar(
-        isArchived
-          ? "Couldn't restore this campaign. Please try again."
-          : "Couldn't archive this campaign. Please try again.",
-      ),
+      errorSnackbar(isArchived ? copy.restoreError : copy.archiveError),
   })
 
   // One button, two writers. Door knocking archives the CAMPAIGN, which is
@@ -604,6 +625,33 @@ export const OutreachDetailsDrawer = ({
   // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  // What we heard rides the sticky footer beside the campaign's own action
+  // rather than heading the body: it is somewhere to go next. A live phone
+  // list puts it in the CTA row beside Continue calling; everywhere else it
+  // shares the second row with Mark campaign done or the archive shelf.
+  // Side by side on a desktop, one under the other on a phone.
+  const heardAction = (className?: string) =>
+    reportOutreachId === null || !issueCaptureOn || !hasNotes ? null : (
+      <WhatWeHeardAction
+        outreachId={reportOutreachId}
+        isServe={isServe}
+        className={className}
+        onNavigate={() => onOpenChange(false)}
+      />
+    )
+  const withHeard = (secondary: ReactNode) => {
+    const heard =
+      footerMode === 'continue' && !isDoorKnocking
+        ? null
+        : heardAction('w-full')
+    if (!heard) return secondary
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {secondary}
+        {heard}
+      </div>
+    )
+  }
   // Phone banking's alone. Door knocking used to build one here too, into
   // the campaign's next unfinished turf — and picking a turf for the
   // candidate is exactly what a campaign's drawer should not do now that
@@ -781,7 +829,7 @@ export const OutreachDetailsDrawer = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-[22px] font-semibold text-foreground">
-                  {row.name || row.title || 'Untitled campaign'}
+                  {row.name || row.title || copy.untitled}
                 </h2>
                 <HistoryStatusText
                   label={displayStatusLabel}
@@ -799,6 +847,19 @@ export const OutreachDetailsDrawer = ({
                   </span>
                 )}
               </div>
+              {isServe && followUpDrewNobody(row) && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Nobody left to text, so this was canceled. We&apos;ll refund
+                  it.
+                </p>
+              )}
+              {isServe && followUpPickedAt(row) !== null && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Recipients picked{' '}
+                  {shortOutreachDate(followUpPickedAt(row) as string | Date)},
+                  from the groups you&apos;ve heard least from.
+                </p>
+              )}
             </div>
           )
         }
@@ -815,6 +876,19 @@ export const OutreachDetailsDrawer = ({
               : (smsFooter ?? (
                   <ListDetailsFooter
                     mode={footerMode}
+                    // Medium beside What we heard, the size door knocking's
+                    // footer row has; main's large with the flag off.
+                    primarySize={issueCaptureOn ? 'medium' : 'large'}
+                    leading={
+                      // Beside Continue calling, the list's one live action:
+                      // what the calls so far have said.
+                      footerMode === 'continue' && !isDoorKnocking
+                        ? // Half the row each, as the CTA is `flex-1`, and after it:
+                          // to its right on a desktop, under it on a phone, where
+                          // the minimum width is what makes it wrap.
+                          heardAction('order-last min-w-48 flex-1')
+                        : undefined
+                    }
                     destructive={
                       // Delete stays phone-banking-only: it calls the phone list's
                       // own delete endpoint, and no other channel has one.
@@ -878,7 +952,7 @@ export const OutreachDetailsDrawer = ({
                               }
                             : null
                     }
-                    secondary={
+                    secondary={withHeard(
                       // Archive now applies to every finished row the history's
                       // Archive toggle can hide, door knocking included. What used to
                       // block it was reach, not policy: this row is the projection of
@@ -895,15 +969,17 @@ export const OutreachDetailsDrawer = ({
                       // offered when nothing is unfinished, because then the
                       // campaign is already done and the row reads `done` anyway.
                       footerMode === 'continue' &&
-                      isDoorKnocking &&
-                      unfinished.length > 0 ? (
+                        isDoorKnocking &&
+                        unfinished.length > 0 ? (
                         <Button
+                          // Ghost beside What we heard: two outlines side by side read
+                          // as two equal choices, and this is the quieter one.
                           variant="outline"
                           className="w-full"
                           disabled={campaignLifecycle.pendingAction !== null}
                           onClick={() => setMarkCampaignDoneOpen(true)}
                         >
-                          Mark campaign done
+                          {copy.markDone}
                         </Button>
                       ) : (
                         // `none` alongside `done`, which is the one state this slot
@@ -928,21 +1004,21 @@ export const OutreachDetailsDrawer = ({
                         // its underlying lifecycle here, which is what already keeps
                         // Restore reachable — so neither is affected.
                         (footerMode === 'done' || footerMode === 'none') &&
-                        (!isDoorKnocking || campaignTurfs.length > 0) && (
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            disabled={archivePending}
-                            onClick={toggleArchive}
-                          >
-                            <ArchiveIcon className="size-4" />
-                            {isArchived
-                              ? 'Restore from archive'
-                              : 'Move to archive'}
-                          </Button>
-                        )
-                      )
-                    }
+                          (!isDoorKnocking || campaignTurfs.length > 0) && (
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              disabled={archivePending}
+                              onClick={toggleArchive}
+                            >
+                              <ArchiveIcon className="size-4" />
+                              {isArchived
+                                ? 'Restore from archive'
+                                : 'Move to archive'}
+                            </Button>
+                          )
+                      ),
+                    )}
                     note={
                       // The turf is still the object, and the rail is still where a
                       // walk is managed — so the line stays, saying where this act
@@ -961,13 +1037,6 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {reportOutreachId !== null && (
-              <WhatWeHeardAction
-                outreachId={reportOutreachId}
-                isServe={isServe}
-              />
-            )}
-
             {(audienceName || audienceLabels.length > 0) && (
               // "Applied filters" describes what BUILT the audience, which is
               // the right title for a send composed out of voter-file
@@ -976,7 +1045,9 @@ export const OutreachDetailsDrawer = ({
               // the act — and with the section saying it, the group's own
               // "Audience" label would say it twice.
               <DetailsSection
-                title={isDoorKnocking ? 'Voter list used' : 'Applied filters'}
+                title={
+                  isDoorKnocking ? copy.audienceSection : 'Applied filters'
+                }
               >
                 {audienceName && (
                   <FilterGroup
@@ -1012,7 +1083,7 @@ export const OutreachDetailsDrawer = ({
                   <Metric
                     icon={<FileTextIcon />}
                     label="Name"
-                    value={row.name || row.title || 'Untitled campaign'}
+                    value={row.name || row.title || copy.untitled}
                   />
                   <Metric
                     icon={<RadioIcon />}
@@ -1323,9 +1394,9 @@ export const OutreachDetailsDrawer = ({
 
             {/* Unlike phone banking's, this section does not give way to a
                 Results table on a finished row: door knocking has no outcomes
-                surface here (ADR 0012), and a walk is routinely ended with
-                doors left unlogged — so how much of the list was covered is
-                the answer on a done walk too, not only on a live one. */}
+                surface here, and a walk is routinely ended with doors left
+                unlogged — so how much of the list was covered is the answer
+                on a done walk too, not only on a live one. */}
             {/* The campaign's own turfs: one row per turf, plus an "Add
                 another turf" affordance that lands on the create flow scoped
                 to this campaign. Rendered for every door-knocking row rather
@@ -1571,6 +1642,7 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={setMarkCampaignDoneOpen}
         pending={campaignLifecycle.pendingAction === 'complete'}
         onConfirm={markCampaignDone}
+        isServe={isServe}
       />
     </>
   )

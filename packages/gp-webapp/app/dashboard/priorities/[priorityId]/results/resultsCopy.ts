@@ -1,5 +1,3 @@
-import type { RepresentationDimension } from '@goodparty_org/contracts'
-
 export const RESULTS_COPY = {
   pageTitle: (priority: string) => `What we heard on ${priority}`,
   caption: 'Everything your outreach on this priority has brought back so far.',
@@ -26,32 +24,15 @@ export const RESULTS_COPY = {
   themesCaption: 'Across every text, call and door on this priority.',
   themesEmpty: 'Themes show up once at least 5 people have answered.',
   themesUpdating: 'Updating with the latest answers.',
+  themesProcessing: "We're reading what people said. Themes show up here soon.",
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
   mapTitle: 'Where answers came from',
   mapCaption: 'Darker squares mean more people answered from that area.',
   mapEmpty: 'Answers show up on the map as people reply.',
   representationTitle: "Who you're hearing from",
-  representationCaption:
-    'Compares the neighborhoods people answered from with your whole district.',
-  representationEmpty: (minimum: number) =>
-    `Hear from at least ${minimum} people to compare them with your district.`,
+  groupsSummary: (atShare: number, total: number) =>
+    `${atShare} of ${total} groups have at least their share of answers.`,
   representationUnavailable:
     'Census figures for your district are not available yet. Email support@goodparty.org so we can look into it.',
-  overBy: (points: number) => `${points} points over`,
-  underBy: (points: number) => `${points} points under`,
-  even: 'About even',
-  shares: (respondent: number, district: number) =>
-    `${respondent}% of answers, ${district}% of your district`,
-  legendOver: 'More than their share',
-  legendUnder: 'Fewer than their share',
 } as const
-
-export const DIMENSION_LABELS: Record<RepresentationDimension, string> = {
-  age: 'Age',
-  race: 'Race and ethnicity',
-  education: 'Education',
-  income: 'Household income',
-  housing: 'Home',
-  poverty: 'Poverty',
-}

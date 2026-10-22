@@ -119,12 +119,22 @@ test.describe('staff test mode', () => {
       term.getByRole('button', { name: 'active', exact: true }),
     ).toBeDisabled({ timeout: 30_000 })
     await term.getByRole('button', { name: 'ending_soon' }).click()
+    // Every preset button is disabled while the apply is in flight, so
+    // ending_soon reads as disabled before the server has written anything.
+    // `active` coming back enabled is what proves the apply finished.
+    await expect(
+      term.getByRole('button', { name: 'active', exact: true }),
+    ).toBeEnabled({ timeout: 30_000 })
     await expect(
       term.getByRole('button', { name: 'ending_soon' }),
-    ).toBeDisabled({ timeout: 30_000 })
-    expect(
-      (await getTestMode(client, slug)).active?.families.term?.current,
-    ).toBe('ending_soon')
+    ).toBeDisabled()
+    await expect
+      .poll(
+        async () =>
+          (await getTestMode(client, slug)).active?.families.term?.current,
+        { timeout: 30_000 },
+      )
+      .toBe('ending_soon')
 
     await row.getByRole('button', { name: 'Delete' }).click()
     await page

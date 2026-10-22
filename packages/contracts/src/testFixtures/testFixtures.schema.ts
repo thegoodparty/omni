@@ -1,8 +1,12 @@
 import { z } from 'zod'
+import { ComplianceStageSchema } from '../campaigns/enums'
 
 export const TEST_FIXTURE_STATE_VALUES = [
   'free-win',
   'pro-win',
+  // A Pro Win candidate whose real 10DLC registration has run to `tcr_approved`
+  // against the vendor mocks (VENDOR_MODE=mock only).
+  'pro-win-10dlc-mock',
   'serve',
   'serve-won-race',
 ] as const
@@ -54,6 +58,20 @@ export type TestFixtureSessionResponse = z.infer<
   typeof TestFixtureSessionResponseSchema
 >
 
+// Result of applying a fixture state to an existing user
+// (`POST /test-fixtures/users/:id/states/:state`). Only the 10DLC state is
+// applicable that way today, so the shape is that state's outcome.
+export const TestFixtureStateResponseSchema = z.object({
+  state: TestFixtureStateSchema,
+  userId: z.number(),
+  campaignId: z.number(),
+  stage: ComplianceStageSchema,
+  peerlyIdentityId: z.string(),
+})
+export type TestFixtureStateResponse = z.infer<
+  typeof TestFixtureStateResponseSchema
+>
+
 export const DeleteTestFixtureUsersResponseSchema = z.object({
   deleted: z.array(z.object({ userId: z.number(), email: z.string() })),
   notFound: z.array(z.union([z.number(), z.string()])),
@@ -64,6 +82,19 @@ export type DeleteTestFixtureUsersResponse = z.infer<
 
 export const TEST_FIXTURE_ACTIVITY_MAX_PEOPLE = 500
 
+// How many residents answer the seeded priority, each with a coded answer.
+// Every resident asked answers when it is left out.
+export const TestFixtureAnswersSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
+
+// `lean` codes nine in ten answers yes, which lets every group read as
+// heard; `even` splits them half yes and half no, which leaves the model
+// unsure of its groups however many answer.
+export const TestFixtureSplitSchema = z.enum(['lean', 'even'])
+
 export const SeedTestFixtureActivityRequestSchema = z
   .object({
     people: z
@@ -72,6 +103,8 @@ export const SeedTestFixtureActivityRequestSchema = z
       .min(20)
       .max(TEST_FIXTURE_ACTIVITY_MAX_PEOPLE)
       .optional(),
+    answers: TestFixtureAnswersSchema.optional(),
+    split: TestFixtureSplitSchema.optional(),
   })
   .strict()
   .default({})

@@ -198,8 +198,8 @@ const mockDistrict = ({
 const storyHeading = {
   represent: /You represent 32,000 people/,
   loudest: "Until now, you've heard from the loudest voices only",
-  sample: "With about 96 answers, you'll know where your community stands",
-  grow: "We'll help you build and grow the list of people you hear from",
+  sample: 'A few voices from every group tell you where your community stands',
+  grow: "We'll help you hear from more of your community over time",
 }
 
 const findStoryHeading = (name: string | RegExp) =>
@@ -242,7 +242,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     expect(
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       ),
     ).toBeInTheDocument()
     expect(
@@ -288,7 +288,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     await findStoryHeading(storyHeading.sample)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await findStoryHeading(storyHeading.grow)
-    expect(screen.getByText('Communicate')).toBeInTheDocument()
+    expect(screen.getByText('Tell them what you did')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText(PRIORITIES_TITLE)
@@ -340,30 +340,28 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
   })
 
-  it('says how it got the answers a district needs', async () => {
+  it('says what it aims for in every group', async () => {
     resumedAt('story-sample')
     const user = userEvent.setup()
     renderFlow()
 
     await findStoryHeading(storyHeading.sample)
     await user.click(
-      screen.getByRole('button', { name: 'How we got this number' }),
+      screen.getByRole('button', { name: 'How we aim for this' }),
     )
     expect(
       await screen.findByText(
-        /We picked 96 so that when residents split close to evenly/,
+        'We aim to hear from every age group, neighborhood, race and gender in your district.',
       ),
     ).toBeInTheDocument()
   })
 
-  it('sizes the answers to a small district', async () => {
+  it('says the same in a small district', async () => {
     mockDistrict({ population: 500 })
     resumedAt('story-sample')
     renderFlow()
 
-    await findStoryHeading(
-      "With about 81 answers, you'll know where your community stands",
-    )
+    await findStoryHeading(storyHeading.sample)
   })
 
   it('resumes on a story step', async () => {
@@ -377,23 +375,23 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     )
     expect(
       screen.getByText(
-        'Listen to the people first. Then prioritize, act, and tell them what you did.',
+        'Ask residents, see what matters, act on it, and tell them what you did.',
       ),
     ).toBeInTheDocument()
     expect(
       screen.getAllByRole('listitem').map((item) => item.textContent),
     ).toEqual([
-      '1ListenText, call or knock',
-      '2PrioritizeSee what matters most',
-      '3ActBring it to your vote',
-      '4CommunicateTell them what you did',
+      '1Ask residents',
+      '2See what matters most',
+      '3Vote with what you learned',
+      '4Tell them what you did',
     ])
     // One column at every width, so the loop reads 1 to 4 top to bottom
     // rather than left to right and wrapping.
     expect(screen.getByRole('list').className).not.toMatch(/grid-cols/)
     expect(screen.getByRole('list')).toHaveClass('flex-col')
     expect(
-      screen.getByText('Then listen again. Each round, your panel grows.'),
+      screen.getByText('Each time you ask, you hear from more people.'),
     ).toBeInTheDocument()
   })
 
@@ -410,7 +408,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(screen.getByTestId('district-story-basemap')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Every dot is about 80 residents of your district. Each of them counts on you to speak for them.',
+        'Each dot is about 80 people in your district, and you speak for all of them.',
       ),
     ).toBeInTheDocument()
   })
@@ -549,7 +547,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await screen.findByText(
-      'Hear from your whole community, not only the loudest voices',
+      'Hear from everyone in your community, not only the people who show up',
     )
     await waitFor(() => expect(communityStarts).toBe(1))
 
@@ -586,10 +584,10 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       answer: RegExp,
     ) => {
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await user.click(await screen.findByRole('button', { name: answer }))
+      await user.click(await screen.findByRole('radio', { name: answer }))
       expect(communityStarts).toBe(0)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
@@ -608,7 +606,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       renderFlow()
 
       await answerInOffice(user, /I'm still campaigning/)
-      await screen.findByText("Let's switch you to campaign mode")
+      await screen.findByText("Let's get you set up for your campaign")
       expect(communityStarts).toBe(0)
     })
 
@@ -643,28 +641,31 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       return { status: 200, data: { starterIssueCount: 1 } }
     })
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
       const user = userEvent.setup()
       renderFlow()
 
       await screen.findByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
@@ -676,7 +677,11 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       expect(calls).toEqual([])
 
       await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -915,7 +920,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'Hear from your whole community, not only the loudest voices',
+        'Hear from everyone in your community, not only the people who show up',
       ),
     ).not.toBeInTheDocument()
   })
@@ -967,6 +972,21 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('Meet your virtual chief of staff in 5 minutes'),
     ).toBeInTheDocument()
+  })
+
+  it('selects a choice card with one click on its text', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByText("I'm an elected official"))
+
+    expect(
+      screen.getByRole('radio', { name: /I'm an elected official/ }),
+    ).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
   it('resumes a returning lead with a saved party past the welcome/inOffice intro', async () => {
@@ -1035,11 +1055,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1094,7 +1114,11 @@ describe('ServeOnboardingFlow', () => {
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')
@@ -1127,6 +1151,29 @@ describe('ServeOnboardingFlow', () => {
     expect(
       await screen.findByText('Take our pledge to get your chief of staff'),
     ).toBeInTheDocument()
+  })
+
+  it('opens the pledge scrolled to the top', async () => {
+    mockLoad(buildEO({ party: 'independent' }), buildOrg())
+    api.mock('PATCH /v1/organizations/:slug', {
+      status: 200,
+      data: buildOrg(),
+    })
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'independent' }),
+    })
+    const scrollTo = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => undefined)
+
+    const user = await reachTermDatesStep()
+    scrollTo.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Take our pledge to get your chief of staff')
+    expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    scrollTo.mockRestore()
   })
 
   it('still advances to the pledge when the term-dates save fails', async () => {
@@ -1225,9 +1272,7 @@ describe('ServeOnboardingFlow', () => {
     expect(await screen.findByText('Does this look right?')).toBeInTheDocument()
     // Item 3: the confirm step's right-rail "Why this matters" box.
     expect(
-      screen.getByText(
-        'These details ensure we pull the right information and data to help you serve your community',
-      ),
+      screen.getByText('This keeps your briefings and meetings accurate.'),
     ).toBeInTheDocument()
     // The confirmed office renders as a plain value (the old red error state is
     // gone now that confirm is only shown when complete).
@@ -1260,11 +1305,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1351,13 +1396,16 @@ describe('ServeOnboardingFlow', () => {
     // react-query entry is pre-seeded; seed the result for the ZIP we type so
     // the picker shows the office synchronously.
     const positionsKey = ['serve-onboarding-positions', '90001']
-    testQueryClient.setQueryData(positionsKey, [
-      {
-        brPositionId: 'br-pos-1',
-        position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
-        city: 'Springfield',
-      },
-    ])
+    testQueryClient.setQueryData(positionsKey, {
+      upcoming: [
+        {
+          brPositionId: 'br-pos-1',
+          position: { id: 'p1', name: 'Mayor', level: 'City', state: 'CA' },
+          city: 'Springfield',
+        },
+      ],
+      past: [],
+    })
 
     try {
       const user = userEvent.setup()
@@ -1371,12 +1419,12 @@ describe('ServeOnboardingFlow', () => {
       expect(postCount).toBe(0)
       // The inOffice Continue is the first real answer — it mints the EO.
       await user.click(
-        await screen.findByRole('button', { name: /I'm an elected official/ }),
+        await screen.findByRole('radio', { name: /I'm an elected official/ }),
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await waitFor(() => expect(postCount).toBe(1))
       await user.click(
-        await screen.findByRole('button', {
+        await screen.findByRole('radio', {
           name: /Independent \/ Non-major party/,
         }),
       )
@@ -1388,7 +1436,11 @@ describe('ServeOnboardingFlow', () => {
         '90001',
       )
       await user.click(screen.getByRole('button', { name: 'Search' }))
-      await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+      await user.click(
+        await within(
+          await screen.findByRole('radiogroup', { name: 'Available offices' }),
+        ).findByRole('radio', { name: /Mayor/ }),
+      )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await screen.findByText('When does your term run?')
@@ -1451,11 +1503,11 @@ describe('ServeOnboardingFlow', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1557,7 +1609,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     // No event yet — Office Status Viewed fires on Continue, not on selection.
     expect(eventProps(OFFICE_STATUS_VIEWED)).toHaveLength(0)
@@ -1582,13 +1634,13 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm still campaigning/ }),
+      await screen.findByRole('radio', { name: /I'm still campaigning/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The hand-off screen renders, and the office-status selection records the
     // drop-off — the standalone "Switched to Campaign" event is gone.
-    await screen.findByText("Let's switch you to campaign mode")
+    await screen.findByText("Let's get you set up for your campaign")
     expect(eventProps(OFFICE_STATUS_VIEWED)).toEqual([
       expect.objectContaining({ selection: "I'm still campaigning" }),
     ])
@@ -1607,11 +1659,11 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', { name: /I'm an elected official/ }),
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: /Independent \/ Non-major party/,
       }),
     )
@@ -1642,7 +1694,11 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       '90001',
     )
     await user.click(screen.getByRole('button', { name: 'Search' }))
-    await user.click(await screen.findByRole('radio', { name: /Mayor/ }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('When does your term run?')

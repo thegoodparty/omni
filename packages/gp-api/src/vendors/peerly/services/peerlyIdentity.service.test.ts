@@ -39,6 +39,7 @@ import {
   resetAllCounters,
 } from '@/shared/test-utils'
 import { PinoLogger } from 'nestjs-pino'
+import { recordVendorSchemaMismatch } from '../../shared/vendorSchema.metrics'
 
 /**
  * Create a mock user for peerly identity tests
@@ -86,6 +87,10 @@ const createMockCampaign = (
     ...rest,
   })
 }
+
+vi.mock('../../shared/vendorSchema.metrics', () => ({
+  recordVendorSchemaMismatch: vi.fn(),
+}))
 
 describe('PeerlyIdentityService', () => {
   let service: PeerlyIdentityService
@@ -1333,6 +1338,24 @@ describe('PeerlyIdentityService', () => {
       expect(errorHandling.handleApiError).not.toHaveBeenCalled()
     })
 
+    it('still returns, and counts a schema mismatch, on a malformed body', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      httpService.get = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { verification_status: 42 } })
+
+      const result = await service.retrieveCampaignVerifyStatus(
+        'peerly-drift',
+        campaign,
+      )
+
+      expect(result).toBe(42)
+      expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
+        'peerly',
+        '/v2/tdlc/:id/retrieve_cv',
+      )
+    })
+
     it('routes other errors through handleApiError', async () => {
       const httpService = module.get(PeerlyHttpService)
       const errorHandling = module.get(PeerlyErrorHandlingService)
@@ -1515,7 +1538,7 @@ describe('PeerlyIdentityService', () => {
             suppressSlackAlert: true,
             // Separate from the Slack flag on purpose: this is what keeps the
             // `Peerly API ERROR` line at warn, and so what keeps
-            // win-peerly-warnings from paging win-bugs on a typo.
+            // win-peerly-warnings from paging on a typo.
             expectedRejection: true,
           }),
         }),

@@ -7,6 +7,8 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useUser } from '@shared/hooks/useUser'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import {
   COMPLIANCE_STATE_QUERY_KEY,
   TCR_COMPLIANCE_QUERY_KEY,
@@ -16,9 +18,22 @@ import type { TcrCompliance } from 'helpers/types'
 // gp-api answers 409 when CampaignVerify has not issued a PIN at all — the
 // candidate has nothing to get right, so blaming their input sent them into an
 // unwinnable retry loop (ENG-10866). 400/422 is a genuine mismatch against an
-// issued PIN; anything else is an upstream/Peerly failure.
+// issued PIN; anything else is an upstream/Peerly failure. The tax-exempt
+// errorCode is also a 422, so it is checked first: the PIN verified, but
+// Peerly will never accept this registration until support fixes it
+// (ENG-11389).
 const messageForError = (e: unknown): string => {
   if (e instanceof FetchError) {
+    if (
+      extractApiErrorInfo(e.data).errorCode ===
+      'CAMPAIGN_VERIFY_TAX_EXEMPT_BRAND'
+    ) {
+      return (
+        'Your registration is listed as a tax-exempt nonprofit, so we ' +
+        `can’t finish it. Email ${PRO_COMPLIANCE_SUPPORT_EMAIL} so we can ` +
+        'fix it.'
+      )
+    }
     if (e.status === 409) {
       return (
         'CampaignVerify hasn’t issued your PIN yet, so there’s nothing to ' +

@@ -113,6 +113,12 @@ export {
   type PrioritySource,
   PRIORITY_SOURCE_VALUES,
   PrioritySourceSchema,
+  type PriorityAnswerCode,
+  PRIORITY_ANSWER_CODE_VALUES,
+  PriorityAnswerCodeSchema,
+  type PriorityAnswerSource,
+  PRIORITY_ANSWER_SOURCE_VALUES,
+  PriorityAnswerSourceSchema,
   type TrackerTaskSkipReason,
   TRACKER_TASK_SKIP_REASON_VALUES,
   TrackerTaskSkipReasonSchema,
@@ -177,8 +183,6 @@ export {
   CIVIC_PANEL_SEGMENT,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
-  CivicPanelRepresentationSchema,
-  type CivicPanelRepresentation,
 } from './people/CivicPanelSummary.schema'
 export {
   isCivicPanelOnlyList,
@@ -193,6 +197,7 @@ export {
   PANEL_DOOR_SHARE_OF_HOURS,
   PANEL_DOORS_PER_AREA,
   PANEL_MAX_DOOR_AREAS,
+  PANEL_ACTIVE_WINDOW_DAYS,
   PANEL_MIN_HOURS_PER_WEEK,
   PANEL_MAX_HOURS_PER_WEEK,
   PANEL_WEEKS_PER_WAVE,
@@ -224,14 +229,36 @@ export {
   type CivicPanelBuildProgress,
   CivicPanelBuildPlanResponseSchema,
   type CivicPanelBuildPlanResponse,
+  CivicPanelBalanceSchema,
+  type CivicPanelBalance,
+  CivicPanelCompositionSchema,
+  type CivicPanelComposition,
+  CIVIC_PANEL_PLACE_KINDS,
+  CivicPanelPlaceKindSchema,
+  type CivicPanelPlaceKind,
+  CivicPanelCompositionPlaceSchema,
+  type CivicPanelCompositionPlace,
+  CivicPanelCompositionGroupSchema,
+  type CivicPanelCompositionGroup,
+  civicPanelStandingLine,
+  CIVIC_PANEL_STEP_COPY,
+  civicPanelStepMinutes,
+  civicPanelStepTitle,
+  civicPanelOpenStepDetail,
+  civicPanelStepAction,
+  CIVIC_PANEL_BALANCE_STATUSES,
+  CivicPanelBalanceStatusSchema,
+  type CivicPanelBalanceStatus,
+  CIVIC_PANEL_BALANCE_STATUS_LABELS,
+  civicPanelFreshnessText,
+  PANEL_MIN_MEMBERS_FOR_BALANCE,
   PrepareCivicPanelBuildStepResponseSchema,
   type PrepareCivicPanelBuildStepResponse,
 } from './people/CivicPanelBuildPlan.schema'
 export {
   panelGoalMembers,
+  PANEL_MEMBERS_PER_GROUP,
   panelExpectedAnswers,
-  sizePanelAsk,
-  type PanelAskSize,
   panelSeedSampleSize,
   PANEL_SEED_SAMPLE_SIZE,
 } from './people/PanelAnswers'
@@ -270,6 +297,12 @@ export {
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
   type GetIndividualActivitiesResponse,
+  ConstituentPriorityAnswerSchema,
+  type ConstituentPriorityAnswer,
+  PersonPriorityAnswerSchema,
+  type PersonPriorityAnswer,
+  GetPersonPriorityAnswersResponseSchema,
+  type GetPersonPriorityAnswersResponse,
 } from './people/ContactActivity.schema'
 
 export {
@@ -867,6 +900,8 @@ export {
   isToolRefusal,
   ProposalAudienceFiltersSchema,
   type ProposalAudienceFilters,
+  WalkableAreaBoxSchema,
+  type WalkableAreaBox,
   type ProposalLink,
   type ChatCardKind,
   type ProposalChannel,
@@ -902,25 +937,29 @@ export {
 } from './priorities/PriorityOnboarding.schema'
 
 export {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   PRIORITY_RESULTS_CHANNELS,
   PriorityResultsChannelSchema,
   type PriorityResultsChannel,
   PriorityResultsSendSchema,
   type PriorityResultsSend,
   PriorityResultsPointSchema,
-  REPRESENTATION_DIMENSIONS,
-  RepresentationDimensionSchema,
-  type RepresentationDimension,
-  RepresentationGroupSchema,
-  type RepresentationGroup,
-  PriorityRepresentationSchema,
-  type PriorityRepresentation,
   PriorityResultsSchema,
   type PriorityResults,
   PriorityReadStatusSchema,
   type PriorityReadStatus,
+  ReadRepresentativenessSchema,
+  type ReadRepresentativeness,
+  UnderrepresentedGroupSchema,
+  type UnderrepresentedGroup,
+  UNDERREPRESENTED_GROUP_NAMES,
+  UNSURE_AREAS_NAME,
+  underrepresentedGroupName,
+  joinGroupNames,
+  READ_REPRESENTATIVENESS_LABELS,
+  DISTRICT_GRID_CELL_DEGREES,
   PriorityThemeSchema,
+  PriorityResultsGroupSchema,
+  type PriorityResultsGroup,
   type PriorityTheme,
 } from './priorities/PriorityResults.schema'
 
@@ -943,6 +982,10 @@ export {
   CIVIC_PANEL_STEP_CARD_PREFIX,
   civicPanelStepCardSourceId,
   isCivicPanelStepCard,
+  isGoodReadReportBackCard,
+  CIVIC_PANEL_BUILD_CARD_CTA,
+  CIVIC_PANEL_BUILD_CARD_PLAN_CTA,
+  civicPanelBuildCardOpensPlan,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 
@@ -1097,10 +1140,8 @@ export {
   isHighConfidence,
 } from './outreach/SampleSizing.const'
 export {
-  ANSWERS_CONFIDENCE_Z,
-  ANSWERS_MARGIN_OF_ERROR,
-  ANSWERS_SPLIT_VARIANCE,
-  ANSWERS_NEEDED_UNCORRECTED,
+  MIN_VOICES_PER_GROUP,
+  MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
 export {
@@ -1320,6 +1361,11 @@ export {
   ServeSmsDraftResponseSchema,
   type ServeSmsDraftResponse,
   ServeSmsCreateRequestSchema,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
+  ROUND_ONE_TEXT_SHARE,
+  FOLLOW_UP_BUSINESS_DAYS,
+  MIN_TEXTS_PER_ROUND,
+  splitPriorityText,
   type ServeSmsCreateRequest,
   ServeSmsCreateResponseSchema,
   type ServeSmsCreateResponse,
@@ -1585,6 +1631,7 @@ export {
   CONSTITUENT_FEEDBACK_AUDIO_KEY_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_AUDIO_MAX_BYTES,
   CONSTITUENT_FEEDBACK_MAX_ISSUES,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   ConstituentFeedbackIssueSchema,
   type ConstituentFeedbackIssue,
   RecordConstituentFeedbackSchema,
@@ -1604,12 +1651,6 @@ export {
   type AudioUploadUrlRequest,
   AudioUploadUrlResponseSchema,
   type AudioUploadUrlResponse,
-  PendingFeedbackReferenceSchema,
-  type PendingFeedbackReference,
-  PendingFeedbackSchema,
-  type PendingFeedback,
-  PendingFeedbackResponseSchema,
-  type PendingFeedbackResponse,
 } from './constituentFeedback/ConstituentFeedback.schema'
 
 export {
@@ -1705,15 +1746,46 @@ export {
   type TestFixtureUserResponse,
   TestFixtureSessionResponseSchema,
   type TestFixtureSessionResponse,
+  TestFixtureStateResponseSchema,
+  type TestFixtureStateResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
   TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,
   SeedTestFixtureActivityRequestSchema,
+  TestFixtureAnswersSchema,
+  TestFixtureSplitSchema,
   type SeedTestFixtureActivityRequest,
   TestFixtureActivityEffortSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityResponse,
 } from './testFixtures/testFixtures.schema'
+
+export {
+  VendorMockRecordSummarySchema,
+  type VendorMockRecordSummary,
+  MockActionSchema,
+  type MockAction,
+  MockActionResponseSchema,
+  type MockActionResponse,
+  MockRecordsQuerySchema,
+  type MockRecordsQuery,
+  MockRecordsResponseSchema,
+  type MockRecordsResponse,
+  RunJobResponseSchema,
+  type RunJobResponse,
+  TimeTravelSchema,
+  type TimeTravel,
+  TimeTravelResponseSchema,
+  type TimeTravelResponse,
+  DeliverStripeEventRequestSchema,
+  type DeliverStripeEventRequest,
+  DeliverStripeEventResponseSchema,
+  type DeliverStripeEventResponse,
+  AdminOutreachActionRequestSchema,
+  type AdminOutreachActionRequest,
+  AdminOutreachActionResponseSchema,
+  type AdminOutreachActionResponse,
+} from './testFixtures/vendorMocks'
 
 export {
   DEV_ENV_PACKAGE_VALUES,
@@ -1723,6 +1795,8 @@ export {
   type DevEnvPackageBundle,
   DevEnvBundleResponseSchema,
   type DevEnvBundleResponse,
+  DevEnvElectionSeedResponseSchema,
+  type DevEnvElectionSeedResponse,
 } from './devEnv/devEnv.schema'
 
 export {
@@ -1780,3 +1854,16 @@ export {
   EXPLAIN_CIVIC_PANEL_MARKER,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
 } from './outreach/CivicPanelJoin'
+
+export {
+  PICKED_NEXT_STEPS_LEAD,
+  pickedNextStepsMessage,
+} from './chats/ChiefOfStaffNextSteps'
+export {
+  LinkPersonProfileOwnerInputSchema,
+  type LinkPersonProfileOwnerInput,
+  GetPersonProfileLinkQuerySchema,
+  type GetPersonProfileLinkQuery,
+  PersonProfileLinkSchema,
+  type PersonProfileLink,
+} from './personProfiles/PersonProfileLink.schema'

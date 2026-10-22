@@ -1,6 +1,6 @@
 {
  "meta": {
-  "backend_not_examined": 73,
+  "backend_not_examined": 80,
   "signals": "ok",
   "thresholds": {
    "agreement": 0.8,
@@ -9,117 +9,48 @@
    "min_coverage": 0.5,
    "min_users": 5
   },
-  "traced": 350,
+  "traced": 355,
   "unmapped_prefixes": {
    "Campaign Manager": 1,
+   "Civic Panel": 1,
    "Constituent Data": 5,
    "Issue Capture": 5,
-   "Win": 7
+   "Win": 1
   },
   "verdicts": {
-   "consistent": 155,
-   "dashboard_wide": 47,
-   "flow": 67,
+   "consistent": 191,
+   "dashboard_wide": 49,
+   "flow": 63,
    "moved": 7,
-   "moved_then_quiet": 9,
-   "stale_area_name": 41,
+   "moved_then_quiet": 4,
+   "stale_area_name": 22,
    "unclear": 34,
-   "unmapped": 21
+   "unmapped": 16
   },
-  "web_events": 381
+  "web_events": 386
  },
  "rows": {
-  "Campaign Story - Rewrite Accepted": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "areas": [
-    "Your Story",
-    "Candidate Onboarding"
-   ],
-   "claimed": "Campaign Story",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Campaign Story - Rewrite Accepted",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.281,
-    "attributed": 865,
-    "coverage": 0.859,
-    "fires": 1007,
-    "impersonated": 0,
-    "on_reached": 243,
-    "users": 272
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Campaign Story - Rewrite Discarded": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "areas": [
-    "Your Story",
-    "Candidate Onboarding"
-   ],
-   "claimed": "Campaign Story",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Campaign Story - Rewrite Discarded",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.469,
-    "attributed": 32,
-    "coverage": 0.8,
-    "fires": 40,
-    "impersonated": 0,
-    "on_reached": 15,
-    "users": 29
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
   "Campaign Story - Rewrite Limit Reached": {
    "applied_date": "",
    "area_keys": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
+   ],
+   "area_options": [
+    {
+     "area": "Your Story",
+     "display_name": "Your Story - Rewrite Limit Reached",
+     "fires_on": "Your Story (/dashboard/campaign-story)",
+     "surface": "your-story",
+     "url": "/dashboard/campaign-story"
+    },
+    {
+     "area": "Candidate Onboarding",
+     "display_name": "Candidate Onboarding - Rewrite Limit Reached",
+     "fires_on": "Candidate Onboarding (/onboarding/office-selection)",
+     "surface": "candidate-onboarding",
+     "url": "/onboarding/office-selection"
+    }
    ],
    "areas": [
     "Your Story",
@@ -134,7 +65,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -147,49 +78,6 @@
    "reason": "",
    "removal_commit": null,
    "signal": null,
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Campaign Story - Rewrite Requested": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "areas": [
-    "Your Story",
-    "Candidate Onboarding"
-   ],
-   "claimed": "Campaign Story",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Campaign Story - Rewrite Requested",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-story",
-    "/onboarding/office-selection"
-   ],
-   "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.276,
-    "attributed": 887,
-    "coverage": 0.862,
-    "fires": 1029,
-    "impersonated": 0,
-    "on_reached": 245,
-    "users": 276
-   },
    "source": "detector",
    "verdict": "stale_area_name"
   },
@@ -210,7 +98,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -223,56 +111,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 47,
-    "coverage": 0.94,
-    "fires": 50,
+    "attributed": 63,
+    "coverage": 0.955,
+    "fires": 66,
     "impersonated": 9,
-    "on_reached": 47,
-    "users": 31
-   },
-   "source": "detector",
-   "surface_options": [
-    "constituents",
-    "voter-data"
-   ],
-   "verdict": "stale_area_name"
-  },
-  "Contacts - Assistant Message Sent": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/contacts"
-   ],
-   "areas": [
-    "Voter Data"
-   ],
-   "claimed": "Contacts",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Contacts - Assistant Message Sent",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/contacts/[[...attr]]"
-   ],
-   "okr": false,
-   "proposed_display_name": "Voter Data - Assistant Message Sent",
-   "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
-   "proposed_surface": "voter-data",
-   "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 1.0,
-    "attributed": 94,
-    "coverage": 0.922,
-    "fires": 102,
-    "impersonated": 9,
-    "on_reached": 94,
-    "users": 30
+    "on_reached": 63,
+    "users": 40
    },
    "source": "detector",
    "surface_options": [
@@ -298,7 +142,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -310,13 +154,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.945,
-    "attributed": 5736,
-    "coverage": 0.939,
-    "fires": 6109,
-    "impersonated": 353,
-    "on_reached": 5422,
-    "users": 850
+    "agreement": 0.944,
+    "attributed": 6107,
+    "coverage": 0.941,
+    "fires": 6492,
+    "impersonated": 383,
+    "on_reached": 5763,
+    "users": 845
    },
    "source": "detector",
    "surface_options": [
@@ -342,7 +186,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -355,12 +199,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.995,
-    "attributed": 793,
-    "coverage": 0.983,
-    "fires": 807,
-    "impersonated": 24,
-    "on_reached": 789,
-    "users": 217
+    "attributed": 836,
+    "coverage": 0.984,
+    "fires": 850,
+    "impersonated": 31,
+    "on_reached": 832,
+    "users": 219
    },
    "source": "detector",
    "surface_options": [
@@ -386,7 +230,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -398,13 +242,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 1.0,
-    "attributed": 96,
-    "coverage": 0.98,
-    "fires": 98,
-    "impersonated": 8,
-    "on_reached": 96,
-    "users": 44
+    "agreement": 0.994,
+    "attributed": 164,
+    "coverage": 0.965,
+    "fires": 170,
+    "impersonated": 19,
+    "on_reached": 163,
+    "users": 65
    },
    "source": "detector",
    "surface_options": [
@@ -430,7 +274,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -442,13 +286,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 1.0,
-    "attributed": 112,
-    "coverage": 0.949,
-    "fires": 118,
-    "impersonated": 12,
-    "on_reached": 112,
-    "users": 44
+    "agreement": 0.99,
+    "attributed": 196,
+    "coverage": 0.947,
+    "fires": 207,
+    "impersonated": 26,
+    "on_reached": 194,
+    "users": 67
    },
    "source": "detector",
    "surface_options": [
@@ -474,7 +318,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -486,13 +330,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.991,
-    "attributed": 669,
-    "coverage": 0.945,
-    "fires": 708,
-    "impersonated": 28,
-    "on_reached": 663,
-    "users": 183
+    "agreement": 0.989,
+    "attributed": 716,
+    "coverage": 0.942,
+    "fires": 760,
+    "impersonated": 40,
+    "on_reached": 708,
+    "users": 186
    },
    "source": "detector",
    "surface_options": [
@@ -518,7 +362,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -530,13 +374,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.993,
-    "attributed": 1068,
-    "coverage": 0.939,
-    "fires": 1137,
-    "impersonated": 75,
-    "on_reached": 1061,
-    "users": 240
+    "agreement": 0.992,
+    "attributed": 1161,
+    "coverage": 0.94,
+    "fires": 1235,
+    "impersonated": 96,
+    "on_reached": 1152,
+    "users": 248
    },
    "source": "detector",
    "surface_options": [
@@ -562,7 +406,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -574,13 +418,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.993,
-    "attributed": 985,
+    "agreement": 0.992,
+    "attributed": 1068,
     "coverage": 0.948,
-    "fires": 1039,
-    "impersonated": 59,
-    "on_reached": 978,
-    "users": 229
+    "fires": 1127,
+    "impersonated": 77,
+    "on_reached": 1059,
+    "users": 236
    },
    "source": "detector",
    "surface_options": [
@@ -606,7 +450,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -618,13 +462,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.991,
-    "attributed": 1383,
-    "coverage": 0.952,
-    "fires": 1452,
-    "impersonated": 80,
-    "on_reached": 1371,
-    "users": 246
+    "agreement": 0.992,
+    "attributed": 1522,
+    "coverage": 0.953,
+    "fires": 1597,
+    "impersonated": 105,
+    "on_reached": 1510,
+    "users": 253
    },
    "source": "detector",
    "surface_options": [
@@ -650,7 +494,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -662,13 +506,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.988,
-    "attributed": 576,
-    "coverage": 0.95,
-    "fires": 606,
-    "impersonated": 23,
-    "on_reached": 569,
-    "users": 176
+    "agreement": 0.987,
+    "attributed": 606,
+    "coverage": 0.947,
+    "fires": 640,
+    "impersonated": 31,
+    "on_reached": 598,
+    "users": 175
    },
    "source": "detector",
    "surface_options": [
@@ -694,7 +538,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -706,13 +550,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.991,
-    "attributed": 659,
-    "coverage": 0.948,
-    "fires": 695,
-    "impersonated": 24,
-    "on_reached": 653,
-    "users": 183
+    "agreement": 0.99,
+    "attributed": 694,
+    "coverage": 0.947,
+    "fires": 733,
+    "impersonated": 33,
+    "on_reached": 687,
+    "users": 184
    },
    "source": "detector",
    "surface_options": [
@@ -738,7 +582,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -751,12 +595,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.985,
-    "attributed": 68,
-    "coverage": 0.986,
-    "fires": 69,
-    "impersonated": 1,
-    "on_reached": 67,
-    "users": 15
+    "attributed": 67,
+    "coverage": 1.0,
+    "fires": 67,
+    "impersonated": 2,
+    "on_reached": 66,
+    "users": 14
    },
    "source": "detector",
    "surface_options": [
@@ -782,7 +626,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -795,12 +639,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 147,
-    "coverage": 0.961,
-    "fires": 153,
-    "impersonated": 6,
-    "on_reached": 147,
-    "users": 44
+    "attributed": 138,
+    "coverage": 0.958,
+    "fires": 144,
+    "impersonated": 9,
+    "on_reached": 138,
+    "users": 43
    },
    "source": "detector",
    "surface_options": [
@@ -826,7 +670,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -839,12 +683,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 229,
-    "coverage": 0.987,
-    "fires": 232,
-    "impersonated": 3,
-    "on_reached": 229,
-    "users": 40
+    "attributed": 264,
+    "coverage": 0.989,
+    "fires": 267,
+    "impersonated": 5,
+    "on_reached": 264,
+    "users": 46
    },
    "source": "detector",
    "surface_options": [
@@ -870,7 +714,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -882,13 +726,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.985,
-    "attributed": 1901,
-    "coverage": 0.956,
-    "fires": 1989,
-    "impersonated": 87,
-    "on_reached": 1873,
-    "users": 264
+    "agreement": 0.986,
+    "attributed": 2044,
+    "coverage": 0.958,
+    "fires": 2134,
+    "impersonated": 122,
+    "on_reached": 2016,
+    "users": 267
    },
    "source": "detector",
    "surface_options": [
@@ -914,7 +758,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -926,13 +770,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.932,
-    "attributed": 207,
-    "coverage": 0.958,
-    "fires": 216,
-    "impersonated": 20,
-    "on_reached": 193,
-    "users": 73
+    "agreement": 0.935,
+    "attributed": 199,
+    "coverage": 0.957,
+    "fires": 208,
+    "impersonated": 19,
+    "on_reached": 186,
+    "users": 69
    },
    "source": "detector",
    "surface_options": [
@@ -941,283 +785,27 @@
    ],
    "verdict": "stale_area_name"
   },
-  "Dashboard - Campaign Plan: Media Displayed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Media Displayed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Media Displayed",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.924,
-    "attributed": 2930,
-    "coverage": 0.932,
-    "fires": 3145,
-    "impersonated": 94,
-    "on_reached": 2708,
-    "users": 710
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Media Requested": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Media Requested",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Media Requested",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.563,
-    "attributed": 2842,
-    "coverage": 0.883,
-    "fires": 3220,
-    "impersonated": 95,
-    "on_reached": 1599,
-    "users": 736
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Media Results Received": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Media Results Received",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Media Results Received",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.917,
-    "attributed": 2917,
-    "coverage": 0.928,
-    "fires": 3145,
-    "impersonated": 94,
-    "on_reached": 2674,
-    "users": 710
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Plan Shared": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Plan Shared",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Plan Shared",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Strategic Landscape Displayed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Strategic Landscape Displayed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Displayed",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.946,
-    "attributed": 2554,
-    "coverage": 0.938,
-    "fires": 2723,
-    "impersonated": 85,
-    "on_reached": 2417,
-    "users": 623
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Strategic Landscape Requested": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Strategic Landscape Requested",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Requested",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.594,
-    "attributed": 2859,
-    "coverage": 0.888,
-    "fires": 3220,
-    "impersonated": 95,
-    "on_reached": 1698,
-    "users": 736
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Dashboard - Campaign Plan: Strategic Landscape Results Received": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/campaign-plan"
-   ],
-   "areas": [
-    "Campaign Plan"
-   ],
-   "claimed": "Dashboard",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Dashboard - Campaign Plan: Strategic Landscape Results Received",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/campaign-plan"
-   ],
-   "okr": false,
-   "proposed_display_name": "Campaign Plan - Campaign Plan: Strategic Landscape Results Received",
-   "proposed_fires_on": "Campaign Plan (/dashboard/campaign-plan)",
-   "proposed_surface": "campaign-plan",
-   "proposed_url": "/dashboard/campaign-plan",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.942,
-    "attributed": 2543,
-    "coverage": 0.934,
-    "fires": 2723,
-    "impersonated": 85,
-    "on_reached": 2396,
-    "users": 623
-   },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
   "Dashboard - Campaign Task Completed": {
    "applied_date": "",
    "area_keys": [
     "/dashboard",
     "/dashboard/campaign-plan"
+   ],
+   "area_options": [
+    {
+     "area": "Home",
+     "display_name": "Home - Campaign Task Completed",
+     "fires_on": "Home (/dashboard, /dashboard/campaign-plan)",
+     "surface": "home",
+     "url": ""
+    },
+    {
+     "area": "Campaign Plan",
+     "display_name": "Campaign Plan - Campaign Task Completed",
+     "fires_on": "Campaign Plan (/dashboard/campaign-plan)",
+     "surface": "campaign-plan",
+     "url": "/dashboard/campaign-plan"
+    }
    ],
    "areas": [
     "Home",
@@ -1232,7 +820,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard",
     "/dashboard/campaign-plan"
@@ -1245,13 +833,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.997,
-    "attributed": 1162,
-    "coverage": 0.964,
-    "fires": 1206,
+    "agreement": 0.996,
+    "attributed": 1964,
+    "coverage": 0.95,
+    "fires": 2067,
     "impersonated": 2,
-    "on_reached": 1159,
-    "users": 152
+    "on_reached": 1956,
+    "users": 227
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -1273,7 +861,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard"
    ],
@@ -1285,49 +873,14 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.969,
-    "attributed": 228,
-    "coverage": 0.97,
-    "fires": 235,
-    "impersonated": 17,
-    "on_reached": 221,
-    "users": 138
+    "agreement": 0.967,
+    "attributed": 210,
+    "coverage": 0.968,
+    "fires": 217,
+    "impersonated": 12,
+    "on_reached": 203,
+    "users": 129
    },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Issue Capture - Pending Memo Confirmed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/issue-capture/[outreachId]/review",
-    "/volunteer/door-knocking/[turfId]/review"
-   ],
-   "areas": [
-    "Notes to review",
-    "Notes to review"
-   ],
-   "claimed": "Issue Capture",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Issue Capture - Pending Memo Confirmed",
-   "disposition": "new",
-   "first_seen": "2026-10-08",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/issue-capture/[outreachId]/review",
-    "/volunteer/door-knocking/[turfId]/review"
-   ],
-   "okr": false,
-   "proposed_display_name": "",
-   "proposed_fires_on": "",
-   "proposed_surface": "",
-   "proposed_url": "",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
    "source": "detector",
    "verdict": "stale_area_name"
   },
@@ -1348,7 +901,7 @@
    "disposition": "new",
    "first_seen": "2026-10-08",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/issue-capture/[outreachId]"
    ],
@@ -1380,7 +933,7 @@
    "disposition": "new",
    "first_seen": "2026-10-08",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/issue-capture/[outreachId]"
    ],
@@ -1395,163 +948,27 @@
    "source": "detector",
    "verdict": "stale_area_name"
   },
-  "Issue Capture - Tag Accepted": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "areas": [
-    "What we heard"
-   ],
-   "claimed": "Issue Capture",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Issue Capture - Tag Accepted",
-   "disposition": "new",
-   "first_seen": "2026-10-08",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "okr": false,
-   "proposed_display_name": "What we heard - Tag Accepted",
-   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-   "proposed_surface": "what-we-heard",
-   "proposed_url": "/dashboard/issue-capture/[outreachId]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Issue Capture - Tag Dismissed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "areas": [
-    "What we heard"
-   ],
-   "claimed": "Issue Capture",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Issue Capture - Tag Dismissed",
-   "disposition": "new",
-   "first_seen": "2026-10-08",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "okr": false,
-   "proposed_display_name": "What we heard - Tag Dismissed",
-   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-   "proposed_surface": "what-we-heard",
-   "proposed_url": "/dashboard/issue-capture/[outreachId]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Onboarding - Candidate Office Completed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/profile"
-   ],
-   "areas": [
-    "Profile"
-   ],
-   "claimed": "campaign-details",
-   "claimed_kind": "tag",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Office Details: Office Completed",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/profile"
-   ],
-   "okr": false,
-   "proposed_display_name": "Profile - Office Details: Office Completed",
-   "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "profile",
-   "proposed_url": "/dashboard/profile",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.941,
-    "attributed": 102,
-    "coverage": 0.971,
-    "fires": 105,
-    "impersonated": 22,
-    "on_reached": 96,
-    "users": 53
-   },
-   "source": "detector",
-   "surface_options": [
-    "my-profile",
-    "profile"
-   ],
-   "verdict": "stale_area_name"
-  },
-  "Onboarding - Candidate Office Searched": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/profile"
-   ],
-   "areas": [
-    "Profile"
-   ],
-   "claimed": "campaign-details",
-   "claimed_kind": "tag",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Office Details: Office Searched",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/profile"
-   ],
-   "okr": false,
-   "proposed_display_name": "Profile - Office Details: Office Searched",
-   "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "profile",
-   "proposed_url": "/dashboard/profile",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.922,
-    "attributed": 1538,
-    "coverage": 0.956,
-    "fires": 1609,
-    "impersonated": 240,
-    "on_reached": 1418,
-    "users": 139
-   },
-   "source": "detector",
-   "surface_options": [
-    "my-profile",
-    "profile"
-   ],
-   "verdict": "stale_area_name"
-  },
   "Onboarding - Magic Link Clicked": {
    "applied_date": "",
    "area_keys": [
     "/serve/welcome",
     "/win/welcome"
+   ],
+   "area_options": [
+    {
+     "area": "welcome",
+     "display_name": "welcome - Magic Link Clicked",
+     "fires_on": "welcome (/serve/welcome)",
+     "surface": "welcome",
+     "url": "/serve/welcome"
+    },
+    {
+     "area": "welcome",
+     "display_name": "welcome - Magic Link Clicked",
+     "fires_on": "welcome (/win/welcome)",
+     "surface": "welcome",
+     "url": "/win/welcome"
+    }
    ],
    "areas": [
     "welcome",
@@ -1566,7 +983,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/serve/welcome",
     "/win/welcome"
@@ -1579,146 +996,38 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.836,
-    "attributed": 73,
-    "coverage": 0.869,
-    "fires": 84,
+    "agreement": 0.831,
+    "attributed": 71,
+    "coverage": 0.877,
+    "fires": 81,
     "impersonated": 0,
-    "on_reached": 61,
-    "users": 45
+    "on_reached": 59,
+    "users": 43
    },
    "source": "detector",
    "verdict": "moved"
-  },
-  "Onboarding - Office Step: Click Can't See Office": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/profile"
-   ],
-   "areas": [
-    "Profile"
-   ],
-   "claimed": "campaign-details",
-   "claimed_kind": "tag",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Office Details: Click Can't Find Office",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/profile"
-   ],
-   "okr": false,
-   "proposed_display_name": "Profile - Office Details: Click Can't Find Office",
-   "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "profile",
-   "proposed_url": "/dashboard/profile",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
-   "source": "detector",
-   "surface_options": [
-    "my-profile",
-    "profile"
-   ],
-   "verdict": "stale_area_name"
-  },
-  "Onboarding - Office Step: Click Next": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/profile"
-   ],
-   "areas": [
-    "Profile"
-   ],
-   "claimed": "campaign-details",
-   "claimed_kind": "tag",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Office Details: Click Next",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/profile"
-   ],
-   "okr": false,
-   "proposed_display_name": "Profile - Office Details: Click Next",
-   "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "profile",
-   "proposed_url": "/dashboard/profile",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.931,
-    "attributed": 72,
-    "coverage": 1.0,
-    "fires": 72,
-    "impersonated": 21,
-    "on_reached": 67,
-    "users": 39
-   },
-   "source": "detector",
-   "surface_options": [
-    "my-profile",
-    "profile"
-   ],
-   "verdict": "stale_area_name"
-  },
-  "Onboarding - Office Step: Office Selected": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/profile"
-   ],
-   "areas": [
-    "Profile"
-   ],
-   "claimed": "campaign-details",
-   "claimed_kind": "tag",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Office Details: Office Selected",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/profile"
-   ],
-   "okr": false,
-   "proposed_display_name": "Profile - Office Details: Office Selected",
-   "proposed_fires_on": "Profile (/dashboard/profile)",
-   "proposed_surface": "profile",
-   "proposed_url": "/dashboard/profile",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.901,
-    "attributed": 242,
-    "coverage": 0.98,
-    "fires": 247,
-    "impersonated": 29,
-    "on_reached": 218,
-    "users": 67
-   },
-   "source": "detector",
-   "surface_options": [
-    "my-profile",
-    "profile"
-   ],
-   "verdict": "stale_area_name"
   },
   "Outreach - Door Knocking Do Not Knock Cleared": {
    "applied_date": "",
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Do Not Knock Cleared",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Do Not Knock Cleared",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",
@@ -1733,7 +1042,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1755,6 +1064,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Door Logged",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Door Logged",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1768,7 +1093,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1781,13 +1106,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.446,
-    "attributed": 1120,
-    "coverage": 0.824,
-    "fires": 1359,
+    "agreement": 0.382,
+    "attributed": 1634,
+    "coverage": 0.862,
+    "fires": 1896,
     "impersonated": 0,
-    "on_reached": 500,
-    "users": 20
+    "on_reached": 624,
+    "users": 23
    },
    "source": "detector",
    "verdict": "moved"
@@ -1809,7 +1134,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1821,13 +1146,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.96,
-    "attributed": 398,
-    "coverage": 0.56,
-    "fires": 711,
+    "agreement": 0.956,
+    "attributed": 565,
+    "coverage": 0.615,
+    "fires": 918,
     "impersonated": 1,
-    "on_reached": 382,
-    "users": 73
+    "on_reached": 540,
+    "users": 88
    },
    "source": "detector",
    "verdict": "moved"
@@ -1849,7 +1174,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1870,6 +1195,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Not A Voter Reason Cleared",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Not A Voter Reason Cleared",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1883,7 +1224,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1905,6 +1246,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Not A Voter Reason Set",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Not A Voter Reason Set",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1918,7 +1275,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1940,6 +1297,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Route Build Failed",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Route Build Failed",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1953,7 +1326,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1983,6 +1356,22 @@
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
    ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Abandoned",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Abandoned",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
+   ],
    "areas": [
     "Door knocking",
     "Walk a route"
@@ -1996,7 +1385,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2009,13 +1398,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.832,
-    "attributed": 196,
-    "coverage": 0.951,
-    "fires": 206,
+    "agreement": 0.801,
+    "attributed": 246,
+    "coverage": 0.95,
+    "fires": 259,
     "impersonated": 1,
-    "on_reached": 163,
-    "users": 45
+    "on_reached": 197,
+    "users": 51
    },
    "source": "detector",
    "verdict": "moved"
@@ -2025,6 +1414,22 @@
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Completed",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Completed",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",
@@ -2039,7 +1444,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2052,13 +1457,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.364,
-    "attributed": 22,
-    "coverage": 0.759,
-    "fires": 29,
+    "agreement": 0.4,
+    "attributed": 25,
+    "coverage": 0.758,
+    "fires": 33,
     "impersonated": 0,
-    "on_reached": 8,
-    "users": 13
+    "on_reached": 10,
+    "users": 14
    },
    "source": "detector",
    "verdict": "moved"
@@ -2068,6 +1473,22 @@
    "area_keys": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
+   ],
+   "area_options": [
+    {
+     "area": "Door knocking",
+     "display_name": "Door knocking - Door Knocking Session Started",
+     "fires_on": "Door knocking (/dashboard/door-knocking)",
+     "surface": "door-knocking",
+     "url": "/dashboard/door-knocking"
+    },
+    {
+     "area": "Walk a route",
+     "display_name": "Walk a route - Door Knocking Session Started",
+     "fires_on": "Walk a route (/volunteer/door-knocking/[turfId])",
+     "surface": "walk-a-route",
+     "url": "/volunteer/door-knocking/[turfId]"
+    }
    ],
    "areas": [
     "Door knocking",
@@ -2082,7 +1503,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -2095,216 +1516,16 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.683,
-    "attributed": 775,
-    "coverage": 0.957,
-    "fires": 810,
-    "impersonated": 1,
-    "on_reached": 529,
-    "users": 81
+    "agreement": 0.62,
+    "attributed": 986,
+    "coverage": 0.955,
+    "fires": 1032,
+    "impersonated": 2,
+    "on_reached": 611,
+    "users": 97
    },
    "source": "detector",
    "verdict": "moved"
-  },
-  "Profile - Running Against: Click Add New": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/questions"
-   ],
-   "areas": [
-    "Additional Questions"
-   ],
-   "claimed": "Profile",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Running Against: Click Add New",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/questions"
-   ],
-   "okr": false,
-   "proposed_display_name": "Additional Questions - Running Against: Click Add New",
-   "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-   "proposed_surface": "additional-questions",
-   "proposed_url": "/dashboard/questions",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.595,
-    "attributed": 42,
-    "coverage": 0.977,
-    "fires": 43,
-    "impersonated": 0,
-    "on_reached": 25,
-    "users": 16
-   },
-   "source": "detector",
-   "verdict": "moved_then_quiet"
-  },
-  "Profile - Running Against: Click Edit": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/questions"
-   ],
-   "areas": [
-    "Additional Questions"
-   ],
-   "claimed": "Profile",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Running Against: Click Edit",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/questions"
-   ],
-   "okr": false,
-   "proposed_display_name": "Additional Questions - Running Against: Click Edit",
-   "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-   "proposed_surface": "additional-questions",
-   "proposed_url": "/dashboard/questions",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.0,
-    "attributed": 14,
-    "coverage": 1.0,
-    "fires": 14,
-    "impersonated": 0,
-    "on_reached": 0,
-    "users": 2
-   },
-   "source": "detector",
-   "verdict": "moved_then_quiet"
-  },
-  "Profile - Running Against: Click Save": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/questions"
-   ],
-   "areas": [
-    "Additional Questions"
-   ],
-   "claimed": "Profile",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Running Against: Click Save",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/questions"
-   ],
-   "okr": false,
-   "proposed_display_name": "Additional Questions - Running Against: Click Save",
-   "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-   "proposed_surface": "additional-questions",
-   "proposed_url": "/dashboard/questions",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.833,
-    "attributed": 18,
-    "coverage": 0.947,
-    "fires": 19,
-    "impersonated": 0,
-    "on_reached": 15,
-    "users": 19
-   },
-   "source": "detector",
-   "verdict": "moved_then_quiet"
-  },
-  "Profile - Running Against: Submit Add New": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/questions"
-   ],
-   "areas": [
-    "Additional Questions"
-   ],
-   "claimed": "Profile",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Running Against: Submit Add New",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/questions"
-   ],
-   "okr": false,
-   "proposed_display_name": "Additional Questions - Running Against: Submit Add New",
-   "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-   "proposed_surface": "additional-questions",
-   "proposed_url": "/dashboard/questions",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.576,
-    "attributed": 33,
-    "coverage": 1.0,
-    "fires": 33,
-    "impersonated": 0,
-    "on_reached": 19,
-    "users": 9
-   },
-   "source": "detector",
-   "verdict": "moved_then_quiet"
-  },
-  "Profile - Running Against: Submit Edit": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/questions"
-   ],
-   "areas": [
-    "Additional Questions"
-   ],
-   "claimed": "Profile",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Profile - Running Against: Submit Edit",
-   "disposition": "new",
-   "first_seen": "2026-10-02",
-   "gap_files": [],
-   "last_seen": "2026-10-16",
-   "live_routes": [
-    "/dashboard/questions"
-   ],
-   "okr": false,
-   "proposed_display_name": "Additional Questions - Running Against: Submit Edit",
-   "proposed_fires_on": "Additional Questions (/dashboard/questions)",
-   "proposed_surface": "additional-questions",
-   "proposed_url": "/dashboard/questions",
-   "reason": "",
-   "removal_commit": null,
-   "signal": {
-    "agreement": 0.0,
-    "attributed": 13,
-    "coverage": 0.929,
-    "fires": 14,
-    "impersonated": 0,
-    "on_reached": 0,
-    "users": 2
-   },
-   "source": "detector",
-   "verdict": "moved_then_quiet"
   },
   "Settings - Personal Info: Click Upload": {
    "applied_date": "",
@@ -2323,7 +1544,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "live_routes": [
     "/dashboard/profile"
    ],
@@ -2335,13 +1556,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.975,
-    "attributed": 80,
-    "coverage": 0.976,
-    "fires": 82,
+    "agreement": 0.971,
+    "attributed": 69,
+    "coverage": 0.972,
+    "fires": 71,
     "impersonated": 1,
-    "on_reached": 78,
-    "users": 66
+    "on_reached": 67,
+    "users": 59
    },
    "source": "detector",
    "surface_options": [
@@ -2357,7 +1578,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Activity Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2371,7 +1592,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Profile Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2385,7 +1606,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Research Started",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2399,7 +1620,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Action Clicked",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2413,7 +1634,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Actions Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2427,7 +1648,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponent Upgrade Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2441,7 +1662,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-16",
+   "last_seen": "2026-10-22",
    "proposed_display_name": "Know Your Opponent - Opponents Manually Added",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -2449,5 +1670,5 @@
    "verdict": "relabel"
   }
  },
- "run_date": "2026-10-16"
+ "run_date": "2026-10-22"
 }

@@ -80,6 +80,9 @@ interface ServeSmsScheduleStepProps {
   // the flow reads it as the scheduled moment without resolving a slot.
   date: Date | undefined
   onDateChange: (date: Date | undefined) => void
+  // More business days of lead than the window gives every send, for a
+  // send the server holds to a later first date (a priority's round 2).
+  minLeadBusinessDays?: number
 }
 
 export const ServeSmsScheduleStep = ({
@@ -87,6 +90,7 @@ export const ServeSmsScheduleStep = ({
   onNameChange,
   date,
   onDateChange,
+  minLeadBusinessDays,
 }: ServeSmsScheduleStepProps) => {
   // Frozen for the life of the step, matching PollScheduledDateSelector: a
   // re-render must not shift the floor under a date already picked.
@@ -129,12 +133,19 @@ export const ServeSmsScheduleStep = ({
 
       <div className="space-y-2">
         <Label>{SERVE_SMS_SCHEDULE_COPY.dateLabel}</Label>
+        {/* Flush left under the name field: centered, the calendar floats
+          off the field's edge on a phone. */}
         <DateInputCalendar
+          className="items-start"
           value={date}
           onChange={(picked) =>
             onDateChange(picked ? serveSmsScheduledAt(picked) : undefined)
           }
-          disabled={(day) => getDisabledState(day, now).disabled}
+          disabled={(day) =>
+            getDisabledState(day, now).disabled ||
+            (minLeadBusinessDays !== undefined &&
+              day <= addBusinessDays(now, minLeadBusinessDays))
+          }
           startMonth={now}
           endMonth={maxDate}
         />

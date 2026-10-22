@@ -28,8 +28,6 @@ A **`uv` workspace** for GoodParty's Python AI / data services. Members are most
 | `shared/`             | Library               | Cross-cutting clients: `aws_clients`, `braintrust`, `clickup_client`, `databricks_client`, `google_sheets_client`, `llm_gemini_3` / `llm_gemini`, plus utilities |
 | `serve/v1_pipeline/`  | FastAPI / SQS service | Main pipeline service — strict mypy                                                                                                                              |
 | `hubspot_ddhq_match/` | Lambda                | Match HubSpot contacts to DDHQ records                                                                                                                           |
-| `clickup_bot/`        | Lambda                | ClickUp automation                                                                                                                                               |
-| `engineer_agent/`     | Lambda                | Engineer-style coding agent                                                                                                                                      |
 | `pmf_engine/`         | Lambda                | Product/market-fit engine                                                                                                                                        |
 | `broker/`             | Service               | Message broker service                                                                                                                                           |
 
@@ -61,7 +59,7 @@ When in doubt about whether a directory is a workspace member, check `pyproject.
 └── README.md                   # member-specific runbook
 ```
 
-`pmf_engine/` and `engineer_agent/` are good examples: each pairs the member code (`pyproject.toml`, handler, `Dockerfile`, `tests/`) with a matching `infrastructure/modules/<name>/` Terraform module.
+`pmf_engine/` is a good example: it pairs the member code (`pyproject.toml`, handler, `Dockerfile`, `tests/`) with a matching `infrastructure/modules/<name>/` Terraform module.
 
 ## Adding a workspace member
 
@@ -90,7 +88,7 @@ Lambda handler (e.g. pmf_engine/control_plane/dispatch_handler.py)
    │
    ├─ shared.* (clients to AWS, Databricks, Braintrust, LLM providers)
    │
-   ├─ member-specific logic (engineer_agent/, broker/, pmf_engine/, ...)
+   ├─ member-specific logic (broker/, pmf_engine/, autopilot/, ...)
    │
    ├─ LLM calls (anthropic / openai / google-genai)
    │
@@ -144,7 +142,3 @@ Nothing is rebuilt at promotion time.
 
 - `.claude/agents/code-critic.md` — strict reviewer that applies `ai-rules/` + `CLAUDE.md` + the actual ruff/mypy config.
 - `.claude/skills/python-developer.md` — captures the workspace + uv reality so agents don't reach for the wrong package manager or run the wrong test command.
-
-## ADRs
-
-`docs/adr/` is not yet seeded. Add one when a non-obvious decision lands — likely candidates: why uv workspace instead of separate repos, why gradual mypy strictness instead of all-or-nothing, why Braintrust as the single observability layer, why per-member ECR images instead of a shared Lambda layer. Use `ai-rules/adr-template.md`.

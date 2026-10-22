@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import type {
   GetTranscriptionJobCommandInput,
   StartTranscriptionJobCommandInput,
@@ -89,6 +89,24 @@ describe('RobocallTranscriptionService', () => {
 
     await expect(service.transcribe(params)).rejects.toBeInstanceOf(
       BadGatewayException,
+    )
+  })
+
+  it('throws a 400 when Transcribe reports the media file as invalid', async () => {
+    mockSend.mockImplementation((cmd: { kind: string }) =>
+      cmd.kind === 'start'
+        ? {}
+        : {
+            TranscriptionJob: {
+              TranscriptionJobStatus: 'FAILED',
+              FailureReason:
+                "The data in your input media file isn't valid. Check the media file and try your request again.",
+            },
+          },
+    )
+
+    await expect(service.transcribe(params)).rejects.toBeInstanceOf(
+      BadRequestException,
     )
   })
 

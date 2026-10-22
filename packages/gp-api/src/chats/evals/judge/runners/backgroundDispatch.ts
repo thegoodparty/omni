@@ -15,6 +15,8 @@ import type { ArmCaseRequest } from '../sweepArm'
 import type { ArmEnv } from '../sweepEnv'
 import { armConfigFor, backgroundDestinationFrom } from '../sweepEnv'
 import { JUDGE_FIXTURE } from '../judgeFixtureIdentity'
+import { chatScopeFor } from '@/testFixtures/judgeChatFixture/seed'
+import { runtimeRefusal, type ChatArmRuntime } from './chatRuntime'
 import { agentConfigFor } from './agentConfig'
 import type { AgentConfig, BackgroundRunInput } from './background'
 
@@ -65,7 +67,7 @@ export const ARM_BUDGET_MS = 70 * 60 * 1000
 // Chat agents walk one turn after another and nothing times a turn out, so
 // a selection with more turns than an arm holds ran into the vitest timeout,
 // which kills the arm with no manifest and orphans every background run
-// still out. `all` is 5 agents x 8 cases x 3 attempts = 120 turns an arm.
+// still out. `all` is 5 agents x 9 cases x 3 attempts = 135 turns an arm.
 //
 // Measured, not chosen: chief_of_staff from the first live sweep (run
 // 36999748321), 48 turns averaging 12.0s, the slowest 32s, and 24 turns in
@@ -76,9 +78,15 @@ export const ARM_BUDGET_MS = 70 * 60 * 1000
 // An agent nobody has timed is planned at the slowest measured class, not
 // the cheapest. priority_flow runs up to 30 tool steps a turn, and guessing
 // low is the failure this exists to stop; refusing by name costs one agent.
+//
+// priority_flow from run 38762654603: 48 turns averaging 13.2s, the slowest
+// 45s. Planned at about 2.3x rather than 1.5x, because that sweep ran in
+// process with no district, and a deployed arm with one adds warehouse
+// queries to every turn that sizes an audience.
 export const CHAT_TURN_MS: Readonly<Partial<Record<string, number>>> = {
   chief_of_staff: 20_000,
   ordinance_flow: 120_000,
+  priority_flow: 30_000,
 }
 export const UNMEASURED_CHAT_TURN_MS = 120_000
 
@@ -184,8 +192,11 @@ export const walkedBackgroundCases = (
 // a race id goes missing whenever the named election has passed, and the
 // loader then refuses exactly the lists that need one.
 //
-// A chat agent is refused by design only when the resolver named it, which
-// it does for chat turns that would not fit the arm.
+// A chat agent is refused by design when the resolver named it — which it
+// does for chat turns that would not fit the arm — or when the runtime this
+// arm drives on cannot drive its cases at all. The second is also a refusal
+// by design and not a failed capture: `withRuntimeRefusals` decides it from
+// the same predicate the runner applies per case, before anything is staged.
 export const refusedBeforeSpend = (
   agent: AgentEntry,
   env: ArmEnv,
@@ -207,7 +218,8 @@ export const refusedBeforeSpend = (
           casesFor(agent),
           fixtureValuesFor(agent, env.fixtureValues),
         ).length > 0)
-    : env.backgroundRefused?.has(agent.agentId) === true
+    : env.backgroundRefused?.has(agent.agentId) === true ||
+      env.chatRuntimeRefused?.has(agent.agentId) === true
 
 // THE AGENTS AN ARM MUST HAVE CAPTURED, for the arm suite's final check. A
 // skip of any of these is paid work that did not happen, and the suite turns
@@ -351,6 +363,12 @@ export interface BackgroundBudgetInput {
   // Control cases past the cap that both arms walk, per agent, decided once by
   // armBudget.ts. See walkedCases.
   extraCases?: ReadonlyMap<string, readonly string[]>
+  // WHY each chat agent cannot be driven on the runtime THIS arm selected,
+  // which is a different refusal from the budget one above and is kept
+  // apart from it all the way into the manifest. A budget refusal says
+  // select fewer agents; this one says run the agent in process, or add the
+  // missing thing to gp-api.
+  runtimeRefusedReasons?: ReadonlyMap<string, string>
 }
 
 export interface CaseLoaderDeps {
@@ -376,6 +394,7 @@ export const caseLoaderFor = (
     admitted,
     refusedReasons,
     extraCases,
+    runtimeRefusedReasons,
   } = budget
   if (maxCases !== undefined && maxCases < 1) {
     throw new Error(
@@ -394,7 +413,14 @@ export const caseLoaderFor = (
   return (agent) => {
     const list = load(agent)
     if (list.shape !== 'background') {
-      // Thrown from here for the reason the background refusal below is.
+      // THE RUNTIME FIRST, because the two refusals mean different things
+      // and an agent the arm physically cannot drive was never a budget
+      // question. Thrown from here for the reason the background refusal
+      // below is: nothing has been staged and nothing has been spent.
+      const cannot = runtimeRefusedReasons?.get(agent.agentId)
+      if (cannot !== undefined) {
+        throw new Error(`${RUNTIME_SKIP_PREFIX} ${cannot}`)
+      }
       const why = refusedReasons?.get(agent.agentId)
       if (why !== undefined) {
         throw new Error(
@@ -497,6 +523,7 @@ export const armCaseLoader = (
   admitted?: ReadonlySet<string>,
   refusedReasons?: ReadonlyMap<string, string>,
   extraCases?: ReadonlyMap<string, readonly string[]>,
+  runtimeRefusedReasons?: ReadonlyMap<string, string>,
 ): ((agent: AgentEntry) => CaseList) =>
   caseLoaderFor(values, {
     budgetMs,
@@ -506,6 +533,7 @@ export const armCaseLoader = (
     ...(admitted !== undefined && { admitted }),
     ...(refusedReasons !== undefined && { refusedReasons }),
     ...(extraCases !== undefined && { extraCases }),
+    ...(runtimeRefusedReasons !== undefined && { runtimeRefusedReasons }),
   })
 
 // THE TWO THINGS AN ARM HANDS captureArm FROM ITS RESOLVED ENVIRONMENT, built
@@ -532,6 +560,7 @@ export const armDeps = (
     env.backgroundAdmitted,
     withChatRefusals(env, config).backgroundRefused,
     env.backgroundExtraCases,
+    env.chatRuntimeRefused,
   ),
 })
 
@@ -714,6 +743,75 @@ export const chatTurnsIn = (list: CaseList): number =>
     (sum, one) => sum + (isChatCase(one) ? caseTurns(one).length : 0),
     0,
   )
+
+// WHAT A RUNTIME REFUSAL READS AS IN A MANIFEST, and the one thing that
+// tells it apart from a budget refusal there.
+//
+// Both end up as `ArmSkip.reason` and both are refusals by design, but they
+// are acted on differently and a reader has to be able to see which they
+// have. A budget refusal says the arm had no room: select fewer agents, or
+// raise the budget. This one says the arm had plenty of room and physically
+// cannot drive the agent where it was pointed: run it in process, or add
+// the missing thing to gp-api. One grep separates them.
+export const RUNTIME_SKIP_PREFIX = "refused by this arm's runtime:"
+
+// THE CHAT AGENTS THE SELECTED RUNTIME CANNOT DRIVE, decided once, before
+// the sweep plans anything.
+//
+// Separate from `withChatRefusals` and not folded into it, for two reasons.
+// On a sweep the resolver has already filled `backgroundRefused` and that
+// function returns early, so anything added there would never run in CI.
+// And the two refusals are not the same refusal: see RUNTIME_SKIP_PREFIX.
+//
+// `capturableAgents` and the case loader both read the result, so an agent
+// refused here is left out of what the arm MUST have captured and is
+// skipped by name when the walk reaches it — rather than discovered one
+// case at a time by `assertCanDrive` and recorded as a capture that failed.
+// That mismatch is what turned a correct HTTP arm red.
+//
+// A list this tree cannot read is not refused here. The arm reports the
+// real error by name when it loads it for real, the way `withChatRefusals`
+// already treats an unreadable list.
+export const withRuntimeRefusals = (
+  env: ArmEnv,
+  runtime: ChatArmRuntime,
+  find: (agentId: string) => AgentEntry | undefined = findAgent,
+  load: (agent: AgentEntry) => CaseList = loadCaseList,
+): ArmEnv => {
+  const refused = new Map<string, string>()
+  for (const agentId of new Set(env.agentIds)) {
+    const agent = find(agentId)
+    if (agent === undefined || agent.shape !== 'chat') continue
+    if (agent.cases === null || agent.status === 'blocked') continue
+    let cases: CaseList
+    let scope: ReturnType<typeof chatScopeFor>
+    try {
+      cases = load(agent)
+      scope = chatScopeFor(agentId)
+    } catch {
+      continue
+    }
+    // Whether the arm spends, which is the arm's actual model directive: a
+    // spending arm drives the real model and a dry one a canned script. An
+    // HTTP arm always spends, because parseArmEnv refuses `http` with the
+    // spend switch off. The in-process runtime's one refusal, priority_flow
+    // without a district, applies only to a spending arm.
+    const why = runtimeRefusal(runtime, {
+      agentId,
+      scope,
+      ...(env.spends && { realModel: true }),
+      ...(env.dataVersion !== undefined && { dataVersion: env.dataVersion }),
+      cases: cases.cases.filter(isChatCase).map((one) => ({
+        caseId: one.caseId,
+        ...(one.accountState && { accountState: one.accountState }),
+        ...(one.priorTranscript && { priorTranscript: one.priorTranscript }),
+        ...(one.toolFailure && { toolFailure: one.toolFailure }),
+      })),
+    })
+    if (why !== undefined) refused.set(agentId, why)
+  }
+  return refused.size === 0 ? env : { ...env, chatRuntimeRefused: refused }
+}
 
 // THE CHAT REFUSALS AN ARM OBEYS. A sweep's come from the resolver and are
 // returned as they are. A local run has no resolver, so it works its own out

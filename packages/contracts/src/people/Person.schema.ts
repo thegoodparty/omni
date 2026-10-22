@@ -141,6 +141,12 @@ export const PersonSchema = z.object({
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
+  // Likelihood of voting before Election Day, early in person or by mail,
+  // from Haystaq's within-state percentile scores, so it is relative to the
+  // person's state rather than a probability.
+  earlyVoteStatus: z
+    .enum(['Very Likely', 'Likely', 'Unlikely', 'Very Unlikely'])
+    .nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])
     .nullable(),

@@ -1,88 +1,68 @@
 import { HttpException, HttpExceptionOptions } from '@nestjs/common'
 import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { Campaign } from '../../generated/prisma'
+import {
+  peerlyCampaignConfigSchema,
+  peerlyGetIdentitiesResponseBodySchema,
+  peerlyIdentityCreateResponseBodySchema,
+  peerlyIdentityProfileResponseBodySchema,
+  peerlyIdentityProfileSchema,
+  peerlyIdentitySchema,
+  peerlyIdentityUseCaseResponseBodySchema,
+  peerlyIdentityUseCaseSchema,
+} from './schemas/peerlyIdentity.schema'
+import {
+  approve10DLCBrandResponseBodySchema,
+  CampaignVerificationStatus,
+  peerly10DLCBrandSubmitResponseBodySchema,
+  peerlyCreateCVTokenResponseSchema,
+  peerlyCvVerificationDataSchema,
+  peerlyGetCvRequestResponseBodySchema,
+  peerlyResendPinResponseBodySchema,
+  peerlyRetrieveCampaignVerifyStatusResponseBodySchema,
+  peerlyRetrieveCvResponseBodySchema,
+  peerlySubmitCVResponseBodySchema,
+  peerlyVerifyCVPinResponseSchema,
+} from './schemas/peerlyTdlc.schema'
 
 // Peerly's retrieve_cv `verification_status` values. Single source of truth is
 // @goodparty_org/contracts (surfaced in the compliance-state response);
 // re-exported here so the Peerly vendor layer keeps importing it locally.
 export { PeerlyCvVerificationStatus }
 
-export type PeerlyIdentity = {
-  identity_id: string
-  identity_name: string
-  start_date: string
-  account_id: string
-  tcr_identity_status: string | null
-  vetting_expire_date?: string
-  usecases?: string[]
-}
+export type PeerlyIdentity = z.infer<typeof peerlyIdentitySchema>
 export type PeerlyJobArea = {
   didState?: string
   didNpaSubset?: string[]
 }
 
-export type PeerlyIdentityCreateResponseBody = {
-  Data: PeerlyIdentity
-}
+export type PeerlyIdentityCreateResponseBody = z.infer<
+  typeof peerlyIdentityCreateResponseBodySchema
+>
 
-export interface PeerlyCampaignConfig {
-  autoRenewal: number
-  description: string
-  embeddedLink: number
-  embeddedPhone: number
-  sample1: string
-  subscriberOptin: number
-  subscriberOptout: number
-  usecase: string
-  vertical: string
-}
+export type PeerlyCampaignConfig = z.infer<typeof peerlyCampaignConfigSchema>
 
-export interface PeerlyIdentityProfile {
-  account_id: string
-  base_account_id: string
-  campaignVerifyToken: string | null
-  campaigns: Record<string, PeerlyCampaignConfig>
-  city: string
-  companyName: string
-  country: string | null
-  displayName: string
-  ein: string
-  email: string
-  entityType: string
-  is_political: boolean
-  legal_entity_type: string
-  phone: string
-  postalCode: string
-  state: string
-  status: string
-  street: string
-  usecase: string
-  vertical?: string
-  usecases: string[]
-  website: string
-  will_send_over_2k: boolean
-}
+export type PeerlyIdentityProfile = z.infer<typeof peerlyIdentityProfileSchema>
 
-export interface PeerlyIdentityProfileResponseBody {
-  link: string
-  profile?: PeerlyIdentityProfile
-}
+export type PeerlyIdentityProfileResponseBody = z.infer<
+  typeof peerlyIdentityProfileResponseBodySchema
+>
 
-export type PeerlyGetIdentitiesResponseBody = {
-  identities: PeerlyIdentity[]
-}
+export type PeerlyGetIdentitiesResponseBody = z.infer<
+  typeof peerlyGetIdentitiesResponseBodySchema
+>
 
-export interface PeerlyGetCvRequestResponseBody {
-  verification_status: string
-}
-export interface PeerlySubmitCVResponseBody {
-  message: string
-  verification_id: string
-}
+export type PeerlyGetCvRequestResponseBody = z.infer<
+  typeof peerlyGetCvRequestResponseBodySchema
+>
+export type PeerlySubmitCVResponseBody = z.infer<
+  typeof peerlySubmitCVResponseBodySchema
+>
 // Peerly's resend_pin response body is undocumented; nothing is read off it.
-export interface PeerlyResendPinResponseBody {
-  message?: string
-}
+export type PeerlyResendPinResponseBody = z.infer<
+  typeof peerlyResendPinResponseBodySchema
+>
 export interface Peerly10DlcBrandData {
   entityType: string
   vertical: string
@@ -99,35 +79,12 @@ export interface Peerly10DlcBrandData {
   email: string
   jobAreas?: PeerlyJobArea[]
 }
-export type Peerly10DLCBrandSubmitResponseBody = {
-  submission_key: string
-}
-export type Approve10DLCBrandResponseBody = {
-  street: string
-  usecases: string[]
-  phone: string
-  legal_entity_type: string
-  account_id: string
-  companyName: string
-  country: string
-  postalCode: string
-  entityType: string
-  base_account_id: string
-  email: string
-  state: string
-  vertical: string
-  is_political: boolean
-  website: string
-  ein: string
-  sample1: string
-  displayName: string
-  status: string
-  entity_type: string
-  city: string
-  usecase: string
-  sample2: string
-  campaign_verify_token: string
-}
+export type Peerly10DLCBrandSubmitResponseBody = z.infer<
+  typeof peerly10DLCBrandSubmitResponseBodySchema
+>
+export type Approve10DLCBrandResponseBody = z.infer<
+  typeof approve10DLCBrandResponseBodySchema
+>
 
 /** Full brand data returned by the Peerly approve 10DLC endpoint. */
 export type BrandApprovalResult = Omit<
@@ -190,17 +147,11 @@ export type P2pTemplate = {
     }
   }
 }
-export enum CampaignVerificationStatus {
-  PENDING = 'PENDING',
-  VERIFIED = 'VERIFIED',
-  FAILED = 'FAILED',
-}
+export { CampaignVerificationStatus }
 
-export type PeerlyVerifyCVPinResponse = {
-  message: string
-  verification_id: string
-  cv_verification_status: CampaignVerificationStatus
-}
+export type PeerlyVerifyCVPinResponse = z.infer<
+  typeof peerlyVerifyCVPinResponseSchema
+>
 
 export type PeerlyTcrCampaign = {
   account_id: string
@@ -255,36 +206,25 @@ export type PeerlyGetIdentityBrandInfoResponse = {
   tcr_identity_status: string
   tcr_vertical: string
 }
-export type PeerlyCreateCVTokenResponse = {
-  campaign_verify_token: string
-}
+export type PeerlyCreateCVTokenResponse = z.infer<
+  typeof peerlyCreateCVTokenResponseSchema
+>
 
 // TODO: make this an enum once we have the answer to this question:
 //  https://goodpartyorg.slack.com/archives/C09H3K02LLV/p1759423143435669
-export type PeerlyRetrieveCampaignVerifyStatusResponseBody = {
-  verification_status: PeerlyCvVerificationStatus
-}
+export type PeerlyRetrieveCampaignVerifyStatusResponseBody = z.infer<
+  typeof peerlyRetrieveCampaignVerifyStatusResponseBodySchema
+>
 
 // The `verification_data` block Peerly's retrieve_cv returns once the PIN has
-// been sent. `verification_method` is the delivery channel; the destination is
-// `filing_email` for email or `filing_phone_number` for text/phone/call (mail
-// uses the filing address). All optional — the block is absent before the PIN
-// is sent, and Peerly's field set is not a hardened contract.
-export interface PeerlyCvVerificationData {
-  verification_method?: string
-  filing_email?: string
-  filing_phone_number?: string
-  filing_address_line1?: string
-  filing_address_line2?: string
-  filing_city?: string
-  filing_state?: string
-  filing_zip?: string
-}
+// been sent. See peerlyCvVerificationDataSchema.
+export type PeerlyCvVerificationData = z.infer<
+  typeof peerlyCvVerificationDataSchema
+>
 
-export interface PeerlyRetrieveCvResponseBody {
-  verification_status: PeerlyCvVerificationStatus
-  verification_data?: PeerlyCvVerificationData
-}
+export type PeerlyRetrieveCvResponseBody = z.infer<
+  typeof peerlyRetrieveCvResponseBodySchema
+>
 export enum PeerlyCommitteeType {
   House = 'H',
   Senate = 'S',
@@ -297,16 +237,11 @@ export enum PeerlyCvVerificationType {
   Federal = 'federal',
 }
 
-export type PeerlyIdentityUseCase = {
-  identity_id: string
-  account_id: string
-  usecase: string
-  tcr_campaign_id: string
-  submitted: number
-  activated: number
-}
+export type PeerlyIdentityUseCase = z.infer<typeof peerlyIdentityUseCaseSchema>
 
-export type PeerlyIdentityUseCaseResponseBody = PeerlyIdentityUseCase[]
+export type PeerlyIdentityUseCaseResponseBody = z.infer<
+  typeof peerlyIdentityUseCaseResponseBodySchema
+>
 
 export type HttpExceptionConstructor = new (
   message: string,

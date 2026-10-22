@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto'
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { subDays, subMinutes } from 'date-fns'
-import type {
-  GeoJsonPolygon,
-  Person,
-  SeedTestFixtureActivityRequest,
-  SeedTestFixtureActivityResponse,
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
+import { addMinutes, subDays, subMinutes } from 'date-fns'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  type GeoJsonPolygon,
+  type Person,
+  type SeedTestFixtureActivityRequest,
+  type SeedTestFixtureActivityResponse,
 } from '@goodparty_org/contracts'
 import {
+  CivicPanelBuildChannel,
+  CivicPanelBuildPlanStatus,
+  CivicPanelStatus,
   ConstituentFeedbackChannel,
+  ContactStatusField,
   DoorKnockOutcome,
   DoorKnockingMode,
   DoorKnockingPurpose,
@@ -19,6 +30,9 @@ import {
   PhoneBankCallOutcome,
   PhoneBankingPurpose,
   PollIndividualMessageSender,
+  Prisma,
+  PriorityAnswerSource,
+  PrioritySource,
   SupportAnswer,
   WillVoteAnswer,
   type Organization,
@@ -26,6 +40,8 @@ import {
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
   memoRow,
@@ -33,8 +49,23 @@ import {
 } from '@/constituentFeedback/services/feedbackSeed.service'
 import { SEED_MEMOS } from '@/constituentFeedback/services/feedbackSeedMemos'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
+import { OutreachTextIngestService } from '@/outreach/services/outreachTextIngest.service'
+import { SamplePeopleDTO } from '@/peopleDb/schemas/people.schema'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { PhoneBankingCallService } from '@/phoneBanking/services/phoneBankingCall.service'
+import {
+  CENSUS_COMPOSITION_SOURCE,
+  type CensusCompositionSource,
+} from '@/priorities/services/censusComposition'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import {
+  allocateAnswers,
+  answerCodes,
+  readGroups,
+  type SeedGroup,
+  seedValuesOf,
+} from '../util/priorityAnswerAllocation.util'
 
 const DEFAULT_PEOPLE = 250
 // A turf is a walkable slice of the district, not the whole sample.
@@ -45,6 +76,40 @@ const ACTIVITY_WINDOW_DAYS = 21
 const DOOR_QUESTION =
   'What is the one thing you want fixed in the neighborhood?'
 const PHONE_QUESTION = 'What should the city tackle first this year?'
+
+const PANEL_HOURS_PER_WEEK = 2
+const PANEL_INVITE_DAYS_AGO = 14
+// Far above the 3% a cold invite assumes, so a seeded panel lands near 60
+// to 100 members with the door and call joins.
+const joinsPanel = (index: number) => index % 6 === 0
+const JOIN_REPLIES = ['JOIN', 'Join please', 'yes join', 'JOIN!']
+const PANEL_INVITE_MESSAGE = `Hi, it's your local office. I want to hear from neighbors before I make decisions. ${CIVIC_PANEL_JOIN_LINE}`
+
+const PRIORITY = {
+  title: 'Safer streets near schools',
+  description:
+    'Traffic calming, crosswalks and slower speeds on the routes kids walk to school.',
+}
+const PRIORITY_QUESTION =
+  'What would make the walk to school safer on your street?'
+const PRIORITY_ASK_DAYS_AGO = 5
+// Doors drawn in each major tract for the priority ask, enough for the
+// tract's voices once opt-outs and doors with no cell phone are left out.
+const TRACT_HOUSEHOLDS = 5
+const PRIORITY_REPLIES = [
+  'A crosswalk at the corner by the elementary school. Cars never slow down there.',
+  'Speed bumps on our block. People cut through at 40 during pickup.',
+  'The sidewalk ends halfway down the street, so kids walk in the road.',
+  'A crossing guard at the main intersection in the morning would help a lot.',
+  'Better lighting. It is dark at 7am in winter and drivers cannot see the kids.',
+  'Ticket the people who speed through the school zone. Nobody enforces it.',
+  'Fix the cracked sidewalk near the bus stop, my son tripped there twice.',
+  'A flashing sign for the school zone. The current one is hidden by a tree.',
+  'Trim the hedges at the corner so drivers can see kids crossing.',
+  'A four way stop at the intersection by the park would slow everyone down.',
+  'More bike lanes so older kids can ride instead of being driven.',
+  'Honestly the drop off line is the problem. Parents block the crosswalk.',
+]
 
 type Effort = SeedTestFixtureActivityResponse['efforts'][number]
 
@@ -61,6 +126,13 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     private readonly texts: ContactInteractionTextService,
     private readonly robocalls: ContactInteractionRobocallService,
     private readonly synthesis: FeedbackSynthesisService,
+    private readonly statuses: ContactStatusService,
+    private readonly panelPlans: CivicPanelBuildPlanService,
+    private readonly textIngest: OutreachTextIngestService,
+    private readonly priorities: PrioritiesService,
+    private readonly voters: VoterQueryService,
+    @Inject(CENSUS_COMPOSITION_SOURCE)
+    private readonly census: CensusCompositionSource,
   ) {
     super()
   }
@@ -92,6 +164,15 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       await this.seedText(context, people),
       await this.seedRobocall(context, people),
     ]
+    const priorityId = isServe
+      ? await this.seedPanelAndPriority(
+          organization,
+          context,
+          people,
+          efforts,
+          body,
+        )
+      : null
 
     for (const effort of efforts) {
       if (effort.memos === 0) continue
@@ -102,6 +183,18 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
         trigger: 'completion',
       })
       effort.synthesisRunId = run.id
+    }
+    if (priorityId !== null) {
+      // A priority with only a few answers has nothing to pool yet.
+      await this.synthesis
+        .requestPriorityRun({
+          organizationSlug,
+          priorityId,
+          requestedByUserId: organization.ownerId,
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof UnprocessableEntityException)) throw error
+        })
     }
 
     return { organizationSlug, people: people.length, efforts }
@@ -417,6 +510,305 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
       })),
     )
     return effortSummary(outreach, people.length, 0)
+  }
+
+  // Serve's whole panel loop: a build plan, an invite text whose JOIN
+  // replies go through the real reply ingest, and a priority ask answered
+  // well enough for a good read. Returns the priority to pool.
+  private async seedPanelAndPriority(
+    organization: Organization,
+    context: ActivityContext,
+    people: Array<Person & { cellPhone: string }>,
+    efforts: Effort[],
+    answers: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
+  ): Promise<string> {
+    const textStepId = await this.seedPanelPlan(organization)
+    efforts.push(await this.seedPanelInvite(context, people, textStepId))
+    // Reading the plan is what links its text step to the invite send.
+    await this.panelPlans.read(organization)
+    const { effort, priorityId } = await this.seedPriorityAsk(
+      organization,
+      context,
+      people,
+      answers,
+    )
+    efforts.push(effort)
+    return priorityId
+  }
+
+  // A rerun finds the plan from the last one; that is not a failure.
+  private async seedPanelPlan(
+    organization: Organization,
+  ): Promise<string | null> {
+    try {
+      await this.panelPlans.create(
+        organization,
+        PANEL_HOURS_PER_WEEK,
+        'panel_page',
+      )
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error
+    }
+    const step = await this.client.civicPanelBuildStep.findFirst({
+      where: {
+        plan: {
+          organizationSlug: organization.slug,
+          status: CivicPanelBuildPlanStatus.active,
+        },
+        channel: CivicPanelBuildChannel.text,
+        voterFileFilterId: null,
+        skippedAt: null,
+      },
+      orderBy: [
+        { wave: Prisma.SortOrder.asc },
+        { position: Prisma.SortOrder.asc },
+      ],
+      select: { id: true },
+    })
+    return step?.id ?? null
+  }
+
+  private async seedPanelInvite(
+    context: ActivityContext,
+    people: Array<Person & { cellPhone: string }>,
+    textStepId: string | null,
+  ): Promise<Effort> {
+    const sentAt = subDays(new Date(), PANEL_INVITE_DAYS_AGO)
+    const [optedOut, members] = await this.optedOutAndMembers(context)
+    const invitees = people.filter(
+      (person) => !optedOut.has(person.id) && !members.has(person.id),
+    )
+    const list = await this.client.voterFileFilter.create({
+      data: {
+        organizationSlug: context.organizationSlug,
+        name: 'Civic panel invite',
+        civicPanelInvite: true,
+        sampleSize: invitees.length,
+        sampledAt: sentAt,
+        sampleMembers: {
+          create: invitees.map((person) => ({ personId: person.id })),
+        },
+      },
+    })
+    if (textStepId !== null) {
+      await this.client.civicPanelBuildStep.updateMany({
+        where: { id: textStepId, voterFileFilterId: null },
+        data: { voterFileFilterId: list.id, preparedAt: sentAt },
+      })
+    }
+    const outreach = await this.createTextSend(context, invitees, {
+      name: 'Civic panel invite',
+      message: PANEL_INVITE_MESSAGE,
+      date: sentAt,
+      asksToJoinCivicPanel: true,
+      voterFileFilterId: list.id,
+    })
+    const joiners = invitees.filter((_, index) => joinsPanel(index))
+    await this.textIngest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: joiners.map((person, index) => ({
+        phone: person.cellPhone,
+        content: JOIN_REPLIES[index % JOIN_REPLIES.length]!,
+        receivedAt: addMinutes(sentAt, 30 + index * 7),
+      })),
+    })
+    return effortSummary(outreach, invitees.length, 0)
+  }
+
+  // Panel members are asked first, then residents not on it, the way the
+  // priority flow sizes an ask, then residents drawn from each of the read's
+  // major tracts. Each resident who answers also gets a coded answer, which
+  // is what the priority's read counts; all of them answer unless `answers`
+  // says how many, and then every major group gets its voices first.
+  private async seedPriorityAsk(
+    organization: Organization,
+    context: ActivityContext,
+    people: Array<Person & { cellPhone: string }>,
+    options: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
+  ): Promise<{ effort: Effort; priorityId: string }> {
+    const office = await this.client.electedOffice.findUniqueOrThrow({
+      where: { organizationSlug: context.organizationSlug },
+      select: { id: true },
+    })
+    const priority = await this.priorities.create(
+      office.id,
+      PRIORITY,
+      PrioritySource.user_stated,
+      'priorities_page',
+    )
+    const [optedOut, members] = await this.optedOutAndMembers(context)
+    const { groups, tractOf, drawn } = await this.readGroupsAndTractDraws(
+      organization,
+      people,
+    )
+    const reachable = [...people, ...drawn].filter(
+      (person) => !optedOut.has(person.id),
+    )
+    const recipients = [
+      ...reachable.filter((person) => members.has(person.id)),
+      ...reachable.filter((person) => !members.has(person.id)),
+    ]
+    const askedAt = subDays(new Date(), PRIORITY_ASK_DAYS_AGO)
+    const outreach = await this.createTextSend(context, recipients, {
+      name: 'Safer streets question',
+      message: `${PRIORITY_QUESTION} Reply STOP to opt out.`,
+      date: askedAt,
+      priorityId: priority.id,
+    })
+    const answering = allocateAnswers(
+      recipients.map((person) => ({
+        person,
+        values: seedValuesOf(person, tractOf.get(person.id) ?? null),
+      })),
+      groups,
+      options.answers ?? recipients.length,
+    )
+    if (answering.length > 0) {
+      await this.textIngest.ingestReplies({
+        outreachId: outreach.id,
+        sourceLabel: 'staff_upload',
+        rows: answering.map(({ person }, index) => ({
+          phone: person.cellPhone,
+          content: PRIORITY_REPLIES[index % PRIORITY_REPLIES.length]!,
+          receivedAt: addMinutes(askedAt, 20 + index * 11),
+        })),
+      })
+      const codes = answerCodes(answering, options.split)
+      await this.client.priorityAnswer.createMany({
+        data: answering.map(({ person }, index) => ({
+          organizationSlug: context.organizationSlug,
+          outreachId: outreach.id,
+          personId: person.id,
+          source: PriorityAnswerSource.text,
+          sourceId: `${outreach.id}:${person.id}`,
+          code: codes[index]!,
+          model: 'seed',
+          codedAt: new Date(),
+        })),
+        skipDuplicates: true,
+      })
+    }
+    return {
+      effort: effortSummary(outreach, recipients.length, answering.length),
+      priorityId: priority.id,
+    }
+  }
+
+  // The read's major groups, from the same census-weighted frame the model
+  // reads, and a few residents from each major tract. The census weighs a
+  // tract by its adults, so one the district line cuts through can be a
+  // major group while holding almost none of a voter file sample. No frame
+  // (no district, or one the warehouse cannot read) draws nothing extra.
+  private async readGroupsAndTractDraws(
+    organization: Organization,
+    people: Array<Person & { cellPhone: string }>,
+  ): Promise<{
+    groups: SeedGroup[]
+    tractOf: Map<string, string>
+    drawn: Array<Person & { cellPhone: string }>
+  }> {
+    const none = { groups: [], tractOf: new Map<string, string>(), drawn: [] }
+    const district = await this.contacts
+      .resolveEligibleDistrict(organization)
+      .catch(() => null)
+    if (!district) return none
+    const inputs = await this.census.mrpInputs({ ...district, answers: [] })
+    if (!inputs) return none
+    const groups = readGroups(inputs.frame)
+    const tractOf = new Map<string, string>()
+    for (const group of groups) {
+      if (group.dimension !== 'tract') continue
+      const doors = await this.contacts.walkableAreaWithin(
+        organization,
+        { hasCellPhone: true },
+        [],
+        TRACT_HOUSEHOLDS,
+        group.value,
+      )
+      for (const id of doors.flatMap((door) => door.personIds)) {
+        tractOf.set(id, group.value)
+      }
+    }
+    const sampled = new Set(people.map((person) => person.id))
+    const missing = [...tractOf.keys()].filter((id) => !sampled.has(id))
+    const drawn =
+      missing.length === 0
+        ? []
+        : await this.voters.samplePeople(
+            SamplePeopleDTO.create({
+              districtId: district.districtId,
+              size: missing.length,
+              filters: { id: { in: missing } },
+            }),
+            district.dataset,
+          )
+    return {
+      groups,
+      tractOf,
+      drawn: drawn.filter(
+        (person): person is Person & { cellPhone: string } =>
+          person.cellPhone !== null,
+      ),
+    }
+  }
+
+  private async optedOutAndMembers(
+    context: ActivityContext,
+  ): Promise<[Set<string>, Set<string>]> {
+    const [optedOut, members] = await Promise.all([
+      this.texts.findOptedOutPersonIds(context.organizationSlug),
+      this.statuses.personIdsByFieldValue(
+        context.organizationSlug,
+        ContactStatusField.civic_panel,
+        [CivicPanelStatus.member],
+      ),
+    ])
+    return [new Set(optedOut), new Set(members)]
+  }
+
+  // A Serve text as delivery leaves it: in progress, with the recipient map
+  // the reply ingest reads phones against. The ingest completes it.
+  private async createTextSend(
+    context: ActivityContext,
+    recipients: Array<Person & { cellPhone: string }>,
+    send: {
+      name: string
+      message: string
+      date: Date
+      asksToJoinCivicPanel?: boolean
+      voterFileFilterId?: number
+      priorityId?: string
+    },
+  ) {
+    const outreach = await this.model.create({
+      data: {
+        ...send,
+        organizationSlug: context.organizationSlug,
+        campaignId: null,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.in_progress,
+        textCount: recipients.length,
+      },
+    })
+    await this.client.outreachTextRecipient.createMany({
+      data: recipients.map((person) => ({
+        outreachId: outreach.id,
+        organizationSlug: context.organizationSlug,
+        personId: person.id,
+        phone: person.cellPhone,
+      })),
+      skipDuplicates: true,
+    })
+    await this.texts.createManyIdempotent(
+      recipients.map((person) => ({
+        organizationSlug: context.organizationSlug,
+        personId: person.id,
+        occurredAt: send.date,
+        outreachId: outreach.id,
+      })),
+    )
+    return outreach
   }
 }
 

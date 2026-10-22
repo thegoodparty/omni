@@ -38,7 +38,7 @@ lint / type-check / test / build steps.
 
 Address workspaces by **path**: `npm run <script> -w packages/<dir>`. npm's `-w`
 matches a name or a path, and some package names differ from their folder (the
-scoped libs `@goodparty_org/sdk`, `@goodparty_org/contracts`), so the path form
+scoped lib `@goodparty_org/contracts`), so the path form
 always resolves.
 
 ## Phase 1 — open the PR (fully auto)
@@ -61,10 +61,11 @@ always resolves.
    - Otherwise push the branch and `gh pr create --base main`. Write a
      **why-focused** body (the motivation and the tradeoff, not a file-by-file
      recap). Omit any test-plan section and any AI-authorship footer.
-   - **Human decisions** (root `AGENTS.md`, `docs/decisions/`): if the human
-     stated a decision in this session that is not yet recorded, offer to record
-     it before opening. If the PR reverses an active record, the human must have
-     confirmed it; name the superseded record and its decider in the body.
+   - **Architecture decisions** (root `AGENTS.md`, `docs/adr/`): if this PR
+     makes an architecture decision that is not yet recorded, add the record
+     before opening. If it reverses an active record, name the superseded record
+     and its decider in the body; a human-decided record needs the human's
+     confirmation first.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 

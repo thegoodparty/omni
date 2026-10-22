@@ -98,6 +98,7 @@ const turf = (id: number, outreachId: number): DoorKnockingTurf => ({
   peopleCount: 9,
   loggedCount: 9,
   routeSeconds: 900,
+  priorityId: null,
   completed: true,
   archivedAt: null,
   createdAt: new Date('2026-08-10T00:00:00Z'),
@@ -119,6 +120,26 @@ const mockPhoneDetail = (status: OutreachDetail['status'] = 'completed') =>
   })
 
 const link = () => screen.queryByRole('link', { name: /What we heard/ })
+
+// The drawer's button waits for the effort's first note.
+const mockNotes = (memos: number) =>
+  api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+    status: 200,
+    data: {
+      question: null,
+      channel: 'phone_bank',
+      floor: 5,
+      denominators: {
+        conversations: memos,
+        memos,
+        confirmed: memos,
+        pending: 0,
+      },
+      run: null,
+      themes: [],
+      memos: [],
+    },
+  })
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -156,6 +177,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   // A finished list is the one whose summary has run, and the drawer is the
   // only way back to a list once it is done.
   it('links a completed phone banking list to its report', async () => {
+    mockNotes(1)
     mockPhoneDetail()
     render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
 
@@ -164,10 +186,10 @@ describe('OutreachDetailsDrawer: what we heard', () => {
       'href',
       `/dashboard/issue-capture/${OUTREACH_ID}`,
     )
-    expect(action).toHaveTextContent('Notes from conversations with voters.')
   })
 
   it('links a list still being called too', async () => {
+    mockNotes(1)
     mockPhoneDetail('in_progress')
     render(
       <OutreachDetailsDrawer
@@ -182,15 +204,13 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   })
 
   it('speaks to an official about constituents on Serve', async () => {
+    mockNotes(1)
     mockPhoneDetail()
     render(
       <OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} isServe />,
     )
 
     const action = await screen.findByRole('link', { name: /What we heard/ })
-    expect(action).toHaveTextContent(
-      'Notes from conversations with constituents.',
-    )
     expect(action.textContent).not.toMatch(/voter/i)
   })
 
@@ -306,6 +326,7 @@ describe('OutreachDetailsDrawer: what we heard', () => {
   })
 
   it('links a one-turf door knocking campaign to its turf’s report', async () => {
+    mockNotes(1)
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: detail({
@@ -324,9 +345,24 @@ describe('OutreachDetailsDrawer: what we heard', () => {
       />,
     )
 
+    // The turf card carries its own counted link to the same report.
+    const links = await screen.findAllByRole('link', { name: /What we heard/ })
     expect(
-      await screen.findByRole('link', { name: /What we heard/ }),
-    ).toHaveAttribute('href', `/dashboard/issue-capture/${OUTREACH_ID}`)
+      links.some((l) =>
+        l
+          .getAttribute('href')
+          ?.startsWith(`/dashboard/issue-capture/${OUTREACH_ID}`),
+      ),
+    ).toBe(true)
+  })
+
+  it('waits for the first note before offering the report', async () => {
+    mockNotes(0)
+    mockPhoneDetail()
+    render(<OutreachDetailsDrawer row={row({})} onOpenChange={vi.fn()} />)
+
+    await screen.findByText('Based on 10 phone banking contacts')
+    await waitFor(() => expect(link()).toBeNull())
   })
 
   // A report is per turf, and the row's id names only the anchor's, so a

@@ -1,8 +1,6 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import {
   CONTACT_REST_DAYS,
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
-  type CivicPanelRepresentation,
   type CivicPanelSummary,
 } from '@goodparty_org/contracts'
 import { subDays } from 'date-fns'
@@ -13,23 +11,16 @@ import {
 } from '../../generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
-import {
-  CENSUS_COMPOSITION_SOURCE,
-  representationFrom,
-  type CensusCompositionSource,
-} from '@/priorities/services/censusComposition'
 import { ContactsService } from './contacts.service'
 
 // Serve's civic panel as a whole: how many are on it, how many can be
-// asked now, and whether it looks like the district.
+// asked now.
 @Injectable()
 export class CivicPanelSummaryService {
   constructor(
     private readonly contactStatusService: ContactStatusService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly contactsService: ContactsService,
-    @Inject(CENSUS_COMPOSITION_SOURCE)
-    private readonly census: CensusCompositionSource,
   ) {}
 
   async summaryFor(organization: Organization): Promise<CivicPanelSummary> {
@@ -66,22 +57,6 @@ export class CivicPanelSummaryService {
         ? (lastOutreach.date ?? lastOutreach.createdAt)
         : null,
     }
-  }
-
-  // Same comparison, threshold and census source as a priority's results,
-  // with panel members in place of respondents.
-  async representationFor(
-    organization: Organization,
-  ): Promise<CivicPanelRepresentation> {
-    const members = await this.memberIds(organization)
-    if (members.length < MIN_RESPONDENTS_FOR_REPRESENTATION) {
-      return { representation: null }
-    }
-    const composition = await this.census.compose({
-      ...(await this.contactsService.resolveEligibleDistrict(organization)),
-      personIds: members,
-    })
-    return { representation: representationFrom(composition, members.length) }
   }
 
   private async memberIds(organization: Organization): Promise<string[]> {

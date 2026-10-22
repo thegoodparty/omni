@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -128,7 +127,6 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelRepresentation,
   CivicPanelBuildPlanResponse,
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
@@ -171,6 +169,7 @@ import type {
   ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
@@ -1496,6 +1495,8 @@ export type APIEndpoints = {
   // the PUT, omitting it keeps whatever the row already holds, like every
   // other key of this partial update. `geoPolyLabels` names and colours each
   // part, aligned by index, and is only read beside `geoPoly`.
+  // `unreachedAreaOfPriorityId` has gp-api draw the boundary instead: the
+  // parts of the district that priority's answers have barely reached.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
@@ -1503,6 +1504,7 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
       geoPoly?: GeoJsonShape | null
       geoPolyLabels?: GeoShapeLabels | null
+      unreachedAreaOfPriorityId?: string
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1563,15 +1565,11 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
-  // off and 400 for a Win org.
+  // Serve's civic panel as a whole. 404s with serve-citizen-panels off and
+  // 400s for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
-  }
-  'GET /v1/contacts/civic-panel/representation': {
-    Request: {}
-    Response: CivicPanelRepresentation
   }
   // The plan that builds the panel across texts, calls and doors. Reading
   // it is what moves it on (links, dates, the next wave).
@@ -1777,12 +1775,13 @@ export type APIEndpoints = {
     Request: {}
     Response: DoorKnockingRoutePayload
   }
-  // ADR 0010. The exact in-ring audience for a shape being drawn, addresses
-  // included — the knock's own evaluation without the billed vendor call. The
-  // filter half of the request is the same unsaved-draft grammar
-  // `POST /v1/voters/voter-file/filter` takes (no filter row exists yet at
-  // draw time), so it is typed here the way that endpoint is rather than
-  // restated as a contract; the response is a contracts schema.
+  // Draw-time address preview. The exact in-ring audience for a shape being
+  // drawn, addresses included — the knock's own evaluation without the
+  // billed vendor call. The filter half of the request is the same
+  // unsaved-draft grammar `POST /v1/voters/voter-file/filter` takes (no
+  // filter row exists yet at draw time), so it is typed here the way that
+  // endpoint is rather than restated as a contract; the response is a
+  // contracts schema.
   'POST /v1/door-knocking/address-preview': {
     Request: {
       geoPoly: GeoJsonPolygon
@@ -1803,15 +1802,15 @@ export type APIEndpoints = {
     Request: RecordDoorKnockInteraction
     Response: RecordDoorKnockInteractionResponse
   }
-  // ADR 0007. Separate from the interaction write because a do-not-knock is
+  // Do-not-knock. Separate from the interaction write because a do-not-knock is
   // recordable with no outcome to log, and reversible on its own.
   'POST /v1/door-knocking/do-not-knock': {
     Request: SetDoNotKnock
     Response: SetDoNotKnockResponse
   }
-  // ADR 0008. The reason behind a `not_a_voter` outcome, asked as a follow-up
-  // and written separately: the interaction row is replay-idempotent on
-  // clientKey, so a correction made on a later visit could never reach it.
+  // Not-a-voter. The reason behind a `not_a_voter` outcome, asked as a
+  // follow-up and written separately: the interaction row is replay-idempotent
+  // on clientKey, so a correction made on a later visit could never reach it.
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
@@ -1838,17 +1837,6 @@ export type APIEndpoints = {
   'POST /v1/constituent-feedback/audio-upload-url': {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
-  }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
   }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.
@@ -1925,6 +1913,10 @@ export type APIEndpoints = {
   'GET /v1/contact-engagement/:id/activities': {
     Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
+  }
+  'GET /v1/contact-engagement/:id/priority-answers': {
+    Request: {}
+    Response: GetPersonPriorityAnswersResponse
   }
 
   'GET /v1/meetings': {

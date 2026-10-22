@@ -13,6 +13,7 @@ import { FeedbackReportService } from './services/feedbackReport.service'
 import { FeedbackSeedService } from './services/feedbackSeed.service'
 import { FeedbackSynthesisService } from './services/feedbackSynthesis.service'
 import { FeedbackSynthesisIngestService } from './services/feedbackSynthesisIngest.service'
+import { FeedbackThemeIssueMatchService } from './services/feedbackThemeIssueMatch.service'
 import { IssueTagService } from './services/issueTag.service'
 import { IssueTagSeedService } from './services/issueTagSeed.service'
 import { MockSynthesisEngine } from './services/mockSynthesisEngine'
@@ -42,6 +43,7 @@ import { SynthesisStaleRunSweepService } from './services/synthesisStaleRunSweep
     FeedbackSeedService,
     FeedbackSynthesisService,
     FeedbackSynthesisIngestService,
+    FeedbackThemeIssueMatchService,
     IssueTagService,
     IssueTagSeedService,
     MockSynthesisEngine,

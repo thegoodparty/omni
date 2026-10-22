@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { CampaignListTable } from './CampaignListTable'
-import type { CampaignWithPositionName } from '@goodparty_org/sdk'
+import type { CampaignWithPositionName } from '@/shared/gpApi'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
   BallotReadyPositionLevel,
   ElectionLevel,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 
 const baseCampaign: CampaignWithPositionName = {
   id: 1,

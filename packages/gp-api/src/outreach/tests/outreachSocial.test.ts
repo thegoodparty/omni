@@ -986,6 +986,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     registeredVoter: 'Yes',
     estimatedIncomeAmount: null,
     voterStatus: null,
+    earlyVoteStatus: null,
     maritalStatus: null,
     hasChildrenUnder18: null,
     veteranStatus: null,

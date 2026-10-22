@@ -100,15 +100,27 @@ jobs:
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
 
+      # election-db migrations run fatally at boot (docker-entrypoint.sh), so a
+      # schema that has drifted from its migrations would block every gp-api
+      # deploy rather than just the election routes. Catch it here instead.
+      - name: Check election-db Prisma migrations
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          npx prisma migrate diff \
+            --from-migrations ./prisma-election/schema/migrations \
+            --to-schema-datamodel ./prisma-election/schema \
+            --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
+            --exit-code
+
   test:
     name: Test (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4, 5, 6]
     # Keyed on the shard as well: a group shared across the matrix would have
-    # the two shards cancelling each other on every run.
+    # the shards cancelling each other on every run.
     concurrency:
       group: gp-api-test-${{ matrix.shard }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -126,8 +138,34 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # The test harness starts Postgres with testcontainers, which pulls its
+      # image when the first suite boots. That pull used to come anonymously
+      # from Docker Hub and failed shards with "(HTTP code 500) ...
+      # unauthorized" (run 39801489081). It now comes from ECR Public with a
+      # login, same as the image build below; the retried pre-pull absorbs a
+      # registry blip so it cannot fail the shard.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
+      - name: Pull test Postgres image
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/docker/library/postgres:16-alpine && exit 0
+            echo "::warning::docker pull attempt $attempt failed; retrying"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate. The main branch ruleset requires a status check
   # named exactly "Validate"; this job preserves that name while the real work

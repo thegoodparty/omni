@@ -302,6 +302,11 @@ export const DoorKnockingTurfSchema = z.object({
   // list the server considers gone.
   completed: z.boolean(),
   archivedAt: zDate().nullable(),
+  // The priority whose card opened this turf's campaign. A chat card's link
+  // is written to the campaign's anchor envelope only, so a sibling turf
+  // reads it off its anchor. Carried so the completion event can count the
+  // walk toward that priority, as text and phone banking already do.
+  priorityId: z.string().nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
 })
@@ -317,8 +322,8 @@ export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
 // the same `DoorKnockingTurfCountsService` aggregate the rail reads, and they
 // mean exactly what they mean there. That reuse is the point: doors and logged
 // progress are already reported on the door-knocking surface, and a second
-// derivation here would be the two-denominator failure ADR 0010 wrote the rule
-// against — one quantity, one number, wherever it is printed.
+// derivation here would show two different numbers for one quantity. The
+// rule is one quantity, one number, wherever it is printed.
 //
 // `turfId` is what the drawer could not reach before, and it is what the
 // envelope names directly now. It is here so the drawer's Archive action can

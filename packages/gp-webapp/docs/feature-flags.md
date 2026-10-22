@@ -66,6 +66,12 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 **Anonymous visitors get no flags — every flag reads `off` and the client makes no resolution call.** This is by design: the client never talks to Amplitude, and gp-api only resolves for an authenticated user. A flag that must be on for a logged-out / marketing page therefore will not work through this provider — resolve it another way.
 
+## Org-scoped flags
+
+A few flags roll out by organization, not by person: gp-api's `ORGANIZATION_FLAGS` (`packages/gp-api/src/features/services/features.service.ts`), today only `issue-capture`. Amplitude buckets by user id, so a percentage rollout read per person would split a candidate from their own volunteers. For these, `GET /v1/experiment/variants` returns the value the org's owner gets, for the org the `organization-slug` cookie names (sent as `X-Organization-Slug`). A cookie naming an org the user is not in reads as no org, and the user's own value stands.
+
+Nothing changes at the call site: `useFlagOn`, the wrapper hooks and `getFlagVariants` already read the org's value, and the override cookie still wins. The provider resolves once per identity and sits above `OrganizationProvider`, so `OrganizationProvider` calls `refresh()` whenever the active org changes (the switcher, the volunteer sidebar's campaign list, the stale-cookie repair). On gp-api, a route gated on one of these flags passes the org's owner to `isFeatureEnabled`, never the requester.
+
 ## E2E overrides
 
 Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })` (`e2e-tests/src/helpers/campaignStory.helper.ts`).

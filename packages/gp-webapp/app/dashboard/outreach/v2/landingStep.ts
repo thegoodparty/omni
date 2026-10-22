@@ -5,7 +5,6 @@
 // purpose. Each flow maps 'message' onto its own step (compose, script,
 // talking points), and a purpose that asks something first (an event's
 // details) still asks it there.
-// Product decision: docs/decisions/2026-10-14-outreach-flow-order-and-deep-links.md
 export type LandingStep = 'purpose' | 'audience' | 'message'
 
 export const outreachLandingStep = ({

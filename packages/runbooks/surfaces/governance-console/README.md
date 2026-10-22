@@ -24,7 +24,10 @@ says. A row arrives with "Relabel it" suggested only when every check agrees: th
 reaches one area, the commit that removed the old mount is named, and the page people
 were on matches. Otherwise there is no suggestion and the evidence is yours to read.
 Accepting writes a new `surface:` tag, `fires_on` and display name through
-`event-metadata`; the raw event name never changes.
+`event-metadata`; the raw event name never changes. Each row opens with the label as it
+is now and the label an accept would write. An event that fires from several areas has
+no single proposal, so "Relabel it" becomes one "Relabel to <area>" button per area and
+the handoff carries the pick as an `area:` line.
 
 **A button label names the control; hovering it names the consequence.** "Fix in
 Govern" tells you which thing you are touching. The tooltip, and the review panel, say
@@ -308,7 +311,7 @@ digest raising the item again.
 | --- | --- |
 | Flagged causes | a `cause:` row in `monitored_events.yaml` |
 | Instrumentation gaps | `instrumentation_gaps.json` |
-| Watchlist proposals | an `event:` row in `monitored_events.yaml` |
+| Watchlist proposals | an `events:` row added or removed, a `dismissed:` row, or a `kept:` row in `monitored_events.yaml` |
 | Registry vs semantic layer | a `metric:` row in `monitored_events.yaml` |
 | Surface relabels | `instrumentation_data/surface_drift.json`, applied to Amplitude through `event-metadata` |
 

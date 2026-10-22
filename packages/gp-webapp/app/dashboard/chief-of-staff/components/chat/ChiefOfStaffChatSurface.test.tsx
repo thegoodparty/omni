@@ -43,6 +43,7 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     const { rerender } = render(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         pendingKickoff="first-kickoff"
       />,
@@ -50,6 +51,7 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     rerender(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         pendingKickoff="second-kickoff"
       />,
@@ -66,6 +68,7 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     const { rerender } = render(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         pendingKickoff="same-kickoff"
       />,
@@ -73,6 +76,7 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     rerender(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         pendingKickoff="same-kickoff"
         subtitle="unrelated change"
@@ -85,7 +89,13 @@ describe('ChiefOfStaffChatSurface body identity', () => {
 
 describe('ChiefOfStaffChatSurface New chat', () => {
   it('renders no New chat action unless the owner passes onNewChat', () => {
-    render(<ChiefOfStaffChatSurface open onOpenChange={vi.fn()} />)
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        analyticsSurface="chief_of_staff_page"
+        onOpenChange={vi.fn()}
+      />,
+    )
 
     expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull()
   })
@@ -97,6 +107,7 @@ describe('ChiefOfStaffChatSurface New chat', () => {
     render(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         initialConversationId="conv-9"
         onNewChat={onNewChat}
@@ -121,6 +132,7 @@ describe('ChiefOfStaffChatSurface New chat', () => {
     render(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         onNewChat={vi.fn()}
       />,
@@ -141,6 +153,7 @@ describe('ChiefOfStaffChatSurface New chat', () => {
     render(
       <ChiefOfStaffChatSurface
         open
+        analyticsSurface="chief_of_staff_page"
         onOpenChange={vi.fn()}
         pendingMessage="young supporters"
       />,

@@ -236,8 +236,8 @@ describe('WalkListPdf', () => {
     }
   })
 
-  // ADR 0011. The largest disclosure on the payload — free text a named person
-  // typed about a named voter — on the surface that stops being
+  // Contact notes. The largest disclosure on the payload — free text a
+  // named person typed about a named voter — on the surface that stops being
   // access-controlled the moment it prints. The fixture carries a note and a
   // count of nine, and the count is asserted too: "9 notes on file" says how
   // much has been written about this voter even with none of it printed.
@@ -290,8 +290,9 @@ describe('WalkListPdf', () => {
     expect(text).not.toContain('UNSURE')
   })
 
-  // ADR 0007. Paper freezes the moment it downloads, so the instruction has to
-  // travel on the page — and it outranks whatever was logged there before.
+  // Do-not-knock. Paper freezes the moment it downloads, so the instruction
+  // has to travel on the page — and it outranks whatever was logged there
+  // before.
   it('prints the skip instruction for a flagged door and leaves it out of the header count', async () => {
     const text = await renderText([
       oneDoor([
@@ -314,7 +315,7 @@ describe('WalkListPdf', () => {
     expect(text).not.toContain('Already logged: Supporter')
   })
 
-  // ADR 0008. Same rule, different words: paper is the only surface used
+  // Not-a-voter. Same rule, different words: paper is the only surface used
   // without the app, so it carries the reason rather than a blank form.
   it('prints a reason as its skip instruction and leaves it out of the header count', async () => {
     const text = await renderText([

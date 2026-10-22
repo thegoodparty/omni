@@ -50,7 +50,8 @@ The three axes:
    aggregate of the event stream (`mart_analytics.amplitude_events`).
 
 Scope is hybrid: every catalog event gets a status; the curated watchlist
-(`monitored_events.yaml`) drives severity elevation and the self-healing proposal queue.
+(`monitored_events.yaml`) drives severity elevation and the watchlist addition and removal
+queues.
 
 ## Status model (SOP)
 
@@ -93,7 +94,8 @@ pre-break reference survives only there). Useful flags:
 
 Read the digest top-down: the dormant-OKR-anchor latch table and any "OKR dormancy checks
 degraded" line first, then the priority flags table (ranks 0-7), then the dormant tail,
-then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
+then changes-since-last-run, then metadata completeness, then watchlist proposals and
+removals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
 ## Stage 2 — investigate a flag in code (on demand)
@@ -168,13 +170,18 @@ blind to how the reference is written — not the event dead. Fix the counter, n
    (tests first), re-run the walk, and confirm the count is non-zero.
 4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
 
-## Stage 3 — heal the watchlist (review + agree on additions)
+## Stage 3 — keep the watchlist honest (additions and removals)
 
-The digest's **Watchlist proposals** section lists events that started firing in a watched
-family but are not on `monitored_events.yaml` yet, as ready-to-paste YAML rows.
+Adding to the watchlist has a cost: every row is classified twice a week and can raise a
+triage item. So watches come from questions and OKR legs (DATA-2676). A behavior's
+instrument enrolls itself; the digest's **Watchlist proposals** section lists only OKR legs
+in a watched family that are not watched yet, as ready-to-paste YAML rows. Every other new
+event in a watched family is one count line. **Watchlist removals** lists watched rows whose
+event is retired in code. Dormant rows are never proposed: a human rules on the silence
+first, and the triage skill's `unwatch` verb takes them off.
 
-1. **Triage.** Add an event if it is a real funnel/activation milestone (a completion,
-   conversion, or distinct step). Skip pure UI micro-interactions unless one is a key conversion.
+1. **Triage.** Add a proposed OKR leg; remove a retired row, or record a `kept:` row when the
+   retirement date is wrong.
 2. **Confirm in code.** `rg -F "<event>" packages/` to verify it is genuinely instrumented.
 3. **Present for sign-off.** List the ones you recommend with a one-line why each; the human
    picks. Do not add unilaterally.
@@ -293,7 +300,8 @@ findings under them stay live whatever the config says.
 Pass `--slack` to also push a priority-tiered digest to the analytics event-lifecycle Slack
 channel: a parent message with **🔴 needs action**, **🟡 worth watching**, and an **ℹ️
 informational** rollup, plus a threaded reply with the full detail (per-event anomaly
-numbers, watchlist proposals, informational transitions, and the status breakdown). Each
+numbers, watchlist proposals and removals, informational transitions, and the status
+breakdown). Each
 item's tier comes from `digest_triage.py`: a deterministic rules pass (OKR flag, watchlist
 membership, health rank) that a rubric-guided Claude judge may then move by one tier —
 never demoting an OKR-anchored red item.
@@ -308,14 +316,28 @@ tier or a confirmed gap nobody has reason to question (DATA-2575). Only that tab
 book's other half is tooling defects awaiting a Python fix and process rules about git
 archaeology, none of which a judge can act on, so it stays out of the prompt (62% of the
 file, and it would be paid twice a week). A missing or corrupt book degrades to the rubric
-alone rather than failing the run. The judges only read it — the book is written in the
+alone rather than failing the run.
+
+The gap judge also gets a **real questions** section (`load_real_questions`, DATA-2676): the
+live behaviors' questions and every OKR metric with a watched leg, by id. It returns which
+one a gap answers (`answers_question`), and an id it invents is blanked. A gap no real
+question needs is stored with `value: low`, listed in no digest table, and never makes Slack
+news on its own; it is re-judged every run, so it turns `needed` once someone asks. The
+judge sees never-judged surfaces first and spends only the leftover budget re-judging low
+ones, so a pile of low gaps cannot starve new surfaces. Wizard
+stages are always `needed`, since every multi-step flow is instrumented. The judge also sees
+the `EVENTS.*` references next to each candidate and can answer `fix: extend` with the event
+and property to add, instead of a new event.
+
+The judges only read it — the book is written in the
 `/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
 model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
 judge call fails, the digest posts anyway on the deterministic rules tier, with a
 `⚙️ triage judgment unavailable this run` line in the parent.
 
 It is **quiet with one override**: nothing posts when no event was newly flagged, escalated,
-or resolved, no new anomaly appeared, and no new instrumentation gap landed — **except** an
+or resolved, no new anomaly appeared, no new needed instrumentation gap landed, and no new
+watchlist removal was proposed — **except** an
 OKR-anchored event sitting in a breaking state, which posts every run until it resolves (a
 one-time transition line scrolling away while the OKR sat broken for a month is exactly how
 DATA-2174 happened). An event is OKR-anchored when the governed metric declares it under `config.meta.anchored_on`
@@ -392,6 +414,13 @@ elsewhere in this book.
 
 An area with more than one name (Win and Serve vocabulary for the same page) is never
 `high`: the row lists the names as `surface_options`, and the human picks one.
+
+An event that reaches more than one area gets no `proposed_*` fields. Instead the row
+carries `area_options`, one entry per area with the surface, display name, `fires_on`
+and `url` an accept under that area would write. Accepting such a row needs
+`surface_drift.py dispose "<event>" --as accepted --area "<area>"`, which copies the
+chosen option into `proposed_*` and records `chosen_area`; an accept without `--area`
+is refused, so a relabel can never reach `event-metadata` without a target.
 
 The removal commit is the newest commit that net-removed an import of any component on
 the walk, not necessarily one under the label's area; the page-path and user gates are

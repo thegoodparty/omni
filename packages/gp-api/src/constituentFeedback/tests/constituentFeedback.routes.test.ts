@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   Person,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
+  ConstituentFeedbackConfirmation,
   DoorKnockOutcome,
   DoorKnockingMode,
   OrganizationRole,
@@ -69,6 +71,7 @@ const fakePerson = (overrides: Partial<Person> = {}): Person => ({
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: null,
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,
@@ -111,6 +114,20 @@ const onlyFlagOn = (flag: string) => {
 
 const flagsAskedFor = (spy: ReturnType<typeof onlyFlagOn>) =>
   spy.mock.calls.map(([params]) => params.feature)
+
+// issue-capture on for this one user and off for everyone else, so a test
+// can tell whose value a request was gated on.
+const issueCaptureOnlyFor = (userId: number) => {
+  const spy = vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(
+      async ({ user, feature }) =>
+        feature === 'issue-capture' &&
+        (typeof user === 'number' ? user : user.id) === userId,
+    )
+  onTestFinished(() => spy.mockRestore())
+  return spy
+}
 
 const createVolunteer = async (slug: string) => {
   const label = `cf-volunteer-${randomUUID()}`
@@ -477,47 +494,6 @@ describe('constituent feedback routes', () => {
     ])
   })
 
-  // The canvasser can confirm from the review list while a retry is waiting
-  // on the model. The retry's proposal must not replace their answer.
-  it('keeps a confirmation that lands while a retry asks the model', async () => {
-    const recorded = await capture('Rosa wants weekly compost pickup.')
-    vi.mocked(
-      service.app.get(ConstituentFeedbackExtractionService).extract,
-    ).mockImplementationOnce(async () => {
-      await service.prisma.constituentFeedbackIssue.updateMany({
-        where: { feedbackId: recorded.data.id },
-        data: { issueLabel: 'Food scraps' },
-      })
-      await service.prisma.constituentFeedback.update({
-        where: { id: recorded.data.id },
-        data: { confirmedAt: new Date() },
-      })
-      return {
-        extraction: {
-          issues: [
-            { issueLabel: 'Rodents', stance: 'opposes', desiredOutcome: null },
-          ],
-          confidence: 0.5,
-        },
-        model: 'claude-test',
-      }
-    })
-
-    const retried = await service.client.post(
-      `/v1/constituent-feedback/${recorded.data.id}/retry`,
-      {},
-      { ...headers(), validateStatus: () => true },
-    )
-
-    expect(retried.status).toBe(201)
-    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
-      where: { id: recorded.data.id },
-      include: { issues: true },
-    })
-    expect(row.confirmedAt).not.toBeNull()
-    expect(row.issues.map((issue) => issue.issueLabel)).toEqual(['Food scraps'])
-  })
-
   it('confirms a memo that named no issue with an empty list', async () => {
     const recorded = await capture('Rosa wants weekly compost pickup.')
 
@@ -535,6 +511,184 @@ describe('constituent feedback routes', () => {
         where: { feedbackId: recorded.data.id },
       }),
     ).toBe(0)
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: recorded.data.id },
+    })
+    expect(row.confirmation).toBe(ConstituentFeedbackConfirmation.reviewed)
+  })
+
+  describe('a skip', () => {
+    const skip = (id: string, issues: object[] = []) =>
+      service.client.patch(
+        `/v1/constituent-feedback/${id}/confirm`,
+        { issues, skipped: true },
+        { ...headers(), validateStatus: () => true },
+      )
+
+    const proposal = (feedbackId: string) =>
+      service.prisma.constituentFeedbackUnreviewedIssue.findMany({
+        where: { feedbackId },
+        orderBy: { position: 'asc' },
+      })
+
+    const RODENTS: ModelIssue = {
+      issueLabel: 'Rodents',
+      stance: 'strongly against',
+      desiredOutcome: null,
+    }
+
+    // The model's proposal is kept to measure extraction, apart from the
+    // memo's issues, so nothing that reads those can count a guess.
+    it('confirms the memo with no issues and keeps the proposal apart', async () => {
+      extraction = { issues: [COMPOST, RODENTS], confidence: 0.7 }
+      const recorded = await capture('Compost, and the rats.')
+
+      const skipped = await skip(recorded.data.id)
+
+      expect(skipped.status).toBe(200)
+      expect(skipped.data.confirmedAt).not.toBeNull()
+      expect(skipped.data.issues).toEqual([])
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: recorded.data.id },
+        include: { issues: true },
+      })
+      expect(row.confirmation).toBe(ConstituentFeedbackConfirmation.skipped)
+      expect(row.issues).toEqual([])
+      expect(await proposal(recorded.data.id)).toEqual([
+        expect.objectContaining({ position: 0, ...COMPOST }),
+        // The model's own stance text, off the vocabulary or not.
+        expect.objectContaining({ position: 1, ...RODENTS }),
+      ])
+    })
+
+    it('shows no issues on the report, the export or the person', async () => {
+      const recorded = await capture('Rosa wants weekly compost pickup.')
+      await skip(recorded.data.id)
+      const { id: outreachId } =
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { phoneBankingListId: listId },
+        })
+
+      const report = await service.client.get(
+        `/v1/constituent-feedback/efforts/${outreachId}/report`,
+        headers(),
+      )
+      const exported = await service.client.get(
+        `/v1/constituent-feedback/efforts/${outreachId}/export`,
+        { ...headers(), responseType: 'arraybuffer' as const },
+      )
+      const person = await service.client.get('/v1/constituent-feedback', {
+        ...headers(),
+        params: { personId },
+      })
+
+      expect(report.status).toBe(200)
+      expect(report.data.denominators.confirmed).toBe(1)
+      expect(report.data.memos).toEqual([
+        expect.objectContaining({
+          id: recorded.data.id,
+          issues: [],
+          extractionStatus: 'extracted',
+        }),
+      ])
+      expect(exported.status).toBe(200)
+      const csv = Buffer.from(exported.data as ArrayBuffer).toString('utf-8')
+      expect(csv).toContain('Rosa wants weekly compost pickup.')
+      expect(csv).not.toContain(COMPOST.issueLabel)
+      expect(person.status).toBe(200)
+      expect(person.data.feedback).toEqual([
+        expect.objectContaining({ id: recorded.data.id, issues: [] }),
+      ])
+    })
+
+    // A Skip tapped again after its response was lost finds no issues left
+    // to set aside, and must not empty the proposal the first one kept.
+    it('keeps the proposal across a repeated skip', async () => {
+      const recorded = await capture('Rosa wants weekly compost pickup.')
+      await skip(recorded.data.id)
+
+      const again = await skip(recorded.data.id)
+
+      expect(again.status).toBe(200)
+      expect(await proposal(recorded.data.id)).toEqual([
+        expect.objectContaining({ position: 0, ...COMPOST }),
+      ])
+    })
+
+    // The drawer's dismiss is a skip, and one racing a "Looks right" can
+    // land after it. The person's confirmation stands.
+    it('leaves a memo that is already confirmed as it was', async () => {
+      const recorded = await capture('Rosa wants weekly compost pickup.')
+      const confirmed = await service.client.patch(
+        `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+        {
+          issues: [
+            {
+              issueLabel: 'Compost pickup',
+              stance: 'supports',
+              desiredOutcome: 'Weekly',
+              fromIssueId: recorded.data.extraction.issues[0].id,
+            },
+          ],
+        },
+        headers(),
+      )
+      expect(confirmed.status).toBe(200)
+
+      const skipped = await skip(recorded.data.id)
+
+      expect(skipped.status).toBe(200)
+      expect(skipped.data.issues).toEqual(confirmed.data.issues)
+      expect(skipped.data.confirmedAt).toBe(confirmed.data.confirmedAt)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: recorded.data.id },
+        include: { issues: true },
+      })
+      expect(row.confirmation).toBe(ConstituentFeedbackConfirmation.reviewed)
+      expect(row.issues).toEqual([
+        expect.objectContaining({
+          issueLabel: 'Compost pickup',
+          proposedIssueLabel: COMPOST.issueLabel,
+        }),
+      ])
+      expect(await proposal(recorded.data.id)).toEqual([])
+    })
+
+    it('refuses a skip that names issues', async () => {
+      const recorded = await capture('Rosa wants weekly compost pickup.')
+
+      const res = await skip(recorded.data.id, [
+        { issueLabel: 'Compost', stance: 'supports', desiredOutcome: null },
+      ])
+
+      expect(res.status).toBe(400)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: recorded.data.id },
+        include: { issues: true },
+      })
+      expect(row.confirmedAt).toBeNull()
+      expect(row.issues).toHaveLength(1)
+    })
+
+    // A re-record brings a fresh proposal to confirm, so the old skip and
+    // what it kept no longer describe this memo.
+    it('is cleared, with its proposal, when the memo is re-recorded', async () => {
+      const first = await capture('Rosa wants weekly compost pickup.')
+      await skip(first.data.id)
+      extraction = { issues: [RODENTS], confidence: 0.6 }
+
+      const second = await capture('Actually it was about the rats.')
+
+      expect(second.status).toBe(201)
+      const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+        where: { id: first.data.id },
+        include: { issues: true },
+      })
+      expect(row.confirmedAt).toBeNull()
+      expect(row.confirmation).toBeNull()
+      expect(row.issues.map((issue) => issue.issueLabel)).toEqual(['Rodents'])
+      expect(await proposal(first.data.id)).toEqual([])
+    })
   })
 
   // An issue typed in by hand has no proposal behind it to keep.
@@ -866,12 +1020,14 @@ describe('constituent feedback routes', () => {
       expect(flagsAskedFor(flags)).toEqual(['issue-capture'])
     })
 
-    it('404s a Serve org when issue-capture is off', async () => {
+    // The code is what tells a phone holding the memo to keep it.
+    it('404s a Serve org, naming the flag, when issue-capture is off', async () => {
       onlyFlagOn('some-other-flag')
 
       const res = await capture('Rosa wants weekly compost pickup.')
 
       expect(res.status).toBe(404)
+      expect(res.data.errorCode).toBe(ISSUE_CAPTURE_OFF_ERROR_CODE)
     })
   })
 
@@ -1068,6 +1224,7 @@ describe('constituent feedback routes', () => {
       expect(rows).toHaveLength(0)
     })
 
+    // A refusal the phone drops, unlike the flag's.
     it('refuses a knock this org never recorded', async () => {
       const seeded = await seedKnock(eoSlug, 'Mine')
 
@@ -1077,6 +1234,7 @@ describe('constituent feedback routes', () => {
       })
 
       expect(res.status).toBe(404)
+      expect(res.data).not.toHaveProperty('errorCode')
     })
 
     // A turf with no question still captures: the memo is the record worth
@@ -1256,9 +1414,9 @@ describe('constituent feedback routes', () => {
         expect(row.confirmedAt).toBeNull()
       })
 
-      // A confirmation is the recorder's word on their own conversation, as
-      // a retry is: a teammate on the same turf gets the 404 retry gives.
-      it('refuses a volunteer a teammate’s memo on confirm, as on retry', async () => {
+      // A confirmation is the recorder's word on their own conversation, and
+      // so is a skip: a teammate on the same turf gets a 404 for either.
+      it('refuses a volunteer a teammate’s memo on confirm or skip', async () => {
         const recorder = await createVolunteer(winSlug)
         const teammate = await createVolunteer(winSlug)
         const seeded = await seedKnock(winSlug, null)
@@ -1271,20 +1429,19 @@ describe('constituent feedback routes', () => {
         )
         expect(recorded.status).toBe(201)
 
-        const retried = await service.client.post(
-          `/v1/constituent-feedback/${recorded.data.id}/retry`,
-          {},
-          teammate.config,
-        )
         const confirmed = await service.client.patch(
           `/v1/constituent-feedback/${recorded.data.id}/confirm`,
           CONFIRMED,
           teammate.config,
         )
+        const skipped = await service.client.patch(
+          `/v1/constituent-feedback/${recorded.data.id}/confirm`,
+          { issues: [], skipped: true },
+          teammate.config,
+        )
 
-        expect(retried.status).toBe(404)
-        expect(confirmed.status).toBe(retried.status)
-        expect(confirmed.data.message).toBe(retried.data.message)
+        expect(confirmed.status).toBe(404)
+        expect(skipped.status).toBe(404)
         const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
           where: { id: recorded.data.id },
         })
@@ -1344,6 +1501,59 @@ describe('constituent feedback routes', () => {
         )
 
         expect(res.status).toBe(404)
+      })
+
+      // The rollout is the org's. Amplitude buckets by user id, so a flag
+      // asked of the volunteer would split a candidate from the people
+      // walking their turfs.
+      it('admits a volunteer on an org whose owner has issue-capture', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const flags = issueCaptureOnlyFor(service.user.id)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        expect(res.status).toBe(201)
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${res.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+        expect(confirmed.status).toBe(200)
+
+        expect(flags.mock.calls.map(([params]) => params.user)).toEqual([
+          service.user.id,
+          service.user.id,
+        ])
+      })
+
+      it('404s a volunteer on an org whose owner lacks issue-capture', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        issueCaptureOnlyFor(volunteer.user.id)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        const uploadUrl = await service.client.post(
+          '/v1/constituent-feedback/audio-upload-url',
+          { clientKey: randomUUID(), contentType: 'audio/webm;codecs=opus' },
+          volunteer.config,
+        )
+
+        expect(res.status).toBe(404)
+        expect(uploadUrl.status).toBe(404)
+        const rows = await service.prisma.constituentFeedback.findMany({
+          where: { organizationSlug: winSlug },
+        })
+        expect(rows).toHaveLength(0)
       })
     })
   })

@@ -37,6 +37,7 @@ const VOTER_SELECT_COLUMNS = [
   'Presence_Of_Children',
   'Veteran_Status',
   'Voter_Status',
+  'Early_Vote_Status',
   'EthnicGroups_EthnicGroup1Desc',
   'Age_Int',
   'VotingPerformanceEvenYearGeneral',
@@ -220,6 +221,7 @@ export const DOWNLOAD_COLUMNS = [
     column: 'PresidentialPrimary_2020',
     header: 'Voted in 2020 Presidential Primary',
   },
+  { column: 'Early_Vote_Status', header: 'Early Vote Likelihood' },
 ] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
 
 export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
@@ -249,6 +251,7 @@ export const EXCLUDABLE_VOTER_COLUMNS = [
   'Residence_HHParties_Description',
   'VoterParties_Change_Changed_Party',
   'VotingPerformanceEvenYearGeneral',
+  'Early_Vote_Status',
   'VotingPerformanceEvenYearPrimary',
   'VotingPerformanceEvenYearGeneralAndPrimary',
   'General_2026',

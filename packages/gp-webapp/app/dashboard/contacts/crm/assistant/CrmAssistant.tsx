@@ -51,8 +51,8 @@ export default function CrmAssistant(): React.JSX.Element | null {
   // ENG-10767: chat opened + message sent (the instrument-analytics-event
   // skill's AI-chat exception to the UI-chrome skip list), so open-to-send
   // drop-off is visible. Only Opened is fired here; every message — the bar's
-  // first one and each composer follow-up — is counted once by the surface's
-  // onMessageSent, which fires on its own visible send path. Firing Sent here
+  // first one and each composer follow-up — is counted once as AI Chat -
+  // Message Sent by the chat body's own visible send path. Firing it here
   // too would double-count the first.
   const openWithMessage = (message: string): void => {
     trackEvent(EVENTS.Contacts.AssistantChatOpened, {
@@ -128,9 +128,7 @@ export default function CrmAssistant(): React.JSX.Element | null {
         historyKey={chat.historyKey}
         scope={chat.scope}
         defaultIntro={chat.defaultIntro}
-        onMessageSent={() =>
-          trackEvent(EVENTS.Contacts.AssistantMessageSent, { context })
-        }
+        analyticsSurface="contacts_assistant"
       />
     </>
   )

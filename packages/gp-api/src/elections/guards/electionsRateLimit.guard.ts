@@ -7,14 +7,20 @@ import {
   Logger,
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
+import { IncomingRequest } from '@/authentication/authentication.types'
 
 /**
- * In-memory per-IP token bucket for the public `/v1/elections/*` reads.
+ * In-memory per-IP token bucket for the public `/v1/elections/*` reads on
+ * `ElectionsController`. The service-read routes under the same prefix are not
+ * metered here: their one caller is a server, not a browser. A verified
+ * machine caller is let through here too, because gp-marketing reaches the
+ * district pickers from a few shared Vercel egress IPs and a 429 there
+ * silently empties the list it renders.
  *
  * All four routes take caller-supplied parameters and answer them out of
- * election-api, so the cost of the route is an upstream query the caller
- * shapes. The budget is sized for onboarding, which walks a user through
- * state, district type and district name pickers in quick succession:
+ * election-db, so the cost of the route is a query the caller shapes. The
+ * budget is sized for onboarding, which walks a user through state, district
+ * type and district name pickers in quick succession:
  *   - capacity = 60 → up to 60 back-to-back reads from a fresh IP.
  *   - refillPerMs = 60/60_000 → sustained 60 reads / 60s.
  *
@@ -50,7 +56,10 @@ export class ElectionsRateLimitGuard implements CanActivate {
   private lastSweepMs = 0
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest<FastifyRequest>()
+    const req = context
+      .switchToHttp()
+      .getRequest<FastifyRequest & IncomingRequest>()
+    if (req.serviceReader || req.m2mToken) return true
     const ip = (req.ip ?? 'unknown').toString()
     const now = Date.now()
 

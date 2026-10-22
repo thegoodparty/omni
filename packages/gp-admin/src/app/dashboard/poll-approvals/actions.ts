@@ -2,7 +2,7 @@
 
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
-import { SdkError } from '@goodparty_org/sdk'
+import { SdkError } from '@/shared/gpApi'
 import type { PollQueueItem, PollReviewDetail } from '@goodparty_org/contracts'
 import { PERMISSIONS } from '@/lib/permissions'
 import { extractApiErrorMessage } from '@/lib/utils/sdkError'

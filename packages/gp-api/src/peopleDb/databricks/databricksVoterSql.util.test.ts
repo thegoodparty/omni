@@ -288,6 +288,7 @@ describe('buildVoterFiltersSql', () => {
       homeowner: { in: ['Yes'] },
       gender: { in: ['F'] },
       voterStatus: { in: ['Super'] },
+      earlyVoteStatus: { in: ['Likely'] },
       politicalParty: { in: ['Democratic'] },
       language: { in: ['English'] },
       estimatedIncomeAmountInt: { gte: 50000 },
@@ -657,6 +658,46 @@ describe('buildVoterFiltersSql', () => {
     expect(sql).not.toContain('IS NULL')
   })
 
+  it('matches a NULL Early_Vote_Status when Unknown is among the values', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { in: ['Very Likely', 'Unknown'] } }),
+    )
+
+    expect(sql).toBe(
+      '(v.`Early_Vote_Status` IN (:p0, :p1)' +
+        ' OR v.`Early_Vote_Status` IS NULL)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very likely', type: 'STRING' },
+      { name: 'p1', value: 'Unknown', type: 'STRING' },
+    ])
+  })
+
+  it('binds a Title Case early-vote value as the column spells it', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Very Unlikely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Very unlikely', type: 'STRING' },
+    ])
+  })
+
+  it('leaves NULL Early_Vote_Status out when Unknown is not selected', () => {
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(
+      bag,
+      parseFilters({ earlyVoteStatus: { eq: 'Likely' } }),
+    )
+
+    expect(sql).toBe('v.`Early_Vote_Status` = :p0')
+  })
+
   it('scopes idOverrides to the voterStatus clause only', () => {
     const include = ['11111111-1111-1111-1111-111111111111']
     const exclude = ['22222222-2222-2222-2222-222222222222']
@@ -804,9 +845,10 @@ describe('aggregate and page queries', () => {
       'AND v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL',
     )
     expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    // Only the slice is sorted, by the same seeded hash that cut it, so the
+    // LIMIT takes a uniform draw rather than the first rows Spark scans.
+    expect(sql).toContain('ORDER BY xxhash64(v.`id`, :p2), v.`id` LIMIT :p4')
     expect(sql.endsWith('LIMIT :p4')).toBe(true)
-    // No ORDER BY: sorting the population was 3-6s where the slice is ~2s.
-    expect(sql).not.toContain('ORDER BY')
     expect(params).toEqual([
       { name: 'p0', value: 'CA', type: 'STRING' },
       { name: 'p1', value: '29', type: 'STRING' },
@@ -816,8 +858,8 @@ describe('aggregate and page queries', () => {
     ])
   })
 
-  it('drops the hash cut when the divisor is 1, rather than emitting pmod', () => {
-    const { sql } = buildSampleSql({
+  it('orders the whole pool by the seeded hash when the divisor is 1', () => {
+    const { sql, params } = buildSampleSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       columns: ['id'],
@@ -827,6 +869,13 @@ describe('aggregate and page queries', () => {
     })
 
     expect(sql).not.toContain('pmod')
+    expect(sql).toContain('ORDER BY xxhash64(v.`id`, :p2), v.`id` LIMIT :p3')
+    expect(params).toEqual(
+      expect.arrayContaining([
+        { name: 'p2', value: '7', type: 'INT' },
+        { name: 'p3', value: '500', type: 'INT' },
+      ]),
+    )
   })
 
   it('draws within an audience: its filters, its frozen ids, the same slice', () => {
@@ -860,7 +909,30 @@ describe('aggregate and page queries', () => {
         { name: expect.any(String), value: '4000', type: 'INT' },
       ]),
     )
-    expect(sql).not.toContain('ORDER BY')
+    expect(sql).toMatch(/ORDER BY xxhash64\(v\.`id`, :p\d+\), v\.`id`/)
+  })
+
+  it('orders a weighted draw by -ln(u) / w, u the same seeded hash', () => {
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 500,
+      seed: 7,
+      hashDivisor: 400,
+      weight: (bag) => `CAST(${bag.bind('2')} AS DOUBLE)`,
+    })
+
+    // Still cut to the slice first; only the order within it changes.
+    expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    expect(sql).toContain(
+      'ORDER BY -ln((pmod(xxhash64(v.`id`, :p2), 4294967296) + 0.5)' +
+        ' / 4294967296) / (CAST(:p4 AS DOUBLE)), v.`id` LIMIT :p5',
+    )
+    expect(params.slice(4)).toEqual([
+      { name: 'p4', value: '2', type: 'STRING' },
+      { name: 'p5', value: '500', type: 'INT' },
+    ])
   })
 
   it('excludes the requested ids and negates hasCellPhone', () => {

@@ -1,4 +1,4 @@
-import { addYears, format } from 'date-fns'
+import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
 import {
   blockSlowScripts,
@@ -45,6 +45,15 @@ test('filed candidate submits filing details before payment and lands on the sub
 
   // Isolated: mutates account-level state (campaign → Pro).
   const { user, client } = await authenticateTestUser(page, { isolated: true })
+
+  // Move the election out of the 19-day texting cutoff so the "About 1 to 2
+  // weeks" PIN-timing row (GuidanceStep.tsx:143-146 filters it when
+  // smsCompliance='closed') renders regardless of the live Cheyenne election
+  // day. Same guard applied to pro-upgrade-v2-entry/resume in e7bd8a6c; the
+  // closed path stays covered by pro-upgrade-v2-cutoff.spec.ts.
+  await client.put('/v1/campaigns/mine', {
+    details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
+  })
 
   // 1. Entry — purchase-only always opens on the guidance overview.
   await page.goto('/dashboard/pro-upgrade')
@@ -227,17 +236,14 @@ test('filed candidate submits filing details before payment and lands on the sub
   await expect(doneButton).toBeEnabled({ timeout: 60_000 })
   await doneButton.click()
 
-  // 7. Dashboard post-payment state: PRO badge, the in-review compliance card,
-  // and the membership banner's in-review message — never needs-verification.
+  // 7. Dashboard post-payment state: PRO badge and the membership banner's
+  // in-review message — never needs-verification.
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
   await page.goto('/dashboard')
   await waitForDashboardReady(page)
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(
-    page.getByText('Your registration is being verified'),
-  ).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText('Verification is in review')).toBeVisible({
     timeout: 30_000,
   })

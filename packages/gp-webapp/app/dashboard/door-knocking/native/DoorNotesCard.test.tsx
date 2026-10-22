@@ -79,7 +79,7 @@ describe('DoorNotesCard reads', () => {
   })
 
   // Product asked for the date and time a note was created, and that is also
-  // the key ADR 0011 orders the list by — showing `updatedAt` instead would
+  // the key the payload orders the list by — showing `updatedAt` instead would
   // give a card whose visible dates run out of order the first time anybody
   // fixes a typo.
   it('stamps each note with when it was written', () => {
@@ -101,7 +101,7 @@ describe('DoorNotesCard reads', () => {
     expect(stamp).not.toHaveTextContent('Aug 20')
   })
 
-  // The whole reason ADR 0011 put `total` on the wire rather than letting a
+  // The whole reason the payload puts `total` on the wire rather than letting a
   // renderer infer truncation from the row count: three-of-four and
   // three-of-forty are the difference between "you have the gist" and "go read
   // the file", and a resident with exactly three notes must not read as
@@ -134,10 +134,10 @@ describe('DoorNotesCard reads', () => {
     ).toBeInTheDocument()
   })
 
-  // A route the service worker snapshotted before ADR 0011 shipped has no
-  // `notes` key, and the phone holding it cannot refetch. Saying "no notes
-  // about this resident" there would state something the payload does not
-  // support — the resident may have a dozen.
+  // A route the service worker snapshotted before notes were added to the route
+  // payload has no `notes` key, and the phone holding it cannot refetch. Saying
+  // "no notes about this resident" there would state something the payload does
+  // not support — the resident may have a dozen.
   it('blames the payload, not the resident, when the block is absent', () => {
     renderCard(undefined)
 
