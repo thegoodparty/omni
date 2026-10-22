@@ -1,6 +1,9 @@
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
-import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
+import {
+  IS_NON_PROD_DEPLOY,
+  VENDOR_MODE,
+} from '@/shared/util/appEnvironment.util'
 import { isTestUser } from '@/users/util/users.util'
 import {
   AdminOutreachActionRequestSchema,
@@ -25,6 +28,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   ParseIntPipe,
@@ -34,6 +39,7 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { User } from '@/generated/prisma'
+import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { TestFixturesService } from './services/testFixtures.service'
 
 // Vendor-mock fixture endpoints callable by a normal signed-in E2E test user.
@@ -45,6 +51,7 @@ export class TestFixturesVendorMocksController {
   constructor(
     private readonly testFixtures: TestFixturesService,
     private readonly campaigns: CampaignsService,
+    private readonly tcrCompliance: CampaignTcrComplianceService,
   ) {}
 
   @Post('actions')
@@ -80,7 +87,7 @@ export class TestFixturesVendorMocksController {
     if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
-    return this.testFixtures.runJob(name)
+    return this.testFixtures.runJob(name, user.id)
   }
 
   @Post('time-travel')
@@ -105,6 +112,30 @@ export class TestFixturesVendorMocksController {
       throw new ForbiddenException('Test users only')
     }
     return this.testFixtures.deliverStripeEvent(body.type, body.sessionId)
+  }
+
+  // Stands in for the staff "override CV validation" step. The pre-submission
+  // gate fetches the candidate's filing URL live and asks an LLM about it, so a
+  // fixture candidate can never pass it. Only the caller's own campaign is
+  // touched (no id is taken from the request), and only where the vendors are
+  // mocked.
+  @Post('cv-validation/override')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async overrideCvValidation(@ReqUser() user: User) {
+    this.assertNonProdDeploy()
+    if (VENDOR_MODE !== 'mock') {
+      throw new NotFoundException()
+    }
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    const campaign = await this.campaigns.findFirst({
+      where: { userId: user.id },
+    })
+    if (!campaign) {
+      throw new NotFoundException()
+    }
+    await this.tcrCompliance.overrideCvValidation(campaign.id)
   }
 
   @Post('outreach/:id/admin-actions')
@@ -194,3 +225,4 @@ export class TestFixturesVendorMocksController {
     }
   }
 }
+

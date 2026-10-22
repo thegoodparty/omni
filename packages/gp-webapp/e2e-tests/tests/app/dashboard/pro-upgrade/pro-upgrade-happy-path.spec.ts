@@ -1,18 +1,14 @@
 import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
-import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
-import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
-// funnel through an embedded Stripe subscription to Pro, then lands on the
-// post-payment dashboard PIN state (ENG-10475).
+// funnel through an embedded Stripe subscription to Pro, and its TCR record
+// reaches the post-payment PIN state (ENG-10475).
 //
 // @dev-only: the filing-details step requires a Google Places address
 // suggestion (.pac-item). Google Places does not load on *.vercel.app PR
@@ -74,32 +70,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
   })
 
-  // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
-  // the wizard.
-  await page.goto('/dashboard')
-  await page.waitForURL(/\/dashboard/)
-  await NavigationHelper.dismissOverlays(page)
-  // Closes any stray task-detail dialog (which aria-hides the whole page) and
-  // waits for the campaign-gated chrome, like the sibling pro-upgrade specs.
-  await waitForDashboardReady(page)
-
-  await expect(
-    page.getByText('76% of candidates who use Pro win'),
-  ).toBeVisible()
-
-  // A click that lands before hydration attaches the banner's handler is
-  // swallowed (observed in CI: click fired on the half-hydrated dashboard,
-  // then no navigation for 45s), so retry the click until the URL moves.
-  await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/value-prop/.test(page.url())) {
-      await page
-        .getByRole('button', { name: 'Get Pro' })
-        .click({ timeout: 5_000 })
-    }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
-      timeout: 10_000,
-    })
-  }).toPass({ timeout: 60_000 })
+  // 1. The wizard index. With the flag off the dashboard has no Pro entry
+  // (the sidebar banner is flag-gated), so open it directly; it lands a
+  // zero-progress candidate on the value-prop step.
+  await page.goto('/dashboard/pro-upgrade')
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
+    timeout: 60_000,
+  })
 
   // 2. Value prop.
   await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
@@ -264,8 +241,9 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   }
   await page.waitForTimeout(1_000)
 
-  // The Pro subscription confirms client-side via Stripe; on confirm the step
-  // navigates to /success, so the URL change is the signal.
+  // The Pro subscription confirms client-side via Stripe (no sessionId, no
+  // complete-checkout-session POST like the one-time polls purchase); on
+  // confirm the step navigates to /success, so the URL change is the signal.
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
   await completeButton.click()
@@ -331,3 +309,4 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     0,
   )
 })
+
