@@ -889,6 +889,29 @@ describe('PaymentEventsService', () => {
       expect(slackService.message).toHaveBeenCalledOnce()
     })
 
+    it('says in the Slack alert when Stripe canceled for a failed payment', async () => {
+      await service.customerSubscriptionDeletedHandler(deletedEvent())
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('payment failed'),
+        }),
+        expect.anything(),
+      )
+
+      slackService.message.mockClear()
+      await service.customerSubscriptionDeletedHandler(
+        deletedEvent({
+          cancellation_details: { reason: 'cancellation_requested' },
+        }),
+      )
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.not.stringContaining('payment failed'),
+        }),
+        expect.anything(),
+      )
+    })
+
     it('acknowledges a cancellation whose campaign user was already deleted instead of returning a 500', async () => {
       usersService.findUser.mockResolvedValue(null)
 
