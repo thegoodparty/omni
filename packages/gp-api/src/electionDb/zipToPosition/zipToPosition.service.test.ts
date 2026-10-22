@@ -116,7 +116,7 @@ describe('ZipToPositionService.search', () => {
     await service.search({ zip: '90210', timeframe: 'all' })
 
     const arg = raceFindMany.mock.calls.at(-1)?.[0]
-    expect(arg.where).not.toHaveProperty('electionDate')
+    expect(arg.where.electionDate).toBeUndefined()
   })
 
   it('filters Race to past elections when timeframe is past', async () => {
