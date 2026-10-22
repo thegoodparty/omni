@@ -179,14 +179,6 @@ export function assertServeSmsSendDateAllowed(
   }
 }
 
-// The earliest day the check above accepts, as yyyy-MM-dd: three business
-// days out.
-export const earliestServeSmsSendDate = (now: Date = new Date()): string =>
-  format(
-    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
-    'yyyy-MM-dd',
-  )
-
 // The latest send date whose round 2 is due to be drawn today: the last day
 // a new send for that date would still be accepted above
 // (ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS is MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
@@ -194,6 +186,15 @@ export const earliestServeSmsSendDate = (now: Date = new Date()): string =>
 export const roundTwoDrawCutoff = (now: Date): string =>
   format(
     addBusinessDays(referenceToday(now), ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS),
+    'yyyy-MM-dd',
+  )
+
+// The earliest send date assertServeSmsSendDateAllowed accepts: the third
+// business day, so staff get their full lead to set the text up. A managed
+// civic panel wave goes out on it.
+export const nextManagedSendDate = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
     'yyyy-MM-dd',
   )
 
