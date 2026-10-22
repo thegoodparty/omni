@@ -188,18 +188,25 @@ shapes the page already reads, through `PriorityResultsService`
   sized for them are the groups the model has.
 - **Status** (`mrpReadStatus`, in the page's existing labels): `tooEarly`
   while a major group has no answer, `notYetRepresentative` while one has
-  fewer than three, `gettingClose` while a major group's 90% range is wider
+  fewer than three or the answers are under the district's floor (the
+  `answersNeeded` round 1 is sized to, `frameAnswersNeeded` of this frame), `gettingClose` while a major group's 90% range is wider
   than 20 points, `representative` once none is. Major groups are on age,
   tract, gender, and race only when `raceNameable` holds. `enoughAnswers`
   stays for a district that cannot be read.
-- **Answers needed** (`needed`): the people heard plus the fewest more
-  answers that could give every major group three.
+- **Answers needed** (`needed`): the larger of the floor and the people
+  heard plus the fewest more answers that could give every major group
+  three.
 - **Hear from more** (`underrepresented`): of the groups holding the read
   back, the first two `batchTargets` ranks, in the page's existing group
-  names; every tract reads as the parts not reached.
-- **Representation bars** stay as they are: who answered against the
-  district, unweighted. The contract carries no model share, so the model's
-  estimates are not shown anywhere yet.
+  names; every tract reads as the parts not reached. `unheard` marks the
+  named ones with no answer at all (for the parts not reached, any of their
+  tracts), so the page says "Still need to hear from men" for those and
+  "Need a few more answers from women" for the rest.
+- **Who you're hearing from** on the results page is the read's own major
+  groups (age band, gender, race when nameable), each one's share of the
+  district against its share of the coded answers, unweighted, drawn as the
+  panel page's petals (`answerGroups`). The model's estimates are not shown
+  anywhere yet.
 
 ## Not yet
 

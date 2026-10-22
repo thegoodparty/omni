@@ -140,16 +140,14 @@ describe('OutreachProposalCard', () => {
     },
   )
 
-  it('says a sampled proposal reaches some of its audience, picked at random', async () => {
+  it('says a sampled proposal reaches some of its audience', async () => {
     mockNotSent()
 
     renderCard(
       proposalCard({ channel: 'text', count: 58_520, sampleSize: 4_000 }),
     )
 
-    expect(
-      await screen.findByText('Text 4,000 of 58,520, picked at random'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Text 4,000 of 58,520')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Start the text' }),
     ).toBeInTheDocument()
@@ -170,9 +168,7 @@ describe('OutreachProposalCard', () => {
       }),
     )
 
-    expect(
-      await screen.findByText('Text 84 of 18,400, picked at random'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Text 84 of 18,400')).toBeInTheDocument()
     expect(
       screen.getAllByText('Your civic panel and residents across the district'),
     ).toHaveLength(1)
@@ -197,7 +193,7 @@ describe('OutreachProposalCard', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByText(/236 constituents/)).toBeInTheDocument()
-    expect(screen.queryByText(/picked at random/)).toBeNull()
+    expect(screen.queryByText(/ of 236/)).toBeNull()
   })
 
   it('reads a sample no smaller than its audience as the whole audience', async () => {
@@ -208,7 +204,7 @@ describe('OutreachProposalCard', () => {
     expect(
       await screen.findByText('Phone banking · 412 constituents'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/picked at random/)).toBeNull()
+    expect(screen.queryByText(/ of 412/)).toBeNull()
   })
 
   it('says text is not available, and offers nothing, while SMS is off', async () => {

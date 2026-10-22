@@ -79,22 +79,22 @@ import {
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
   buildPoolCellsSql,
-  buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
+  buildTractPlacesSql,
   mapAcsCounts,
   mapAnswerCells,
-  mapCensusCompositionRows,
   mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  mapTractPlaces,
   sampleWeightSql,
   type AnswerCell,
-  type CensusCompositionRows,
   type DistrictCell,
   type DistrictCells,
   type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -537,26 +537,6 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
-  // The district's census row and the block groups the given people live
-  // in, for comparing the two. Not through `run()`: every caller treats a
-  // failure as "comparison unavailable" and answers 200, so the error-level
-  // log and HTTP translation `run()` adds would be wrong here (see the census
-  // lookup in findStats).
-  async findCensusComposition(
-    districtId: string,
-    dataset: PeopleDataset,
-    personIds: string[],
-  ): Promise<CensusCompositionRows> {
-    const district = await this.resolveDistrict(districtId, dataset)
-    const [districtResult, blockGroupResult] = await Promise.all([
-      this.client.query(buildDistrictCompositionSql(district)),
-      personIds.length > 0
-        ? this.client.query(buildRespondentBlockGroupsSql(district, personIds))
-        : Promise.resolve({ columns: [], rows: [] }),
-    ])
-    return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
-  }
-
   // What weighting needs: respondents counted by age band, gender, tenure
   // and tract, and the district's adults per tract.
   async findWeightingInputs(
@@ -634,6 +614,19 @@ export class DatabricksVoterService {
       buildTractGridCellsSql(district, tracts, cellDegrees),
     )
     return mapGridCells(result.rows)
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractPlacesSql(district, tracts),
+    )
+    return mapTractPlaces(result.rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

@@ -254,3 +254,38 @@ describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
     expect(coords[1]).toEqual([-73.94, 40.732])
   })
 })
+
+describe('GET /v1/vendor-mocks/geoapify/v1/geocode/reverse', () => {
+  beforeEach(() => {
+    mockMode.value = 'mock'
+  })
+
+  const REVERSE_PATH = '/v1/vendor-mocks/geoapify/v1/geocode/reverse'
+
+  it('answers a neighborhood or a road only, by the point', async () => {
+    const neighborhood = await service.client.get(
+      `${REVERSE_PATH}?lat=35.58&lon=-82.55&format=json&apiKey=${API_KEY}`,
+    )
+    const roadOnly = await service.client.get(
+      `${REVERSE_PATH}?lat=35.59&lon=-82.55&format=json&apiKey=${API_KEY}`,
+    )
+
+    expect(neighborhood.status).toBe(HttpStatus.OK)
+    expect(neighborhood.data.results[0].suburb).toEqual(expect.any(String))
+    expect(roadOnly.data.results[0]).not.toHaveProperty('suburb')
+    expect(roadOnly.data.results[0].street).toBe('Main Street')
+  })
+
+  it('returns 400 without a point and 404 in live mode', async () => {
+    const noPoint = await service.client.get(
+      `${REVERSE_PATH}?apiKey=${API_KEY}`,
+    )
+    expect(noPoint.status).toBe(HttpStatus.BAD_REQUEST)
+
+    mockMode.value = 'live'
+    const live = await service.client.get(
+      `${REVERSE_PATH}?lat=35.58&lon=-82.55&apiKey=${API_KEY}`,
+    )
+    expect(live.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})

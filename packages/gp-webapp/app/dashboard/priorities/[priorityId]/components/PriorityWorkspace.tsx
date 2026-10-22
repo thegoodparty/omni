@@ -377,11 +377,15 @@ const PriorityWorkspaceBody = ({
   // Whether the turn in flight answers Get answers. A hidden turn is not in
   // `messages` until the turn settles, so the live cards read it from here.
   const [liveTurnGetsAnswers, setLiveTurnGetsAnswers] = useState(false)
+  // A Get answers turn queued behind whatever is in flight, not started yet.
+  const [getAnswersQueued, setGetAnswersQueued] = useState(false)
   const send = useCallback(
     (content: string, opts?: { hidden?: boolean; idOverride?: string }) => {
       const id = opts?.idOverride ?? conversationId
       if (!id) return
-      setLiveTurnGetsAnswers(isGetAnswersMessage(content))
+      const getsAnswers = isGetAnswersMessage(content)
+      setLiveTurnGetsAnswers(getsAnswers)
+      if (getsAnswers) setGetAnswersQueued(false)
       void sendTurn(id, content, { hidden: opts?.hidden })
     },
     [conversationId, sendTurn],
@@ -451,6 +455,7 @@ const PriorityWorkspaceBody = ({
       if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
       trackEvent(EVENTS.Priorities.GetAnswersClicked, { priorityId, source })
       pendingSent.current.push(GET_ANSWERS_MESSAGE)
+      setGetAnswersQueued(true)
       setSentTick((tick) => tick + 1)
     },
     [priorityId],
@@ -499,10 +504,16 @@ const PriorityWorkspaceBody = ({
         reportBackRef.current = null
         const getAnswers = getAnswersRef.current
         getAnswersRef.current = false
+        // Dropped in place, not with router.replace: a navigation re-renders
+        // the page under a new search-param key and remounts this workspace
+        // while this open is still settling, which reopened a report back
+        // on the error screen.
         if (reportBackId !== null || getAnswers) {
-          router.replace(`/dashboard/priorities/${priorityId}`, {
-            scroll: false,
-          })
+          window.history.replaceState(
+            null,
+            '',
+            `/dashboard/priorities/${encodeURIComponent(priorityId)}`,
+          )
         }
         const reportBackTurn =
           reportBackId === null ? null : reportBackMessage(reportBackId)
@@ -544,6 +555,7 @@ const PriorityWorkspaceBody = ({
         ) {
           trackGetAnswers()
           pendingSent.current.push(getAnswersTurn)
+          setGetAnswersQueued(true)
           setSentTick((tick) => tick + 1)
         }
         if (history[history.length - 1]?.role !== 'user') return
@@ -704,7 +716,12 @@ const PriorityWorkspaceBody = ({
     )
   }
 
-  const getAnswersDisabled = sending || awaitingReply || phase !== 'ready'
+  // Get answers queues behind any turn in flight, so only its own request
+  // holds it. Holding it for every open turn left it looking disabled while
+  // the chat looked idle: on load, while a reply was awaited, and through
+  // hidden app turns.
+  const getAnswersDisabled =
+    getAnswersQueued || (sending && liveTurnGetsAnswers)
 
   const workspace = (
     <div className="flex min-h-0 w-full flex-1 bg-background">

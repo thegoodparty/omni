@@ -204,7 +204,7 @@ plan_action() {
   if [ -f "$path" ] && npx tsx "$ROOT/scripts/setup/lib/cli.ts" check "$pkg" "$path" >/dev/null 2>&1; then
     PLAN_ACTION="skip"
     [ "$REFRESH" = true ] && PLAN_ACTION="write"
-    return
+    return 0
   fi
   if [ -f "$path" ] && [ "$FORCE" != true ]; then
     echo "ERROR: $path exists but fails schema validation:" >&2

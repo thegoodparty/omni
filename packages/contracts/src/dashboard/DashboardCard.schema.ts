@@ -5,6 +5,7 @@ import {
   type DashboardCardType,
 } from '../generated/enums'
 import { CIVIC_PANEL_PAGE_HREF } from '../people/CivicPanelBuildPlan.schema'
+import { GOOD_READ_STATUSES } from '../priorities/PriorityResults.schema'
 
 export {
   DASHBOARD_CARD_TYPE_VALUES,
@@ -75,11 +76,28 @@ export const isCivicPanelStepCard = (
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
 
+// gp-api keys a report back card on the read status it was made for
+// (`sourceItemId`), so the deck can tell whether its priority has a good read.
+export const isGoodReadReportBackCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceItemId'>,
+): boolean =>
+  card.type === 'report_back' &&
+  GOOD_READ_STATUSES.some((status) => status === card.sourceItemId)
+
 // The build card's button before there is a plan: the home opens the chat
-// build flow for it. Where the card's link goes without the chat is the panel
-// page, which asks the hours question or shows the plan already made.
-export const CIVIC_PANEL_BUILD_CARD_CTA = 'Build my panel'
+// build flow from it. Once a plan is active, gp-api gives the card the plan
+// button instead, and the home opens the panel page, where the plan lives,
+// rather than starting a second build. Without the chat the link is the
+// panel page either way.
+export const CIVIC_PANEL_BUILD_CARD_CTA = 'Build your panel'
+export const CIVIC_PANEL_BUILD_CARD_PLAN_CTA = 'See your plan'
 export const CIVIC_PANEL_BUILD_CARD_HREF = CIVIC_PANEL_PAGE_HREF
+
+export const civicPanelBuildCardOpensPlan = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId' | 'ctaLabel'>,
+): boolean =>
+  isCivicPanelBuildCard(card) &&
+  card.ctaLabel === CIVIC_PANEL_BUILD_CARD_PLAN_CTA
 
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,

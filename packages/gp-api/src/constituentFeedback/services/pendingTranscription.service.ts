@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subHours, subMinutes } from 'date-fns'
-import { ConstituentFeedbackExtractionStatus, Prisma } from '@/generated/prisma'
+import {
+  ConstituentFeedbackChannel,
+  ConstituentFeedbackExtractionStatus,
+  Prisma,
+} from '@/generated/prisma'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
@@ -91,6 +95,8 @@ export class PendingTranscriptionService extends createPrismaBase(
         where: {
           transcript: { not: null },
           confirmedAt: null,
+          // A text reply has no confirm step to abandon.
+          channel: { not: ConstituentFeedbackChannel.text },
           updatedAt: { lt: subHours(now, ABANDONED_CONFIRM_AFTER_HOURS) },
         },
         orderBy: { updatedAt: Prisma.SortOrder.asc },

@@ -1,7 +1,4 @@
-import {
-  UNDERREPRESENTED_GROUP_NAMES,
-  type CivicPanelCompositionGroup,
-} from '@goodparty_org/contracts'
+import type { CivicPanelCompositionGroup } from '@goodparty_org/contracts'
 import { cn } from '@styleguide/lib/utils'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import {
@@ -11,6 +8,8 @@ import {
   LABEL_ALL_UP_TO,
   labelAnchor,
   LIST_SIZE,
+  polar,
+  roundCoord,
   sectorPath,
   type Bloom,
   type Petal,
@@ -42,13 +41,17 @@ const labeledPetals = (bloom: Bloom): Petal[] =>
         .sort((a, b) => a.ratio - b.ratio)
         .slice(0, LIST_SIZE)
 
+type Summary = (atShare: number, total: number) => string
+
 const Flower = ({
   bloom,
   labeled,
+  summary,
   className,
 }: {
   bloom: Bloom
   labeled: boolean
+  summary: Summary
   className?: string
 }) => {
   const viewBox = labeled
@@ -61,7 +64,7 @@ const Flower = ({
       viewBox={viewBox}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={COPY.bloomSummary(bloom.atShare, bloom.petals.length)}
+      aria-label={summary(bloom.atShare, bloom.petals.length)}
     >
       <path
         d={bloom.petals.map((petal) => sector(petal, BLOOM_RMAX)).join(' ')}
@@ -104,14 +107,13 @@ const Flower = ({
       {labeled
         ? labeledPetals(bloom).map((petal) => {
             const cos = Math.cos(petal.mid)
-            const x = CX + LABEL_R * cos
-            const y = CY + LABEL_R * Math.sin(petal.mid)
+            const { x, y } = polar(CX, CY, LABEL_R, petal.mid)
             const short = petal.bucket === 'under'
             return (
               <text
                 key={petal.group}
                 x={x}
-                y={y - 3}
+                y={roundCoord(y - 3)}
                 textAnchor={labelAnchor(cos)}
                 className="text-xs"
               >
@@ -147,22 +149,37 @@ const Swatch = ({ className }: { className: string }) => (
 )
 
 // Each group as a petal sized by its share of the members against its share
-// of the district. `showNext` is off when the status above already names
-// who to invite.
+// of the district. Who to invite next is the API's call (the balance's
+// `inviteMore`, what the next draw leans toward), never the petals', so
+// `showNext` only says every group has its share, and is off when the
+// status above names someone. A priority's results draw the same petals
+// from who answered, with their own `summary`.
 export const CivicPanelBloom = ({
   groups,
   showNext,
+  summary = COPY.bloomSummary,
 }: {
   groups: CivicPanelCompositionGroup[]
   showNext: boolean
+  summary?: Summary
 }) => {
   const bloom = buildBloom(groups)
   return (
     <div className="flex flex-col gap-3" data-testid="civic-panel-bloom">
       <p className="text-sm text-muted-foreground">{COPY.bloomCaption}</p>
       <div className="mx-auto w-full max-w-[20rem] sm:max-w-[37.5rem]">
-        <Flower bloom={bloom} labeled className="hidden sm:block" />
-        <Flower bloom={bloom} labeled={false} className="sm:hidden" />
+        <Flower
+          bloom={bloom}
+          labeled
+          summary={summary}
+          className="hidden sm:block"
+        />
+        <Flower
+          bloom={bloom}
+          labeled={false}
+          summary={summary}
+          className="sm:hidden"
+        />
       </div>
       {/* Names around the flower do not fit on a phone, so they list here. */}
       <ul className="flex flex-col gap-1 sm:hidden">
@@ -209,11 +226,9 @@ export const CivicPanelBloom = ({
           {COPY.legendRing}
         </span>
       </div>
-      {showNext ? (
+      {showNext && bloom.furthestUnder === null ? (
         <p className="border-t border-border pt-3 text-sm text-foreground">
-          {bloom.furthestUnder
-            ? COPY.inviteMore(UNDERREPRESENTED_GROUP_NAMES[bloom.furthestUnder])
-            : COPY.everyGroupShare}
+          {COPY.everyGroupShare}
         </p>
       ) : null}
     </div>

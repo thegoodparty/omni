@@ -41,7 +41,7 @@ import { isOptOutMessage } from '../util/textOptOut.util'
 // Offset from the completion sweep (:00) so the two hourly Peerly pollers
 // don't stack their request bursts on the same minute.
 const OUTREACH_INBOUND_SWEEP_CRON = '30 * * * *'
-const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
+export const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
 
 // Peerly's AI and its texters flag opt-outs whose wording never contains a
 // stop word, and those flags exist only in the question-responses report.
@@ -52,7 +52,7 @@ const OUTREACH_INBOUND_SWEEP_JOB = 'outreachInboundSweep'
 // one stays short: a single pass over every job ran past three hours and
 // was cut off by deploys before it finished (2026-10-20).
 const OUTREACH_OPT_OUT_RECONCILE_CRON = '45 * * * *'
-const OUTREACH_OPT_OUT_RECONCILE_JOB = 'outreachOptOutReconcile'
+export const OUTREACH_OPT_OUT_RECONCILE_JOB = 'outreachOptOutReconcile'
 
 export const OPT_OUT_RECONCILE_INTERVAL_HOURS = 6
 

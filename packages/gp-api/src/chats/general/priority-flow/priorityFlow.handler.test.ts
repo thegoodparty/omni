@@ -32,6 +32,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { HELD_BACK_NOTE } from '../chat-tools/readOutreachFeedback.tool'
 
 const USER_ID = 11
 const ORG = 'eo-maple'
@@ -58,6 +59,7 @@ const baseCtx = (): PriorityFlowContext => ({
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
   source: 'user_stated',
+  sourceCommunityIssueId: null,
   status: emptyPriorityStatus(),
   anchorSummaries: [],
   districtFilters: null,
@@ -316,7 +318,7 @@ describe('PriorityFlowHandler', () => {
       { voters: [], constituents: [] },
       undefined,
       undefined,
-      { getDetail: vi.fn() },
+      { list: vi.fn(), getDetail: vi.fn() },
       {
         getFilterDimensions: vi.fn(() => []),
         countContacts: vi.fn(),
@@ -593,7 +595,7 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Each side of a check gets its own sample')
     expect(prompt).toContain('Never sample more people than the audience holds')
     expect(prompt).toContain('not by a reply rate')
-    expect(prompt).toContain("I'd text 2,767 of the 58,520, picked at random")
+    expect(prompt).toContain("I'd text 2,767 of the 58,520. About")
     expect(prompt).toContain('Never call it statistically proven')
     expect(prompt).toContain('It is directional')
     expect(prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT')).toBeLessThan(
@@ -1112,6 +1114,23 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('names the community issue a priority came from in <priority>', () => {
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      source: 'community_issue',
+      sourceCommunityIssueId: 'issue-7',
+    })
+    expect(prompt).toContain(
+      'Where it came from: community_issue\nCame from community issue: issue-7\n',
+    )
+  })
+
+  it('leaves the community issue line out when the priority has none', () => {
+    expect(build().buildSystemPrompt(baseCtx())).not.toContain(
+      'Came from community issue',
+    )
+  })
+
   it('renders the thread block from the resolved anchor summaries', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),
@@ -1227,7 +1246,7 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('ROUND ONE')
       expect(prompt).toContain('Civic panel: 42 members')
       expect(prompt).toContain(
-        'door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn',
+        'door knocking in one walkable area, and a phone bank and a text to residents across the district, offered together as cards in one turn',
       )
       expect(prompt).toContain('Size the round with size_round_one')
       expect(prompt).toContain(
@@ -1413,7 +1432,9 @@ describe('PriorityFlowHandler', () => {
       }
       expect(await tool.execute({})).toHaveProperty(
         'error',
-        expect.stringContaining('How much time can you give each week?'),
+        expect.stringContaining(
+          'How much time can you spend each week to connect with constituents by phone or in person?',
+        ),
       )
     })
 
@@ -2008,6 +2029,67 @@ describe('PriorityFlowHandler', () => {
         'If they ask directly what people have said so far, answer honestly in one or two sentences',
       )
       expect(prompt).toContain('say it is too early to act on')
+    })
+
+    it('keeps what people said out of read_outreach_feedback until a good read', async () => {
+      const send = {
+        outreachId: 7,
+        name: 'Crossings check',
+        audience: 'Residents across the district',
+        channel: 'text',
+        sentOn: '2026-10-01',
+        heardFrom: 240,
+        verbatims: [{ text: 'Fix the crosswalk on Main' }],
+        verbatimsLeftOut: 0,
+        themes: [
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ],
+      }
+      const pooledThemes = vi.fn(() =>
+        Promise.resolve([
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ]),
+      )
+      outreach.feedbackFor = vi.fn(() =>
+        Promise.resolve([send]),
+      ) as unknown as PriorityFlowOutreachService['feedbackFor']
+      outreach.pooledThemes =
+        pooledThemes as unknown as PriorityFlowOutreachService['pooledThemes']
+
+      const early = withReadStatus().buildTools(at(thin))
+        .read_outreach_feedback as unknown as {
+        description: string
+        execute: (input: object) => Promise<object>
+      }
+      const held = await early.execute({})
+      expect(held).toEqual({
+        heldBack: HELD_BACK_NOTE,
+        sends: [
+          {
+            outreachId: 7,
+            name: 'Crossings check',
+            audience: 'Residents across the district',
+            channel: 'text',
+            sentOn: '2026-10-01',
+            heardFrom: 240,
+          },
+        ],
+      })
+      expect(JSON.stringify(held)).not.toContain('Crosswalk')
+      expect(pooledThemes).not.toHaveBeenCalled()
+      expect(early.description).toContain('you share none')
+
+      const good = withReadStatus().buildTools(
+        at({ ...thin, good: true, status: 'representative' }),
+      ).read_outreach_feedback as unknown as {
+        execute: (input: object) => Promise<object>
+      }
+      expect(await good.execute({})).toEqual({
+        priorityThemes: [
+          { title: 'Crosswalks', summary: 'Safer crossings', people: 80 },
+        ],
+        sends: [send],
+      })
     })
 
     it('treats Get answers as a detour that proposes outreach and returns', () => {

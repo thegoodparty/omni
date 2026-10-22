@@ -10,12 +10,38 @@ import {
   LABEL_ALL_UP_TO,
   labelAnchor,
   LIST_SIZE,
+  polar,
+  roundCoord,
+  SEAT_HUES,
   SEAT_R_OUT,
   SEAT_SIZE,
   spreadLabels,
   type SeatChart,
+  type SeatHue,
   type SeatPlace,
 } from './panelCharts'
+
+// Darkest tint first. Each seat is outlined in its family's darkest tint so
+// the light ones still read on white.
+const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
+  red: ['fill-brand-red-500', 'fill-brand-red-400', 'fill-brand-red-300'],
+  blue: ['fill-brand-blue-600', 'fill-brand-blue-500', 'fill-brand-blue-300'],
+  lavender: [
+    'fill-brand-lavender-800',
+    'fill-brand-lavender-700',
+    'fill-brand-lavender-600',
+  ],
+}
+const SEAT_OUTLINE: Record<SeatHue, string> = {
+  red: 'stroke-brand-red-500',
+  blue: 'stroke-brand-blue-600',
+  lavender: 'stroke-brand-lavender-800',
+}
+const PLACE_DOT: Record<SeatHue, string> = {
+  red: 'bg-brand-red-500',
+  blue: 'bg-brand-blue-600',
+  lavender: 'bg-brand-lavender-800',
+}
 
 // The arc alone, tight to the seats so it reads large on a phone.
 const PLAIN = {
@@ -30,17 +56,30 @@ type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
 
 const LABEL_R = SEAT_R_OUT + SEAT_SIZE / 2 + LABEL_GAP
 
+// A tract's human name where it has one, else its number.
+const placeName = (place: SeatPlace, words: PlaceWords): string =>
+  place.label ?? words.name(place.name)
+
+// Names around the arc have no room to wrap, so a long one is cut short
+// there; the full name is its tooltip.
+const ARC_NAME_MAX = 14
+const arcName = (name: string): string =>
+  name.length > ARC_NAME_MAX
+    ? `${name.slice(0, ARC_NAME_MAX - 1).trimEnd()}…`
+    : name
+
 // Each place's name beside its seats, the first line's baseline at `y`.
 // Names over the top sit above their point; the sides are spread apart.
 const placeLabels = (chart: SeatChart) => {
   const labels = chart.places.map((place) => {
     const cos = Math.cos(place.angle)
     const sin = Math.sin(place.angle)
-    const y = -LABEL_R * sin
+    // The seats' y points up, so the label's point is mirrored.
+    const { x, y } = polar(0, 0, LABEL_R, -place.angle)
     return {
       place,
-      x: LABEL_R * cos,
-      y: sin > 0.7 ? y - 18 : y - 3,
+      x,
+      y: roundCoord(sin > 0.7 ? y - 18 : y - 3),
       anchor: labelAnchor(cos),
     }
   })
@@ -88,15 +127,15 @@ const SeatArc = ({
         {chart.seats.map((seat, i) => {
           const place = chart.places[seat.place]
           const warn = nearFull || (place?.behind ?? false)
+          const hue = place?.hue ?? 'red'
           return seat.filled ? (
             <circle
               key={i}
               cx={seat.x}
               cy={seat.y}
-              r={SEAT_SIZE / 2}
-              className={
-                place?.shade === 1 ? 'fill-primary/60' : 'fill-primary'
-              }
+              r={SEAT_SIZE / 2 - 0.5}
+              strokeWidth={1}
+              className={cn(SEAT_FILL[hue][seat.tint], SEAT_OUTLINE[hue])}
             />
           ) : (
             <circle
@@ -123,6 +162,7 @@ const SeatArc = ({
                   textAnchor={anchor}
                   className="text-xs"
                 >
+                  <title>{placeName(place, words)}</title>
                   <tspan
                     x={x}
                     className={cn(
@@ -131,7 +171,7 @@ const SeatArc = ({
                         : 'fill-foreground font-medium',
                     )}
                   >
-                    {words.name(place.name)}
+                    {arcName(placeName(place, words))}
                   </tspan>
                   <tspan
                     x={x}
@@ -159,8 +199,11 @@ const PlaceRow = ({
   words: PlaceWords
 }) => (
   <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto]">
-    <span className="truncate text-sm text-foreground">
-      {words.name(place.name)}
+    <span
+      className="truncate text-sm text-foreground"
+      title={placeName(place, words)}
+    >
+      {placeName(place, words)}
     </span>
     <span
       aria-hidden
@@ -172,7 +215,7 @@ const PlaceRow = ({
           className={cn(
             'size-3 rounded-full',
             k < place.filled
-              ? 'bg-primary'
+              ? PLACE_DOT[place.hue]
               : 'border-2 border-warning bg-background',
           )}
         />
@@ -217,7 +260,11 @@ const LegendDot = ({ className }: { className: string }) => (
 const Legend = ({ chart }: { chart: SeatChart }) => (
   <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
     <span className="flex items-center gap-1.5">
-      <LegendDot className="bg-primary" />
+      <span aria-hidden className="flex gap-0.5">
+        {SEAT_HUES.map((hue) => (
+          <LegendDot key={hue} className={PLACE_DOT[hue]} />
+        ))}
+      </span>
       {COPY.legendMember}
     </span>
     {chart.stage === 'nearFull' ? (
@@ -241,9 +288,6 @@ const Legend = ({ chart }: { chart: SeatChart }) => (
     )}
   </div>
 )
-
-const inviteNext = (place: SeatPlace | undefined, words: PlaceWords) =>
-  place ? COPY.inviteMore(words.invite(place.name)) : null
 
 const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
   const line = 'border-t border-border pt-3 text-sm'
@@ -270,21 +314,13 @@ const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
           // Around the arc on a computer when every place fits there.
           className={labeled ? 'sm:hidden' : undefined}
         />
-        <div className="flex flex-col gap-1">
-          <p className="text-muted-foreground">
-            {COPY.emptyIn(
-              chart.mostEmpty.length,
-              chart.places.length,
-              words.many,
-            )}
-          </p>
-          <p className="font-semibold text-foreground">
-            {inviteNext(
-              [...chart.mostEmpty].sort((a, b) => a.progress - b.progress)[0],
-              words,
-            )}
-          </p>
-        </div>
+        <p className="text-muted-foreground">
+          {COPY.emptyIn(
+            chart.mostEmpty.length,
+            chart.places.length,
+            words.many,
+          )}
+        </p>
       </div>
     )
   }
@@ -296,24 +332,20 @@ const Footer = ({ chart, words }: { chart: SeatChart; words: PlaceWords }) => {
         places={chart.behind.slice(0, LIST_SIZE)}
         words={words}
       />
-      <div className="flex flex-col gap-1">
-        <p className="text-muted-foreground">
-          {COPY.placesBehind(
-            chart.behind.length,
-            chart.places.length,
-            words.many,
-          )}
-        </p>
-        <p className="font-semibold text-foreground">
-          {inviteNext(chart.behind[0], words)}
-        </p>
-      </div>
+      <p className="text-muted-foreground">
+        {COPY.placesBehind(
+          chart.behind.length,
+          chart.places.length,
+          words.many,
+        )}
+      </p>
     </div>
   )
 }
 
 // The district as 100 seats split by tract or precinct, filling as members
-// join.
+// join. It names no one to invite: the balance card's line, from what the
+// next draw leans toward, is the page's one next step.
 export const CivicPanelSeats = ({
   placeKind,
   places,

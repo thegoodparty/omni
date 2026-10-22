@@ -642,6 +642,23 @@ describe('CampaignManagerHandler.buildTools — past outreach', () => {
     expect(names).not.toContain('read_past_outreach')
     expect(names).not.toContain('present_past_outreach')
   })
+
+  it('reads door and call notes only with issue capture on', () => {
+    const on = withOutreach().buildTools(
+      ctxWith({ campaignId: 42, outreachFeedbackEnabled: true }),
+    )
+    const description = descriptionOf(on.read_outreach_feedback)
+    expect(description).toContain('voters')
+    expect(description).not.toContain('constituent')
+    expect(
+      Object.keys(withOutreach().buildTools(ctxWith({ campaignId: 42 }))),
+    ).not.toContain('read_outreach_feedback')
+    expect(
+      Object.keys(
+        withOutreach().buildTools(ctxWith({ outreachFeedbackEnabled: true })),
+      ),
+    ).not.toContain('read_outreach_feedback')
+  })
 })
 
 describe('CampaignManagerHandler.buildTools — ask_clarify_question', () => {

@@ -538,10 +538,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply dev/agent-experiment-metadata
         background: true
@@ -838,6 +835,9 @@ jobs:
           || needs.e2e-shard.result == 'failure')
         run: rm -rf packages/gp-webapp/e2e-tests/blob-report
       - name: Retry shard blob report download
+        # Report-only: the gate verdict is the last step's e2e-shard.result, so
+        # a failed download must not block prod promotion.
+        continue-on-error: true
         if: >-
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
@@ -848,6 +848,9 @@ jobs:
           merge-multiple: true
           path: packages/gp-webapp/e2e-tests/blob-report
       - name: Merge shard reports
+        # Report-only (see above); an empty blob dir after a failed download
+        # makes merge-reports exit non-zero.
+        continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
@@ -1247,10 +1250,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply prod/agent-experiment-metadata
         background: true

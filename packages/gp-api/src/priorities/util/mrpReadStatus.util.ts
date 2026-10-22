@@ -1,6 +1,7 @@
 import {
   answersNeeded,
   type PriorityReadStatus,
+  type PriorityResultsGroup,
   type ReadRepresentativeness,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
@@ -25,6 +26,10 @@ export interface MrpRead {
   // Whether a race group may be named (raceNameable). Race still shapes the
   // model either way; it only stops counting as a major group.
   raceNameable: boolean
+  // The district's answers needed (frameAnswersNeeded of the model's frame):
+  // fewer answers than this never read as representative, however the
+  // groups split them, since one answer counts once on every dimension.
+  answersNeeded: number
 }
 
 const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
@@ -67,10 +72,11 @@ const answersMissing = (
   )
 
 // The one place a "good read" is decided, so every surface that reads it
-// changes together. A good read is a representative one: every group
-// holding MAJOR_GROUP_SHARE of the district on a steered dimension has its
-// voices, and the model is sure enough of each. `answers` is the people
-// heard; the groups count coded answers. When the district could not be
+// changes together. A good read is a representative one: the district's
+// answersNeeded heard in all, every group holding MAJOR_GROUP_SHARE of the
+// district on a steered dimension has its voices, and the model is sure
+// enough of each. `answers` is the people heard; the groups count coded
+// answers. When the district could not be
 // read, enough answers alone (answersNeeded of the smallest major group a
 // district can have) are a good read, under its own status.
 export const mrpReadStatus = (input: {
@@ -92,11 +98,15 @@ export const mrpReadStatus = (input: {
       good,
       status: good ? 'enoughAnswers' : 'tooEarly',
       underrepresented: [],
+      unheard: [],
     }
   }
   const status = ((): ReadRepresentativeness => {
     if (majors.some((group) => group.answers === 0)) return 'tooEarly'
-    if (majors.some((group) => group.answers < MIN_VOICES_PER_GROUP)) {
+    if (
+      answers < (read?.answersNeeded ?? 0) ||
+      majors.some((group) => group.answers < MIN_VOICES_PER_GROUP)
+    ) {
       return 'notYetRepresentative'
     }
     return majors.some(
@@ -112,25 +122,74 @@ export const mrpReadStatus = (input: {
       .filter(isHoldingBack)
       .map((group) => `${group.dimension}:${group.value}`),
   )
+  // A named group nobody in has answered: for neighborhoods, any one of the
+  // tracts it stands for.
+  const silent = new Set(
+    majors
+      .filter((group) => group.answers === 0)
+      .map((group) => `${group.dimension}:${group.value}`),
+  )
   const underrepresented: UnderrepresentedGroup[] = []
+  const unheard: UnderrepresentedGroup[] = []
   for (const target of batchTargets(groups, dimensions)) {
-    if (!holdingBack.has(`${target.dimension}:${target.value}`)) continue
+    const key = `${target.dimension}:${target.value}`
+    if (!holdingBack.has(key)) continue
     const group = underrepresentedGroupOf(
       target.dimension,
       target.value,
       read?.raceNameable ?? false,
     )
-    if (group && !underrepresented.includes(group)) underrepresented.push(group)
-    if (underrepresented.length === MAX_UNDERREPRESENTED) break
+    if (!group) continue
+    const named = underrepresented.includes(group)
+    if (!named && underrepresented.length === MAX_UNDERREPRESENTED) continue
+    if (!named) underrepresented.push(group)
+    if (silent.has(key) && !unheard.includes(group)) unheard.push(group)
   }
   return {
     answers,
-    needed: Math.max(1, answers + answersMissing(majors, dimensions)),
+    needed: Math.max(
+      1,
+      read?.answersNeeded ?? 0,
+      answers + answersMissing(majors, dimensions),
+    ),
     groupsHeard: majors.filter((group) => group.answers >= MIN_VOICES_PER_GROUP)
       .length,
     groupsTotal: majors.length,
     good: status === 'representative',
     status,
     underrepresented,
+    unheard,
   }
+}
+
+// Each major group the read counts, other than neighborhoods: its share of
+// the district against its share of the coded answers on that dimension,
+// for the results page's petals. Answers with no known value on a
+// dimension sit out of it.
+export const answerGroups = (read: MrpRead | null): PriorityResultsGroup[] => {
+  const groups = read?.result.groups ?? []
+  const dimensions = dimensionsOf(read?.raceNameable ?? false).filter(
+    (dimension) => dimension !== 'tract',
+  )
+  const answersOn = (dimension: string): number =>
+    groups
+      .filter((group) => group.dimension === dimension)
+      .reduce((sum, group) => sum + group.answers, 0)
+  return groups.flatMap((group) => {
+    if (!isTargeted(group, dimensions)) return []
+    const named = underrepresentedGroupOf(
+      group.dimension,
+      group.value,
+      read?.raceNameable ?? false,
+    )
+    if (!named) return []
+    const total = answersOn(group.dimension)
+    return [
+      {
+        group: named,
+        districtShare: group.share,
+        answerShare: total > 0 ? group.answers / total : 0,
+      },
+    ]
+  })
 }

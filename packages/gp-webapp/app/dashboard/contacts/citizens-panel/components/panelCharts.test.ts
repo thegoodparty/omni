@@ -11,7 +11,11 @@ import {
   LABEL_SPACING,
   milestones,
   SEAT_COUNT,
+  SEAT_HUES,
+  polar,
+  roundCoord,
   seatSpots,
+  sectorPath,
   spreadLabels,
 } from './panelCharts'
 
@@ -66,6 +70,40 @@ describe('seatSpots', () => {
     expect(spots[0]?.angle).toBeCloseTo(Math.PI)
     expect(spots[SEAT_COUNT - 1]?.angle).toBeCloseTo(0)
     expect(spots.every((spot) => spot.y <= 1e-9)).toBe(true)
+  })
+})
+
+// At most two decimals: what the server and the browser both print the same.
+const isRounded = (value: number) =>
+  Math.abs(value * 100 - Math.round(value * 100)) < 1e-6
+
+describe('rounded coordinates', () => {
+  it('rounds to hundredths', () => {
+    expect(roundCoord(79.03442061568629)).toBe(79.03)
+    expect(roundCoord(79.03442061568626)).toBe(79.03)
+  })
+
+  it('rounds every seat and label point', () => {
+    for (const spot of seatSpots(300, 214)) {
+      expect(isRounded(spot.x)).toBe(true)
+      expect(isRounded(spot.y)).toBe(true)
+    }
+    for (let a = 0; a < Math.PI * 2; a += 0.37) {
+      const { x, y } = polar(300, 220, 164, a)
+      expect(isRounded(x)).toBe(true)
+      expect(isRounded(y)).toBe(true)
+    }
+    expect(spreadLabels([-79.03442061568629, -80.1]).every(isRounded)).toBe(
+      true,
+    )
+  })
+
+  it('draws petals with rounded points', () => {
+    const numbers = sectorPath(300, 220, 46.123456, 60.18181818, -1.9, -1.1)
+      .split(/[^0-9.-]+/)
+      .filter(Boolean)
+      .map(Number)
+    expect(numbers.every(isRounded)).toBe(true)
   })
 })
 
@@ -182,6 +220,29 @@ describe('buildSeats', () => {
     const full = seatsAt(240, (share) => Math.ceil(share * 240))
     expect(full.stage).toBe('full')
     expect(full.filled).toBe(SEAT_COUNT)
+  })
+
+  it('gives neighboring places different color families, red, blue, lavender in arc order', () => {
+    const chart = seatsAt(120, (share) => Math.round(share * 240))
+    const hues = chart.places.map((p) => p.hue)
+    expect(hues.slice(0, 3)).toEqual([...SEAT_HUES])
+    hues.slice(1).forEach((hue, i) => expect(hue).not.toBe(hues[i]))
+  })
+
+  it('varies the tint within a place', () => {
+    const chart = seatsAt(240, (share) => Math.ceil(share * 240))
+    const tints = chart.seats.filter((s) => s.place === 0).map((s) => s.tint)
+    expect(new Set(tints)).toEqual(new Set([0, 1, 2]))
+  })
+
+  it('colors the same seats the same way every time', () => {
+    const mix = (share: number, i: number) => Math.round(share * 200) + (i % 4)
+    const first = seatsAt(200, mix)
+    const again = seatsAt(200, mix)
+    expect(again.seats).toEqual(first.seats)
+    expect(again.places.map((p) => p.hue)).toEqual(
+      first.places.map((p) => p.hue),
+    )
   })
 })
 

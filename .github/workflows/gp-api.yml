@@ -138,6 +138,32 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # The test harness starts Postgres with testcontainers, which pulls its
+      # image when the first suite boots. That pull used to come anonymously
+      # from Docker Hub and failed shards with "(HTTP code 500) ...
+      # unauthorized" (run 39801489081). It now comes from ECR Public with a
+      # login, same as the image build below; the retried pre-pull absorbs a
+      # registry blip so it cannot fail the shard.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR Public
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
+      - name: Pull test Postgres image
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/docker/library/postgres:16-alpine && exit 0
+            echo "::warning::docker pull attempt $attempt failed; retrying"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 

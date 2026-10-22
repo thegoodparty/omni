@@ -1,5 +1,6 @@
 import {
   CIVIC_PANEL_SEGMENT,
+  CIVIC_PANEL_STEP_COPY,
   type CivicPanelPlaceKind,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
@@ -41,7 +42,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     tract: {
       title: "Who's on your panel, by census tract",
       name: (name: string) => `Tract ${name}`,
-      invite: (name: string) => `people in tract ${name}`,
       one: 'tract',
       many: 'tracts',
       full: 'Every tract has its share of seats filled.',
@@ -49,7 +49,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     precinct: {
       title: "Who's on your panel, by precinct",
       name: (name: string) => `Precinct ${name}`,
-      invite: (name: string) => `people in precinct ${name}`,
       one: 'precinct',
       many: 'precincts',
       full: 'Every precinct has its share of seats filled.',
@@ -59,7 +58,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     {
       title: string
       name: (name: string) => string
-      invite: (name: string) => string
       one: string
       many: string
       full: string
@@ -100,7 +98,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     `${members.toLocaleString('en-US')} residents said yes.`,
   fullMembers: ' members',
   fullPlaces: (places: number, many: string) => ` of ${places} ${many}`,
-  fullGroups: (total: number) => ` of ${total} groups`,
+  fullGroups: (total: number) => ` of ${total} groups at their share`,
   askPanel: 'Ask your panel a question',
   seatsCaption:
     'Your district as 100 seats, filling as people join your panel.',
@@ -154,7 +152,8 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     hispanic: 'Hispanic or Latino',
     asian: 'Asian',
   } satisfies Record<UnderrepresentedGroup, string>,
-  weeklyQuestion: 'How much time can you give each week?',
+  weeklyQuestion:
+    'How much time can you spend each week to connect with constituents by phone or in person?',
   weeklyCaption:
     'Your own calls and door knocking reach the residents a text misses.',
   keepFreshTitle: 'Keep your panel fresh',
@@ -172,42 +171,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   planLoadError: "We couldn't load your plan. Refresh the page to try again.",
   planTitle: 'Your plan',
   planCaption: 'Each step invites residents to your civic panel.',
-  stepTitle: {
-    text: (size: string) => `Text ${size} residents`,
-    phone_banking: (size: string) => `Call ${size} residents`,
-    door_knocking: (size: string, position: number) =>
-      position > 1
-        ? `Knock on ${size} doors in a second walkable area`
-        : `Knock on ${size} doors in a walkable area`,
-  },
-  // One line under each step's title.
-  stepDetail: {
-    text: 'Residents with a cell phone, picked at random.',
-    phone_banking: (time: string) =>
-      `People a text can't reach, landlines first. ${time} of your time.`,
-    door_knocking: (time: string) => `One walkable area. ${time} of your time.`,
-  },
-  // A step's line when its draw leans toward a group the panel trails.
-  stepLean: {
-    text: (group: string) => `This batch invites more ${group}.`,
-    phone_banking: (time: string) =>
-      `People a text can't reach. ${time} of your time.`,
-    door_knocking: (time: string) =>
-      `A part of your district we haven't reached. ${time} of your time.`,
-  },
+  // A step's title, its line, and its Start and Keep going buttons, shared
+  // with the Chief of Staff's home card and chat card.
+  ...CIVIC_PANEL_STEP_COPY,
   balanceTitle: 'How your panel compares with your district',
   balanceTooFew: (minimum: number) =>
     `We'll compare your panel with your district once ${minimum} people join.`,
   inviteMore: (group: string) => `Invite more ${group} next.`,
-  duration: (minutes: number) =>
-    minutes < 50
-      ? `About ${Math.max(5, Math.round(minutes / 5) * 5)} minutes`
-      : minutes < 90
-        ? 'About an hour'
-        : `About ${Math.round(minutes / 60)} hours`,
   textGoesOut: (date: string) => `Goes out ${date}.`,
-  calledSoFar: (called: string) => `Called ${called} so far.`,
-  knockedSoFar: (visited: string) => `Visited ${visited} residents so far.`,
   sentRepliesBy: (sent: string, replies: string) =>
     `Sent ${sent}. Replies come in by ${replies}.`,
   sentJoined: (sent: string, joined: string) =>
@@ -221,27 +192,11 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   markNotDone: 'Mark not done',
   markError: "We couldn't change this step. Try again.",
   getStarted: 'Get started',
-  startStep: {
-    text: 'Start the text',
-    phone_banking: 'Start the calls',
-    door_knocking: 'Start door knocking',
-  },
-  keepGoing: {
-    phone_banking: 'Keep calling',
-    door_knocking: 'Keep knocking',
-  },
   skipStep: 'Skip',
   stepError: "We couldn't get this step ready. Try again.",
   skipError: "We couldn't skip this step. Try again.",
   textingOff: "Texting isn't set up for your office yet.",
   callListName: 'Civic panel calls',
-  progressLabel: 'Groups of your district with enough members',
-  membersLabel: (members: number) => (members === 1 ? ' member' : ' members'),
-  inGroups: (covered: number, total: number) =>
-    `, in ${covered} of ${total} groups`,
-  groupsMissing:
-    'Invite people from the groups still missing so every part of your district has a voice.',
-  groupsComplete: 'Every part of your district has a voice on your panel.',
   yourTime: 'Your time',
   changeHours: 'Change',
   changeHoursLabel: 'Change your weekly time',

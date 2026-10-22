@@ -106,6 +106,7 @@
     "@poppanator/http-constants": "^3.0.0",
     "@prisma/client": "^6.3.0",
     "@prisma/instrumentation": "^7.4.1",
+    "@pyroscope/nodejs": "^0.6.5",
     "@redtea/format-axios-error": "^2.1.1",
     "@segment/analytics-node": "^2.2.1",
     "@slack/web-api": "^7.13.0",

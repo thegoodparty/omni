@@ -126,7 +126,7 @@ the row surfaces in history as "Couldn't send".
 
 `POST /outreach/serve/sms` writes the row BEFORE checkout, for the same
 reason the p2p flow does and one more: the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 checkout cannot carry the content. It carries two ids instead.
 
 What the row is: `{ campaignId: null, organizationSlug }`, `outreachType:
@@ -219,7 +219,7 @@ campaign OR an organization, which is how an elected official pays.
 
 Checkout metadata carries two ids and nothing else (`outreachId`,
 `organizationSlug`) — the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 the poll pattern of carrying content through checkout cannot work here.
 `organizationSlug` is server-resolved on both call paths (merged from
 `@UseOrganization()` at session creation, read back off the session on the
@@ -333,12 +333,19 @@ outreach proposal can carry the same details as `event` (contracts
   marker comes back exactly once and in order, puts the text back, and refuses
   a reply that fails a `checkSmsStandards` rule the original passed, or that
   carries more civic panel lines (`countCivicPanelLines`) or opt-out lines than
-  the original did (a model that wrote its own beside the marker). Two
-  tries, then 502, which the webapp shows as its "try again". Every SMS
+  the original did (a model that wrote its own beside the marker), or, where
+  paid-for-by is enforced (Win), more paid-for-by lines. The footer (the closing run of markers: paid-for-by,
+  opt-out, a civic panel line) is never sent: the model polishes the rest and
+  the footer is appended back verbatim, since a reply that dropped one of its
+  markers failed the whole request (ENG-11297). Two tries, and a second try
+  after a dropped marker is told which markers to keep rather than re-asked
+  the same prompt; then 502, which the webapp shows as its "try again". Every SMS
   prompt, Win and Serve, draft and improve, carries
   `SMS_LOCKED_LINES_AND_STYLE_RULE`: never write a JOIN, LEAVE or STOP line,
   no em or en dashes, never "just". The Serve create refuses (400) a message
-  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`).
+  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`,
+  `util/serveSmsLockedLines.util.ts`, which the managed civic panel's
+  approval also runs).
   The controllers
   pass the names and committee scheduling checks against (Win: the campaign
   owner plus `tcr_compliance`, as `requireCompliantScript` reads them; Serve:

@@ -8,7 +8,6 @@ import { ModuleRef } from '@nestjs/core'
 import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
   answersNeeded,
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   type GeoJsonShape,
   type PriorityReadStatus,
@@ -35,16 +34,18 @@ import {
   ContactsService,
   type ContactsFilterResolutionInput,
 } from '@/contacts/services/contacts.service'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { doorTractFor } from '@/contacts/utils/civicPanelSteering.util'
+import { MIN_CONFIRMED_FOR_SYNTHESIS } from '@/constituentFeedback/services/feedbackReport.service'
 import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
-  representationFrom,
   type CensusCompositionSource,
 } from './censusComposition'
 import { estimateMrp } from '../util/mrp.util'
 import { PRIORITY_UNSENT_STATUSES } from '../util/priorityRespondents.util'
 import {
+  answerGroups,
   holdingBackTracts,
   mrpReadStatus,
   type MrpRead,
@@ -158,20 +159,10 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       ) ?? NO_CODED_ANSWERS
     const read = await this.mrpReadOf(organization, priorityId, coded)
 
-    const representation =
-      ids.length >= MIN_RESPONDENTS_FOR_REPRESENTATION
-        ? representationFrom(
-            await this.census.compose({
-              ...(await contacts.resolveEligibleDistrict(organization)),
-              personIds: ids,
-            }),
-            ids.length,
-          )
-        : null
-
     const { themes, summarizing } = await this.pooledThemes(
       organizationSlug,
       priorityId,
+      ids.length,
     )
 
     return {
@@ -193,7 +184,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         lat: roundCoordinate(lat),
         lng: roundCoordinate(lng),
       })),
-      representation,
+      groups: answerGroups(read),
     }
   }
 
@@ -558,6 +549,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const read: MrpRead = {
       result: estimateMrp(inputs.answers, inputs.frame, {}),
       raceNameable: inputs.raceNameable,
+      answersNeeded: frameAnswersNeeded(inputs.frame),
     }
     for (const [stale, entry] of this.reads) {
       if (!isAfter(entry.expiresAt, now)) this.reads.delete(stale)
@@ -570,10 +562,13 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
   }
 
   // The latest completed pooled run's themes. A run in flight leaves the
-  // previous themes up, the way an effort's report does.
+  // previous themes up, the way an effort's report does. Summarizing also
+  // covers the gap before the first run: enough answers, nothing completed
+  // and nothing failed, since a send's run is requested after it commits.
   private async pooledThemes(
     organizationSlug: string,
     priorityId: string,
+    answered: number,
   ): Promise<{ themes: PriorityTheme[]; summarizing: boolean }> {
     const scope = {
       organizationSlug,
@@ -611,8 +606,14 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
         where: { ...scope, status: SynthesisRunStatus.running },
       }),
     ])
+    const firstPending =
+      latest === null &&
+      answered >= MIN_CONFIRMED_FOR_SYNTHESIS &&
+      (await this.client.feedbackSynthesisRun.count({
+        where: { ...scope, status: SynthesisRunStatus.failed },
+      })) === 0
     return {
-      summarizing: running > 0,
+      summarizing: running > 0 || firstPending,
       // Same rule as the agent's read (themesWithPeople in
       // priorityFlowOutreach.service.ts): confirmed notes and replies,
       // distinct people, empty themes left out.

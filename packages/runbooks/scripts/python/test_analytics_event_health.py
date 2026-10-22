@@ -707,7 +707,7 @@ def test_reconcile_stamps_watchlist_status():
     result = eh.reconcile(
         catalog, weekly_rows=[], code={}, today=today,
         watchlist_events=["Sign Up Clicked"], watched_families=["win_onboarding"],
-        dismissed_events=["Noise Event"],
+        dismissed_events=["Noise Event"], okr_by_event={"Fresh Live Event": "win_activated_users"},
     )
     status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
     assert status["Sign Up Clicked"] == "tracked"
@@ -1223,7 +1223,7 @@ def test_render_collapses_dormant_tail_and_caps_changes():
     assert "fill first): Onboarding - Party Step" in out
     assert "missing a description: 14 (not listed)" in out
     # self-healing proposals section, rendered as a ready-to-paste yaml row
-    assert "### Watchlist proposals (self-healing)" in out
+    assert "### Watchlist proposals (OKR legs)" in out
     assert '- {event: "Onboarding - New Step", product: win, family: win_onboarding' in out
 
 
@@ -2618,3 +2618,252 @@ def test_never_observed_watchlisted_event_is_elevated_and_gets_no_grace():
     by = {r["event_type"]: r for r in result["records"]}
     assert by["Watched Step"]["elevated"] and by["Watched Step"]["on_watchlist"]
     assert [r["event_type"] for r in result["flagged"]] == ["Watched Step"]
+
+
+# --- watchlist removals (DATA-2676) -------------------------------------------
+
+
+def test_removals_propose_retired_watched_rows():
+    code = {"A": {"retired_date": "2026-07-13"}, "B": {"retired_date": ""}}
+    out = eh.propose_watchlist_removals(["A", "B"], code, okr_events=[], kept=[])
+    assert out == [{"event_type": "A", "reason": "retired", "retired_date": date(2026, 7, 13)}]
+
+
+def test_removals_never_propose_an_okr_leg():
+    code = {"A": {"retired_date": "2026-07-13"}}
+    assert eh.propose_watchlist_removals(["A"], code, okr_events=["A"], kept=[]) == []
+
+
+def test_removals_skip_kept_events():
+    code = {"A": {"retired_date": "2026-07-13"}}
+    assert eh.propose_watchlist_removals(["A"], code, okr_events=[], kept=["A"]) == []
+
+
+def test_removals_ignore_events_missing_from_the_code_axis():
+    assert eh.propose_watchlist_removals(["A"], {}, okr_events=[], kept=[]) == []
+
+
+def test_removals_sort_oldest_retirement_first():
+    code = {"A": {"retired_date": "2026-09-01"}, "B": {"retired_date": "2026-07-13"}}
+    out = eh.propose_watchlist_removals(["A", "B"], code, okr_events=[], kept=[])
+    assert [r["event_type"] for r in out] == ["B", "A"]
+
+
+def test_load_watchlist_kept_reads_rows(tmp_path):
+    p = tmp_path / "w.yaml"
+    p.write_text('kept:\n  - {event: "A", reason: "r", date: "2026-10-21"}\n')
+    assert eh.load_watchlist_kept(p) == {"A"}
+    assert eh.load_watchlist_kept(tmp_path / "missing.yaml") == set()
+
+
+def test_run_monitor_proposes_removing_a_retired_events_row(tmp_path):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n',
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert [r["event_type"] for r in result["removal_proposals"]] == ["Old Step"]
+    record = next(r for r in result["records"] if r["event_type"] == "Old Step")
+    assert record["watchlist_status"] == "remove_proposed"
+
+
+def test_run_monitor_never_proposes_removing_a_behavior_only_event(tmp_path):
+    # Only a literal events: row can be removed; a behavior surface is the question's.
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    watchlist = (
+        "events: []\n"
+        "behaviors:\n"
+        "  - id: b1\n"
+        "    question: Q?\n"
+        "    surfaces:\n"
+        "      - {path: x.tsx, label: x, instrumented_by: \"Old Step\"}\n"
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist=watchlist,
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert result["removal_proposals"] == []
+
+
+def test_run_monitor_respects_kept_rows(tmp_path):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    watchlist = (
+        'events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n'
+        'kept:\n  - {event: "Old Step", reason: "still read", date: "2026-10-21"}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist=watchlist,
+    )
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+    assert result["removal_proposals"] == []
+
+
+def test_reconcile_lists_only_okr_leg_proposals():
+    # DATA-2676: a behavior's instrument enrolls itself, so the family proposer only ever
+    # names an OKR leg that is not yet watched; the rest is a count, not a list.
+    today = date(2026, 8, 3)
+    catalog = [
+        {"event_type": "Leg Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-25"},
+        {"event_type": "Other Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-25"},
+    ]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=today, watched_families=["win_onboarding"],
+        okr_by_event={"Leg Event": "win_activated_users"},
+    )
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
+    assert result["unneeded_proposal_count"] == 1
+    status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
+    assert status["Other Event"] == "—"
+
+
+# --- removals: digest, state, delta (DATA-2676) --------------------------------
+
+
+def _removal(event, retired="2026-07-13"):
+    return {"event_type": event, "reason": "retired",
+            "retired_date": date.fromisoformat(retired)}
+
+
+def test_digest_renders_watchlist_removals():
+    out = eh.render_digest_section(
+        _render_result(removal_proposals=[_removal("Old Step")]), _NO_CHANGES)
+    assert "### Watchlist removals" in out
+    assert "| Old Step | 2026-07-13 |" in out
+
+
+def test_digest_counts_proposals_no_question_needs():
+    out = eh.render_digest_section(_render_result(unneeded_proposal_count=7), _NO_CHANGES)
+    assert "7 new event(s) in watched families with no question; see the JSON report." in out
+
+
+def test_digest_omits_both_when_empty():
+    out = eh.render_digest_section(_render_result(), _NO_CHANGES)
+    assert "Watchlist removals" not in out and "no question" not in out
+
+
+def test_main_persists_removal_proposals(monkeypatch, tmp_path):
+    def _stub(*_a, **_k):
+        result = {"run_date": "2026-09-21", "current_week_basis": "x", "flagged": [],
+                  "status_counts": {}, "total_events": 0,
+                  "removal_proposals": [_removal("B"), _removal("A")]}
+        return result, {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+    monkeypatch.setattr(eh, "run_monitor", _stub)
+    state = tmp_path / "s.json"
+    assert eh.main(["--log", str(tmp_path / "log.md"), "--today", "2026-09-21",
+                    "--state", str(state)]) == 0
+    assert json.loads(state.read_text())["removal_proposals"] == ["A", "B"]
+
+
+def _retired_row_env(tmp_path, prior_state=None):
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n',
+    )
+    if prior_state is not None:
+        state_path.write_text(json.dumps(prior_state))
+    return eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={})
+
+
+def test_run_monitor_first_run_treats_every_removal_as_new(tmp_path):
+    result, _ = _retired_row_env(tmp_path)
+    assert result["new_removal_proposals"] == ["Old Step"]
+
+
+def test_run_monitor_standing_removal_is_not_new(tmp_path):
+    result, _ = _retired_row_env(tmp_path, {"flagged": {}, "removal_proposals": ["Old Step"]})
+    assert result["new_removal_proposals"] == []
+
+
+# --- qualified OKR legs (DATA-2676 review) --------------------------------------
+
+_QUALIFIED = sa.Leg("Leg Event", None, None, (("product", ("serve",)),))
+
+
+def test_run_monitor_proposes_adding_a_qualified_legs_base_event(tmp_path):
+    # Most declared legs carry an exclusion, so their key is not the bare event name.
+    catalog = [{**_cat("Leg Event", "win_onboarding", "L.", cnt30=5),
+                "first_seen_date": TODAY - timedelta(days=10)}]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [], watchlist="watched_families: [win_onboarding]\nevents: []\n")
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={_METRIC: [_QUALIFIED]})
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
+
+
+def test_run_monitor_never_proposes_removing_a_qualified_legs_base_event(tmp_path):
+    catalog = [_cat("Leg Event", "win_onboarding", "L.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Leg Event", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Leg Event", product: win, family: win_onboarding}\n')
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={_METRIC: [_QUALIFIED]})
+    assert result["removal_proposals"] == []
+    record = next(r for r in result["records"] if r["event_type"] == "Leg Event")
+    assert record["okr_base"] is True
+
+
+def test_reconcile_derives_base_events_from_qualified_leg_keys_without_okr_events():
+    # event_state_assembler calls reconcile with leg-keyed okr_by_event and no okr_events.
+    today = date(2026, 8, 3)
+    catalog = [{"event_type": "Leg Event", "family": "win_onboarding", "govern_description": "",
+                "event_count_30d": 5, "last_seen_date": "2026-08-01",
+                "first_seen_date": "2026-07-25"}]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=today, watched_families=["win_onboarding"],
+        okr_by_event={"Leg Event[excluding product=serve]": "win_activated_users"},
+    )
+    assert result["records"][0]["okr_base"] is True
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
+
+
+def test_digest_puts_the_no_question_count_under_its_heading():
+    out = eh.render_digest_section(_render_result(unneeded_proposal_count=7), _NO_CHANGES)
+    heading = out.index("### Watchlist proposals (OKR legs)")
+    assert "No OKR leg to add." in out
+    assert out.index("7 new event(s) in watched families with no question") > heading
+
+
+def test_main_posts_a_removal_once_and_is_quiet_on_the_next_identical_run(monkeypatch, tmp_path):
+    import databricks_oauth as dbc
+    import event_state_slack as slk
+
+    catalog = [_cat("Old Step", "win_onboarding", "Old.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Old Step", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Old Step", product: win, family: win_onboarding}\n',
+    )
+    monkeypatch.setattr(dbc, "run_query", _fake_query(catalog, []))
+    monkeypatch.setattr(sa, "load_anchors", lambda *a, **k: ({}, []))
+    monkeypatch.setattr(slk, "load_anchor_queue", lambda *a, **k: {})
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv(slk.TOKEN_ENV, "t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "c")
+    posts = []
+    monkeypatch.setattr(slk, "post_message", lambda blocks, **k: posts.append(blocks) or "1.1")
+    args = ["--slack", "--today", TODAY.isoformat(), "--csv", str(csv_path),
+            "--watchlist", str(wl_path), "--state", str(state_path),
+            "--log", str(tmp_path / "log.md")]
+
+    assert eh.main(args) == 0
+    first = len(posts)
+    assert eh.main(args) == 0
+
+    assert first > 0, "the first run must post the new removal"
+    assert len(posts) == first, "an unchanged removal must not post again"

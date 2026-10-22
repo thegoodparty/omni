@@ -209,6 +209,38 @@ export class VendorMockRecordService extends createPrismaBase(
     return completed
   }
 
+  // Completes the campaign's in-flight orders now instead of after the delay,
+  // for a caller that holds the purchase open (the 10DLC fixture). Same state
+  // transition as resolveVercelOrder, so getDomain sees the domain as bought.
+  // Returns how many orders it completed.
+  async completeVercelOrders(campaignId: number) {
+    this.assertNonProdDeploy()
+    const orders = await this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.vercel,
+        kind: VERCEL_ORDER_KIND,
+        campaignId,
+      },
+    })
+    let completed = 0
+    for (const record of orders) {
+      const state = VercelOrderStateSchema.parse(record.state)
+      if (state.status !== VERCEL_ORDER_STATUS.pending) continue
+      await this.model.update({
+        where: { id: record.id },
+        data: {
+          state: {
+            ...state,
+            status: VERCEL_ORDER_STATUS.completed,
+            boughtAt: Date.now(),
+          },
+        },
+      })
+      completed += 1
+    }
+    return completed
+  }
+
   // vercel.order.fail: fails the campaign's in-flight orders and arms the
   // campaign's next buy, since the action can land before or after the buy.
   async failVercelOrders(campaignId: number) {

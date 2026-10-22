@@ -4,9 +4,9 @@ import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
 import {
   type AnswerCell,
-  type CensusCompositionRows,
   type DistrictCells,
   type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
@@ -28,20 +28,6 @@ export class StatsService {
       districtId: dto.districtId,
       dataset,
       read: () => this.databricks.findStats(dto.districtId, dataset),
-    })
-  }
-
-  async findCensusComposition(
-    districtId: string,
-    dataset: PeopleDataset,
-    personIds: string[],
-  ): Promise<CensusCompositionRows> {
-    return this.readLog.measure({
-      op: 'census-composition',
-      districtId,
-      dataset,
-      read: () =>
-        this.databricks.findCensusComposition(districtId, dataset, personIds),
     })
   }
 
@@ -101,6 +87,19 @@ export class StatsService {
           tracts,
           cellDegrees,
         ),
+    })
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    return this.readLog.measure({
+      op: 'tract-places',
+      districtId,
+      dataset,
+      read: () => this.databricks.findTractPlaces(districtId, dataset, tracts),
     })
   }
 }

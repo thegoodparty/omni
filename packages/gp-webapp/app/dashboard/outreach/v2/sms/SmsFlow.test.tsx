@@ -979,7 +979,7 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
-    // The polish endpoint takes a message within the 1000-character limit,
+    // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
     it('sends no polish for a message over the length limit', async () => {
@@ -988,7 +988,7 @@ describe('SmsFlow', () => {
       act(() => {
         editor.commands.insertContentAt(
           endOf(editor, 'introduce_myself'),
-          ` ${'Vote early. '.repeat(80)}`,
+          ` ${'Vote early. '.repeat(180)}`,
         )
       })
 
@@ -996,7 +996,7 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: 'Improve with AI' }),
       ).toBeDisabled()
       expect(
-        screen.getByText(/Keep the whole message .* under 1000 characters/),
+        screen.getByText(/Keep the whole message .* under 2000 characters/),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
@@ -2143,7 +2143,7 @@ describe('SmsFlow', () => {
       campaignId: 9,
       outreachType: 'p2p',
       projectId: null,
-      name: 'Likely voters — SMS',
+      name: 'Likely voters',
       status: 'draft',
       error: null,
       audienceRequest: null,
@@ -2208,7 +2208,7 @@ describe('SmsFlow', () => {
       await buildToName()
 
       expect(screen.getByLabelText('Campaign name')).toHaveValue(
-        'Likely voters — SMS',
+        'Likely voters',
       )
       expect(screen.queryByText('Send date')).not.toBeInTheDocument()
       expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
@@ -2259,9 +2259,9 @@ describe('SmsFlow', () => {
       // The saved-lists mock never returns the row the create just made, so
       // the auto-name falls back to the channel; the field being filled is
       // what matters here.
-      expect(
-        (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
-      ).toMatch(/ — SMS$/)
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Text campaign',
+      )
     })
 
     // The banner's gate opens the wizard on its first step, whose Back is the
@@ -2325,7 +2325,7 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
         expect.objectContaining({
           outreachType: 'p2p',
-          name: 'Likely voters — SMS',
+          name: 'Likely voters',
           voterFileFilterId: 41,
           script: expect.stringContaining('Paid for by Friends of Jane.'),
         }),
@@ -2468,6 +2468,37 @@ describe('SmsFlow', () => {
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
+    })
+
+    // A date picked in an earlier session must not rewrite the name a
+    // reopened draft comes back with, even when it ends with that date.
+    it('keeps a resumed name that ends with a date picked before reopening', async () => {
+      gateRef.set(CLEARED_GATE)
+      const flow = (open: boolean, resumeDraft: OutreachDetail) => (
+        <SmsFlow
+          source="outreach_page"
+          open={open}
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={resumeDraft}
+        />
+      )
+      const { rerender } = render(flow(true, draftDetail()))
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+
+      rerender(flow(false, draftDetail()))
+      const reopened = draftDetail({ id: 89, name: 'Likely voters, Sep 5' })
+      rerender(flow(true, reopened))
+
+      await screen.findByText('When do you want to send it?')
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Likely voters, Sep 5',
+      )
     })
 
     // QA 2026-09-30: an unverified campaign has no committee yet. The line

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CitizensPanelView } from './CitizensPanelView'
@@ -14,6 +14,19 @@ const SUMMARY = {
   reachedRecently: 15,
   askableNow: 25,
   lastOutreachAt: null,
+}
+
+// Tract 2 trails its share, and the women petal its share.
+const COMPOSITION = {
+  placeKind: 'tract' as const,
+  places: [
+    { key: '37021000100', name: '1', districtShare: 0.6, members: 30 },
+    { key: '37021000200', name: '2', districtShare: 0.4, members: 2 },
+  ],
+  groups: [
+    { group: 'women' as const, districtShare: 0.52, memberShare: 0.6 },
+    { group: 'men' as const, districtShare: 0.48, memberShare: 0.4 },
+  ],
 }
 
 // Every panel here has a plan, so the cases below are about the members.
@@ -164,22 +177,7 @@ describe('CitizensPanelView', () => {
         plan={{
           ...PLAN,
           balance: { status: 'everyGroup', inviteMore: null },
-          composition: {
-            placeKind: 'tract',
-            places: [
-              {
-                key: '37021000100',
-                name: '1',
-                districtShare: 0.6,
-                members: 30,
-              },
-              { key: '37021000200', name: '2', districtShare: 0.4, members: 2 },
-            ],
-            groups: [
-              { group: 'women', districtShare: 0.52, memberShare: 0.6 },
-              { group: 'men', districtShare: 0.48, memberShare: 0.4 },
-            ],
-          },
+          composition: COMPOSITION,
         }}
       />,
     )
@@ -190,11 +188,40 @@ describe('CitizensPanelView', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.getByText('Furthest behind')).toBeInTheDocument()
-    expect(
-      screen.getByText('Invite more people in tract 2 next.'),
-    ).toBeInTheDocument()
     expect(screen.getAllByTestId('civic-panel-bloom')).toHaveLength(1)
-    expect(screen.getByText('Every group has its share.')).toBeInTheDocument()
+    expect(screen.queryByText(/^Invite more/)).not.toBeInTheDocument()
+  })
+
+  it('names one next step, the group the next draw leans toward', () => {
+    render(
+      <CitizensPanelView
+        summary={SUMMARY}
+        plan={{
+          ...PLAN,
+          balance: { status: 'missingGroups', inviteMore: 'age65plus' },
+          composition: COMPOSITION,
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Furthest behind')).toBeInTheDocument()
+    expect(screen.getAllByText(/^Invite more/)).toHaveLength(1)
+    expect(
+      within(screen.getByTestId('civic-panel-balance')).getByText(
+        'Invite more people 65 and over next.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('puts the members and See members beside the plan', () => {
+    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+
+    const aside = screen.getByTestId('civic-panel-aside')
+    expect(within(aside).getByText('Members')).toBeInTheDocument()
+    expect(within(aside).getByText('Can be asked now')).toBeInTheDocument()
+    expect(
+      within(aside).getByRole('link', { name: 'See members' }),
+    ).toBeInTheDocument()
   })
 
   it('draws no seats without the census', () => {
@@ -235,7 +262,7 @@ describe('CitizensPanelView', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'How much time can you give each week?',
+        name: 'How much time can you spend each week to connect with constituents by phone or in person?',
       }),
     ).toBeInTheDocument()
     expect(

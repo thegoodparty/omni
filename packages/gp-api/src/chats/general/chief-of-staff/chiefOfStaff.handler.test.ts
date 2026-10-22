@@ -348,6 +348,7 @@ describe('ChiefOfStaffHandler', () => {
 
     it('registers read_community_issues tool when port is provided', async () => {
       const communityPort: CommunityIssueReadPort = {
+        list: vi.fn(),
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(
@@ -635,7 +636,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).toContain('SAMPLING RULES')
       expect(prompt).toContain('propose the sample by default')
       expect(prompt).toContain(
-        'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+        'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
           'about $97 and should bring back about 83 replies.',
       )
       expect(prompt).toContain('never work out a sample or a cost yourself')
@@ -747,6 +748,14 @@ describe('ChiefOfStaffHandler', () => {
           `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
       )
       expect(prompt).toContain('- Explain what a civic panel is')
+      expect(prompt).toContain(
+        '"A civic panel is residents from every part of your district who ' +
+          'agreed to tell you what they think before you decide."',
+      )
+      expect(prompt).toContain(
+        'Never say how members are found, picked or invited',
+      )
+      expect(prompt).not.toContain('picking people at random')
       expect(prompt).toContain(
         'call `ask_panel_weekly_time` with nothing after it',
       )
@@ -1102,6 +1111,44 @@ describe('ChiefOfStaffHandler', () => {
       )
       expect(off.handler.buildSystemPrompt(offCtx)).not.toContain(
         'read_outreach_feedback',
+      )
+    })
+
+    it('reads the walk or list the official names by its id', async () => {
+      const feedbackFor = vi.fn(() => Promise.resolve([]))
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { feedbackFor } as unknown as PriorityFlowOutreachService,
+        undefined,
+        undefined,
+        { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
+      )
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      const read = tools.read_outreach_feedback
+      if (read === undefined || !('execute' in read)) {
+        throw new Error('expected an executable tool')
+      }
+
+      expect(await read.execute({ outreachId: 7 })).toEqual({
+        priorityThemes: [],
+        sends: [],
+      })
+      expect(feedbackFor).toHaveBeenCalledWith(ORG, {
+        priorityId: null,
+        outreachId: 7,
+      })
+      expect(descriptionOf(read)).toContain('with read_past_outreach')
+      expect(descriptionOf(tools.read_past_outreach)).toContain(
+        'text replies only',
       )
     })
 

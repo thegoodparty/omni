@@ -8,6 +8,7 @@ import {
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
+  SMS_RESTRICTED_WORDS,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -48,6 +49,7 @@ import { Intro } from '../social/Intro'
 import {
   IMAGE_ACCEPT,
   IMAGE_MAX_BYTES,
+  inMemoryCopy,
   OPT_OUT_FOOTER,
 } from './smsCompose.util'
 
@@ -98,6 +100,9 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   standardsFailures: SmsRequiredPart[]
+  // The restricted words the message actually contains, so the error names
+  // only those.
+  restrictedWords?: string[]
   unfilledBrackets: string[]
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
@@ -165,7 +170,12 @@ export const standardsFailureCopy = (
   {
     identificationExample,
     paidForByText,
-  }: { identificationExample: string; paidForByText: string | null },
+    restrictedWords = [],
+  }: {
+    identificationExample: string
+    paidForByText: string | null
+    restrictedWords?: readonly string[]
+  },
 ): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
     return {
@@ -223,6 +233,14 @@ export const standardsFailureCopy = (
       fix: 'Paste the full web address instead.',
     }
   }
+  if (rule === 'restricted_word') {
+    const words =
+      restrictedWords.length > 0 ? restrictedWords : SMS_RESTRICTED_WORDS
+    return {
+      problem: 'Your text has a word our texting provider won\u2019t send.',
+      fix: `Reword it without ${words.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
+    }
+  }
   return {
     problem: 'Your text is over the length limit.',
     fix: 'Shorten it to continue.',
@@ -234,6 +252,7 @@ export const SmsComposeStep = ({
   tone,
   onToneChange,
   standardsFailures,
+  restrictedWords,
   unfilledBrackets,
   identificationExample,
   paidForByText,
@@ -305,7 +324,7 @@ export const SmsComposeStep = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per press, not per edit
   }, [continueAttempts])
 
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return
     if (!IMAGE_ACCEPT.split(',').includes(file.type)) {
       onImageError('Use a JPG, PNG, or GIF image.')
@@ -315,8 +334,17 @@ export const SmsComposeStep = ({
       onImageError('Image too large — choose one under 500 KB.')
       return
     }
+    let snapshot: File
+    try {
+      snapshot = await inMemoryCopy(file)
+    } catch {
+      onImageError(
+        "We couldn't open that image. Choose it again or pick another.",
+      )
+      return
+    }
     onImageError(null)
-    onImageChange(file)
+    onImageChange(snapshot)
   }
 
   return (
@@ -416,7 +444,7 @@ export const SmsComposeStep = ({
             accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
-              handleFile(e.target.files?.[0] ?? null)
+              void handleFile(e.target.files?.[0] ?? null)
               e.target.value = ''
             }}
           />
@@ -546,6 +574,7 @@ export const SmsComposeStep = ({
               const copy = standardsFailureCopy(rule, {
                 identificationExample,
                 paidForByText,
+                restrictedWords,
               })
               return (
                 <div

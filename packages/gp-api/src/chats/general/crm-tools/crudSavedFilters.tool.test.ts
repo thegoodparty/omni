@@ -113,6 +113,23 @@ describe('crud_saved_filters execute', () => {
     })
   })
 
+  // A civic panel invite's audience is its outreach's, not the office's.
+  it('list leaves out civic panel invite audiences', async () => {
+    const { tool } = buildTool({
+      voterFileFilters: {
+        findUsableByOrganizationSlug: vi.fn(() =>
+          Promise.resolve([
+            { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
+            { id: 2, name: 'Seniors', civicPanelInvite: false },
+          ]),
+        ) as never,
+      },
+    })
+    expect(await tool.execute({ action: 'list' })).toEqual({
+      filters: [{ id: 2, name: 'Seniors', hasBoundary: false }],
+    })
+  })
+
   it('create requires a name', async () => {
     const { deps, tool } = buildTool()
     const result = await tool.execute({ action: 'create' })

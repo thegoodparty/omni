@@ -114,35 +114,39 @@ export const CitizensPanelView = ({
             />
           ) : null}
 
-          {hasMembers ? (
-            <>
-              <CitizensPanelStats summary={summary} />
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline">
-                  <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
-                </Button>
-              </div>
-              {planState?.composition &&
-              planState.composition.places.length > 0 ? (
-                <CivicPanelSeats
-                  placeKind={planState.composition.placeKind}
-                  places={planState.composition.places}
-                  members={progress.members}
-                  goal={progress.goal}
-                />
-              ) : null}
-            </>
+          {hasMembers &&
+          planState?.composition &&
+          planState.composition.places.length > 0 ? (
+            <CivicPanelSeats
+              placeKind={planState.composition.placeKind}
+              places={planState.composition.places}
+              members={progress.members}
+              goal={progress.goal}
+            />
           ) : null}
         </div>
 
-        {/* Beside the plan from lg, below it on a phone. Only a plan has a
-            weekly time to change. */}
-        {activePlan ? (
-          <aside className="w-full lg:w-[300px] lg:shrink-0">
-            <CivicPanelRail
-              hoursPerWeek={activePlan.hoursPerWeek}
-              onPlan={setPlanState}
-            />
+        {/* Beside the plan from lg, below it on a phone: the weekly time
+            (only a plan has one to change), then the members' numbers. */}
+        {activePlan || hasMembers ? (
+          <aside
+            className="flex w-full flex-col gap-4 lg:w-[300px] lg:shrink-0"
+            data-testid="civic-panel-aside"
+          >
+            {activePlan ? (
+              <CivicPanelRail
+                hoursPerWeek={activePlan.hoursPerWeek}
+                onPlan={setPlanState}
+              />
+            ) : null}
+            {hasMembers ? (
+              <>
+                <CitizensPanelStats summary={summary} />
+                <Button asChild variant="outline" className="self-start">
+                  <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
+                </Button>
+              </>
+            ) : null}
           </aside>
         ) : null}
       </div>

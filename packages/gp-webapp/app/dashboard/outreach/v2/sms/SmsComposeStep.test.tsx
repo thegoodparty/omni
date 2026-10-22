@@ -21,7 +21,9 @@ const renderStep = (
   paidForByText: string | null = PAID_FOR_BY,
 ) => {
   const onAddRequiredBack = vi.fn()
-  render(
+  const onImageChange = vi.fn()
+  const onImageError = vi.fn()
+  const { container } = render(
     <SmsComposeStep
       isServe={false}
       tone="warm"
@@ -43,13 +45,13 @@ const renderStep = (
       canUndo={false}
       onUndo={vi.fn()}
       imagePreviewUrl={null}
-      onImageChange={vi.fn()}
+      onImageChange={onImageChange}
       imageError={null}
-      onImageError={vi.fn()}
+      onImageError={onImageError}
       continueAttempts={0}
     />,
   )
-  return { onAddRequiredBack }
+  return { onAddRequiredBack, onImageChange, onImageError, container }
 }
 
 describe('standardsFailureCopy', () => {
@@ -71,6 +73,7 @@ describe('standardsFailureCopy', () => {
       CIVIC_PANEL_LEAVE_LINE,
     ],
     ['link_shortener', 'Your text has a shortened link', undefined],
+    ['restricted_word', 'texting provider won\u2019t send', undefined],
   ])('says what happened and what to do for %s', (rule, problem, line) => {
     const copy = standardsFailureCopy(rule, context)
     expect(copy.problem).toContain(problem)
@@ -82,6 +85,17 @@ describe('standardsFailureCopy', () => {
       expect(text).not.toMatch(/\bjust\b/i)
       expect(text).not.toMatch(/\{first_name\}|token/)
     }
+  })
+
+  it('names only the restricted words the message contains', () => {
+    const copy = standardsFailureCopy('restricted_word', {
+      identificationExample: INTRO,
+      paidForByText: null,
+      restrictedWords: ['transfer'],
+    })
+    expect(copy.fix).toContain('\u201ctransfer\u201d')
+    expect(copy.fix).not.toContain('sexual')
+    expect(copy.fix).not.toContain('stop2end')
   })
 
   it('offers no disclaimer to add back when there is no committee to name', () => {
@@ -130,5 +144,52 @@ describe('SmsComposeStep required-line errors', () => {
       screen.getByText(/Paste the full web address instead\./),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /back$/ })).toBeNull()
+  })
+})
+
+describe('SmsComposeStep image pick', () => {
+  const pick = async (container: HTMLElement, file: File) => {
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no file input')
+    await userEvent.upload(input, file)
+  }
+
+  it('hands on an in-memory copy, not the picked handle', async () => {
+    const { container, onImageChange, onImageError } = renderStep([])
+    const picked = new File(['jpeg-bytes'], 'photo.jpg', { type: 'image/jpeg' })
+
+    await pick(container, picked)
+
+    await vi.waitFor(() => expect(onImageChange).toHaveBeenCalledTimes(1))
+    const handedOn: File = onImageChange.mock.calls[0]?.[0]
+    expect(handedOn).not.toBe(picked)
+    expect(handedOn.name).toBe('photo.jpg')
+    expect(handedOn.type).toBe('image/jpeg')
+    const text = await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.readAsText(handedOn)
+    })
+    expect(text).toBe('jpeg-bytes')
+    expect(onImageError).toHaveBeenLastCalledWith(null)
+  })
+
+  it('asks for the image again when the picked file cannot be read', async () => {
+    const { container, onImageChange, onImageError } = renderStep([])
+    const unreadable = new File(['x'], 'photo.jpg', { type: 'image/jpeg' })
+    vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementationOnce(
+      function (this: FileReader) {
+        this.dispatchEvent(new ProgressEvent('error'))
+      },
+    )
+
+    await pick(container, unreadable)
+
+    await vi.waitFor(() =>
+      expect(onImageError).toHaveBeenCalledWith(
+        "We couldn't open that image. Choose it again or pick another.",
+      ),
+    )
+    expect(onImageChange).not.toHaveBeenCalled()
   })
 })

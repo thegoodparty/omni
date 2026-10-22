@@ -318,6 +318,13 @@ they are never load-bearing on a hit.
 `npm ci`. Cache keys are immutable, so a job that saves an empty `~/.npm` poisons
 that lockfile hash until the lockfile changes.
 
+`~/.cache/prisma` is cached per Prisma version and generate script, because
+`prisma generate` downloads the schemas' musl `binaryTargets` there whenever
+the restored `node_modules` lacks them, and a dropped connection mid-download
+crashes the CLI. It is saved only when a generate actually put a musl engine in
+it, for the same immutable-key reason. Generate itself retries three times with
+backoff for the cache-miss path.
+
 ## Dependency updates (Dependabot)
 
 Policy: **security updates only** — no version-bump PRs. Version updates are

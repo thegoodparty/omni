@@ -155,6 +155,24 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
 ]
 
 /*
+ * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
+ * place: a Databricks voter query that outran its ceiling, with the message
+ * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On
+ * `contacts` that is a user building an audience too broad to count or list
+ * (POST /v1/contacts/count, GET /v1/contacts), and the response tells them what
+ * to do. In the 7 days to 2026-10-18 prod answered 193 such 504s on
+ * GET /v1/contacts alone, so paging on each one trains people to ignore the
+ * rule that also catches the faults on these routes.
+ *
+ * Only the 504 status is dropped. A warehouse that is down answers 502
+ * (VOTER_DATA_UNREACHABLE), a handler bug answers 500, and a request the
+ * gateway severs has no status at all; all three still page. door-knocking is
+ * deliberately not listed: its pack-scan timeout is a fault there, not a
+ * question the caller can answer by narrowing anything.
+ */
+export const VOTER_QUERY_TIMEOUTS_NOT_PAGED: ControllerName[] = ['contacts']
+
+/*
  * EVENT RULES. A log rule with `threshold: 0` that pages on any occurrence of a
  * line reads a [1m] window, every minute, ending 30 seconds before the
  * evaluation, with `for: 0m` and a `keepFiringFor`.
@@ -364,9 +382,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '1h',
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has been charged and no texts are scheduled.',
+      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has paid or has a hold on their card, and no texts are scheduled.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
-      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, and the candidate has to edit the message and schedule again, which takes a second payment. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'For a content rejection, check how the first payment was taken. If the outreachId has an `outreach_p2p_sms` row in settle_state `authorized`, the card was only held, not charged: the stranded-authorized sweep voids the hold once the send date passes, and you can void its `authorization_intent_id` in Stripe sooner. With no such row, the checkout charged the card, so the charge named on the log line (`chargeRef`) is the one to refund in Stripe, and nothing refunds it for us. Then add the refused word or link to the pre-checkout check in contracts (`checkSmsStandards`), so the next candidate is stopped before paying.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
     ].join('\n\n'),
   },
@@ -377,9 +396,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The robocall send + settlement chain (staging, dial, capture,
     // fresh-charge, completion poll, hold recovery) logs `CRITICAL robocall ...`
     // on every exceptional path a human must look at: a permanently-failed send
-    // (`send_failed`, hold voided), a delivered run we could NOT capture
-    // (`uncollectable` — money may be owed), a CallHub response-schema mismatch
-    // stranding a delivered run, a dial commit-miss (the campaign may be dialing
+    // (`send_failed`, hold voided), a delivered run we could NOT collect
+    // (a fresh-charge decline — money may be owed; a merely lapsed hold is
+    // recovered by the fresh-charge sweep and only warns), a CallHub
+    // response-schema mismatch stranding a delivered run, a dial commit-miss (the campaign may be dialing
     // with no `dialed` record), an audio ETag mismatch refused at staging, or an
     // orphaned-hold cancel. Every one shares the `CRITICAL robocall` prefix, so a
     // single line filter catches every path. They should almost never fire; each
@@ -398,7 +418,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     keepFiringFor: '1h',
     message: [
       'A robocall send/settlement CRITICAL was logged in the 60 seconds ending 30 seconds before this check — a money- or delivery-integrity event that needs a human.',
-      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
+      'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / fresh-charge decline / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run whose fresh charge declined, or a campaign that may be dialing with no record.',
       'These are not self-healing beyond the automatic sweeps; check the settleState and the Stripe hold/charge for the named outreachId before assuming recovery.',
     ].join('\n\n'),
   },

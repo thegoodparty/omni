@@ -541,8 +541,20 @@ export = async () => {
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
+      // Explicit so the running value is visible in the task definition
+      // and rollback is a one-line diff (set dev to 'live').
+      VENDOR_MODE: select({
+        preview: 'mock',
+        dev: 'mock',
+        prod: 'live',
+      }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      PYROSCOPE_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'true',
+      }),
       // Clerk instance public key, so tokens verify without fetching Clerk's
       // JWKS on the request path. Public, so it lives here and not in the
       // secret. Previews use the dev Clerk instance.

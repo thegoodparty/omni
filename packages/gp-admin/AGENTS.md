@@ -25,6 +25,17 @@ npm run test:e2e         # playwright test (needs Clerk test-user env vars — s
 
 `users/[id]/components/CvPinStatus.tsx` shows the Pro campaign's 10DLC stage and its SMS texting window (`smsCompliance`, `smsCutoffDate`, `generalElectionDate` from the admin compliance-state response). gp-api computes the window (`smsComplianceWindow` in `eligibility.util.ts`); never redo the date math here. A wrong cutoff is fixed by editing the campaign's election date.
 
+## Public profile card on the user page
+
+`users/[id]/components/PublicProfileCard.tsx` shows which `/people` page the
+account is linked to. When it isn't linked, staff with `write_users` get "Link
+to public profile": they paste the page's link, confirm the user and the person,
+and it calls `POST /v1/person-profiles/links`. That's the fix for a candidate
+stuck on "still setting up your official record" because their person record
+also holds a duplicate or deleted account. It never moves an existing link;
+gp-api refuses that, and a person held by another user, with a message the
+dialog shows as-is.
+
 ## Observability
 
 Errors report to Sentry (client + server via `src/instrumentation*.ts`) once

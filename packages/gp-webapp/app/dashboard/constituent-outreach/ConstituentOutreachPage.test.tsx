@@ -753,6 +753,7 @@ describe("ConstituentOutreachPage — the civic panel card's link", () => {
       name: 'Civic panel invite',
       hasCellPhone: true,
       sample: { size: 8334 },
+      civicPanelInvite: true,
     })
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),

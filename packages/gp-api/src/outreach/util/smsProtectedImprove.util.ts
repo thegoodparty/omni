@@ -126,5 +126,5 @@ export const PROTECTED_MARKER_RULE = [
   '  you cannot see and must not change. Keep every marker exactly once,',
   '  in the same order, and never add one. You may change the words',
   '  before, between and after them. Do NOT add opt-out or paid-for-by',
-  '  language: the markers already hold it.',
+  '  language: the app keeps it, in a marker or after your text.',
 ].join('\n')

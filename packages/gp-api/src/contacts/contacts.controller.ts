@@ -21,7 +21,6 @@ import {
   type UpdateFollowUpInput,
   CivicPanelStatusResponseSchema,
   CivicPanelSummarySchema,
-  CivicPanelRepresentationSchema,
   CivicPanelBuildPlanResponseSchema,
   CreateCivicPanelBuildPlanInputSchema,
   UpdateCivicPanelBuildPlanInputSchema,
@@ -37,6 +36,11 @@ import {
   type UpdateContactStatusInput,
   UpdateContactStatusInputSchema,
   PeoplePrecinctsResponseSchema,
+  ManagedCivicPanelResponseSchema,
+  ApproveManagedCivicPanelInputSchema,
+  type ApproveManagedCivicPanelInput,
+  UpdateManagedCivicPanelInputSchema,
+  type UpdateManagedCivicPanelInput,
 } from '@goodparty_org/contracts'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -61,6 +65,7 @@ import { UpdateContactStatusParamsDTO } from './schemas/updateContactStatus.sche
 import { ContactsService } from './services/contacts.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
+import { ManagedCivicPanelService } from './services/managedCivicPanel.service'
 
 @Controller('contacts')
 @UseOrganization()
@@ -71,6 +76,7 @@ export class ContactsController {
     private readonly contactsService: ContactsService,
     private readonly civicPanelSummary: CivicPanelSummaryService,
     private readonly civicPanelBuildPlan: CivicPanelBuildPlanService,
+    private readonly managedCivicPanel: ManagedCivicPanelService,
     private readonly features: FeaturesService,
   ) {}
 
@@ -175,16 +181,6 @@ export class ContactsController {
     return this.civicPanelSummary.summaryFor(organization)
   }
 
-  @Get('civic-panel/representation')
-  @ResponseSchema(CivicPanelRepresentationSchema)
-  async getCivicPanelRepresentation(
-    @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
-  ) {
-    await this.assertCivicPanelsOn(user)
-    return this.civicPanelSummary.representationFor(organization)
-  }
-
   @Get('civic-panel/plan')
   @ResponseSchema(CivicPanelBuildPlanResponseSchema)
   async getCivicPanelBuildPlan(
@@ -263,6 +259,41 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.civicPanelBuildPlan.prepare(organization, id)
+  }
+
+  @Get('civic-panel/managed')
+  @ResponseSchema(ManagedCivicPanelResponseSchema)
+  async getManagedCivicPanel(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.managedCivicPanel.read(organization)
+  }
+
+  @Post('civic-panel/managed')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(ManagedCivicPanelResponseSchema)
+  async approveManagedCivicPanel(
+    @Body(new ZodValidationPipe(ApproveManagedCivicPanelInputSchema))
+    body: ApproveManagedCivicPanelInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.managedCivicPanel.approve(organization, body, user.id)
+  }
+
+  @Patch('civic-panel/managed')
+  @ResponseSchema(ManagedCivicPanelResponseSchema)
+  async updateManagedCivicPanel(
+    @Body(new ZodValidationPipe(UpdateManagedCivicPanelInputSchema))
+    body: UpdateManagedCivicPanelInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    return this.managedCivicPanel.update(organization, body.action)
   }
 
   @Get(':id')

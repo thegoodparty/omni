@@ -4,8 +4,10 @@ import type {
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { RakingCell, RakingTargets } from './raking.util'
 import { MIN_UNDERREPRESENTED_GAP } from './priorityReadStatus.util'
-import { MIN_DISTRICT_SHARE_FOR_RACE_GROUP } from './representation.util'
 import { adultAgeBandShares, adultSexShares } from './censusSexAge.util'
+
+// A race group this small in the district swings on a handful of people.
+const MIN_DISTRICT_SHARE_FOR_RACE_GROUP = 0.02
 
 // A value with fewer answers than this pools with the other small ones, so
 // no handful of people carries a whole group's weight.
@@ -40,8 +42,7 @@ const tenureTargets = (district: AcsCounts): Record<string, number> | null => {
 }
 
 // The census publishes race and Hispanic origin over everyone, not adults,
-// so these shares include children; see the decision record
-// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md. Native
+// so these shares include children. Native
 // American joins 'other' because the voter file has no such group, and a
 // group under the share the comparison bars hide folds into 'other' too,
 // so no handful of people is weighted up to stand for it.

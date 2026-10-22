@@ -116,13 +116,13 @@ describe('CivicPanelSeats', () => {
     ).toBeInTheDocument()
   })
 
-  it('lists the tracts furthest behind and who to invite next', () => {
+  it('lists the tracts furthest behind, and leaves who to invite to the balance card', () => {
     seats(120)
     const list = screen.getByRole('list')
     expect(within(list).getAllByRole('listitem').length).toBeLessThanOrEqual(5)
     expect(within(list).getByText('Tract 15.02')).toBeInTheDocument()
     expect(screen.getByText(/of 15 tracts are behind the rest\./)).toBeVisible()
-    expect(screen.getByText(/^Invite more people in tract/)).toBeVisible()
+    expect(screen.queryByText(/^Invite more/)).not.toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: /tracts are behind the rest\.$/ }),
     ).toBeInTheDocument()
@@ -150,6 +150,32 @@ describe('CivicPanelSeats', () => {
       )?.[1],
     )
     if (labeled) expectLabelsInside(labeled, center)
+  })
+
+  it('colors filled seats in brand families, outlined, and leaves empty seats plain', () => {
+    const { container } = seats(120)
+    const circles = [...container.querySelectorAll('circle')]
+    const filled = circles.filter((c) =>
+      /fill-brand-/.test(c.getAttribute('class') ?? ''),
+    )
+    const empty = circles.filter((c) =>
+      (c.getAttribute('class') ?? '').includes('fill-background'),
+    )
+    expect(filled.length).toBeGreaterThan(0)
+    expect(filled.length + empty.length).toBe(100)
+    const classes = filled.map((c) => c.getAttribute('class') ?? '')
+    for (const family of ['red', 'blue', 'lavender']) {
+      expect(classes.some((c) => c.includes(`fill-brand-${family}-`))).toBe(
+        true,
+      )
+    }
+    for (const c of classes) {
+      expect(c).toMatch(/stroke-brand-(red|blue|lavender)-\d+/)
+      expect(c).not.toContain('fill-primary')
+    }
+    for (const c of empty) {
+      expect(c.getAttribute('class')).toMatch(/stroke-(border|warning)/)
+    }
   })
 
   it('says every tract has its share once every seat is filled', () => {
@@ -193,7 +219,67 @@ describe('CivicPanelSeats by precinct', () => {
     expect(
       screen.getByText(/of 15 precincts are behind the rest\./),
     ).toBeInTheDocument()
-    expect(screen.getByText(/^Invite more people in precinct/)).toBeVisible()
+    expect(screen.queryByText(/^Invite more/)).not.toBeInTheDocument()
+  })
+})
+
+describe('CivicPanelSeats with tract names', () => {
+  const NAMES = [
+    'West Asheville, around Haywood Rd',
+    'Biltmore Village',
+    'around Merrimon Ave',
+  ]
+  // The last tracts trail, and the three furthest behind have names but
+  // one: it keeps its number.
+  const named = (members: number, count?: number) =>
+    placesAt(members, count).map((place, i, all) => {
+      const fromEnd = all.length - 1 - i
+      const label = fromEnd === 1 ? undefined : NAMES[fromEnd]
+      return label ? { ...place, label } : place
+    })
+
+  it('names the tracts furthest behind, and keeps the number for one without a name', () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(120)}
+        members={120}
+        goal={GOAL}
+      />,
+    )
+    const list = screen.getByRole('list')
+    const row = within(list).getByText('West Asheville, around Haywood Rd')
+    expect(row).toHaveClass('truncate')
+    expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
+    expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
+    expect(within(list).getByText('around Merrimon Ave')).toBeInTheDocument()
+  })
+
+  it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {
+    const { container } = render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(200, 12)}
+        members={200}
+        goal={GOAL}
+      />,
+    )
+    const [labeled] = container.querySelectorAll('svg')
+    const names = [...(labeled?.querySelectorAll('text') ?? [])].map(
+      (text) => text.querySelector('tspan')?.textContent,
+    )
+    expect(names).toContain('West Ashevill…')
+    expect(names).toContain('Tract 11.02')
+    const titles = [...(labeled?.querySelectorAll('text > title') ?? [])].map(
+      (title) => title.textContent,
+    )
+    expect(titles).toContain('West Asheville, around Haywood Rd')
+    const center = Number(
+      /translate\(([\d.]+)/.exec(
+        labeled?.querySelector('g')?.getAttribute('transform') ?? '',
+      )?.[1],
+    )
+    if (labeled) expectLabelsInside(labeled, center)
   })
 })
 
@@ -214,9 +300,11 @@ describe('CivicPanelBloom', () => {
     expect(within(list).getAllByText('About its share').length).toBeGreaterThan(
       0,
     )
+    // Who to invite is the API's call, so the petals never name one.
+    expect(screen.queryByText(/^Invite more/)).not.toBeInTheDocument()
     expect(
-      screen.getByText('Invite more people 18 to 24 next.'),
-    ).toBeInTheDocument()
+      screen.queryByText('Every group has its share.'),
+    ).not.toBeInTheDocument()
     const [labeled] = container.querySelectorAll('svg')
     if (labeled) expectLabelsInside(labeled)
   })
@@ -241,11 +329,15 @@ describe('CivicPanelMilestones', () => {
     groupsCovered: 10,
     groupsTotal: 12,
   })
-  const at = (members: number, places = placesAt(members)) =>
+  const at = (
+    members: number,
+    places = placesAt(members),
+    groups: CivicPanelCompositionGroup[] = [],
+  ) =>
     render(
       <CivicPanelMilestones
         progress={progressAt(members)}
-        composition={{ placeKind: 'tract', places, groups: [] }}
+        composition={{ placeKind: 'tract', places, groups }}
       />,
     )
 
@@ -278,6 +370,7 @@ describe('CivicPanelMilestones', () => {
         districtShare: share,
         members: Math.ceil(share * GOAL),
       })),
+      GROUPS,
     )
     expect(
       screen.getByRole('heading', { name: 'Every seat is filled' }),
@@ -286,7 +379,55 @@ describe('CivicPanelMilestones', () => {
       screen.getByText('240 residents from all 15 tracts said yes.'),
     ).toBeInTheDocument()
     expect(screen.getByTestId('civic-panel-milestones')).toHaveTextContent(
-      '10 of 12 groups',
+      '9 of 12 groups at their share',
     )
+  })
+
+  it('counts groups the way the petals do, not the covered groups', () => {
+    at(
+      GOAL,
+      SHARES.map((share, i) => ({
+        key: tractName(i),
+        name: tractName(i),
+        districtShare: share,
+        members: Math.ceil(share * GOAL),
+      })),
+    )
+    // Without petals there is no group count to show.
+    expect(screen.getByTestId('civic-panel-milestones')).not.toHaveTextContent(
+      'groups',
+    )
+  })
+})
+
+// Server and client can print a float's last digit differently, which React
+// reports as a hydration mismatch, so every drawn coordinate is rounded.
+describe('chart coordinates', () => {
+  const COORDS = ['x', 'y', 'cx', 'cy']
+  const expectRounded = (container: HTMLElement) => {
+    const values = [...container.querySelectorAll('svg *')].flatMap((node) =>
+      COORDS.map((name) => node.getAttribute(name)).filter(
+        (value): value is string => value !== null,
+      ),
+    )
+    const paths = [...container.querySelectorAll('svg path')].flatMap(
+      (node) => (node.getAttribute('d') ?? '').match(/-?[\d.]+/g) ?? [],
+    )
+    expect(values.length).toBeGreaterThan(0)
+    for (const value of [...values, ...paths]) {
+      expect(value).toMatch(/^-?\d+(\.\d{1,2})?$/)
+    }
+  }
+
+  it('rounds the seats and their labels', () => {
+    const { container } = seats(200, 12)
+    expectRounded(container)
+  })
+
+  it('rounds the petals and their labels', () => {
+    const { container } = render(
+      <CivicPanelBloom groups={GROUPS} showNext={false} />,
+    )
+    expectRounded(container)
   })
 })

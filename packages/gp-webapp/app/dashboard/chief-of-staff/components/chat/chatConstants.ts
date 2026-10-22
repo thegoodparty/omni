@@ -17,8 +17,9 @@ export const COS_INTRO_MESSAGES: string[] = [
 /**
  * A starter chip. `kickoff` fires an on-demand hidden send of that string
  * (no user bubble), `message` sends that string as the user's own message,
- * `writeIn` turns the card into a box for the user's own answer; otherwise
- * `onSelect` runs. `description` renders a secondary line beneath the label.
+ * otherwise `onSelect` runs. `description` renders a secondary line beneath
+ * the label. `combinable` cards are checkboxes that a Start button sends
+ * together; a `writeIn` one opens a box for the user's own words once picked.
  */
 export type ChatSuggestion = {
   label: string
@@ -26,6 +27,7 @@ export type ChatSuggestion = {
   onSelect?: () => void
   kickoff?: string
   message?: string
+  combinable?: boolean
   writeIn?: boolean
 }
 
@@ -54,7 +56,8 @@ export const NEXT_STEP_MESSAGES = {
 
 /**
  * The cards under the Chief of Staff's intro: priorities, hearing from
- * constituents, meetings, and a write-in for anything else. With serve-citizen-panels on, the middle card is
+ * constituents, meetings, and Something else in the official's own words.
+ * Any of them can be picked together. With serve-citizen-panels on, the middle card is
  * the civic panel: an office with no members builds its panel here, one with
  * members grows it, both on the same plan as the panel page. `panelMembers` is undefined until
  * the panel summary loads. The middle card waits out `panelLoading` so it never
@@ -74,6 +77,7 @@ export const buildChiefOfStaffNextSteps = ({
     description:
       'What residents are raising, and which issues to make a priority.',
     message: NEXT_STEP_MESSAGES.priorities,
+    combinable: true,
   },
   ...(panelLoading
     ? []
@@ -83,6 +87,7 @@ export const buildChiefOfStaffNextSteps = ({
               label: 'Hear from your constituents',
               description: 'Ask the residents affected what they think.',
               message: NEXT_STEP_MESSAGES.outreach,
+              combinable: true,
             }
           : panelMembers !== undefined && panelMembers > 0
             ? {
@@ -90,6 +95,7 @@ export const buildChiefOfStaffNextSteps = ({
                 description:
                   'Reach more residents, so you hear from more of them.',
                 kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
+                combinable: true,
               }
             : {
                 label: 'Build your civic panel',
@@ -97,16 +103,19 @@ export const buildChiefOfStaffNextSteps = ({
                   'Hear from residents before you decide, not only the ' +
                   'loudest voices.',
                 kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
+                combinable: true,
               },
       ]),
   {
     label: 'Get ready for your next meeting',
     description: 'Walk in knowing what is on the agenda and what to ask.',
     message: NEXT_STEP_MESSAGES.meeting,
+    combinable: true,
   },
   {
     label: 'Something else',
     description: 'Or write your own.',
+    combinable: true,
     writeIn: true,
   },
 ]

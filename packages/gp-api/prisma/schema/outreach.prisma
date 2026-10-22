@@ -202,6 +202,7 @@ model Outreach {
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
   civicPanelBuildSteps              CivicPanelBuildStep[]
+  managedPanelWave                  ManagedPanelWave?
   priorityAnswers                   PriorityAnswer[]
 
   @@index([campaignId])

@@ -17,6 +17,7 @@ import {
 } from '@/electionDb/positions/positions.schema'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
 // `district` only appears with `?includeDistrict=true`, and the filing-fee
@@ -47,7 +48,7 @@ export const positionResponseSchema = z.object({
 
 @Controller('elections/positions')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class ElectionPositionsController {
   constructor(private readonly positions: PositionsService) {}
 

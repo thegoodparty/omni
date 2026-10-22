@@ -60,6 +60,23 @@ export const allocate = (
   return out
 }
 
+// Server and client can differ in a coordinate's last float digit, which
+// React reports as a hydration mismatch, so every drawn coordinate is
+// rounded to hundredths.
+export const roundCoord = (value: number): number =>
+  Math.round(value * 100) / 100
+
+// A point `r` out from (cx, cy) at angle `a`, y pointing down.
+export const polar = (
+  cx: number,
+  cy: number,
+  r: number,
+  a: number,
+): { x: number; y: number } => ({
+  x: roundCoord(cx + r * Math.cos(a)),
+  y: roundCoord(cy + r * Math.sin(a)),
+})
+
 export interface Spot {
   x: number
   y: number
@@ -87,8 +104,8 @@ export const seatSpots = (cx: number, cy: number): Spot[] => {
       spots.push({
         r,
         angle,
-        x: cx + r * Math.cos(angle),
-        y: cy - r * Math.sin(angle),
+        x: roundCoord(cx + r * Math.cos(angle)),
+        y: roundCoord(cy - r * Math.sin(angle)),
       })
     }
   })
@@ -113,23 +130,38 @@ export const spreadLabels = (ys: number[]): number[] => {
   const order = ys.map((_, i) => i).sort((a, b) => (ys[b] ?? 0) - (ys[a] ?? 0))
   let floor = Infinity
   for (const i of order) {
-    const y = Math.min(out[i] ?? 0, floor - LABEL_SPACING)
+    const y = roundCoord(Math.min(out[i] ?? 0, floor - LABEL_SPACING))
     out[i] = y
     floor = y
   }
   return out
 }
 
+// Filled seats in the brand's red, blue and lavender, so the panel reads as
+// many voices. Each place takes one family, cycled in arc order so
+// neighbors never share one, and its seats cycle three tints of it, darkest
+// first. Fixed by position, never random, so server and client agree.
+export const SEAT_HUES = ['red', 'blue', 'lavender'] as const
+export type SeatHue = (typeof SEAT_HUES)[number]
+export type SeatTint = 0 | 1 | 2
+
+export const seatHue = (placeIndex: number): SeatHue =>
+  SEAT_HUES[placeIndex % SEAT_HUES.length] ?? 'red'
+
+export const seatTint = (seatIndex: number): SeatTint =>
+  (seatIndex % 3) as SeatTint
+
 export interface SeatPlace {
   key: string
   name: string
+  // A tract's human name, once it has one.
+  label?: string
   count: number
   filled: number
   empty: number
   progress: number
   behind: boolean
-  // Alternate places take alternate shades so neighbors read apart.
-  shade: 0 | 1
+  hue: SeatHue
   // Middle of the place's seats, for its label.
   angle: number
 }
@@ -139,6 +171,7 @@ export interface Seat {
   y: number
   place: number
   filled: boolean
+  tint: SeatTint
 }
 
 export type SeatsStage = 'tooEarly' | 'building' | 'nearFull' | 'full'
@@ -207,19 +240,26 @@ export const buildSeats = ({
     cursor += count
     const index = rows.length
     mine.forEach((spot, k) =>
-      seats.push({ x: spot.x, y: spot.y, place: index, filled: k < filled }),
+      seats.push({
+        x: spot.x,
+        y: spot.y,
+        place: index,
+        filled: k < filled,
+        tint: seatTint(k),
+      }),
     )
     const first = mine[0]?.angle ?? 0
     const last = mine[mine.length - 1]?.angle ?? first
     rows.push({
       key: p.key,
       name: p.name,
+      label: p.label,
       count,
       filled,
       empty: count - filled,
       progress,
       behind: canTell && progress < overall * BEHIND_AT,
-      shade: index % 2 === 0 ? 0 : 1,
+      hue: seatHue(index),
       angle: (first + last) / 2,
     })
   })
@@ -314,8 +354,10 @@ export const buildBloom = (groups: CivicPanelCompositionGroup[]): Bloom => {
   }
 }
 
-const point = (cx: number, cy: number, r: number, a: number) =>
-  `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`
+const point = (cx: number, cy: number, r: number, a: number) => {
+  const { x, y } = polar(cx, cy, r, a)
+  return `${x} ${y}`
+}
 
 // A ring sector from r0 to r1 between two angles, clockwise.
 export const sectorPath = (
@@ -327,12 +369,14 @@ export const sectorPath = (
   a1: number,
 ): string => {
   const large = a1 - a0 > Math.PI ? 1 : 0
+  const outer = roundCoord(r1)
+  const inner = roundCoord(r0)
   return [
     `M ${point(cx, cy, r0, a0)}`,
     `L ${point(cx, cy, r1, a0)}`,
-    `A ${r1} ${r1} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
+    `A ${outer} ${outer} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
     `L ${point(cx, cy, r0, a1)}`,
-    `A ${r0} ${r0} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
+    `A ${inner} ${inner} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
     'Z',
   ].join(' ')
 }

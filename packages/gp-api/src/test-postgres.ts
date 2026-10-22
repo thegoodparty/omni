@@ -45,8 +45,15 @@ export const TEST_POOL_LIMIT = 5
 // exact same config: testcontainers keys reuse on a hash of that config, so any
 // difference would hand a suite a fresh container without the template that
 // globalSetup built, and its CREATE DATABASE ... TEMPLATE would fail.
+//
+// The image comes from ECR Public, not Docker Hub, like every Dockerfile base
+// image (docs/deployment.md, "Base images"): anonymous Docker Hub pulls from
+// shared CI runners fail intermittently, and CI logs in to ECR Public.
+export const TEST_POSTGRES_IMAGE =
+  'public.ecr.aws/docker/library/postgres:16-alpine'
+
 export const startTestPostgres = (): Promise<StartedPostgreSqlContainer> =>
-  new PostgreSqlContainer('postgres:16-alpine')
+  new PostgreSqlContainer(TEST_POSTGRES_IMAGE)
     .withDatabase('postgres')
     .withUsername('test_user')
     .withPassword('test_password')

@@ -3143,7 +3143,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(
-      await screen.findByText('How much time can you give each week?'),
+      await screen.findByText(
+        'How much time can you spend each week to connect with constituents by phone or in person?',
+      ),
     ).toBeInTheDocument()
     for (const label of [
       '1 hour a week',
@@ -3194,27 +3196,14 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
 
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
-    expect(
-      await screen.findByText(
-        'Call residents to invite them to your civic panel',
-      ),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        '62 members so far, from 9 of 12 groups in your district.',
-      ),
-    ).toBeInTheDocument()
+    const card = await screen.findByTestId('civic-panel-next-step')
+    expect(await within(card).findByText('Call 30 residents')).toBeVisible()
+    expect(within(card).queryByText(/members so far/)).toBeNull()
     // The button opens the calls themselves (civicPanelWidgets.test.tsx).
     expect(
-      screen.getByRole('button', { name: 'Start the calls' }),
+      within(card).getByRole('button', { name: 'Start the calls' }),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('link', { name: 'Start the calls' }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'See your plan' })).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel?from=chief_of_staff_chat',
-    )
+    expect(within(card).queryByRole('link')).toBeNull()
   })
 
   it('offers no button while the plan waits on replies, only the plan', async () => {
@@ -3246,8 +3235,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     ).toBeInTheDocument()
     expect(within(card).getAllByRole('link')).toHaveLength(1)
     expect(
-      within(card).getByRole('link', { name: 'See your plan' }),
+      within(card).getByRole('link', { name: /See your plan/ }),
     ).toBeInTheDocument()
+    expect(within(card).queryByRole('button')).toBeNull()
   })
 
   it('draws nothing for a refused call', async () => {

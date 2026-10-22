@@ -2,11 +2,8 @@ import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { addMinutes, isAfter } from 'date-fns'
 import {
-  answersNeeded,
   DISTRICT_GRID_CELL_DEGREES,
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   type GeoJsonShape,
-  type PriorityRepresentation,
 } from '@goodparty_org/contracts'
 import type {
   AcsCounts,
@@ -17,10 +14,7 @@ import type {
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import {
-  smallestMajorShare,
-  type TargetedDimension,
-} from '@/contacts/utils/civicPanelAllocation.util'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import {
   POOLED_VALUE,
   raceNameable,
@@ -30,16 +24,6 @@ import {
 import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
 import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
-import { computeRepresentation } from '../util/representation.util'
-
-export type CensusComposition =
-  | {
-      available: true
-      district: AcsCounts
-      // One entry per person placed in a block group, in any order.
-      respondentBlockGroups: AcsCounts[]
-    }
-  | { available: false }
 
 // What a priority's model reads: the district's people and the answers,
 // in the same cells (age, gender, tract, race), race folded as the civic
@@ -84,11 +68,6 @@ const knownValues = (
 // Where district and block group demographics come from. Bound once in
 // CensusCompositionModule, so a test can stand in for the warehouse.
 export interface CensusCompositionSource {
-  compose(input: {
-    districtId: string
-    dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusComposition>
   // The district's people and these answers in the model's cells. Null
   // when the district's census or its people could not be read.
   mrpInputs(input: {
@@ -112,9 +91,9 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
-  // The answers a good read of the district needs: answersNeeded of its
-  // smallest major group, from the cells the model reads. Null when the
-  // district or its people could not be read.
+  // The answers a good read of the district needs: frameAnswersNeeded of
+  // the frame the model reads, the same floor the read holds a priority to.
+  // Null when the district or its people could not be read.
   districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
@@ -123,10 +102,9 @@ export interface CensusCompositionSource {
 
 export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 
-// gp-data-platform's ACS marts in mart_gp_api: the district's row, and the
-// block group each person lives in. A district with no row, or a warehouse
-// failure, is unavailable: the page says so rather than failing or showing
-// zeros.
+// gp-data-platform's ACS marts in mart_gp_api and the district's voter
+// file. A warehouse failure reads as unknown (null) rather than failing or
+// showing zeros.
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
   private readonly districtCells = new Map<
@@ -139,30 +117,6 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(DistrictCensusComposition.name)
-  }
-
-  async compose(input: {
-    districtId: string
-    dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusComposition> {
-    try {
-      const { district, respondentBlockGroups } =
-        await this.stats.findCensusComposition(
-          input.districtId,
-          input.dataset,
-          input.personIds,
-        )
-      return district
-        ? { available: true, district, respondentBlockGroups }
-        : { available: false }
-    } catch (err) {
-      this.logger.warn(
-        { err, districtId: input.districtId },
-        'census composition read failed; comparison unavailable',
-      )
-      return { available: false }
-    }
   }
 
   async mrpInputs(input: {
@@ -237,7 +191,6 @@ export class DistrictCensusComposition implements CensusCompositionSource {
   ): {
     frame: MrpFrameCell[]
     races: Record<string, number> | undefined
-    raked: DistrictCell[]
   } {
     const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
       district: input.district,
@@ -259,7 +212,6 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         values: knownValues(modelValues(cell, races)),
       })),
       races,
-      raked,
     }
   }
 
@@ -342,15 +294,12 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     try {
       const { district, cells, tractAdults } = await this.districtCellsOf(input)
       if (!district || cells.length === 0) return null
-      const { frame, raked } = this.frameOf(input.districtId, {
+      const { frame } = this.frameOf(input.districtId, {
         district,
         cells,
         tractAdults,
       })
-      const dimensions: TargetedDimension[] = raceNameable(raked)
-        ? ['age', 'gender', 'tract', 'race']
-        : ['age', 'gender', 'tract']
-      return answersNeeded(smallestMajorShare(frame, dimensions))
+      return frameAnswersNeeded(frame)
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
@@ -358,21 +307,5 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       )
       return null
     }
-  }
-}
-
-// Both pages that compare people with their district shape it the same way.
-// Unavailable census is a comparison with no rows; too few people placed in
-// a block group is no comparison at all, the same as too few answering.
-export const representationFrom = (
-  composition: CensusComposition,
-  considered: number,
-): PriorityRepresentation | null => {
-  if (!composition.available) return { respondentCount: considered, groups: [] }
-  const placed = composition.respondentBlockGroups
-  if (placed.length < MIN_RESPONDENTS_FOR_REPRESENTATION) return null
-  return {
-    respondentCount: placed.length,
-    groups: computeRepresentation(composition.district, placed),
   }
 }

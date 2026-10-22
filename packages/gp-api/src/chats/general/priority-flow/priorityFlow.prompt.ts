@@ -7,6 +7,7 @@ import {
   READ_REPRESENTATIVENESS_LABELS,
   REPORT_BACK_MARKER,
   underrepresentedGroupName,
+  joinGroupNames,
   type PriorityReadStatus,
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
@@ -313,7 +314,7 @@ const ROUND_ONE_CARDS = [
 const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
   [
     'ROUND ONE',
-    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district picked at random, offered together as cards in one turn.',
+    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district, offered together as cards in one turn.',
     hoursPerWeek === null
       ? '- How much time the official can give each week is not known yet. size_round_one says how to ask it.'
       : `- The official gives ${hoursPerWeek} ${hoursPerWeek === 1 ? 'hour' : 'hours'} a week. size_round_one already knows it.`,
@@ -374,12 +375,19 @@ const READ_STATUS_NAMES = Object.values(READ_REPRESENTATIVENESS_LABELS).join(
   ', ',
 )
 
+// Every group heard but the district's total not met yet: more of anyone.
 const hearMoreFrom = (read: PriorityReadStatus): string =>
-  read.underrepresented.length === 0
-    ? 'nobody in particular'
-    : read.underrepresented
-        .map((group) => underrepresentedGroupName(group, read.status))
-        .join(' and ')
+  read.status === 'notYetRepresentative' &&
+  read.groupsTotal > 0 &&
+  read.groupsHeard === read.groupsTotal
+    ? 'more people overall'
+    : read.underrepresented.length === 0
+      ? 'nobody in particular'
+      : joinGroupNames(
+          read.underrepresented.map((group) =>
+            underrepresentedGroupName(group, read.status),
+          ),
+        )
 
 const PANEL_PAGE_LINK =
   '[Build your civic panel](/dashboard/contacts/citizens-panel)'
@@ -400,11 +408,11 @@ const GET_ANSWERS_BLOCK = `GET ANSWERS (a detour that returns)
 const buildGoodReadBlock = (canPropose: boolean): string =>
   [
     'BEFORE A GOOD READ',
-    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
+    `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
     '- <priority> also names which groups to hear from next: the ones with too few answers or that we are still unsure of. Use exactly those words.',
-    '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Read the replies with your tools all the same, so you know where things are.',
+    '- Before a good read, do not share results: no themes, no splits, no quotes, nothing like "most said" or "people want". This holds over READING WHAT CAME BACK, which is for once there is a good read. Until then read_outreach_feedback gives only who each send went to and how many answered, never what they said.',
     '- Nudge toward a good read instead, in one line: say the status and which groups to hear from next, for example "You\'ve heard from most groups, but not yet people 65 and over." Never give a count of answers. Then offer outreach aimed at those groups.',
-    '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in parts of your district we haven\'t reached", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
+    '- Aim the outreach with the filters for that group: an age band, or men or women. For "people in some parts of your district", set areaTarget to unreached on the proposal and keep the other filters as they are; the app draws the area. Count the audience the usual way: if the area changes the count, the tool says the right one. White, Black, Hispanic or Latino, and Asian residents have no filter: never filter on ethnicity or a stand-in for it (language, surname, a neighborhood), and offer more of the same outreach to the whole audience instead.',
     '- Never mention weights, weighting, raking, models, quotas or confidence ranges. The official sees the status and the groups, nothing more.',
     '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
     '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
@@ -470,6 +478,9 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Title: ${optional(ctx.title)}`,
     `Description: ${optional(ctx.description)}`,
     `Where it came from: ${ctx.source}`,
+    ...(ctx.sourceCommunityIssueId === null
+      ? []
+      : [`Came from community issue: ${ctx.sourceCommunityIssueId}`]),
     `Official's full name: ${optional(ctx.officialName)}`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
