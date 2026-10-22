@@ -6,6 +6,7 @@ import {
   type AnswerCell,
   type DistrictCells,
   type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
@@ -86,6 +87,19 @@ export class StatsService {
           tracts,
           cellDegrees,
         ),
+    })
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    return this.readLog.measure({
+      op: 'tract-places',
+      districtId,
+      dataset,
+      read: () => this.databricks.findTractPlaces(districtId, dataset, tracts),
     })
   }
 }

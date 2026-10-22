@@ -142,7 +142,12 @@ Staff's home and chat cards say the same step in the same words.
   `composition.places`, hidden without one): the goal as 100 seats in six
   rows, split by each place's district share (largest remainder), census
   tracts or, where the district has no tract data, precincts, named by
-  `placeKind` ("Tract 9501.02", "Precinct 01.1"). A place's members fill
+  `placeKind` ("Tract 9501.02", "Precinct 01.1"). A tract with a human
+  name shows it instead (the place's `label` from gp-api: "West Asheville",
+  "around Haywood Rd"), in the seats' labels and the Furthest behind and
+  Most empty seats rows alike. Rows truncate with the whole name as a
+  tooltip; around the arc a name is cut to 14 characters, the whole name
+  in its `<title>`. A place's members fill
   seats only up to its share of the goal. From 30 members a place is behind
   when its progress is under half the panel's, outlined in warning and
   listed under "Furthest behind" (up to 5, with "N of M tracts are behind

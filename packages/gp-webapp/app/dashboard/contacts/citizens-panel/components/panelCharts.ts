@@ -140,6 +140,8 @@ export const spreadLabels = (ys: number[]): number[] => {
 export interface SeatPlace {
   key: string
   name: string
+  // A tract's human name, once it has one.
+  label?: string
   count: number
   filled: number
   empty: number
@@ -231,6 +233,7 @@ export const buildSeats = ({
     rows.push({
       key: p.key,
       name: p.name,
+      label: p.label,
       count,
       filled,
       empty: count - filled,
