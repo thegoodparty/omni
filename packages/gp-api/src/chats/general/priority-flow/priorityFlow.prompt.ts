@@ -166,6 +166,7 @@ const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Call update_priority_status when a step genuinely changes state, or when what it settled materially changes. Every call is a decision you made on purpose, not a habit at the end of a turn.
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
+- When it returns an error, nothing moved. Tell the official what the step waits on in their terms, like "the plan waits on what residents say", never how the app or a system works.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
 - nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
 
