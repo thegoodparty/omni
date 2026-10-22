@@ -30,12 +30,13 @@ const AUTHORED_BACKGROUND_COUNT = 15
 
 // One baseline plus seven single-axis variations, and one control. Well under
 // gates.minCases, which is deliberate and recorded in every list's `note`.
-// priority_flow adds three multi-turn scenarios and three probe cases.
+// priority_flow adds three multi-turn scenarios, three probe cases and the
+// five demo-run cases.
 const CASES_PER_LIST: Record<(typeof AUTHORED)[number], number> = {
   chief_of_staff: 9,
   campaign_assistant: 9,
   ordinance_flow: 9,
-  priority_flow: 15,
+  priority_flow: 20,
   briefing_annotation: 9,
 }
 
