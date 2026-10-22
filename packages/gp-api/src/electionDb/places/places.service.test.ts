@@ -215,7 +215,9 @@ describe('PlacesService', () => {
       findMany.mockRejectedValueOnce(new Error('pool timeout'))
       findMany.mockResolvedValueOnce(place)
 
-      await expect(service.getPlaces(raceFilter)).rejects.toThrow('pool timeout')
+      await expect(service.getPlaces(raceFilter)).rejects.toThrow(
+        'pool timeout',
+      )
       await expect(service.getPlaces(raceFilter)).resolves.toBeDefined()
 
       expect(findMany).toHaveBeenCalledTimes(2)
