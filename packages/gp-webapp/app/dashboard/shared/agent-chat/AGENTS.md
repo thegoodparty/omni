@@ -304,7 +304,7 @@ products use this one mechanism: the Campaign Manager's starter cards
 passed by the Serve home's `DashboardContent` under the meet card's intro and
 on a new chat). A card does one of three things: `message` sends a question
 as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
-message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
+message, as Build my civic panel sends `START_MANAGED_CIVIC_PANEL_MESSAGE`), and
 `onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
@@ -356,6 +356,30 @@ registered on `ChiefOfStaffChatBody`'s registry:
 
 A `save_panel_weekly_time` result drops the plan query and the home's cards,
 so the card and the People first card follow the new plan at once.
+
+## The managed civic panel in the Chief of Staff chat
+
+Where GoodParty builds the panel (gp-api's contacts AGENTS.md, "Managed civic
+panel"), the home card's Build my civic panel and the intro's step of the
+same name send the hidden `START_MANAGED_CIVIC_PANEL_MESSAGE`. Three no-arg
+tools are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
+
+- **`offer_managed_panel_invite`** renders `ClarifyQuestionWidget` with fixed
+  words (Want to see the invite? Show me the invite, Who gets texted?, Not
+  now). `isQuestionTool` counts it, like the weekly time question.
+- **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`: the
+  draft (`managedInviteDraft`, the official's first name and grammarized
+  office) composed with its locked lines and a sample first name, and Review
+  the invite, which mounts `SmsFlow` in its `managedInvite` mode over the
+  chat (`outreach/AGENTS.md`). Its close calls the widget context's
+  `onManagedPanelInviteClosed`, and the body queues one hidden turn on the
+  boundary-note queue: `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` (after reading the
+  enrollment and the home's cards again) or
+  `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`. The Serve home hides all three
+  turns on reload.
+- **`present_managed_panel`** renders the enrollment, read live, as a
+  `CompactCardLink` (Your civic panel, Building, N of goal members) to the
+  panel page.
 
 ## Analytics — one event per message sent
 

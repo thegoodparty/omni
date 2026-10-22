@@ -119,6 +119,19 @@ knocking carry the same slug as "Invite to your civic panel"
 behind the same flag; its script or talking points are a short invite whose
 ask is the join question the caller or canvasser records.
 
+`SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
+for the invite GoodParty texts in the official's name to build their civic
+panel. It is the message step alone, its own header (Civic panel invite),
+title and caption, with Back leaving the flow: no purpose, audience, date,
+image, checkout or payment, and it never creates an Outreach row. The
+editable body is `initialScript` (the first name merge tag a chip at its
+start); the JOIN line and the opt-out sit locked under it
+(`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
+whole invite and keeps only the body of the reply (`managedInviteBody`). Set
+up my civic panel waits for the approval checkbox, then posts
+`/v1/contacts/civic-panel/managed` with contracts'
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
+
 A Serve text whose picked list is civic panel members only (contracts'
 `isCivicPanelOnlyList` on the list's criteria, behind `serve-citizen-panels`)
 carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to leave my civic panel.") in

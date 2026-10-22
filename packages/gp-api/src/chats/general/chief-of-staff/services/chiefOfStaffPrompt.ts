@@ -7,6 +7,10 @@ import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   CIVIC_PANEL_PAGE_HREF,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  SHOW_MANAGED_CIVIC_PANEL_INVITE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_MAX_HOURS_PER_WEEK,
   PICKED_NEXT_STEPS_LEAD,
@@ -33,6 +37,13 @@ import {
   PRESENT_PANEL_NEXT_STEP_TOOL,
   SAVE_PANEL_WEEKLY_TIME_TOOL,
 } from './civicPanelPlan.tools'
+import {
+  isManagedPanelSetUp,
+  OFFER_MANAGED_PANEL_INVITE_TOOL,
+  PRESENT_MANAGED_PANEL_INVITE_TOOL,
+  PRESENT_MANAGED_PANEL_TOOL,
+  READ_MANAGED_PANEL_TOOL,
+} from './managedCivicPanel.tools'
 import {
   OUTREACH_MESSAGE_RULES,
   PICKED_OPTION_RULE,
@@ -396,6 +407,57 @@ const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
   ]
 }
 
+// What the agent does when GoodParty builds the panel for the office (the
+// managed panel), behind serve-citizen-panels: it explains how, offers the
+// invite as a card, and after the official approves or backs out (a hidden
+// turn the app sends when the review closes) says what happens next.
+const managedCivicPanelBlock = (
+  ctx: ChiefOfStaffContext,
+  firstPriority: string | null,
+): string => {
+  const setUp = isManagedPanelSetUp(ctx.managedPanel)
+  const appTurn = (message: string, when: string) =>
+    `- "${message}" is sent by the app when ${when}. They did not type it, so never quote it or reply to it as their words.`
+  const before = [
+    appTurn(
+      START_MANAGED_CIVIC_PANEL_MESSAGE,
+      'they press Build my civic panel',
+    ),
+    `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, explain it in 3 or 4 short paragraphs, calling it their civic panel:`,
+    '  - What it is: residents from every part of their district they can ask before a vote, so they hear from more than the loudest voices.',
+    '  - How we build it: they approve one invite, in their name, and over about two weeks we text it to residents in waves.',
+    '  - Between waves we invite more of whoever is missing, so every group is in.',
+    '  - It is ready in about three weeks, and it is free in early access.',
+    `- Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
+    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name and they can change anything that doesn't sound like them and approve it there. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card shows the invite, so never quote it or write an invite of your own.`,
+    `- When they ask who gets texted: residents of their district with a cell phone, a wave at a time, and between waves more of the groups we have heard from least. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` again.`,
+    '- When they say not now, say in one line that the card on their home is there when they are ready. Nothing more.',
+    appTurn(
+      MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+      'they close the invite without setting up their civic panel',
+    ),
+    `- On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}", say in one short line that nothing was sent and the card on their home is there when they are ready. Call no tool.`,
+  ]
+  const after = [
+    appTurn(
+      MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+      'they approve the invite, which sets up their civic panel',
+    ),
+    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    firstPriority
+      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build.`
+      : '- Then, in one short line, ask which priority they want to work on while we build, and offer to record it.',
+    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line.`,
+  ]
+  return [
+    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}" or "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}", or they ask about building or setting up their civic panel):`,
+    '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Never offer to plan texts, calls or door knocking for it, never ask how much time they have, and never propose an invite text or a list of your own.',
+    ...(setUp ? after : before),
+    '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
+    "- Never promise the panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas or targets, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
+  ].join('\n')
+}
+
 const cardRulesBlock = (toolNames: string[]): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
   const lines = [
@@ -489,6 +551,13 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'make the civic panel plan from their weekly time, or change that time',
   [PRESENT_PANEL_NEXT_STEP_TOOL]:
     "show the civic panel plan's next step as a card",
+  [OFFER_MANAGED_PANEL_INVITE_TOOL]:
+    'offer to show the civic panel invite GoodParty would send in their name',
+  [PRESENT_MANAGED_PANEL_INVITE_TOOL]:
+    'show the civic panel invite as a card they review and approve',
+  [READ_MANAGED_PANEL_TOOL]:
+    'read where their civic panel stands and when its invites go out',
+  [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -790,7 +859,20 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     toolNames.includes('size_outreach_sample')
       ? [outreachSamplingBlock(toolNames)]
       : []),
-    ...(ctx.civicPanel
+    ...(toolNames.includes(READ_MANAGED_PANEL_TOOL)
+      ? [
+          managedCivicPanelBlock(
+            ctx,
+            ctx.priorities[0]
+              ? sanitizeUntrustedContent(ctx.priorities[0].title)
+              : null,
+          ),
+        ]
+      : []),
+    // The do-it-yourself plan stays only for an office part way through one
+    // once GoodParty builds the panel.
+    ...(ctx.civicPanel &&
+    (!toolNames.includes(READ_MANAGED_PANEL_TOOL) || ctx.civicPanel.hasPlan)
       ? [
           civicPanelBuildBlock(
             ctx.civicPanel,

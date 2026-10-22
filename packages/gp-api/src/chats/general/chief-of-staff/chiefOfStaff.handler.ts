@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { answersNeeded, panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
@@ -65,6 +65,11 @@ import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
 import { buildCivicPanelPlanTools } from './services/civicPanelPlan.tools'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import {
+  buildManagedCivicPanelTools,
+  isManagedPanelSetUp,
+} from './services/managedCivicPanel.tools'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
@@ -103,6 +108,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   // save or present is already four tool calls before any retry or search,
   // and a turn that runs out of steps ends without presenting anything.
   readonly maxSteps = 15
+  private readonly logger = new Logger(ChiefOfStaffHandler.name)
 
   constructor(
     private readonly contextService: ChiefOfStaffContextService,
@@ -139,6 +145,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly priorityResults?: PriorityResultsService,
     @Optional()
     private readonly civicPanelPlans?: CivicPanelBuildPlanService,
+    @Optional()
+    private readonly managedPanels?: ManagedCivicPanelService,
   ) {}
 
   async loadContext(
@@ -182,6 +190,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           ),
         )
       : undefined
+    const managedPanel = outreachFeedbackEnabled
+      ? await this.readManagedPanel(ctx.organization)
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -202,6 +213,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanel,
+        managedPanel,
         reportBacks,
         priorityReads,
       }
@@ -216,6 +228,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       ...ctx,
       outreachFeedbackEnabled,
       civicPanel,
+      managedPanel,
       reportBacks,
       priorityReads,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
@@ -223,6 +236,23 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       districtFilters,
       constituentToolEnabled,
       peopleDataset,
+    }
+  }
+
+  // Undefined where the managed panel is not wired in, which keeps the
+  // do-it-yourself plan; null before the office approves one. A failed read
+  // is treated as not set up, so the turn still runs.
+  private async readManagedPanel(
+    organization: ChiefOfStaffContext['organization'],
+  ): Promise<ChiefOfStaffContext['managedPanel']> {
+    if (!this.managedPanels) return undefined
+    try {
+      return (await this.managedPanels.read(organization)).panel
+    } catch (err) {
+      this.logger.warn(
+        `managed civic panel read failed for ${organization.slug}: ${String(err)}`,
+      )
+      return null
     }
   }
 
@@ -412,9 +442,29 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       }
     }
 
+    // GoodParty builds the panel (the managed panel), behind
+    // serve-citizen-panels. It replaces the do-it-yourself plan, whose tools
+    // stay only for an office already part way through one.
+    if (ctx.managedPanel !== undefined && this.managedPanels) {
+      Object.assign(
+        tools,
+        buildManagedCivicPanelTools({
+          panels: this.managedPanels,
+          organization: ctx.organization,
+          setUp: isManagedPanelSetUp(ctx.managedPanel),
+        }),
+      )
+    }
+    const managed =
+      ctx.managedPanel !== undefined && Boolean(this.managedPanels)
+
     // The panel is built from the same plan as the panel page, behind
     // serve-citizen-panels (civicPanel is only read with it on).
-    if (ctx.civicPanel && this.civicPanelPlans) {
+    if (
+      ctx.civicPanel &&
+      this.civicPanelPlans &&
+      (!managed || ctx.civicPanel.hasPlan)
+    ) {
       Object.assign(
         tools,
         buildCivicPanelPlanTools({

@@ -13,8 +13,15 @@ export const CLARIFY_TOOL = 'ask_clarify_question'
 // the model writing them, but it waits on an answer like any clarify question.
 export const PANEL_WEEKLY_TIME_TOOL = 'ask_panel_weekly_time'
 
+// The Chief of Staff's offer to show the managed civic panel's invite: fixed
+// words the app draws (chief-of-staff managedPanelWidgets), answered like a
+// clarify question.
+export const MANAGED_PANEL_OFFER_TOOL = 'offer_managed_panel_invite'
+
 export const isQuestionTool = (toolName: string | null | undefined): boolean =>
-  toolName === CLARIFY_TOOL || toolName === PANEL_WEEKLY_TIME_TOOL
+  toolName === CLARIFY_TOOL ||
+  toolName === PANEL_WEEKLY_TIME_TOOL ||
+  toolName === MANAGED_PANEL_OFFER_TOOL
 
 export const parseClarifyQuestion = (
   args: unknown,
