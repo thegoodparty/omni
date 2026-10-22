@@ -109,6 +109,21 @@ const openServeFlow = () => {
   return { onClose, onScheduled }
 }
 
+// Ops schedules every Serve text by hand: today (Tuesday the 1st, labeled
+// Today) and the next 2 business days stay closed, and the 3rd is open.
+const expectStandardServeGate = () => {
+  for (const day of [
+    /Tuesday, September 1(?!\d)/,
+    /^Wednesday, September 2(?!\d)/,
+    /^Thursday, September 3(?!\d)/,
+  ]) {
+    expect(screen.getByRole('button', { name: day })).toBeDisabled()
+  }
+  expect(
+    screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+  ).toBeEnabled()
+}
+
 describe('SmsFlow (Serve surface)', () => {
   beforeEach(() => {
     recommendedListsRequested = false
@@ -341,18 +356,44 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/All messages are sent at 11am local time\./)
 
-    // Today (Tuesday the 1st, labeled Today) plus 2 business days stay
-    // closed; the 3rd business day is open.
-    for (const day of [
-      /Tuesday, September 1(?!\d)/,
-      /^Wednesday, September 2(?!\d)/,
-      /^Thursday, September 3(?!\d)/,
-    ]) {
-      expect(screen.getByRole('button', { name: day })).toBeDisabled()
-    }
-    expect(
-      screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    ).toBeEnabled()
+    expectStandardServeGate()
+  })
+
+  // A panel invite step made later is a new campaign staff schedule by
+  // hand, so it gets the same gate from the day it is created.
+  it('gives a civic panel invite step the standard Serve date gate', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+    render(
+      <SmsFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        surface={SERVE_SMS_SURFACE}
+        preselectedListId={41}
+        audienceSettled
+        initialPurpose="build_citizens_panel"
+        initialAsksToJoinCivicPanel
+        initialScript="this is Jane, your Council Member. Join my civic panel."
+        launchSource="civic_panel"
+      />,
+    )
+
+    await screen.findByText(/Join my civic panel\./)
+    await userEvent.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/All messages are sent at 11am local time\./)
+
+    expectStandardServeGate()
   })
 
   it('keeps the opt-out footer and appends no paid-for-by line', async () => {

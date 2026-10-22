@@ -478,6 +478,17 @@ version, the live one, so the two Serve products make the same promise:
 * Estimated completion is `addBusinessDays(scheduledDate, 3)`, matching
   `polls.service.ts`.
 
+**Every newly scheduled Serve campaign gets the ops lead.** Ops schedules
+each Serve text by hand, so its send date must be on the 3rd business day or
+later: today and the next 2 business days are closed (`getDisabledState` in
+the picker, `assertServeSmsSendDateAllowed` on every Serve text and poll
+create in gp-api). That holds for a plain text, a civic panel plan step or
+`build_citizens_panel` invite, a Keep fresh wave, and any text made later to
+fill a panel gap, each from the day it is created. A priority's two rounds
+are bought and scheduled at once, so they share the first send's gate:
+round 2 gets no extra day of its own. Pinned by `SmsFlow.serveSurface.test.tsx`
+and gp-api's `outreachServeSmsSendDate.test.ts`.
+
 This is strictly simpler than Win's step: no hourly slots, no custom time, no
 48-hour arithmetic. It also drops `scheduledLocalTime` from the Serve create
 payload entirely, since the time is a constant rather than a choice.
