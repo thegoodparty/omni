@@ -377,15 +377,17 @@ const READ_STATUS_NAMES = Object.values(READ_REPRESENTATIVENESS_LABELS).join(
 
 // Every group heard but the district's total not met yet: more of anyone.
 const hearMoreFrom = (read: PriorityReadStatus): string =>
-  read.underrepresented.length === 0
-    ? read.status === 'notYetRepresentative'
-      ? 'more people overall'
-      : 'nobody in particular'
-    : joinGroupNames(
-        read.underrepresented.map((group) =>
-          underrepresentedGroupName(group, read.status),
-        ),
-      )
+  read.status === 'notYetRepresentative' &&
+  read.groupsTotal > 0 &&
+  read.groupsHeard === read.groupsTotal
+    ? 'more people overall'
+    : read.underrepresented.length === 0
+      ? 'nobody in particular'
+      : joinGroupNames(
+          read.underrepresented.map((group) =>
+            underrepresentedGroupName(group, read.status),
+          ),
+        )
 
 const PANEL_PAGE_LINK =
   '[Build your civic panel](/dashboard/contacts/citizens-panel)'

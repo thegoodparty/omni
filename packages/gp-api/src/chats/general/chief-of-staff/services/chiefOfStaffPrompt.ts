@@ -656,15 +656,17 @@ const formatRead = (read: PriorityReadStatus | undefined): string =>
           ? 'not known'
           : `${read.groupsHeard} of ${read.groupsTotal}`
       }, status: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
-        read.underrepresented.length === 0
-          ? read.status === 'notYetRepresentative'
-            ? 'more people overall'
-            : 'nobody in particular'
-          : joinGroupNames(
-              read.underrepresented.map((group) =>
-                underrepresentedGroupName(group, read.status),
-              ),
-            )
+        read.status === 'notYetRepresentative' &&
+        read.groupsTotal > 0 &&
+        read.groupsHeard === read.groupsTotal
+          ? 'more people overall'
+          : read.underrepresented.length === 0
+            ? 'nobody in particular'
+            : joinGroupNames(
+                read.underrepresented.map((group) =>
+                  underrepresentedGroupName(group, read.status),
+                ),
+              )
       }, good read: ${read.good ? 'yes' : 'no'}`
 
 const formatPriority = (

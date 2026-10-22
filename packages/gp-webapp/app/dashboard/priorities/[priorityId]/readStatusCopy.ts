@@ -11,8 +11,12 @@ const FEW_MORE_OVERALL = 'Need a few more answers overall'
 
 // Every group has its answers, but not yet the district's total: one
 // answer counts in every group, so the groups fill before the total does.
+// A group still too unsure may be named too, but the total is what holds
+// the read back.
 const onlyTotalShort = (read: PriorityReadStatus): boolean =>
-  read.status === 'notYetRepresentative' && read.underrepresented.length === 0
+  read.status === 'notYetRepresentative' &&
+  read.groupsTotal > 0 &&
+  read.groupsHeard === read.groupsTotal
 
 const groupList = (
   read: PriorityReadStatus,
@@ -68,6 +72,10 @@ export const READ_STATUS_COPY = {
       ? FEW_MORE_OVERALL
       : READ_REPRESENTATIVENESS_LABELS[read.status]
   },
+  // Whether the status line names groups, so a heading that already says
+  // the total is short is not repeated under it.
+  namesGroups: (read: PriorityReadStatus): boolean =>
+    read.underrepresented.length > 0 && !onlyTotalShort(read),
   // The status, then the groups it is about, for the phone's one row and
   // the desktop rail alike.
   statusLine: (read: PriorityReadStatus): string => {

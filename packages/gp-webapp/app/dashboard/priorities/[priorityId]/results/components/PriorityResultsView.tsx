@@ -123,7 +123,7 @@ export const PriorityResultsView = ({
             />
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          {readStatus.checkOut && readStatus.underrepresented.length > 0 ? (
+          {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
             <p className="text-sm text-foreground">
               {READ_STATUS_COPY.statusLine(readStatus)}
             </p>

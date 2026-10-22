@@ -290,8 +290,10 @@ district's floor (`answersNeeded` of its smallest major group, the target
 round 1 is sized to) and `answers` plus the fewest more that could give
 every major group 3 (the dimension furthest short). One answer counts in
 every dimension, so the groups can all have 3 before the total reaches the
-floor; the read is then `notYetRepresentative` with no group named, and the
-copy says "Need a few more answers overall" (`READ_STATUS_COPY`). It is a floor, not a promise, and no screen shows it: only analytics
+floor; the read is then `notYetRepresentative` with every group heard
+(`groupsHeard` equals `groupsTotal`), and the copy says "Need a few more
+answers overall" (`READ_STATUS_COPY`), even when a group still too unsure is
+in `underrepresented`, since the total is what holds it back. It is a floor, not a promise, and no screen shows it: only analytics
 (`answersFloor`) and sizing read it.
 `underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
 the one or two groups holding the read back: short of voices, or with a
