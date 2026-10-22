@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PriorityAnswerCode } from '@/generated/prisma'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { ADULT_AGE_BANDS } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
   estimateMrp,
@@ -101,7 +102,11 @@ const readOf = (answering: Resident[], split?: 'lean' | 'even') => {
   }))
   return mrpReadStatus({
     answers: answering.length,
-    read: { result: estimateMrp(answers, frame, {}), raceNameable: false },
+    read: {
+      result: estimateMrp(answers, frame, {}),
+      raceNameable: false,
+      answersNeeded: frameAnswersNeeded(frame),
+    },
   })
 }
 

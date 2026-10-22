@@ -7,6 +7,7 @@ import {
   batchWeights,
   CALL_ANSWER_RATE,
   DOOR_ANSWER_RATE,
+  frameAnswersNeeded,
   MAX_TARGET_WEIGHT,
   MIN_TARGET_WEIGHT,
   roundOneHours,
@@ -43,6 +44,30 @@ const groups: MrpGroupEstimate[] = [
   estimate('race', 'other', 0.1, 1, 0.8),
   estimate('precinct', 'p1', 0.5, 0, 0.9),
 ]
+
+describe('frameAnswersNeeded', () => {
+  it('sizes for the smallest major group, race only when it can be named', () => {
+    const frame = [
+      { count: 900, values: { age: '35to44', race: 'white' } },
+      { count: 50, values: { age: '65plus', race: 'black' } },
+      { count: 50, values: { age: '65plus', race: 'white' } },
+    ]
+    // Race named: black residents are 5% of the district.
+    expect(frameAnswersNeeded(frame)).toBe(60)
+    // Race unknown for most: only the age bands count, the older at 10%.
+    expect(
+      frameAnswersNeeded(
+        frame.map((cell, i) =>
+          i === 0 ? { count: cell.count, values: { age: '35to44' } } : cell,
+        ),
+      ),
+    ).toBe(30)
+  })
+
+  it('sizes for the smallest a major group can be with no major group', () => {
+    expect(frameAnswersNeeded([])).toBe(100)
+  })
+})
 
 describe('batchTargets', () => {
   it('puts groups short of three voices first, then the most doubt', () => {

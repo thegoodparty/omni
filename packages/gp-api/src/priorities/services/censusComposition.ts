@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { addMinutes, isAfter } from 'date-fns'
 import {
-  answersNeeded,
   DISTRICT_GRID_CELL_DEGREES,
   type GeoJsonShape,
 } from '@goodparty_org/contracts'
@@ -15,10 +14,7 @@ import type {
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import {
-  smallestMajorShare,
-  type TargetedDimension,
-} from '@/contacts/utils/civicPanelAllocation.util'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import {
   POOLED_VALUE,
   raceNameable,
@@ -95,9 +91,9 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
-  // The answers a good read of the district needs: answersNeeded of its
-  // smallest major group, from the cells the model reads. Null when the
-  // district or its people could not be read.
+  // The answers a good read of the district needs: frameAnswersNeeded of
+  // the frame the model reads, the same floor the read holds a priority to.
+  // Null when the district or its people could not be read.
   districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
@@ -195,7 +191,6 @@ export class DistrictCensusComposition implements CensusCompositionSource {
   ): {
     frame: MrpFrameCell[]
     races: Record<string, number> | undefined
-    raked: DistrictCell[]
   } {
     const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
       district: input.district,
@@ -217,7 +212,6 @@ export class DistrictCensusComposition implements CensusCompositionSource {
         values: knownValues(modelValues(cell, races)),
       })),
       races,
-      raked,
     }
   }
 
@@ -300,15 +294,12 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     try {
       const { district, cells, tractAdults } = await this.districtCellsOf(input)
       if (!district || cells.length === 0) return null
-      const { frame, raked } = this.frameOf(input.districtId, {
+      const { frame } = this.frameOf(input.districtId, {
         district,
         cells,
         tractAdults,
       })
-      const dimensions: TargetedDimension[] = raceNameable(raked)
-        ? ['age', 'gender', 'tract', 'race']
-        : ['age', 'gender', 'tract']
-      return answersNeeded(smallestMajorShare(frame, dimensions))
+      return frameAnswersNeeded(frame)
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },

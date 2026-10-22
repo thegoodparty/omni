@@ -657,7 +657,9 @@ const formatRead = (read: PriorityReadStatus | undefined): string =>
           : `${read.groupsHeard} of ${read.groupsTotal}`
       }, status: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
         read.underrepresented.length === 0
-          ? 'nobody in particular'
+          ? read.status === 'notYetRepresentative'
+            ? 'more people overall'
+            : 'nobody in particular'
           : joinGroupNames(
               read.underrepresented.map((group) =>
                 underrepresentedGroupName(group, read.status),
@@ -691,7 +693,7 @@ const prioritiesBlock = (
 // Behind serve-citizen-panels, with each priority's read status in
 // <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
 const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
-- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back,A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
+- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back,A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
 - Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
 - Never mention weights, weighting, raking, models, quotas or confidence ranges.
 - If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`

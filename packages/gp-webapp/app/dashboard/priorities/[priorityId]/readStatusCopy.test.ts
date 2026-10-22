@@ -78,6 +78,24 @@ describe('READ_STATUS_COPY.statusLine', () => {
     )
   })
 
+  it('asks for more answers overall once every group has its own', () => {
+    const short = read({
+      status: 'notYetRepresentative',
+      groupsHeard: 20,
+      groupsTotal: 20,
+      needed: 100,
+    })
+    expect(READ_STATUS_COPY.statusLine(short)).toBe(
+      'Need a few more answers overall',
+    )
+    expect(READ_STATUS_COPY.label(short)).toBe(
+      'Need a few more answers overall',
+    )
+    expect(READ_STATUS_COPY.heldBack(short)).toBe(
+      "We'll show what we heard once enough people have answered.",
+    )
+  })
+
   it('labels a read with nobody heard from as waiting to hear back', () => {
     expect(READ_STATUS_COPY.label(read({}))).toBe('Waiting to hear back')
     expect(READ_STATUS_COPY.statusLine(read({}))).toBe('Waiting to hear back')

@@ -26,6 +26,10 @@ export interface MrpRead {
   // Whether a race group may be named (raceNameable). Race still shapes the
   // model either way; it only stops counting as a major group.
   raceNameable: boolean
+  // The district's answers needed (frameAnswersNeeded of the model's frame):
+  // fewer answers than this never read as representative, however the
+  // groups split them, since one answer counts once on every dimension.
+  answersNeeded: number
 }
 
 const dimensionsOf = (raceNameable: boolean): TargetedDimension[] =>
@@ -68,10 +72,11 @@ const answersMissing = (
   )
 
 // The one place a "good read" is decided, so every surface that reads it
-// changes together. A good read is a representative one: every group
-// holding MAJOR_GROUP_SHARE of the district on a steered dimension has its
-// voices, and the model is sure enough of each. `answers` is the people
-// heard; the groups count coded answers. When the district could not be
+// changes together. A good read is a representative one: the district's
+// answersNeeded heard in all, every group holding MAJOR_GROUP_SHARE of the
+// district on a steered dimension has its voices, and the model is sure
+// enough of each. `answers` is the people heard; the groups count coded
+// answers. When the district could not be
 // read, enough answers alone (answersNeeded of the smallest major group a
 // district can have) are a good read, under its own status.
 export const mrpReadStatus = (input: {
@@ -98,7 +103,10 @@ export const mrpReadStatus = (input: {
   }
   const status = ((): ReadRepresentativeness => {
     if (majors.some((group) => group.answers === 0)) return 'tooEarly'
-    if (majors.some((group) => group.answers < MIN_VOICES_PER_GROUP)) {
+    if (
+      answers < (read?.answersNeeded ?? 0) ||
+      majors.some((group) => group.answers < MIN_VOICES_PER_GROUP)
+    ) {
       return 'notYetRepresentative'
     }
     return majors.some(
@@ -139,7 +147,11 @@ export const mrpReadStatus = (input: {
   }
   return {
     answers,
-    needed: Math.max(1, answers + answersMissing(majors, dimensions)),
+    needed: Math.max(
+      1,
+      read?.answersNeeded ?? 0,
+      answers + answersMissing(majors, dimensions),
+    ),
     groupsHeard: majors.filter((group) => group.answers >= MIN_VOICES_PER_GROUP)
       .length,
     groupsTotal: majors.length,

@@ -7,6 +7,12 @@ import {
 } from '@goodparty_org/contracts'
 
 const NO_ONE_ASKED = 'No one asked yet'
+const FEW_MORE_OVERALL = 'Need a few more answers overall'
+
+// Every group has its answers, but not yet the district's total: one
+// answer counts in every group, so the groups fill before the total does.
+const onlyTotalShort = (read: PriorityReadStatus): boolean =>
+  read.status === 'notYetRepresentative' && read.underrepresented.length === 0
 
 const groupList = (
   read: PriorityReadStatus,
@@ -56,15 +62,18 @@ export const READ_STATUS_COPY = {
   whatWeHeard: 'What we heard',
   progress: (read: PriorityReadStatus): string =>
     `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
-  label: (read: PriorityReadStatus): string =>
-    read.good || read.checkOut
-      ? READ_REPRESENTATIVENESS_LABELS[read.status]
-      : NO_ONE_ASKED,
+  label: (read: PriorityReadStatus): string => {
+    if (!read.good && !read.checkOut) return NO_ONE_ASKED
+    return onlyTotalShort(read)
+      ? FEW_MORE_OVERALL
+      : READ_REPRESENTATIVENESS_LABELS[read.status]
+  },
   // The status, then the groups it is about, for the phone's one row and
   // the desktop rail alike.
   statusLine: (read: PriorityReadStatus): string => {
     if (read.good) return READ_STATUS_COPY.goodLine(read)
     if (!read.checkOut) return READ_STATUS_COPY.noOneAsked
+    if (onlyTotalShort(read)) return FEW_MORE_OVERALL
     if (read.underrepresented.length === 0) {
       return READ_REPRESENTATIVENESS_LABELS[read.status]
     }
@@ -76,7 +85,7 @@ export const READ_STATUS_COPY = {
   // The results page's held card, under the status line: why what was
   // heard is not shown yet, without claiming nobody answered.
   heldBack: (read: PriorityReadStatus): string => {
-    if (read.groupsTotal === 0) {
+    if (read.groupsTotal === 0 || onlyTotalShort(read)) {
       return "We'll show what we heard once enough people have answered."
     }
     return read.status === 'gettingClose'
