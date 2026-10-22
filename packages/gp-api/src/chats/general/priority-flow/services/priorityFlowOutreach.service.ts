@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { format, parseISO } from 'date-fns'
-import type { ChatCardKind } from '@goodparty_org/contracts'
+import { format } from 'date-fns'
+import { outreachHasGoneOut, type ChatCardKind } from '@goodparty_org/contracts'
 import {
   Outreach,
   OutreachStatus,
@@ -23,10 +23,6 @@ const UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.draft,
   OutreachStatus.canceled,
 ]
-const GONE_OUT_STATUSES: OutreachStatus[] = [
-  OutreachStatus.in_progress,
-  OutreachStatus.completed,
-]
 // The sends a note can be taken on. A Win text's replies come back as
 // timestamps, never words, so on a campaign it has nothing to read and would
 // read as nobody answering.
@@ -48,8 +44,11 @@ export interface PastOutreachRow {
   audience: string
   channel: OutreachType
   status: string | null
-  recipients: number | null
+  // yyyy-MM-dd. scheduledFor is the day it is set to go out; sentOn is that
+  // day once it has gone, and null until then.
+  scheduledFor: string | null
   sentOn: string | null
+  recipients: number | null
   replies: number
   // Replies over recipients, so a sample is sized on what this office's
   // texts actually bring back. Null until something has gone out.
@@ -69,6 +68,7 @@ export interface OutreachFeedback {
   outreachId: number
   audience: string
   channel: OutreachType
+  scheduledFor: string | null
   sentOn: string | null
   heardFrom: number
   verbatims: OutreachVerbatim[]
@@ -96,8 +96,11 @@ export interface PriorityAnchorSummary {
 export class PriorityFlowOutreachService extends createPrismaBase(
   MODELS.Outreach,
 ) {
+  // `today` is the reader's local day (yyyy-MM-dd), the one their date line
+  // shows, so a send is never read as out before that line's day reaches it.
   async forPriority(
     priorityId: string,
+    today: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -108,12 +111,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'priority')
+    return this.withReplyCounts(rows, 'priority', today)
   }
 
   async forOffice(
     organizationSlug: string,
     priorityId: string | null,
+    today: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -134,13 +138,14 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office')
+    return this.withReplyCounts(rows, 'office', today)
   }
 
   // A campaign's sends, by campaignId: an org can hold a Campaign and an
   // ElectedOffice at once, so its slug alone would mix in the office's sends.
   async forCampaign(
     campaignId: number,
+    today: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -151,7 +156,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office')
+    return this.withReplyCounts(rows, 'office', today)
   }
 
   // Whether every one of these sends put out this side of this priority's
@@ -179,15 +184,22 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     return matching === ids.length
   }
 
-  async summarizeAnchors(priorityId: string): Promise<PriorityAnchorSummary[]> {
-    const rows = await this.forPriority(priorityId)
+  async summarizeAnchors(
+    priorityId: string,
+    today: string,
+  ): Promise<PriorityAnchorSummary[]> {
+    const rows = await this.forPriority(priorityId, today)
     return rows.map((row) => ({
       kind: 'outreach_proposal' as const,
       ref: `outreach:${row.outreachId}`,
       line: [
         row.audience,
         row.recipients === null ? null : `${row.recipients} recipients`,
-        row.sentOn === null ? `not sent yet` : `sent ${row.sentOn}`,
+        row.sentOn !== null
+          ? `sent ${row.sentOn}`
+          : row.scheduledFor === null
+            ? 'not sent yet'
+            : `scheduled for ${row.scheduledFor}, not sent yet`,
         `${row.replies} replies`,
       ]
         .filter((part): part is string => part !== null)
@@ -201,6 +213,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   async feedbackFor(
     organizationSlug: string,
     scope: { priorityId?: string | null; outreachId?: number },
+    today: string,
   ): Promise<OutreachFeedback[]> {
     const rows = await this.findMany({
       where: {
@@ -216,12 +229,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           ? RECENT_SENDS_WITHOUT_SCOPE
           : MAX_ROWS,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, today)))
   }
 
   // A campaign's door and call notes, by campaignId like forCampaign.
   async feedbackForCampaign(
     campaignId: number,
+    today: string,
     outreachId?: number,
   ): Promise<OutreachFeedback[]> {
     const rows = await this.findMany({
@@ -234,10 +248,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: RECENT_SENDS_WITHOUT_SCOPE,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, today)))
   }
 
-  private async feedbackForSend(row: Outreach): Promise<OutreachFeedback> {
+  private async feedbackForSend(
+    row: Outreach,
+    today: string,
+  ): Promise<OutreachFeedback> {
     const verbatims =
       row.outreachType === OutreachType.text
         ? await this.textReplies(row.id)
@@ -275,7 +292,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       outreachId: row.id,
       audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
       channel: row.outreachType,
-      sentOn: sentOn(row),
+      ...sendDays(row, today),
       heardFrom: verbatims.length,
       verbatims: verbatims.slice(0, MAX_VERBATIMS_PER_SEND),
       verbatimsLeftOut: Math.max(0, verbatims.length - MAX_VERBATIMS_PER_SEND),
@@ -385,6 +402,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   private async withReplyCounts(
     rows: Outreach[],
     scope: 'priority' | 'office',
+    today: string,
   ): Promise<PastOutreachRow[]> {
     if (rows.length === 0) return []
     const replies = await this.client.contactInteractionText.groupBy({
@@ -409,8 +427,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
         channel: row.outreachType,
         status: row.status,
+        ...sendDays(row, today),
         recipients,
-        sentOn: sentOn(row),
         replies,
         replyRate:
           recipients === null || recipients === 0
@@ -433,17 +451,21 @@ const channelWhere = (channel?: OutreachType): Prisma.OutreachWhereInput =>
       }
 
 // A Serve text has no `date`: it goes out at a fixed local hour on
-// scheduledLocalDate, so that day is when it went once it has gone.
-const sentOn = (row: Outreach): string | null => {
-  if (row.date !== null) return format(row.date, 'd MMM')
-  if (
-    row.scheduledLocalDate === null ||
-    row.status === null ||
-    !GONE_OUT_STATUSES.includes(row.status)
-  ) {
-    return null
+// scheduledLocalDate, so that day is when it went once it has gone. Full
+// yyyy-MM-dd, never a bare "27 Oct", so the model cannot misplace the year.
+const sendDays = (
+  row: Outreach,
+  today: string,
+): { scheduledFor: string | null; sentOn: string | null } => {
+  const scheduledFor =
+    row.scheduledLocalDate ??
+    (row.date === null ? null : format(row.date, 'yyyy-MM-dd'))
+  return {
+    scheduledFor,
+    sentOn: outreachHasGoneOut({ status: row.status, scheduledFor }, today)
+      ? scheduledFor
+      : null,
   }
-  return format(parseISO(row.scheduledLocalDate), 'd MMM')
 }
 
 // The one rule for how many people a theme covers, shared by a send's

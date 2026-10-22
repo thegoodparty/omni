@@ -667,12 +667,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
         outreach: this.pastOutreach,
         campaignId: ctx.campaignId,
+        today: localDay(ctx.state, ctx.now),
       })
       if (ctx.outreachFeedbackEnabled) {
         tools.read_outreach_feedback =
           buildCampaignManagerReadOutreachFeedbackTool({
             outreach: this.pastOutreach,
             campaignId: ctx.campaignId,
+            today: localDay(ctx.state, ctx.now),
           })
       }
       tools.present_past_outreach =

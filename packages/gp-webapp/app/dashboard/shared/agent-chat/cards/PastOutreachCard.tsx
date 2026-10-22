@@ -35,7 +35,8 @@ const PastOutreachChip = ({
     isText && row.status === 'completed',
     mode,
   )
-  const when = row.date ?? row.createdAt
+  // A Serve text carries its day only in scheduledLocalDate.
+  const when = row.scheduledLocalDate ?? row.date ?? row.createdAt
   const count = row.textCount ?? row.billableTextCount
   return (
     <CompactCardLink

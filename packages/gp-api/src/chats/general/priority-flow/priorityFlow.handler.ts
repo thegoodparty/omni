@@ -84,6 +84,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { localDay } from '../services/todayLine'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -282,9 +283,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             ])
           ).get(ctx.priorityId)
         : undefined
+    // Read against the office's own day, so the thread never calls a send out
+    // that the prompt's date line has not reached yet.
+    const anchorSummaries = await this.outreach.summarizeAnchors(
+      ctx.priorityId,
+      localDay(resolved?.state),
+    )
     if (!resolved) {
       return {
         ...ctx,
+        anchorSummaries,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
@@ -295,6 +303,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     }
     return {
       ...ctx,
+      anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
       panelHoursPerWeek,
@@ -554,6 +563,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        today: localDay(ctx.state),
       }),
     }
 
@@ -572,6 +582,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        today: localDay(ctx.state),
         goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {

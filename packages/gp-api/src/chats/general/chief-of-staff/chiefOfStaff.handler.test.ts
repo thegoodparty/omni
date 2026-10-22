@@ -1064,7 +1064,12 @@ describe('ChiefOfStaffHandler', () => {
       }
       expect(await read.execute({})).toEqual({ priority: [], office: [] })
       expect(forPriority).not.toHaveBeenCalled()
-      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+      expect(forOffice).toHaveBeenCalledWith(
+        ORG,
+        null,
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        undefined,
+      )
     })
 
     it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {

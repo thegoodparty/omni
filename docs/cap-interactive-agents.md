@@ -189,7 +189,13 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   by either name returns the legacy rows and the native walks and call lists,
   because the model asks for `doorKnocking` and a walk is stored as
   `nativeDoorKnocking`. The card picks its detail route, results route and
-  outreach hub from the surface's mode.
+  outreach hub from the surface's mode. Each row (and each
+  `read_outreach_feedback` send) carries `status`, `scheduledFor` and
+  `sentOn`, both days as yyyy-MM-dd; `sentOn` stays null until the send has
+  gone out by contracts' `outreachHasGoneOut`, read against the user's local
+  day (`localDay`, the day the prompt's date line shows). No column records a
+  send's delivery, and a Serve text reads `in_progress` from the moment it is
+  paid for, days before its day.
 - **`read_outreach_feedback`** — what came back in people's own words: text
   replies, door and call notes with their issues, and each send's themes
   (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read

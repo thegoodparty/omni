@@ -17,10 +17,7 @@ import { PriorityStatusService } from '@/priorities/services/priorityStatus.serv
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
-import {
-  PriorityFlowOutreachService,
-  type PriorityAnchorSummary,
-} from './priorityFlowOutreach.service'
+import type { PriorityAnchorSummary } from './priorityFlowOutreach.service'
 
 export interface PriorityFlowContext {
   conversationId: string
@@ -68,23 +65,21 @@ export interface PriorityFlowContext {
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
-// office that owns it, the durable seven-step status, and a resolved line per
-// card the thread has already left.
+// office that owns it and the durable seven-step status. The line per card the
+// thread has already left is read by the handler, once the office's state is
+// known, against that state's day.
 @Injectable()
 export class PriorityFlowContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(
-    private readonly outreach: PriorityFlowOutreachService,
-    private readonly priorityStatus: PriorityStatusService,
-  ) {
+  constructor(private readonly priorityStatus: PriorityStatusService) {
     super()
   }
 
   async load(
     conversationId: string,
     userId: number,
-  ): Promise<PriorityFlowContext> {
+  ): Promise<Omit<PriorityFlowContext, 'anchorSummaries'>> {
     const conversation = await this.findFirst({
       where: {
         id: conversationId,
@@ -141,7 +136,6 @@ export class PriorityFlowContextService extends createPrismaBase(
       source: priority.source,
       sourceCommunityIssueId: priority.sourceCommunityIssueId,
       status,
-      anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
       constituentToolEnabled: false,
       peopleDataset: 'voters',
