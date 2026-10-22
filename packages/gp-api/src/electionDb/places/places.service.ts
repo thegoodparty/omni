@@ -25,9 +25,64 @@ const DISTRICT_MTFCC: Record<string, boolean> = {
   G5400: true,
 }
 
+// A place read that loads races walks every race row under the place and then
+// collapses them by slug in memory, so it holds a connection for seconds while
+// returning kilobytes (ca/los-angeles-county: 10-27s for 40 KB). The marketing
+// crawl asks for the same place several times a minute and, on 2026-10-22,
+// three identical reads ran at once and drained the pool. Identical race
+// reads share one in-flight query and reuse its answer for a minute, which
+// costs no freshness the sync cadence would show. Per process.
+const RACE_READ_TTL_MS = 60_000
+const MAX_RACE_READ_ENTRIES = 200
+
+type PlacesResult = Awaited<ReturnType<PlacesService['loadPlaces']>>
+
 @Injectable()
 export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
-  async getPlaces(filterDto: PlaceFilterDto) {
+  private readonly raceReads = new Map<
+    string,
+    { expiresAtMs: number; pending: Promise<PlacesResult> }
+  >()
+
+  async getPlaces(filterDto: PlaceFilterDto): Promise<PlacesResult> {
+    if (!filterDto.includeRaces && !filterDto.includeChildRaces) {
+      return this.loadPlaces(filterDto)
+    }
+
+    const now = Date.now()
+    const key = JSON.stringify(
+      Object.entries(filterDto).sort(([a], [b]) => a.localeCompare(b)),
+    )
+    const existing = this.raceReads.get(key)
+    if (existing && existing.expiresAtMs > now) return existing.pending
+
+    const pending = this.loadPlaces(filterDto)
+    this.raceReads.set(key, {
+      expiresAtMs: now + RACE_READ_TTL_MS,
+      pending,
+    })
+    this.evictRaceReads(now)
+    pending.catch(() => {
+      if (this.raceReads.get(key)?.pending === pending) {
+        this.raceReads.delete(key)
+      }
+    })
+    return pending
+  }
+
+  private evictRaceReads(now: number) {
+    if (this.raceReads.size <= MAX_RACE_READ_ENTRIES) return
+    for (const [key, entry] of this.raceReads) {
+      if (entry.expiresAtMs <= now) this.raceReads.delete(key)
+    }
+    while (this.raceReads.size > MAX_RACE_READ_ENTRIES) {
+      const oldest = this.raceReads.keys().next().value
+      if (oldest === undefined) break
+      this.raceReads.delete(oldest)
+    }
+  }
+
+  async loadPlaces(filterDto: PlaceFilterDto) {
     const {
       page = 1,
       pageSize = DEFAULT_PLACE_PAGE_SIZE,
