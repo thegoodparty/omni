@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { subHours } from 'date-fns'
+import { subDays, subHours } from 'date-fns'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import {
   OutreachFunding,
@@ -19,7 +19,9 @@ import { recordManagedPanelFundingAlarm } from '../observability/managedPanelFun
 const RECONCILE_CRON = '47 6 * * *'
 export const MANAGED_PANEL_FUNDING_RECONCILE_JOB =
   'managedPanelFundingReconcile'
-const WINDOW_HOURS = 24
+// Keyed on creation, not the last write, so an unfunded send that is never
+// touched again keeps paging every day for a week instead of once.
+const WINDOW_DAYS = 7
 // A claimed pilot wave is handed off within seconds of its enqueue; one still
 // `pending` this long lost its queue message and will never send on its own.
 const STUCK_PILOT_HOURS = 4
@@ -54,9 +56,10 @@ export type FundingMismatch = {
 }
 
 /**
- * The daily backstop on free sends. Every Serve text or poll send that moved
- * past `pending_payment` in the last day must hold a paid checkout session or
- * be a managed civic panel wave of its own organization funded by the pilot.
+ * The daily backstop on free sends. Every Serve text or poll send created in
+ * the last week that moved past `pending_payment` must hold a paid checkout
+ * session or be a managed civic panel wave of its own organization funded by
+ * the pilot.
  * Anything else is a send that skipped payment, and raises the alarm. Read
  * only: it never changes a row.
  */
@@ -103,14 +106,14 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
   }
 
   async reconcile(now: Date = new Date()): Promise<FundingMismatch[]> {
-    const since = subHours(now, WINDOW_HOURS)
+    const since = subDays(now, WINDOW_DAYS)
 
     const unpaidSends = await this.model.findMany({
       where: {
         campaignId: null,
         outreachType: { in: [OutreachType.text, OutreachType.poll] },
         status: { in: CLAIMED_STATUSES },
-        updatedAt: { gte: since },
+        createdAt: { gte: since },
         stripeCheckoutSessionId: null,
       },
       select: {
@@ -220,7 +223,7 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
               text: {
                 type: SlackMessageType.MRKDWN,
                 text: [
-                  'Unfunded: moved past checkout in the last day with ' +
+                  'Unfunded: created this week, past checkout, with ' +
                     'neither a paid checkout nor a managed civic panel wave. ' +
                     'Stuck: a pilot wave still waiting to send after ' +
                     `${STUCK_PILOT_HOURS} hours; re-run its claim to enqueue it.`,

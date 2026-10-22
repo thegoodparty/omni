@@ -197,10 +197,20 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
     expect(await reconciler().reconcile()).toEqual([])
   })
 
-  it('looks back one day only', async () => {
+  it('keeps reporting an unfunded send for a week after it was created', async () => {
+    const stale = await send()
+    await service.prisma
+      .$executeRaw`UPDATE outreach SET "updatedAt" = now() - interval '3 days', "createdAt" = now() - interval '3 days' WHERE id = ${stale.id}`
+
+    expect((await reconciler().reconcile()).map((m) => m.outreachId)).toEqual([
+      stale.id,
+    ])
+  })
+
+  it('stops after a week', async () => {
     const old = await send()
     await service.prisma
-      .$executeRaw`UPDATE outreach SET "updatedAt" = now() - interval '2 days' WHERE id = ${old.id}`
+      .$executeRaw`UPDATE outreach SET "updatedAt" = now() - interval '8 days', "createdAt" = now() - interval '8 days' WHERE id = ${old.id}`
 
     expect(await reconciler().reconcile()).toEqual([])
   })
