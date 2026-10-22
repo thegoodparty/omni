@@ -1,4 +1,8 @@
 import type {
+  LinkPersonProfileOwnerInput,
+  PersonProfileLink,
+} from '@goodparty_org/contracts'
+import type {
   ClearPersonProfileRemovalInput,
   ClearPersonProfileRemovalOutput,
   ListPersonProfileRemovalsOptions,
@@ -10,9 +14,10 @@ import type {
 import { BaseResource } from './BaseResource'
 
 /**
- * Admin/ops surface for privacy takedowns on public /people profiles. Every
- * route here is admin/M2M-gated: unlike the public sitemap feed, these expose
- * the free-text ops note and the operator who acted.
+ * Admin/ops surface for public /people profiles: privacy takedowns, and the
+ * user-to-person link that unlocks a candidate's profile editor. Every route
+ * here is admin/M2M-gated: unlike the public sitemap feed, these expose the
+ * free-text ops note, the operator who acted, and which account owns a page.
  */
 export class PersonProfilesResource extends BaseResource {
   protected readonly resourceBasePath = '/person-profiles'
@@ -56,4 +61,20 @@ export class PersonProfilesResource extends BaseResource {
       `${this.resourceBasePath}/removals/lookup`,
       { q: query }
     )
+
+  /** Which civics person a user is linked to, if any, and whether they have a profile. */
+  getLink = (userId: number): Promise<PersonProfileLink> =>
+    this.getRequest<PersonProfileLink>(`${this.resourceBasePath}/links`, {
+      userId,
+    })
+
+  /**
+   * Links an unlinked user to a live person nobody else holds. Rejects with a
+   * 409 when either side is already taken and a 400 naming the survivor when
+   * the person was merged away; it never moves an existing link.
+   */
+  linkOwner = (
+    input: LinkPersonProfileOwnerInput
+  ): Promise<PersonProfileLink> =>
+    this.postRequest<PersonProfileLink>(`${this.resourceBasePath}/links`, input)
 }

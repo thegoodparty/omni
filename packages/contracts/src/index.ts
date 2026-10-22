@@ -1859,3 +1859,11 @@ export {
   PICKED_NEXT_STEPS_LEAD,
   pickedNextStepsMessage,
 } from './chats/ChiefOfStaffNextSteps'
+export {
+  LinkPersonProfileOwnerInputSchema,
+  type LinkPersonProfileOwnerInput,
+  GetPersonProfileLinkQuerySchema,
+  type GetPersonProfileLinkQuery,
+  PersonProfileLinkSchema,
+  type PersonProfileLink,
+} from './personProfiles/PersonProfileLink.schema'

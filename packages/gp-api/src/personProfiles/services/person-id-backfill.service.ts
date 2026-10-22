@@ -1,11 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
+import { PersonsService } from '@/electionDb/persons/persons.service'
 import { UsersService } from '@/users/services/users.service'
 import { Prisma, User } from '../../generated/prisma'
 import { MarketingRevalidationService } from './marketing-revalidation.service'
+import { PersonLookupService } from './person-lookup.service'
+import { PersonProfileLink } from '../schemas/LinkPersonProfileOwner.schema'
 import {
   PersonIdDriftResult,
   recordPersonIdDrift,
@@ -35,6 +43,8 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
     private readonly usersService: UsersService,
     private readonly revalidation: MarketingRevalidationService,
     private readonly personMerges: PersonMergesService,
+    private readonly persons: PersonsService,
+    private readonly personLookup: PersonLookupService,
   ) {
     super()
   }
@@ -73,6 +83,95 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
         'person_id backfill failed; leaving user unlinked',
       )
       return user.personId ?? null
+    }
+  }
+
+  /**
+   * Operator escape hatch for a user the data platform cannot link. The mart
+   * publishes no gp-api user for a person group that holds more than one
+   * gp-api account, and a deleted account stays in the warehouse copy of the
+   * users table, so a candidate who deleted and re-created their account is
+   * locked out of the editor for good. Only ever links an unlinked user to a
+   * live person nobody else holds: moving an existing link is the drift
+   * sweep's job, because it has to carry the profile and takedown with it.
+   */
+  async linkUserByOperator(
+    userId: number,
+    personId: string,
+    linkedBy: string,
+  ): Promise<void> {
+    const user = await this.model.findUnique({ where: { id: userId } })
+    if (!user) throw new NotFoundException('No user with that id')
+    if (user.personId === personId) return
+    if (user.personId) {
+      throw new ConflictException(
+        'This user is already linked to a different person',
+      )
+    }
+
+    // getPersonById never forwards a retired id, so ask the merge table first
+    // to tell the operator where the record went rather than "not found".
+    const survivingId = await this.survivorOfRetired(personId)
+    if (survivingId) {
+      throw new BadRequestException(
+        `That person record was merged into ${survivingId}. Link to the surviving record instead`,
+      )
+    }
+    try {
+      await this.persons.getPersonById(personId)
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException('No person matches that id')
+      }
+      throw error
+    }
+
+    const holder = await this.model.findFirst({
+      where: { personId },
+      select: { id: true },
+    })
+    if (holder) {
+      throw new ConflictException(
+        `That person is already linked to user ${holder.id}`,
+      )
+    }
+
+    try {
+      await this.usersService.updateUser({ id: userId }, { personId })
+    } catch (error) {
+      // The holder check above races with any concurrent link. The global
+      // filter would still 409 this, but with a generic message, and the
+      // operator reads this one verbatim in gp-admin.
+      if (!isUniqueConstraintError(error)) throw error
+      throw new ConflictException('That person was just linked to another user')
+    }
+    this.logger.info(
+      { userId, personId, linkedBy },
+      'person_id linked by an operator',
+    )
+  }
+
+  // The operator's view of one user's link: who they are linked to and
+  // whether they have made a profile yet, which is what decides whether the
+  // editor or the "still setting up" message shows.
+  async describeLink(userId: number): Promise<PersonProfileLink> {
+    const user = await this.model.findUnique({
+      where: { id: userId },
+      select: { personId: true, personProfile: { select: { id: true } } },
+    })
+    if (!user) throw new NotFoundException('No user with that id')
+
+    const identity = user.personId
+      ? (await this.personLookup.resolveIdentities([user.personId])).get(
+          user.personId,
+        )
+      : undefined
+    return {
+      userId,
+      personId: user.personId,
+      fullName: identity?.fullName ?? null,
+      profileUrl: identity?.profileUrl ?? null,
+      hasProfile: Boolean(user.personProfile),
     }
   }
 

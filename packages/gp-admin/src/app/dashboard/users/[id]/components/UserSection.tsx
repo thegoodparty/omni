@@ -5,6 +5,7 @@ import { ProBadge } from '@/shared/components/ProBadge'
 import { formatPhone } from '@/lib/utils/phone'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
+import { PublicProfileCard } from './PublicProfileCard'
 import { useUser } from '../context/UserContext'
 import { UserRole } from '@/shared/gpApi'
 
@@ -89,6 +90,8 @@ export function UserSection({ isPro }: UserSectionProps) {
           )}
         </Flex>
       </InfoCard>
+
+      <PublicProfileCard />
     </Grid>
   )
 }

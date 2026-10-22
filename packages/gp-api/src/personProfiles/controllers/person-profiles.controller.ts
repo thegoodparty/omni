@@ -49,6 +49,12 @@ import {
   PersonProfileRemovalListSchema,
   SetPersonProfileRemovalDto,
 } from '../schemas/PersonProfileRemoval.schema'
+import {
+  GetPersonProfileLinkDto,
+  LinkPersonProfileOwnerDto,
+  PersonProfileLink,
+  PersonProfileLinkSchema,
+} from '../schemas/LinkPersonProfileOwner.schema'
 import { PersonLookupService } from '../services/person-lookup.service'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
@@ -103,7 +109,8 @@ export class PersonProfilesController {
 
   // Test-only: mint a canonical personId for the caller so an e2e can exercise
   // create/publish/unpublish through the real editor. Every other path to a
-  // personId is the data platform's (see PersonIdBackfillService), and a
+  // personId is the data platform's (see PersonIdBackfillService) or an
+  // operator's (POST /links), and a
   // synthetic test user is by construction absent from the civics
   // spine — so without this the browser e2e can only ever assert the pre-mint
   // "still setting up" state, and the publish toggle stays untested outside the
@@ -320,6 +327,35 @@ export class PersonProfilesController {
     }
     void this.revalidation.revalidatePerson(body.personId)
     return { personId: body.personId, removed: false as const }
+  }
+
+  // Hand-links a user the data platform cannot (see linkUserByOperator), so
+  // their editor unlocks. Same admin/M2M gate as the takedown routes, for the
+  // same reason: gp-admin calls with a shared M2M token.
+  @Get('links')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PersonProfileLinkSchema)
+  async getLink(
+    @Query() query: GetPersonProfileLinkDto,
+  ): Promise<PersonProfileLink> {
+    return this.personIdBackfill.describeLink(query.userId)
+  }
+
+  @Post('links')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(PersonProfileLinkSchema)
+  async linkOwner(
+    @Body() body: LinkPersonProfileOwnerDto,
+  ): Promise<PersonProfileLink> {
+    await this.personIdBackfill.linkUserByOperator(
+      body.userId,
+      body.personId,
+      body.linkedBy,
+    )
+    return this.personIdBackfill.describeLink(body.userId)
   }
 
   // Carries the ops note and the actor, so it stays behind the same admin guard
