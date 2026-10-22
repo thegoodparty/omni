@@ -44,6 +44,7 @@ import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -282,6 +283,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
     )
   })
@@ -1164,6 +1166,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
   })
 
@@ -1365,6 +1368,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
   })
 
@@ -1453,6 +1457,10 @@ describe('QueueConsumerService - message type routing', () => {
   }
   let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
   let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
+  let mockTextSendFunding: {
+    check: ReturnType<typeof vi.fn>
+    reportRefusal: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
@@ -1460,6 +1468,10 @@ describe('QueueConsumerService - message type routing', () => {
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
     mockPollExpansion = { resolveDelivery: vi.fn() }
+    mockTextSendFunding = {
+      check: vi.fn().mockResolvedValue({ funded: true, via: 'checkout' }),
+      reportRefusal: vi.fn(),
+    }
 
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1567,6 +1579,10 @@ describe('QueueConsumerService - message type routing', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        {
+          provide: OutreachTextSendFundingService,
+          useValue: mockTextSendFunding,
+        },
       ],
     }).compile()
     module = mod
@@ -1652,6 +1668,57 @@ describe('QueueConsumerService - message type routing', () => {
       imageUrl: 'https://example.com/flyer.png',
       scheduledLocalDate: '2026-10-08',
     })
+  })
+
+  it('acks an unfunded outreachTextSend without building an audience', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Trash pickup moves to Thursday.',
+      scheduledLocalDate: '2026-10-08',
+      voterFileFilterId: 77,
+    })
+    mockTextSendFunding.check.mockResolvedValue({
+      funded: false,
+      reason: 'unpaid',
+    })
+
+    const result = await service.processMessage(
+      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
+    )
+
+    expect(result).toBe(true)
+    expect(mockTextSendFunding.reportRefusal).toHaveBeenCalledWith(
+      1,
+      1,
+      'unpaid',
+    )
+    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+  })
+
+  it('leaves a send that is not pending to the delivery claim', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Trash pickup moves to Thursday.',
+      scheduledLocalDate: '2026-10-08',
+      voterFileFilterId: 77,
+    })
+    mockTextSendFunding.check.mockResolvedValue({
+      funded: false,
+      reason: 'not_sendable',
+    })
+    mockOutreachTextDelivery.requestSend.mockResolvedValue({
+      audienceResolved: false,
+      recipientCount: 0,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '1-1.csv',
+      terminalReason: 'not_sendable',
+    })
+
+    await service.processMessage(
+      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
+    )
+
+    expect(mockTextSendFunding.reportRefusal).not.toHaveBeenCalled()
+    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalled()
   })
 
   describe('outreachTextSend for a poll', () => {
@@ -2294,6 +2361,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        { provide: OutreachTextSendFundingService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2440,6 +2508,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        { provide: OutreachTextSendFundingService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2567,6 +2636,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2650,6 +2720,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
     )
   }
 

@@ -1204,16 +1204,38 @@ replacing the do-it-yourself build plan above
 (`docs/adr/2026-10-22-managed-civic-panel-replaces-build-plan.md`). The
 official approves once, in their own name; GoodParty then sends free,
 texts-only waves of that one invite until members reach the district goal.
-Only the model and the routes exist so far: no wave, job, free send or UI
-reads them yet.
+The model, the routes and the free-send claim exist so far; nothing creates
+a wave or sends one yet, and there is no UI.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
 if it is approved again. `status` is `building`, `ready`, `paused` or
 `stopped`. `ManagedPanelWave` is one row per wave (`wave` unique per
-enrollment), with the drawn list (`voterFileFilterId`), the send
-(`outreachId`, unique), `steeredToward` as on a build step, `sentAt` and
-`replyWindowEndsAt`.
+enrollment), with the drawn list (`voterFileFilterId`), `steeredToward` as on
+a build step, `sentAt` and `replyWindowEndsAt`. Its send links the other way,
+through `Outreach.managedPanelWaveId` (unique), so a free send's funding and
+its wave sit on one row a CHECK holds together.
+
+**Free sends.** A wave's send is free only through
+`ManagedWaveFundingService.claimFree(waveId)` (`src/managedWaveFunding/`),
+the one code path that sets `Outreach.fundedBy`. It has no route, and an
+import test fails the build if a controller, chat tool or request-serving
+service imports it. In one transaction it refuses unless the wave has a Serve `text` send in
+`pending_payment` with no checkout session and no funding, in the
+enrollment's own org, carrying exactly `inviteMessage`; the enrollment is
+`building`, still has its approver, and `serve-citizen-panels` is on for that
+approver; and `textCount` fits in `freeTextCap - freeTextsUsed`. It then
+claims the send `pending_payment -> pending` the way the SERVE_TEXT purchase
+does, stamps `fundedBy: goodparty_pilot` and `billableTextCount`, adds to
+`freeTextsUsed`, enqueues `outreachTextSend`, and posts a "pilot wave queued"
+notice naming the office to #bot-tevyn-api. An enqueue failure undoes all of
+it. A wave over the cap pauses the panel and posts a cap notice instead. The
+delivery layer checks the funding again before it hands a send off
+(`outreach/docs/text-delivery.md`, "The funding gate"), and a daily job
+reconciles every unpaid send. `serve-citizen-panels` is the only switch:
+off for the approving official, and neither the claim nor the send-time
+gate lets anything of theirs go out free. Decision:
+`docs/adr/2026-10-22-managed-panel-free-sends-and-guards.md`.
 
 The routes (`/v1/contacts/civic-panel/managed`, `ManagedCivicPanelService`,
 contracts in `people/ManagedCivicPanel.schema.ts`) are gated like every
