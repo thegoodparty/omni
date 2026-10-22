@@ -227,6 +227,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   // --- Optional: everything else ---------------------------------------
   CLERK_JWT_KEY: { tier: 'optional' },
+  PYROSCOPE_ENABLED: { tier: 'optional', default: 'false' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },
