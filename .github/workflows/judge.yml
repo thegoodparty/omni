@@ -2052,7 +2052,19 @@ jobs:
           npm ci --prefer-offline --no-audit --no-fund
           npm run build -w packages/contracts
           npm run build -w packages/nest-common
-          npm run generate:prisma:gp-api
+          # Same retry as the action's generate: a base arm on another Prisma
+          # version misses the engine cache it restored and downloads.
+          for attempt in 1 2 3; do
+            if npm run generate:prisma:gp-api; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::prisma generate failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::prisma generate attempt $attempt failed; retrying"
+            sleep $((attempt * 15))
+          done
           (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
 
       # HTTP ARMS ONLY. Mints the one Clerk session both arms present to the
