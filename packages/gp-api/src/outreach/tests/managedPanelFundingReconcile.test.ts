@@ -169,6 +169,24 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
     expect(slackMessage).toHaveBeenCalledTimes(1)
   })
 
+  it('reports a stuck pilot send on another office’s wave once, as unfunded', async () => {
+    const otherSlug = `${slug}-other`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const row = await freeWave(otherSlug)
+    await service.prisma.outreach.update({
+      where: { id: row.id },
+      data: { status: OutreachStatus.pending },
+    })
+    await service.prisma
+      .$executeRaw`UPDATE outreach SET "updatedAt" = now() - interval '5 hours' WHERE id = ${row.id}`
+
+    expect(await reconciler().reconcile()).toEqual([
+      expect.objectContaining({ outreachId: row.id, problem: 'unfunded' }),
+    ])
+  })
+
   it('leaves a pilot wave that was only just claimed', async () => {
     const row = await freeWave()
     await service.prisma.outreach.update({

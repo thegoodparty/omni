@@ -146,32 +146,38 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
       },
     })
 
+    const unfunded = unpaidSends
+      .filter(
+        (row) =>
+          !(
+            row.fundedBy === OutreachFunding.goodparty_pilot &&
+            row.outreachType === OutreachType.text &&
+            row.organizationSlug !== null &&
+            row.managedPanelWave?.enrollment.organizationSlug ===
+              row.organizationSlug
+          ),
+      )
+      .map((row) => ({
+        outreachId: row.id,
+        sendSeq: 1,
+        organizationSlug: row.organizationSlug,
+        status: row.status ?? OutreachStatus.pending,
+        problem: 'unfunded' as const,
+      }))
+    // A send that is both is reported once, as unfunded: whether it may go
+    // out free at all comes before whether its queue message was lost.
+    const unfundedIds = new Set(unfunded.map((m) => m.outreachId))
     const mismatches: FundingMismatch[] = [
-      ...unpaidSends
-        .filter(
-          (row) =>
-            !(
-              row.fundedBy === OutreachFunding.goodparty_pilot &&
-              row.outreachType === OutreachType.text &&
-              row.organizationSlug !== null &&
-              row.managedPanelWave?.enrollment.organizationSlug ===
-                row.organizationSlug
-            ),
-        )
+      ...unfunded,
+      ...stuckPilotSends
+        .filter((row) => !unfundedIds.has(row.id))
         .map((row) => ({
           outreachId: row.id,
           sendSeq: 1,
           organizationSlug: row.organizationSlug,
-          status: row.status ?? OutreachStatus.pending,
-          problem: 'unfunded' as const,
+          status: OutreachStatus.pending,
+          problem: 'stuck' as const,
         })),
-      ...stuckPilotSends.map((row) => ({
-        outreachId: row.id,
-        sendSeq: 1,
-        organizationSlug: row.organizationSlug,
-        status: OutreachStatus.pending,
-        problem: 'stuck' as const,
-      })),
       ...unpaidExpansions.map((expansion) => ({
         outreachId: expansion.outreachId,
         sendSeq: expansion.sendSeq,
