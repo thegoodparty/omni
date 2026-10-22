@@ -113,8 +113,8 @@ export const deliverStripeEvent = async (
 }
 
 /**
- * Applies an admin action to an outreach row using a test-user session,
- * bypassing the AdminOrM2MGuard. `cas.approve` books canvassers; `results.upload`
+ * Applies an admin action to an outreach row the caller owns using their own
+ * session, bypassing the AdminOrM2MGuard. `cas.approve` books canvassers; `results.upload`
  * ingests a CSV payload.
  */
 export const adminAction = async (
