@@ -11,6 +11,13 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 const service = useTestService()
 
@@ -388,8 +395,8 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createDraft()
 
     await freshCharge.sweepFreshCharges()

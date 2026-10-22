@@ -14,6 +14,13 @@ import {
 import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 const service = useTestService()
 
@@ -532,8 +539,8 @@ describe('OutreachRobocallDeferredHoldService.sweepDeferredHolds guard', () => {
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createDraft({
       sendInDays: 2,
       paymentMethodId: 'pm_1',
@@ -626,8 +633,8 @@ describe('OutreachRobocallDeferredHoldService.sweepExpiredDeferred guard', () =>
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft({
       sendInDays: -1,
       paymentMethodId: 'pm_1',

@@ -126,6 +126,23 @@ if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
   throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
 }
 
+// Crons that touch a vendor (robocall, P2P reconcile, CV status poll) run
+// where the vendor is the real one on prod, or a mock anywhere else. A
+// non-prod deploy still in live mode (VENDOR_MODE=live rollback) stays off so
+// it never spends real vendor budget. Alerting and Slack-posting crons do NOT
+// use this: they stay prod-only (see docs/scheduled-jobs.md).
+//
+// Pure so the three cases can be tested without module-reset gymnastics.
+export const resolveVendorCronsEnabled = (
+  isProdDeploy: boolean,
+  vendorMode: 'live' | 'mock',
+): boolean => isProdDeploy || vendorMode === 'mock'
+
+export const VENDOR_CRONS_ENABLED = resolveVendorCronsEnabled(
+  IS_PROD_DEPLOY,
+  VENDOR_MODE,
+)
+
 // The non-prod fake-success shortcuts in the 10DLC flow (accept any PIN, skip
 // submit_cv, report CV APPROVED, resend-PIN no-op, verify-live always passes)
 // exist because dev is still in live mode: without them a dev tester would
