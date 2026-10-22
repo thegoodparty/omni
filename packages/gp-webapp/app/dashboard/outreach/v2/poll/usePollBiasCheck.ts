@@ -39,6 +39,7 @@ export const usePollBiasCheck = (question: string) => {
   const [checkingText, setCheckingText] = useState<string | null>(null)
   const [errorText, setErrorText] = useState<string | null>(null)
   const [improving, setImproving] = useState(false)
+  const improveId = useRef(0)
   const inFlight = useRef<{ text: string; promise: Promise<Settled> } | null>(
     null,
   )
@@ -111,6 +112,7 @@ export const usePollBiasCheck = (question: string) => {
 
   const improve = useCallback(async (): Promise<string | null> => {
     trackEvent(EVENTS.createPoll.pollQuestionOptimized)
+    const id = ++improveId.current
     setImproving(true)
     try {
       // A check already asking about these words carries the rewrite too.
@@ -121,13 +123,16 @@ export const usePollBiasCheck = (question: string) => {
     } catch {
       return null
     } finally {
-      setImproving(false)
+      // A reset since has already cleared it, and must not be undone.
+      if (id === improveId.current) setImproving(false)
     }
   }, [text])
 
   const reset = useCallback(() => {
     inFlight.current = null
     latest.current = null
+    improveId.current += 1
+    setImproving(false)
     setResult(null)
     setCheckingText(null)
     setErrorText(null)

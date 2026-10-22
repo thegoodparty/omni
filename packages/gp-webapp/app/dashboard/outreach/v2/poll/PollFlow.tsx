@@ -194,6 +194,9 @@ export const PollFlow = ({
   // Undo can put it back. Unlike SMS and Social, it is kept even when the
   // words replaced were the AI's own draft.
   const [undoText, setUndoText] = useState<string | null>(null)
+  // Bumped by anything that replaces the question, so an Improve answering
+  // for words that are gone is dropped rather than written over them.
+  const improveRequestRef = useRef(0)
   const [drafting, setDrafting] = useState(false)
   const [draftError, setDraftError] = useState(false)
   const draftRequestRef = useRef(0)
@@ -236,14 +239,24 @@ export const PollFlow = ({
   const biasCheck = usePollBiasCheck(question)
   const biasFlagged = biasCheck.status === 'flagged'
   const { reset: resetBiasCheck } = biasCheck
+  // What an async handler reads after its await, when the render that
+  // started it is stale.
+  const latestRef = useRef({ question, stepId })
+  useEffect(() => {
+    latestRef.current = { question, stepId }
+  })
 
+  // `prior` is what Undo would restore. A topic pick passes '' because the
+  // previous topic's question, still in this render's state, is not the
+  // official's to get back on the new topic.
   const runDraft = async (
     nextTopic: PollTopic,
     nextTone: PollTone,
     currentDraft: string | undefined,
+    prior: string = question,
   ) => {
     const request = ++draftRequestRef.current
-    const prior = question
+    improveRequestRef.current += 1
     setDrafting(true)
     setDraftError(false)
     try {
@@ -276,6 +289,7 @@ export const PollFlow = ({
     setDrafted(false)
     setUndoText(null)
     setImproveResult(null)
+    improveRequestRef.current += 1
     // A list picked on an earlier pass must not ride into this poll.
     setAudienceKind('sample')
     resetAudience()
@@ -287,7 +301,7 @@ export const PollFlow = ({
       setDraftError(false)
       return
     }
-    void runDraft(picked, DEFAULT_POLL_TONE, undefined)
+    void runDraft(picked, DEFAULT_POLL_TONE, undefined, '')
   }
 
   const handleToneChange = (next: PollTone) => {
@@ -341,6 +355,7 @@ export const PollFlow = ({
     setDrafting(false)
     setDraftError(false)
     setImproveResult(null)
+    improveRequestRef.current += 1
     resetBiasCheck()
     setImageUrl(undefined)
     setQuestionContinueAttempts(0)
@@ -384,7 +399,9 @@ export const PollFlow = ({
   const handleImprove = async () => {
     setImproveResult(null)
     const prior = question
+    const request = ++improveRequestRef.current
     const improved = await biasCheck.improve()
+    if (request !== improveRequestRef.current) return
     if (!improved) {
       setImproveResult('error')
       return
@@ -400,6 +417,7 @@ export const PollFlow = ({
   }
 
   const handleQuestionChange = (next: string) => {
+    improveRequestRef.current += 1
     setQuestion(next)
     setUndoText(null)
     setImproveResult(null)
@@ -409,6 +427,7 @@ export const PollFlow = ({
     if (undoText === null) return
     // The words being restored win over a draft still on its way.
     draftRequestRef.current += 1
+    improveRequestRef.current += 1
     setDrafting(false)
     setQuestion(undoText)
     setUndoText(null)
@@ -428,7 +447,13 @@ export const PollFlow = ({
     // A question nobody has checked yet is checked now. A flagged question
     // cannot go on until it is reworded; a check that failed lets it go, so
     // an outage never strands the official.
+    const checked = question
     const settled = await biasCheck.ensureChecked()
+    // The field stays editable and Back stays live while the check runs; a
+    // verdict on words that changed, or a step the official left, decides
+    // nothing.
+    const now = latestRef.current
+    if (now.question !== checked || now.stepId !== 'question') return
     if (settled === 'flagged') return
     setStepId('schedule')
   }

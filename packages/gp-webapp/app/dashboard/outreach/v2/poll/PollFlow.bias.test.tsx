@@ -399,4 +399,72 @@ describe('PollFlow bias check', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
     expect(createBodies).toHaveLength(0)
   })
+
+  // An analyzer that answers only when the test lets it.
+  const heldAnalyzer = (
+    biasSpans: { start: number; end: number; reason: string }[],
+  ) => {
+    let release: () => void = () => undefined
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', async () => {
+        await released
+        return HttpResponse.json(
+          {
+            bias_spans: biasSpans,
+            grammar_spans: [],
+            rewritten_text: 'How do you feel about road repairs?',
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    return () => release()
+  }
+
+  it('does not move on when the question changed while Continue was checking it', async () => {
+    const release = heldAnalyzer([])
+    await writeLeadingQuestion()
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    act(() => {
+      field.editor.commands.setContent('What should the city fix first?')
+    })
+    release()
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(SERVE_POLL_QUESTION_COPY.checkingBias),
+      ).toBeNull(),
+    )
+    expect(screen.getByText('Your question')).toBeInTheDocument()
+  })
+
+  it('drops an Improve that answers after the question was edited', async () => {
+    const release = heldAnalyzer([])
+    await writeLeadingQuestion()
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+    // The field is read-only while Improve runs, so the edit arrives the way
+    // a reset or a new draft would: from outside the editor.
+    await userEvent.click(screen.getByRole('radio', { name: 'Warm' }))
+    release()
+
+    await waitFor(() => expect(draftBodies.length).toBeGreaterThan(0))
+    await waitFor(() =>
+      expect(field.editor.getText()).toBe(
+        'How safe do you feel in your neighborhood?',
+      ),
+    )
+  })
 })

@@ -218,6 +218,36 @@ describe('PollFlow', () => {
     })
   })
 
+  it("does not offer the previous topic's question as Undo on a new topic", async () => {
+    api.mock('POST /v1/outreach/serve/poll/draft', ({ body }) => ({
+      status: 200,
+      data: {
+        question:
+          (body as { topic: string }).topic === 'housing'
+            ? 'How affordable is housing where you live?'
+            : 'How safe do you feel in your neighborhood?',
+      },
+    }))
+    openFlow()
+    await pickTopic('Public safety')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Poll question' })
+    await waitFor(() => expect(questionText()).toMatch(/How safe/))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    await pickTopic('Housing')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    await screen.findByRole('textbox', { name: 'Poll question' })
+    await waitFor(() => expect(questionText()).toMatch(/affordable/))
+
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+  })
+
   it('offers Undo after Regenerate replaces the drafted question', async () => {
     let drafts = 0
     api.mock('POST /v1/outreach/serve/poll/draft', () => {
